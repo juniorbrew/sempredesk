@@ -327,7 +327,7 @@ export class ContactValidationService {
         `INSERT INTO ticket_messages
            (id, tenant_id, ticket_id, author_id, author_type, author_name, "messageType", content, created_at)
          VALUES
-           (gen_random_uuid(), $1, $2, $3, ''user'', 'Sistema', 'system',
+           (gen_random_uuid(), $1, $2, $3, 'user', 'Sistema', 'system',
             $4, NOW())`,
         [
           tenantId,
@@ -401,7 +401,7 @@ export class ContactValidationService {
         `INSERT INTO ticket_messages
            (id, tenant_id, ticket_id, author_id, author_type, author_name, "messageType", content, created_at)
          VALUES
-           (gen_random_uuid(), $1, $2, $3, ''user'', 'Sistema', 'system', $4, NOW())`,
+           (gen_random_uuid(), $1, $2, $3, 'user', 'Sistema', 'system', $4, NOW())`,
         [
           tenantId,
           ticketId,
@@ -444,7 +444,7 @@ export class ContactValidationService {
         `INSERT INTO ticket_messages
            (id, tenant_id, ticket_id, author_id, author_type, author_name, "messageType", content, created_at)
          VALUES
-           (gen_random_uuid(), $1, $2, $3, ''user'', 'Sistema', 'system', $4, NOW())`,
+           (gen_random_uuid(), $1, $2, $3, 'user', 'Sistema', 'system', $4, NOW())`,
         [
           tenantId,
           ticketId,
