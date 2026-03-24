@@ -25,7 +25,19 @@ export class PermissionsGuard implements CanActivate {
     const { user } = context.switchToHttp().getRequest();
     if (!user) throw new ForbiddenException('Não autenticado');
 
-    if (user.isPortal) return true;
+    // Portal: apenas permissões explicitamente permitidas para contatos
+    if (user.isPortal) {
+      const PORTAL_ALLOWED: string[] = [
+        'ticket.view',
+        'ticket.create',
+        'ticket.reply',
+        'ticket.cancel',
+        'kb.view',
+      ];
+      const allowed = required.some((p) => PORTAL_ALLOWED.includes(p));
+      if (!allowed) throw new ForbiddenException('Acesso não permitido para o portal');
+      return true;
+    }
 
     const role = user.role;
     if (!role) throw new ForbiddenException('Perfil não definido');

@@ -164,8 +164,16 @@ export class TicketsController {
 
   @Get(':id/messages')
   @RequirePermission('ticket.view')
-  getMessages(@TenantId() tenantId: string, @Param('id') id: string, @Query('internal') internal?: string) {
-    return this.ticketsService.getMessages(tenantId, id, internal !== 'false');
+  getMessages(
+    @Request() req,
+    @TenantId() tenantId: string,
+    @Param('id') id: string,
+    @Query('includeInternal') includeInternal?: string,
+  ) {
+    // Usuários portal NUNCA recebem notas internas, independente do parâmetro enviado
+    const isPortal = req.user?.isPortal === true;
+    const withInternal = isPortal ? false : includeInternal !== 'false';
+    return this.ticketsService.getMessages(tenantId, id, withInternal);
   }
 
   @Post(':id/messages')
