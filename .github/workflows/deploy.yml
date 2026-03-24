@@ -27,6 +27,6 @@ jobs:
             docker compose build backend
 
             echo "🚀 Reiniciando containers..."
-            docker compose up -d
+            docker compose up -d --force-recreate --remove-orphans
 
             echo "✅ Deploy concluído!"
