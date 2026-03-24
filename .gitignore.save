@@ -21,4 +21,24 @@ logs/
 .DS_Store
 
 # Docker
+*.pid# Node
+node_modules/
+dist/
+build/
+
+# Env
+.env
+.env.local
+
+# Logs
+logs/
+*.log
+
+# System
+.DS_Store
+
+# Claude
+.claude/
+
+# Docker
 *.pid
