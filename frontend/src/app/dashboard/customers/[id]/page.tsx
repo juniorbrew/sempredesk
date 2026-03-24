@@ -1,0 +1,630 @@
+'use client';
+import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { api } from '@/lib/api';
+import { ArrowLeft, Save, Plus, Trash2, User, MapPin, Building2, CheckCircle2, Network, Lock, Edit2, Phone, Mail, MessageCircle, Star, Eye, EyeOff, KeyRound, ExternalLink } from 'lucide-react';
+import toast from 'react-hot-toast';
+
+const PLANS = ['enterprise','premium','standard','basic'];
+const PLAN_LABELS: Record<string,string> = { enterprise:'Enterprise', premium:'Premium', standard:'Standard', basic:'Básico' };
+const PLAN_COLORS: Record<string,string> = { enterprise:'#7C3AED', premium:'#D97706', standard:'#2563EB', basic:'#64748B' };
+const PLAN_BG: Record<string,string> = { enterprise:'#F5F3FF', premium:'#FFFBEB', standard:'#EFF6FF', basic:'#F8FAFC' };
+const STATES = ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'];
+
+export default function CustomerDetailPage() {
+  const { id } = useParams();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [customer, setCustomer] = useState<any>(null);
+  const [network, setNetwork] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<'dados'|'contatos'|'conversas'>(
+    (searchParams.get('tab') === 'contatos' ? 'contatos' : searchParams.get('tab') === 'conversas' ? 'conversas' : 'dados') as any
+  );
+  const [conversations, setConversations] = useState<any[]>([]);
+  const [startingConv, setStartingConv] = useState<string | null>(null);
+  const [form, setForm] = useState<any>({});
+  const [focusField, setFocusField] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState(false);
+  const [contacts, setContacts] = useState<any[]>([]);
+  const [showContactModal, setShowContactModal] = useState(false);
+  const [editingContact, setEditingContact] = useState<any>(null);
+  const [contactForm, setContactForm] = useState({ name:'', role:'', email:'', phone:'', whatsapp:'', notes:'', isPrimary:false, password:'' });
+  const [showContactPass, setShowContactPass] = useState(false);
+  const [emailSearching, setEmailSearching] = useState(false);
+  const [focusCF, setFocusCF] = useState('');
+  const [savingContact, setSavingContact] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const res: any = await api.getCustomer(id as string);
+      setCustomer(res); setForm(res); setContacts(res.contacts || []);
+      if (res.networkId) { try { const n: any = await api.getNetwork(res.networkId); setNetwork(n); } catch {} }
+    } catch { router.push('/dashboard/customers'); }
+    setLoading(false);
+  };
+
+  useEffect(() => { load(); }, [id]);
+  useEffect(() => {
+    if (id && activeTab === 'conversas') {
+      api.getConversationsByClient(id as string).then((r: any) =>
+        setConversations(Array.isArray(r) ? r : r?.data ?? [])
+      ).catch(() => setConversations([]));
+    }
+  }, [id, activeTab]);
+
+  const f = (k:string) => (e:any) => setForm((p:any) => ({ ...p, [k]: e.target.value }));
+  const fc = (k:string) => (e:any) => setContactForm((p:any) => ({ ...p, [k]: e.target.value }));
+  const nxt = (nextId?:string) => (e:any) => { if (e.key==='Enter') { e.preventDefault(); if (nextId) document.getElementById(nextId)?.focus(); else handleSave(); }};
+  const nxtC = (nextId?:string) => (e:any) => { if (e.key==='Enter') { e.preventDefault(); if (nextId) document.getElementById(nextId)?.focus(); else handleSaveContact(); }};
+
+  const handleSave = async () => {
+    if (!form.companyName?.trim()) { setError('Razão Social é obrigatória'); return; }
+    setSaving(true); setError(''); setSuccess(false);
+    try {
+      const res: any = await api.updateCustomer(id as string, form);
+      setCustomer(res); setSuccess(true);
+      setTimeout(() => setSuccess(false), 3000);
+    } catch (e:any) { setError(e?.response?.data?.message || 'Erro ao salvar'); }
+    setSaving(false);
+  };
+
+  const openContactModal = (c?:any) => {
+    setEditingContact(c || null);
+    setContactForm(c ? { name:c.name, role:c.role||'', email:c.email||'', phone:c.phone||'', whatsapp:c.whatsapp||'', notes:c.notes||'', isPrimary:c.isPrimary||false, password:'' } : { name:'', role:'', email:'', phone:'', whatsapp:'', notes:'', isPrimary:false, password:'' });
+    setShowContactPass(false);
+    
+    setShowContactModal(true);
+    setTimeout(() => document.getElementById('cm_email')?.focus(), 100);
+  };
+
+  const handleSaveContact = async () => {
+    if (!contactForm.name.trim()) return;
+    setSavingContact(true);
+    try {
+      const { password, ...rest } = contactForm;
+      const clean: any = Object.fromEntries(Object.entries(rest).filter(([_, v]) => v !== '' && v !== null));
+      if (password) clean.password = password;
+      if (editingContact) await api.updateContact(id as string, editingContact.id, clean);
+      else await api.createContact(id as string, clean);
+      setShowContactModal(false); load();
+    } catch(e: any) { toast.error(e?.response?.data?.message || 'Erro ao salvar contato'); }
+    setSavingContact(false);
+  };
+
+  const handleRemoveContact = async (contactId:string) => {
+    if (!confirm('Remover contato?')) return;
+    try { await api.removeContact(id as string, contactId); load(); } catch {}
+  };
+
+  const handleStartWhatsappConversation = async (contactId: string) => {
+    setStartingConv(contactId);
+    try {
+      await api.startAgentConversation({ clientId: id as string, contactId, channel: 'whatsapp' });
+      if (activeTab === 'conversas') {
+        api.getConversationsByClient(id as string).then((r: any) =>
+          setConversations(Array.isArray(r) ? r : r?.data ?? [])
+        ).catch(() => {});
+      }
+      router.push('/dashboard/atendimento');
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Erro ao iniciar conversa');
+    }
+    setStartingConv(null);
+  };
+
+  const inp = (focus?:boolean) => ({
+    width:'100%', padding:'9px 12px',
+    background: focus ? '#fff' : '#F8FAFC',
+    border: `1.5px solid ${focus ? '#4F46E5' : '#E2E8F0'}`,
+    borderRadius: 8, color:'#0F172A', fontSize:14, outline:'none',
+    boxSizing:'border-box' as const,
+    boxShadow: focus ? '0 0 0 3px rgba(79,70,229,0.1)' : 'none',
+    transition:'all 0.15s'
+  });
+
+  const lbl = { display:'block', color:'#64748B', fontSize:11, fontWeight:600 as const, letterSpacing:'0.06em', marginBottom:5, textTransform:'uppercase' as const };
+
+  if (loading) return (
+    <div className="flex items-center justify-center min-h-96">
+      <div className="text-center">
+        <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+        <p className="text-sm" style={{ color:'#94A3B8' }}>Carregando...</p>
+      </div>
+    </div>
+  );
+
+  return (
+    <div>
+      {/* Header */}
+      <div className="flex items-center gap-4 mb-6">
+        <button onClick={() => router.push('/dashboard/customers')}
+          className="btn-secondary" style={{ padding:'8px 10px' }}>
+          <ArrowLeft className="w-4 h-4" />
+        </button>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h1 className="page-title text-lg">Editar Cliente</h1>
+            <span style={{ background:'#EEF2FF', color:'#4F46E5', padding:'2px 8px', borderRadius:5, fontSize:11, fontFamily:'monospace', fontWeight:700 }}>#{customer?.code}</span>
+            {network && (
+              <span className="flex items-center gap-1.5" style={{ background:'#EEF2FF', color:'#4F46E5', padding:'3px 10px', borderRadius:20, fontSize:11, fontWeight:600, border:'1px solid #C7D2FE' }}>
+                <Network className="w-3 h-3" /> {network.name}
+                <Lock className="w-3 h-3 opacity-50" />
+              </span>
+            )}
+          </div>
+          <p className="page-subtitle">{customer?.companyName}</p>
+        </div>
+        {/* Tabs */}
+        <div className="flex" style={{ background:'#F1F5F9', borderRadius:10, padding:3, gap:2 }}>
+          {[['dados','Dados'],['contatos',`Contatos (${contacts.length})`],['conversas',`Conversas (${conversations.length})`]].map(([tab,label]) => (
+            <button key={tab} onClick={() => setActiveTab(tab as any)}
+              title={tab === 'conversas' ? 'Conversas WhatsApp e Portal do cliente' : undefined}
+              style={{ padding:'7px 18px', border:'none', cursor:'pointer', fontSize:13, fontWeight:500, borderRadius:8, background:activeTab===tab?'#fff':'transparent', color:activeTab===tab?'#0F172A':'#64748B', boxShadow:activeTab===tab?'0 1px 3px rgba(0,0,0,0.1)':'none', transition:'all 0.15s' }}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Alerts */}
+      {error && (
+        <div className="flex items-center gap-2 mb-4 p-3 rounded-lg text-sm" style={{ background:'#FEF2F2', color:'#DC2626', border:'1px solid #FECACA' }}>
+          <span>⚠</span> {error}
+        </div>
+      )}
+      {success && (
+        <div className="flex items-center gap-2 mb-4 p-3 rounded-lg text-sm" style={{ background:'#F0FDF4', color:'#16A34A', border:'1px solid #BBF7D0' }}>
+          <CheckCircle2 className="w-4 h-4" /> Alterações salvas com sucesso!
+        </div>
+      )}
+
+      {/* ABA DADOS */}
+      {activeTab === 'dados' && (
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 360px', gap:20 }}>
+          <div className="flex flex-col gap-4">
+
+            {/* Rede vinculada */}
+            {network && (
+              <div className="card p-4 flex items-center gap-3" style={{ border:'1px solid #C7D2FE', background:'#EEF2FF' }}>
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+                  style={{ background:'linear-gradient(135deg,#4F46E5,#6366F1)' }}>
+                  <Network className="w-5 h-5 text-white" />
+                </div>
+                <div className="flex-1">
+                  <div style={{ color:'#6366F1', fontSize:10, fontWeight:700, letterSpacing:'0.08em', textTransform:'uppercase', marginBottom:1 }}>Rede Vinculada</div>
+                  <div style={{ color:'#1E1B4B', fontWeight:700, fontSize:15 }}>{network.name}</div>
+                  <div style={{ color:'#6366F1', fontSize:12, opacity:0.7 }}>#{network.code}{network.responsible ? ` · ${network.responsible}` : ''}</div>
+                </div>
+                <div className="flex items-center gap-1.5 text-xs" style={{ color:'#6366F1', opacity:0.6 }}>
+                  <Lock className="w-3 h-3" /> Não editável
+                </div>
+              </div>
+            )}
+
+            {/* Dados da empresa */}
+            <div className="card p-5">
+              <div className="flex items-center gap-2 mb-5">
+                <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background:'#EFF6FF' }}>
+                  <Building2 className="w-4 h-4" style={{ color:'#2563EB' }} />
+                </div>
+                <h2 className="table-header">Dados da Empresa</h2>
+              </div>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
+                <div>
+                  <label style={lbl}>Código</label>
+                  <input value={form.code||''} onChange={f('code')} onFocus={() => setFocusField('code')} onBlur={() => setFocusField('')} onKeyDown={nxt('ed_cnpj')} style={inp(focusField==='code')} />
+                </div>
+                <div>
+                  <label style={lbl}>CNPJ <span style={{ color:'#4F46E5' }}>*</span></label>
+                  <input id="ed_cnpj" value={form.cnpj||''} onChange={f('cnpj')} onFocus={() => setFocusField('cnpj')} onBlur={() => setFocusField('')} onKeyDown={nxt('ed_company')} style={inp(focusField==='cnpj')} />
+                </div>
+                <div style={{ gridColumn:'1/-1' }}>
+                  <label style={lbl}>Razão Social <span style={{ color:'#4F46E5' }}>*</span></label>
+                  <input id="ed_company" value={form.companyName||''} onChange={f('companyName')} onFocus={() => setFocusField('company')} onBlur={() => setFocusField('')} onKeyDown={nxt('ed_trade')} style={inp(focusField==='company')} />
+                </div>
+                <div style={{ gridColumn:'1/-1' }}>
+                  <label style={lbl}>Nome Fantasia</label>
+                  <input id="ed_trade" value={form.tradeName||''} onChange={f('tradeName')} onFocus={() => setFocusField('trade')} onBlur={() => setFocusField('')} onKeyDown={nxt('ed_ie')} style={inp(focusField==='trade')} />
+                </div>
+                <div>
+                  <label style={lbl}>Inscrição Estadual</label>
+                  <input id="ed_ie" value={form.ie||''} onChange={f('ie')} onFocus={() => setFocusField('ie')} onBlur={() => setFocusField('')} onKeyDown={nxt('ed_email')} style={inp(focusField==='ie')} />
+                </div>
+                <div>
+                  <label style={lbl}>E-mail</label>
+                  <input id="ed_email" type="email" value={form.email||''} onChange={f('email')} onFocus={() => setFocusField('email')} onBlur={() => setFocusField('')} onKeyDown={nxt('ed_phone')} style={inp(focusField==='email')} />
+                </div>
+                <div>
+                  <label style={lbl}>Telefone</label>
+                  <input id="ed_phone" value={form.phone||''} onChange={f('phone')} onFocus={() => setFocusField('phone')} onBlur={() => setFocusField('')} onKeyDown={nxt('ed_whatsapp')} style={inp(focusField==='phone')} />
+                </div>
+                <div>
+                  <label style={lbl}>WhatsApp</label>
+                  <input id="ed_whatsapp" value={form.whatsapp||''} onChange={f('whatsapp')} onFocus={() => setFocusField('whatsapp')} onBlur={() => setFocusField('')} onKeyDown={nxt('ed_website')} style={inp(focusField==='whatsapp')} />
+                </div>
+                <div style={{ gridColumn:'1/-1' }}>
+                  <label style={lbl}>Website</label>
+                  <input id="ed_website" value={form.website||''} onChange={f('website')} onFocus={() => setFocusField('website')} onBlur={() => setFocusField('')} style={inp(focusField==='website')} />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Coluna direita */}
+          <div className="flex flex-col gap-4">
+            {/* Endereço */}
+            <div className="card p-5">
+              <div className="flex items-center gap-2 mb-5">
+                <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background:'#F0FDF4' }}>
+                  <MapPin className="w-4 h-4" style={{ color:'#16A34A' }} />
+                </div>
+                <h2 className="table-header">Endereço</h2>
+              </div>
+              <div className="flex flex-col gap-3">
+                <div>
+                  <label style={lbl}>CEP</label>
+                  <input value={form.zipCode||''} onChange={f('zipCode')} onFocus={() => setFocusField('zip')} onBlur={() => setFocusField('')} style={inp(focusField==='zip')} />
+                </div>
+                <div>
+                  <label style={lbl}>Logradouro</label>
+                  <input value={form.address||''} onChange={f('address')} onFocus={() => setFocusField('addr')} onBlur={() => setFocusField('')} style={inp(focusField==='addr')} />
+                </div>
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 80px', gap:10 }}>
+                  <div>
+                    <label style={lbl}>Bairro</label>
+                    <input value={form.neighborhood||''} onChange={f('neighborhood')} onFocus={() => setFocusField('neigh')} onBlur={() => setFocusField('')} style={inp(focusField==='neigh')} />
+                  </div>
+                  <div>
+                    <label style={lbl}>Nº</label>
+                    <input value={form.number||''} onChange={f('number')} onFocus={() => setFocusField('num')} onBlur={() => setFocusField('')} style={inp(focusField==='num')} />
+                  </div>
+                </div>
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 80px', gap:10 }}>
+                  <div>
+                    <label style={lbl}>Cidade</label>
+                    <input value={form.city||''} onChange={f('city')} onFocus={() => setFocusField('city')} onBlur={() => setFocusField('')} style={inp(focusField==='city')} />
+                  </div>
+                  <div>
+                    <label style={lbl}>UF</label>
+                    <select value={form.state||''} onChange={f('state')} onFocus={() => setFocusField('state')} onBlur={() => setFocusField('')}
+                      style={{ ...inp(focusField==='state'), appearance:'none' as const }}>
+                      <option value="">—</option>
+                      {STATES.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label style={lbl}>Complemento</label>
+                  <input value={form.complement||''} onChange={f('complement')} onFocus={() => setFocusField('comp')} onBlur={() => setFocusField('')} style={inp(focusField==='comp')} />
+                </div>
+              </div>
+            </div>
+
+            {/* Configurações */}
+            <div className="card p-5">
+              <h2 className="table-header mb-4">Configurações</h2>
+              <div className="mb-4">
+                <label style={lbl}>Plano de SLA</label>
+                <div className="flex gap-2 flex-wrap mt-1">
+                  {PLANS.map(p => (
+                    <button key={p} onClick={() => setForm((frm:any) => ({ ...frm, supportPlan:p }))}
+                      style={{ padding:'6px 14px', borderRadius:8, border:`1.5px solid ${form.supportPlan===p ? PLAN_COLORS[p] : '#E2E8F0'}`, background:form.supportPlan===p ? PLAN_BG[p] : '#fff', color:form.supportPlan===p ? PLAN_COLORS[p] : '#64748B', fontSize:12, cursor:'pointer', fontWeight:form.supportPlan===p ? 700 : 400, transition:'all 0.15s' }}>
+                      {PLAN_LABELS[p]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="mb-4">
+                <label style={lbl}>Status <span style={{ color:'#4F46E5' }}>*</span></label>
+                <div className="flex gap-2 mt-1">
+                  {[['active','Ativo','#16A34A','#F0FDF4','#BBF7D0'],['inactive','Inativo','#DC2626','#FEF2F2','#FECACA']].map(([val,label,col,bg,bdr]) => (
+                    <button key={val} onClick={() => setForm((frm:any) => ({ ...frm, status:val }))}
+                      style={{ padding:'7px 20px', borderRadius:8, border:`1.5px solid ${form.status===val ? bdr : '#E2E8F0'}`, background:form.status===val ? bg : '#fff', color:form.status===val ? col : '#64748B', fontSize:13, cursor:'pointer', fontWeight:form.status===val ? 700 : 400, transition:'all 0.15s' }}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label style={lbl}>Cliente desde</label>
+                <input type="month" value={form.clientSince||''} onChange={f('clientSince')} onFocus={() => setFocusField('since')} onBlur={() => setFocusField('')} style={inp(focusField==='since')} />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ABA CONVERSAS */}
+      {activeTab === 'conversas' && (
+        <div className="card p-5">
+          <div className="flex items-center justify-between mb-5">
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background:'#ECFEFF' }}>
+                <MessageCircle className="w-4 h-4" style={{ color:'#0D9488' }} />
+              </div>
+              <h2 className="table-header">Conversas</h2>
+            </div>
+          </div>
+          {conversations.length === 0 && contacts.filter((c: any) => c.whatsapp).length === 0 ? (
+            <div className="text-center py-12">
+              <div className="w-14 h-14 rounded-2xl mx-auto mb-3 flex items-center justify-center" style={{ background:'#F1F5F9' }}>
+                <MessageCircle className="w-7 h-7" style={{ color:'#CBD5E1' }} />
+              </div>
+              <p className="font-medium mb-1" style={{ color:'#475569' }}>Nenhuma conversa</p>
+              <p className="text-sm" style={{ color:'#94A3B8' }}>Cadastre um contato com WhatsApp para iniciar uma conversa</p>
+            </div>
+          ) : conversations.length === 0 ? (
+            <div className="py-6">
+              <p className="font-medium mb-3" style={{ color:'#475569' }}>Iniciar conversa WhatsApp</p>
+              <div className="flex flex-col gap-2">
+                {contacts.filter((c: any) => c.whatsapp).map((c: any) => (
+                  <div key={c.id} className="flex items-center justify-between p-3 rounded-lg" style={{ background:'#F8FAFC', border:'1px solid #E2E8F0' }}>
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm" style={{ background:'#CCFBF1', color:'#0F766E' }}>{c.name[0]}</div>
+                      <div>
+                        <p className="font-medium text-sm" style={{ color:'#0F172A' }}>{c.name}</p>
+                        <p className="text-xs" style={{ color:'#64748B' }}>{c.whatsapp}</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleStartWhatsappConversation(c.id)}
+                      disabled={!!startingConv}
+                      className="btn-primary"
+                      style={{ padding:'6px 14px', fontSize:12, display:'flex', alignItems:'center', gap:6 }}
+                    >
+                      <Phone className="w-3.5 h-3.5" /> Iniciar WhatsApp
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {conversations.map((conv: any) => {
+                const contact = contacts.find((c: any) => c.id === conv.contactId);
+                return (
+                  <div key={conv.id} className="flex items-center gap-4 p-4 rounded-xl"
+                    style={{ background:'#F8FAFC', border:'1px solid #E2E8F0' }}>
+                    <div className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm shrink-0"
+                      style={{ background: conv.channel === 'whatsapp' ? '#CCFBF1' : '#EEF2FF', color: conv.channel === 'whatsapp' ? '#0F766E' : '#4F46E5' }}>
+                      {conv.channel === 'whatsapp' ? <Phone className="w-5 h-5" /> : <MessageCircle className="w-5 h-5" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-semibold text-sm" style={{ color:'#0F172A' }}>
+                          {contact?.name || 'Contato'}
+                        </span>
+                        <span className="text-xs" style={{ background:'#E2E8F0', color:'#64748B', padding:'2px 8px', borderRadius:4 }}>
+                          {conv.channel === 'whatsapp' ? 'WhatsApp' : 'Portal'}
+                        </span>
+                        {!conv.ticketId && (
+                          <span className="text-xs" style={{ background:'#FEF3C7', color:'#D97706', padding:'2px 8px', borderRadius:4 }}>Sem ticket</span>
+                        )}
+                      </div>
+                      <span className="text-xs" style={{ color:'#94A3B8' }}>
+                        {conv.status === 'closed' ? 'Encerrada' : 'Ativa'}
+                        {' · '}{conv.lastMessageAt ? new Date(conv.lastMessageAt).toLocaleString('pt-BR') : new Date(conv.createdAt).toLocaleString('pt-BR')}
+                      </span>
+                    </div>
+                    <Link
+                      href={`/dashboard/atendimento`}
+                      className="btn-secondary"
+                      style={{ padding:'6px 12px', display:'flex', alignItems:'center', gap:6, textDecoration:'none', fontSize:12 }}
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" /> Ver
+                    </Link>
+                  </div>
+                );
+              })}
+              {contacts.filter((c: any) => c.whatsapp && !conversations.some((conv: any) => conv.contactId === c.id && conv.channel === 'whatsapp' && conv.status === 'active')).length > 0 && (
+                <div className="mt-6 pt-6" style={{ borderTop:'1px solid #E2E8F0' }}>
+                  <p className="font-medium mb-3" style={{ color:'#475569' }}>Iniciar nova conversa</p>
+                  {contacts.filter((c: any) => c.whatsapp && !conversations.some((conv: any) => conv.contactId === c.id && conv.channel === 'whatsapp' && conv.status === 'active')).map((c: any) => (
+                    <div key={c.id} className="flex items-center justify-between p-3 rounded-lg mb-2" style={{ background:'#F8FAFC', border:'1px solid #E2E8F0' }}>
+                      <span className="text-sm">{c.name} · {c.whatsapp}</span>
+                      <button onClick={() => handleStartWhatsappConversation(c.id)} disabled={!!startingConv} className="btn-secondary" style={{ padding:'6px 12px', fontSize:12 }}>
+                        <Phone className="w-3.5 h-3.5 inline mr-1" /> Iniciar WhatsApp
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ABA CONTATOS */}
+      {activeTab === 'contatos' && (
+        <div className="card p-5">
+          <div className="flex items-center justify-between mb-5">
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background:'#F5F3FF' }}>
+                <User className="w-4 h-4" style={{ color:'#7C3AED' }} />
+              </div>
+              <h2 className="table-header">Contatos ({contacts.length})</h2>
+            </div>
+            <button onClick={() => openContactModal()} className="btn-primary">
+              <Plus className="w-4 h-4" /> Novo Contato
+            </button>
+          </div>
+
+          {contacts.length === 0 ? (
+            <div className="text-center py-12">
+              <div className="w-14 h-14 rounded-2xl mx-auto mb-3 flex items-center justify-center" style={{ background:'#F1F5F9' }}>
+                <User className="w-7 h-7" style={{ color:'#CBD5E1' }} />
+              </div>
+              <p className="font-medium mb-1" style={{ color:'#475569' }}>Nenhum contato cadastrado</p>
+              <p className="text-sm mb-4" style={{ color:'#94A3B8' }}>Adicione contatos para facilitar a comunicação</p>
+              <button onClick={() => openContactModal()} className="btn-primary">
+                <Plus className="w-4 h-4" /> Adicionar Contato
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {contacts.map((c:any) => (
+                <div key={c.id} className="flex items-center gap-4 p-4 rounded-xl transition-all"
+                  style={{ background: c.isPrimary ? '#EEF2FF' : '#F8FAFC', border:`1px solid ${c.isPrimary ? '#C7D2FE' : '#E2E8F0'}` }}>
+                  <div className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm shrink-0"
+                    style={{ background: c.isPrimary ? 'linear-gradient(135deg,#4F46E5,#6366F1)' : '#E2E8F0', color: c.isPrimary ? '#fff' : '#64748B' }}>
+                    {c.name[0]?.toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-semibold text-sm" style={{ color:'#0F172A' }}>{c.name}</span>
+                      {c.isPrimary && (
+                        <span className="flex items-center gap-1" style={{ background:'#EEF2FF', color:'#4F46E5', padding:'1px 8px', borderRadius:20, fontSize:10, fontWeight:700, border:'1px solid #C7D2FE' }}>
+                          <Star className="w-2.5 h-2.5" /> PRINCIPAL
+                        </span>
+                      )}
+                      {c.role && <span className="text-xs" style={{ color:'#94A3B8' }}>{c.role}</span>}
+                    </div>
+                    <div className="flex items-center gap-4 mt-1 flex-wrap">
+                      {c.email && <span className="flex items-center gap-1 text-xs" style={{ color:'#64748B' }}><Mail className="w-3 h-3" />{c.email}</span>}
+                      {c.phone && <span className="flex items-center gap-1 text-xs" style={{ color:'#64748B' }}><Phone className="w-3 h-3" />{c.phone}</span>}
+                      {c.whatsapp && <span className="flex items-center gap-1 text-xs" style={{ color:'#16A34A' }}><MessageCircle className="w-3 h-3" />{c.whatsapp}</span>}
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => openContactModal(c)} className="btn-secondary" style={{ padding:'6px 8px' }}>
+                      <Edit2 className="w-3.5 h-3.5" />
+                    </button>
+                    <button onClick={() => handleRemoveContact(c.id)} className="btn-danger" style={{ padding:'6px 8px' }}>
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Botões salvar */}
+      {activeTab === 'dados' && (
+        <div className="flex justify-end gap-3 mt-5">
+          <button onClick={() => router.push('/dashboard/customers')} className="btn-secondary">
+            Cancelar
+          </button>
+          <button onClick={handleSave} disabled={saving} className="btn-primary" style={{ minWidth:160 }}>
+            <Save className="w-4 h-4" />
+            {saving ? 'Salvando...' : 'Salvar Alterações'}
+          </button>
+        </div>
+      )}
+
+      {/* Modal Contato */}
+      {showContactModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background:'rgba(15,23,42,0.6)', backdropFilter:'blur(4px)' }}>
+          <div className="card w-full max-w-md" style={{ boxShadow:'0 20px 60px rgba(0,0,0,0.15)' }}>
+            <div className="flex items-center justify-between p-5" style={{ borderBottom:'1px solid #F1F5F9' }}>
+              <div>
+                <h2 className="font-bold" style={{ color:'#0F172A', fontSize:16 }}>{editingContact ? 'Editar Contato' : 'Novo Contato'}</h2>
+                <p className="text-xs mt-0.5" style={{ color:'#94A3B8' }}>Preencha os dados do contato</p>
+              </div>
+              <button onClick={() => setShowContactModal(false)}
+                style={{ background:'#F1F5F9', border:'none', borderRadius:8, width:32, height:32, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color:'#64748B', fontSize:18 }}>×</button>
+            </div>
+            <div className="p-5" style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
+              <div style={{ gridColumn:'1/-1' }}>
+                <label style={lbl}>E-mail</label>
+                <div style={{ position:'relative' }}>
+                  <input id="cm_email" autoFocus value={contactForm.email} onChange={async (e) => {
+                    const val = e.target.value;
+                    fc('email')(e);
+                    if (val.includes('@') && val.includes('.')) {
+                      setEmailSearching(true);
+                      try {
+                        const token = localStorage.getItem('accessToken');
+                        // Busca o cliente atual para pegar a rede
+                        const custRes = await fetch(`/api/v1/customers/${id}`, { headers:{ Authorization:`Bearer ${token}` } });
+                        const custData = await custRes.json();
+                        const networkId = custData?.data?.networkId || custData?.networkId;
+                        // Busca todos clientes da rede
+                        const netRes = await fetch(`/api/v1/customers?networkId=${networkId}&limit=100`, { headers:{ Authorization:`Bearer ${token}` } });
+                        const netData = await netRes.json();
+                        const clients = netData?.data?.data || netData?.data || [];
+                        let found = null;
+                        for (const cl of clients) {
+                          if (cl.contacts) {
+                            found = cl.contacts.find((c: any) => c.email?.toLowerCase() === val.toLowerCase() && c.status === 'active');
+                            if (found) break;
+                          }
+                        }
+                        if (found) {
+                          setContactForm(p => ({ ...p, email: val, name: found.name||p.name, role: found.role||p.role, phone: found.phone||p.phone, whatsapp: found.whatsapp||p.whatsapp, isPrimary: found.isPrimary||p.isPrimary }));
+                        }
+                      } catch {}
+                      setEmailSearching(false);
+                    }
+                  }} onFocus={() => setFocusCF('email')} onBlur={() => setFocusCF('')} onKeyDown={nxtC('cm_name')} style={inp(focusCF==='email')} placeholder="email@exemplo.com" />
+                  {emailSearching && <div style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)', width:14, height:14, border:'2px solid #6366F1', borderTopColor:'transparent', borderRadius:'50%', animation:'spin 0.6s linear infinite' }} />}
+                </div>
+              </div>
+              <div style={{ gridColumn:'1/-1' }}>
+                <label style={lbl}>Nome <span style={{ color:'#4F46E5' }}>*</span></label>
+                <input id="cm_name" value={contactForm.name} onChange={fc('name')} onFocus={() => setFocusCF('name')} onBlur={() => setFocusCF('')} onKeyDown={nxtC('cm_role')} style={inp(focusCF==='name')} placeholder="Nome completo" />
+              </div>
+              <div style={{ gridColumn:'1/-1' }}>
+                <label style={lbl}>Cargo</label>
+                <input id="cm_role" value={contactForm.role} onChange={fc('role')} onFocus={() => setFocusCF('role')} onBlur={() => setFocusCF('')} onKeyDown={nxtC('cm_phone')} style={inp(focusCF==='role')} />
+              </div>
+              <div>
+                <label style={lbl}>Telefone</label>
+                <input id="cm_phone" value={contactForm.phone} onChange={fc('phone')} onFocus={() => setFocusCF('phone')} onBlur={() => setFocusCF('')} onKeyDown={nxtC('cm_whats')} style={inp(focusCF==='phone')} />
+              </div>
+              <div>
+                <label style={lbl}>WhatsApp</label>
+                <input id="cm_whats" value={contactForm.whatsapp} onChange={fc('whatsapp')} onFocus={() => setFocusCF('whats')} onBlur={() => setFocusCF('')} onKeyDown={nxtC('cm_notes')} style={inp(focusCF==='whats')} />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 h-full pt-5 cursor-pointer select-none"
+                  onClick={() => setContactForm(p => ({ ...p, isPrimary: !p.isPrimary }))}>
+                  <div style={{ width:38, height:22, borderRadius:11, background:contactForm.isPrimary?'#4F46E5':'#E2E8F0', position:'relative', transition:'background 0.2s', flexShrink:0 }}>
+                    <div style={{ position:'absolute', top:3, left:contactForm.isPrimary?18:3, width:16, height:16, borderRadius:'50%', background:'#fff', transition:'left 0.2s', boxShadow:'0 1px 3px rgba(0,0,0,0.2)' }} />
+                  </div>
+                  <span className="text-sm font-medium" style={{ color:contactForm.isPrimary?'#4F46E5':'#64748B' }}>Principal</span>
+                </div>
+              </div>
+              {/* Senha portal */}
+              <div style={{ gridColumn:'1/-1', background:'#F8FAFC', border:'1px solid #E2E8F0', borderRadius:10, padding:'12px 14px' }}>
+                <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
+                  <KeyRound style={{ width:14, height:14, color:'#6366F1' }} />
+                  <label style={{ ...lbl, margin:0 }}>Senha Portal do Cliente</label>
+                </div>
+                <div style={{ position:'relative' }}>
+                  <input id="cm_pass" type={showContactPass?'text':'password'} value={contactForm.password} onChange={fc('password')}
+                    onFocus={() => setFocusCF('pass')} onBlur={() => setFocusCF('')}
+                    placeholder={editingContact ? 'Deixe em branco para manter' : 'Definir senha de acesso ao portal'}
+                    style={{ ...inp(focusCF==='pass'), paddingRight:40 }} />
+                  <button type="button" onClick={() => setShowContactPass(p=>!p)}
+                    style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', color:'#94A3B8', display:'flex' }}>
+                    {showContactPass ? <EyeOff style={{width:15,height:15}}/> : <Eye style={{width:15,height:15}}/>}
+                  </button>
+                </div>
+                <p style={{ fontSize:11, color:'#94A3B8', margin:'6px 0 0' }}>O contato usará este email e senha para acessar o portal</p>
+              </div>
+              <div style={{ gridColumn:'1/-1' }}>
+                <label style={lbl}>Observações</label>
+                <textarea id="cm_notes" value={contactForm.notes} onChange={fc('notes')} rows={2}
+                  style={{ ...inp(focusCF==='notes'), resize:'vertical' as const }} onFocus={() => setFocusCF('notes')} onBlur={() => setFocusCF('')} />
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 p-5" style={{ borderTop:'1px solid #F1F5F9' }}>
+              <button onClick={() => setShowContactModal(false)} className="btn-secondary">Cancelar</button>
+              <button onClick={handleSaveContact} disabled={savingContact || !contactForm.name.trim()} className="btn-primary"
+                style={{ opacity:!contactForm.name.trim()?0.5:1 }}>
+                {savingContact ? 'Salvando...' : 'Salvar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

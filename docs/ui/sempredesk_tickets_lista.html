@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SempreDesk — Tickets</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --accent:#4F46E5;--accent-h:#4338CA;--accent-l:#EEF2FF;--accent-m:#C7D2FE;
+  --online:#10B981;--warn:#F59E0B;--danger:#EF4444;--critical:#7C3AED;
+  --bg:#FFFFFF;--bg2:#F8F8FB;--bg3:#F1F1F6;--nav:#16133D;
+  --bd:rgba(0,0,0,.07);--bd2:rgba(0,0,0,.12);
+  --txt:#111118;--txt2:#6B6B80;--txt3:#A8A8BE;
+  --r:8px;--r-lg:12px;--nav-w:68px;
+  --font:'DM Sans',system-ui,sans-serif;--mono:'DM Mono',monospace;
+}
+html,body{height:100%;overflow:hidden}
+body{font-family:var(--font);font-size:13px;color:var(--txt);background:var(--bg3);display:flex}
+
+/* NAV */
+nav{width:var(--nav-w);background:var(--nav);display:flex;flex-direction:column;align-items:center;padding:16px 0 14px;gap:2px;flex-shrink:0}
+.logo{width:40px;height:40px;background:var(--accent);border-radius:12px;display:flex;align-items:center;justify-content:center;margin-bottom:20px}
+.logo svg{width:22px;height:22px}
+.ni{width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background .15s;position:relative}
+.ni:hover{background:rgba(255,255,255,.08)}
+.ni.on{background:rgba(255,255,255,.14)}
+.ni svg{width:19px;height:19px;stroke:rgba(255,255,255,.45);fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.ni.on svg{stroke:#fff}
+.nbadge{position:absolute;top:6px;right:6px;width:16px;height:16px;background:#EF4444;border-radius:50%;font-size:9px;font-weight:600;color:#fff;display:flex;align-items:center;justify-content:center;border:2px solid var(--nav)}
+.nsep{width:28px;height:1px;background:rgba(255,255,255,.08);margin:8px 0}
+.nsp{flex:1}
+.nav-av{width:34px;height:34px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:#fff;cursor:pointer;border:2px solid rgba(255,255,255,.12);margin-top:8px;position:relative}
+.nav-av .od{position:absolute;bottom:2px;right:2px;width:8px;height:8px;border-radius:50%;background:var(--online);border:2px solid var(--nav)}
+
+/* MAIN */
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden;background:var(--bg3)}
+
+/* TOP BAR */
+.topbar{background:var(--bg);border-bottom:1px solid var(--bd);padding:0 28px;display:flex;align-items:center;gap:16px;height:56px;flex-shrink:0}
+.page-icon{width:36px;height:36px;background:var(--accent-l);border-radius:10px;display:flex;align-items:center;justify-content:center}
+.page-icon svg{width:18px;height:18px;stroke:var(--accent);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.page-title{font-size:16px;font-weight:600;color:var(--txt)}
+.page-sub{font-size:11px;color:var(--txt2);margin-top:1px}
+.tb-sp{flex:1}
+.view-btns{display:flex;border:1px solid var(--bd2);border-radius:9px;overflow:hidden}
+.vb{padding:6px 14px;font-size:12px;font-weight:500;cursor:pointer;color:var(--txt2);background:transparent;transition:all .1s;display:flex;align-items:center;gap:5px;border:none}
+.vb svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:1.6}
+.vb.on{background:var(--accent);color:#fff}
+.vb:not(.on):hover{background:var(--bg2)}
+.btn-csv{padding:6px 12px;background:var(--bg2);border:1px solid var(--bd2);border-radius:8px;font-size:12px;font-weight:500;color:var(--txt2);cursor:pointer;display:flex;align-items:center;gap:5px;transition:background .1s}
+.btn-csv svg{width:13px;height:13px;stroke:var(--txt2);fill:none;stroke-width:1.6}
+.btn-csv:hover{background:var(--bg3)}
+.btn-new{padding:7px 16px;background:var(--accent);color:#fff;border:none;border-radius:9px;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;transition:background .15s;font-family:var(--font)}
+.btn-new svg{width:14px;height:14px;stroke:#fff;fill:none;stroke-width:2.2}
+.btn-new:hover{background:var(--accent-h)}
+
+/* CONTENT */
+.content{flex:1;overflow:hidden;display:flex;flex-direction:column;padding:20px 28px;gap:16px}
+
+/* STAT CARDS */
+.stat-row{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;flex-shrink:0}
+.stat-card{background:var(--bg);border:1px solid var(--bd);border-radius:var(--r-lg);padding:12px 14px;cursor:pointer;transition:border-color .15s;display:flex;align-items:center;gap:10px}
+.stat-card:hover{border-color:var(--bd2)}
+.stat-card.on{border-color:var(--accent);background:var(--accent-l)}
+.sc-icon{width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.sc-icon svg{width:16px;height:16px;stroke-width:1.8;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.sc-num{font-size:20px;font-weight:700;line-height:1.1}
+.sc-label{font-size:10px;font-weight:500;margin-top:1px}
+
+/* FILTERS */
+.filters{display:flex;align-items:center;gap:10px;flex-shrink:0}
+.search-w{flex:1;max-width:420px;display:flex;align-items:center;gap:8px;background:var(--bg);border:1px solid var(--bd2);border-radius:9px;padding:7px 12px;transition:border-color .15s}
+.search-w:focus-within{border-color:var(--accent)}
+.search-w svg{width:13px;height:13px;stroke:var(--txt3);fill:none;stroke-width:1.6;flex-shrink:0}
+.search-w input{border:none;outline:none;background:none;font-size:12px;color:var(--txt);font-family:var(--font);width:100%}
+.search-w input::placeholder{color:var(--txt3)}
+select{padding:7px 28px 7px 11px;background:var(--bg) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23A8A8BE' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 10px center;border:1px solid var(--bd2);border-radius:8px;font-size:12px;color:var(--txt);font-family:var(--font);cursor:pointer;outline:none;appearance:none;transition:border-color .15s}
+select:focus{border-color:var(--accent)}
+
+/* TABLE */
+.table-wrap{flex:1;overflow:hidden;background:var(--bg);border:1px solid var(--bd);border-radius:var(--r-lg);display:flex;flex-direction:column}
+.table-head{display:grid;grid-template-columns:90px 1fr 140px 130px 100px 100px 90px 70px 130px;padding:0 16px;border-bottom:1px solid var(--bd);flex-shrink:0}
+.th{padding:10px 8px;font-size:10px;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.06em;cursor:pointer;display:flex;align-items:center;gap:4px;user-select:none;white-space:nowrap}
+.th:hover{color:var(--txt2)}
+.th svg{width:10px;height:10px;stroke:var(--txt3);fill:none;stroke-width:2}
+.table-body{flex:1;overflow-y:auto}
+.table-body::-webkit-scrollbar{width:4px}
+.table-body::-webkit-scrollbar-thumb{background:var(--bd2);border-radius:4px}
+.tr{display:grid;grid-template-columns:90px 1fr 140px 130px 100px 100px 90px 70px 130px;padding:0 16px;border-bottom:1px solid var(--bd);cursor:pointer;transition:background .1s;align-items:center}
+.tr:last-child{border-bottom:none}
+.tr:hover{background:var(--bg2)}
+.td{padding:11px 8px;font-size:12px;color:var(--txt);display:flex;align-items:center;gap:6px}
+.td.muted{color:var(--txt2)}
+.td.mono{font-family:var(--mono);font-size:11px}
+.ticket-num{color:var(--accent);font-weight:600;font-family:var(--mono);font-size:11px;text-decoration:none}
+.ticket-num:hover{text-decoration:underline}
+
+/* subject */
+.subj-main{font-size:12px;font-weight:500;color:var(--txt);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.subj-sub{font-size:11px;color:var(--txt3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+.warn-icon{width:13px;height:13px;flex-shrink:0}
+
+/* badges */
+.badge{font-size:10px;padding:3px 8px;border-radius:5px;font-weight:600;white-space:nowrap;display:inline-flex;align-items:center;gap:4px}
+.badge svg{width:6px;height:6px;border-radius:50%}
+.b-open    {background:#EEF2FF;color:#3730A3}
+.b-ongoing {background:#FEF3C7;color:#92400E}
+.b-waiting {background:#F0F9FF;color:#0369A1}
+.b-resolved{background:#F0FDF4;color:#166534}
+.b-closed  {background:#F9FAFB;color:#374151;border:1px solid rgba(0,0,0,.08)}
+.b-cancelled{background:#FEF2F2;color:#991B1B}
+.b-low   {background:#F0FDF4;color:#166534}
+.b-mid   {background:#FEF3C7;color:#92400E}
+.b-high  {background:#FFF7ED;color:#C2410C}
+.b-crit  {background:#FDF2F8;color:#86198F}
+.b-sla-ok  {color:var(--txt2);font-size:11px;font-family:var(--mono)}
+.b-sla-viol{color:var(--danger);font-size:11px;font-weight:700;font-family:var(--mono)}
+
+/* depto */
+.depto-main{font-size:11px;font-weight:500;color:var(--txt)}
+.depto-sub{font-size:10px;color:var(--txt3)}
+
+/* pagination */
+.pagination{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-top:1px solid var(--bd);background:var(--bg);flex-shrink:0;border-bottom-left-radius:var(--r-lg);border-bottom-right-radius:var(--r-lg)}
+.page-info{font-size:11px;color:var(--txt2)}
+.page-btns{display:flex;gap:4px}
+.pb{width:28px;height:28px;border-radius:7px;border:1px solid var(--bd2);background:var(--bg2);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:500;color:var(--txt2);transition:background .1s}
+.pb:hover{background:var(--bg3)}
+.pb.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+.pb svg{width:12px;height:12px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
+  <div class="ni"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></div>
+  <div class="ni" style="position:relative"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span class="nbadge">2</span></div>
+  <div class="ni"><svg viewBox="0 0 24 24"><path d="M17 8h2a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2h-2v4l-4-4H9a2 2 0 0 1-2-2v-1"/><path d="M15 4H5a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2v4l4-4h4a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z"/></svg></div>
+  <div class="ni on"><svg viewBox="0 0 24 24"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v2z"/></svg></div>
+  <div class="nsep"></div>
+  <div class="ni"><svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
+  <div class="ni"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/></svg></div>
+  <div class="ni"><svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
+  <div class="nsep"></div>
+  <div class="ni"><svg viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></div>
+  <div class="ni"><svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></div>
+  <div class="nsp"></div>
+  <div class="ni"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div>
+  <div class="nav-av">AD<span class="od"></span></div>
+</nav>
+
+<div class="main">
+  <div class="topbar">
+    <div class="page-icon"><svg viewBox="0 0 24 24"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v2z"/></svg></div>
+    <div>
+      <div class="page-title">Tickets</div>
+      <div class="page-sub">48 tickets encontrados</div>
+    </div>
+    <div class="tb-sp"></div>
+    <div class="view-btns">
+      <button class="vb on"><svg viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg> Lista</button>
+      <button class="vb"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg> Kanban</button>
+    </div>
+    <button class="btn-csv"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> CSV</button>
+    <button class="btn-new"><svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Novo Ticket</button>
+  </div>
+
+  <div class="content">
+    <div class="stat-row">
+      <div class="stat-card on">
+        <div class="sc-icon" style="background:#EEF2FF"><svg viewBox="0 0 24 24" stroke="#4F46E5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></div>
+        <div><div class="sc-num" style="color:#4F46E5">1</div><div class="sc-label" style="color:#6366F1">Abertos</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="sc-icon" style="background:#FFFBEB"><svg viewBox="0 0 24 24" stroke="#D97706"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
+        <div><div class="sc-num" style="color:#D97706">1</div><div class="sc-label" style="color:#92400E">Em andamento</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="sc-icon" style="background:#F0F9FF"><svg viewBox="0 0 24 24" stroke="#0284C7"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg></div>
+        <div><div class="sc-num" style="color:#0284C7">1</div><div class="sc-label" style="color:#0369A1">Aguardando</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="sc-icon" style="background:#F0FDF4"><svg viewBox="0 0 24 24" stroke="#16A34A"><polyline points="20 6 9 17 4 12"/></svg></div>
+        <div><div class="sc-num" style="color:#16A34A">3</div><div class="sc-label" style="color:#166534">Resolvidos</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="sc-icon" style="background:#F9FAFB"><svg viewBox="0 0 24 24" stroke="#6B7280"><path d="M18 6L6 18"/><path d="M6 6l12 12"/></svg></div>
+        <div><div class="sc-num" style="color:#374151">42</div><div class="sc-label" style="color:#6B7280">Fechados</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="sc-icon" style="background:#FEF2F2"><svg viewBox="0 0 24 24" stroke="#DC2626"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div>
+        <div><div class="sc-num" style="color:#DC2626">0</div><div class="sc-label" style="color:#991B1B">Cancelados</div></div>
+      </div>
+    </div>
+
+    <div class="filters">
+      <div class="search-w">
+        <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" placeholder="Buscar por número, assunto, cliente...">
+      </div>
+      <select><option>Todos os status</option><option>Aberto</option><option>Em andamento</option><option>Aguardando</option><option>Resolvido</option><option>Fechado</option></select>
+      <select><option>Todas as prioridades</option><option>Baixa</option><option>Média</option><option>Alta</option><option>Crítica</option></select>
+      <select><option>Departamento</option><option>Pista</option><option>Gerencial</option><option>Dúvidas</option></select>
+      <select><option>Técnico</option><option>Administrador</option><option>Clebio</option><option>Tiago Navais</option></select>
+    </div>
+
+    <div class="table-wrap">
+      <div class="table-head">
+        <div class="th">Nº <svg viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg></div>
+        <div class="th">Assunto <svg viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg></div>
+        <div class="th">Cliente</div>
+        <div class="th">Depto / Categoria</div>
+        <div class="th">Status</div>
+        <div class="th">Prioridade</div>
+        <div class="th">Técnico</div>
+        <div class="th">SLA</div>
+        <div class="th">Abertura <svg viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg></div>
+      </div>
+      <div class="table-body">
+
+        <div class="tr" style="background:#FFF8F8">
+          <div class="td"><a class="ticket-num" href="#">#000048</a></div>
+          <div class="td" style="flex-direction:column;align-items:flex-start;gap:1px">
+            <span class="subj-main">problema puiro</span>
+          </div>
+          <div class="td muted" style="font-size:11px">POSTO NOVO LAGO</div>
+          <div class="td"><div><div class="depto-main">Pista</div></div></div>
+          <div class="td"><span class="badge b-open"><svg viewBox="0 0 6 6" fill="#4F46E5"><circle cx="3" cy="3" r="3"/></svg>Aberto</span></div>
+          <div class="td"><span class="badge b-mid">Média</span></div>
+          <div class="td muted" style="font-size:11px">—</div>
+          <div class="td"><span class="b-sla-ok">23h 26m</span></div>
+          <div class="td muted mono">20/03/26 21:15</div>
+        </div>
+
+        <div class="tr">
+          <div class="td"><a class="ticket-num" href="#">#000047</a></div>
+          <div class="td" style="flex-direction:column;align-items:flex-start;gap:1px">
+            <span class="subj-main">Cartão identifid</span>
+            <span class="subj-sub">Banco de dados corrompido</span>
+          </div>
+          <div class="td muted" style="font-size:11px">POSTO MANA</div>
+          <div class="td"><div><div class="depto-main">Pista</div><div class="depto-sub">Servidor</div></div></div>
+          <div class="td"><span class="badge b-ongoing"><svg viewBox="0 0 6 6" fill="#D97706"><circle cx="3" cy="3" r="3"/></svg>Em andamento</span></div>
+          <div class="td"><span class="badge b-mid">Média</span></div>
+          <div class="td muted" style="font-size:11px">Administrador</div>
+          <div class="td"><span class="b-sla-ok">23h 17m</span></div>
+          <div class="td muted mono">20/03/26 21:06</div>
+        </div>
+
+        <div class="tr">
+          <div class="td"><a class="ticket-num" href="#">#000046</a></div>
+          <div class="td" style="flex-direction:column;align-items:flex-start;gap:1px">
+            <span class="subj-main">Estou com problema PDV</span>
+            <span class="subj-sub">Banco de dados corrompido</span>
+          </div>
+          <div class="td muted" style="font-size:11px">POSTO ARATACA</div>
+          <div class="td"><div><div class="depto-main">Pista</div><div class="depto-sub">Servidor</div></div></div>
+          <div class="td"><span class="badge b-closed"><svg viewBox="0 0 6 6" fill="#374151"><circle cx="3" cy="3" r="3"/></svg>Fechado</span></div>
+          <div class="td"><span class="badge b-high">Alta</span></div>
+          <div class="td muted" style="font-size:11px">Clebio</div>
+          <div class="td"><span class="b-sla-ok">—</span></div>
+          <div class="td muted mono">20/03/26 20:59</div>
+        </div>
+
+        <div class="tr">
+          <div class="td"><a class="ticket-num" href="#">#000045</a></div>
+          <div class="td" style="flex-direction:column;align-items:flex-start;gap:1px">
+            <span class="subj-main">teste novo</span>
+          </div>
+          <div class="td muted" style="font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">SUPER LIDER BUERAR...</div>
+          <div class="td"><div><div class="depto-main">Gerencial</div></div></div>
+          <div class="td"><span class="badge b-closed"><svg viewBox="0 0 6 6" fill="#374151"><circle cx="3" cy="3" r="3"/></svg>Fechado</span></div>
+          <div class="td"><span class="badge b-mid">Média</span></div>
+          <div class="td muted" style="font-size:11px">—</div>
+          <div class="td"><span class="b-sla-ok">—</span></div>
+          <div class="td muted mono">19/03/26 23:29</div>
+        </div>
+
+        <div class="tr">
+          <div class="td"><a class="ticket-num" href="#">#000044</a></div>
+          <div class="td" style="flex-direction:column;align-items:flex-start;gap:1px">
+            <span class="subj-main">Não consigo entrar no pdv</span>
+            <span class="subj-sub">Banco de dados corrompido</span>
+          </div>
+          <div class="td muted" style="font-size:11px">POSTO LIDER 04</div>
+          <div class="td"><div><div class="depto-main">Pista</div><div class="depto-sub">Servidor</div></div></div>
+          <div class="td"><span class="badge b-closed"><svg viewBox="0 0 6 6" fill="#374151"><circle cx="3" cy="3" r="3"/></svg>Fechado</span></div>
+          <div class="td"><span class="badge b-mid">Média</span></div>
+          <div class="td muted" style="font-size:11px">Administrador</div>
+          <div class="td"><span class="b-sla-ok">—</span></div>
+          <div class="td muted mono">19/03/26 19:56</div>
+        </div>
+
+        <div class="tr">
+          <div class="td"><a class="ticket-num" href="#">#000043</a></div>
+          <div class="td" style="flex-direction:column;align-items:flex-start;gap:1px">
+            <span class="subj-main">Atendimento - Novais</span>
+            <span class="subj-sub">Banco de dados corrompido</span>
+          </div>
+          <div class="td muted" style="font-size:11px">POSTO AGUIAR</div>
+          <div class="td"><div><div class="depto-main">Pista</div><div class="depto-sub">Servidor</div></div></div>
+          <div class="td"><span class="badge b-closed"><svg viewBox="0 0 6 6" fill="#374151"><circle cx="3" cy="3" r="3"/></svg>Fechado</span></div>
+          <div class="td"><span class="badge b-mid">Média</span></div>
+          <div class="td muted" style="font-size:11px">Administrador</div>
+          <div class="td"><span class="b-sla-ok">—</span></div>
+          <div class="td muted mono">19/03/26 15:49</div>
+        </div>
+
+        <div class="tr">
+          <div class="td"><a class="ticket-num" href="#">#000041</a></div>
+          <div class="td" style="flex-direction:column;align-items:flex-start;gap:1px">
+            <div style="display:flex;align-items:center;gap:5px">
+              <svg class="warn-icon" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" stroke-width="2" stroke-linecap="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              <span class="subj-main">reintalação pdv</span>
+            </div>
+            <span class="subj-sub">Banco de dados corrompido</span>
+          </div>
+          <div class="td muted" style="font-size:11px">POSTO GONGOGI</div>
+          <div class="td"><div><div class="depto-main">Pista</div><div class="depto-sub">Servidor</div></div></div>
+          <div class="td"><span class="badge b-closed"><svg viewBox="0 0 6 6" fill="#374151"><circle cx="3" cy="3" r="3"/></svg>Fechado</span></div>
+          <div class="td"><span class="badge b-crit">Crítica</span></div>
+          <div class="td muted" style="font-size:11px">Tiago Navais</div>
+          <div class="td"><span class="b-sla-ok">—</span></div>
+          <div class="td muted mono">19/03/26 13:23</div>
+        </div>
+
+        <div class="tr">
+          <div class="td"><a class="ticket-num" href="#">#000040</a></div>
+          <div class="td" style="flex-direction:column;align-items:flex-start;gap:1px">
+            <span class="subj-main">Atendimento WhatsApp - Novais</span>
+          </div>
+          <div class="td muted" style="font-size:11px">POSTO AGUIAR</div>
+          <div class="td"><div><div class="depto-main">—</div></div></div>
+          <div class="td"><span class="badge b-resolved"><svg viewBox="0 0 6 6" fill="#16A34A"><circle cx="3" cy="3" r="3"/></svg>Resolvido</span></div>
+          <div class="td"><span class="badge b-mid">Média</span></div>
+          <div class="td muted" style="font-size:11px">—</div>
+          <div class="td"><span class="b-sla-ok">—</span></div>
+          <div class="td muted mono">18/03/26 22:38</div>
+        </div>
+
+        <div class="tr">
+          <div class="td"><a class="ticket-num" href="#">#000039</a></div>
+          <div class="td" style="flex-direction:column;align-items:flex-start;gap:1px">
+            <span class="subj-main">Atendimento WhatsApp - Edson Júnior</span>
+          </div>
+          <div class="td muted" style="font-size:11px">POSTO MANA</div>
+          <div class="td"><div><div class="depto-main">—</div></div></div>
+          <div class="td"><span class="badge b-closed"><svg viewBox="0 0 6 6" fill="#374151"><circle cx="3" cy="3" r="3"/></svg>Fechado</span></div>
+          <div class="td"><span class="badge b-mid">Média</span></div>
+          <div class="td muted" style="font-size:11px">—</div>
+          <div class="td"><span class="b-sla-ok">—</span></div>
+          <div class="td muted mono">18/03/26 18:49</div>
+        </div>
+
+        <div class="tr">
+          <div class="td"><a class="ticket-num" href="#">#000038</a></div>
+          <div class="td" style="flex-direction:column;align-items:flex-start;gap:1px">
+            <div style="display:flex;align-items:center;gap:5px">
+              <svg class="warn-icon" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" stroke-width="2" stroke-linecap="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              <span class="subj-main">Atendimento WhatsApp - Ademilton</span>
+            </div>
+          </div>
+          <div class="td muted" style="font-size:11px">REDE COLORADO</div>
+          <div class="td"><div><div class="depto-main">—</div></div></div>
+          <div class="td"><span class="badge b-closed"><svg viewBox="0 0 6 6" fill="#374151"><circle cx="3" cy="3" r="3"/></svg>Fechado</span></div>
+          <div class="td"><span class="badge b-mid">Média</span></div>
+          <div class="td muted" style="font-size:11px">Maria Gestora</div>
+          <div class="td"><span class="b-sla-ok">—</span></div>
+          <div class="td muted mono">18/03/26 14:34</div>
+        </div>
+
+        <div class="tr">
+          <div class="td"><a class="ticket-num" href="#">#000036</a></div>
+          <div class="td" style="flex-direction:column;align-items:flex-start;gap:1px">
+            <div style="display:flex;align-items:center;gap:5px">
+              <svg class="warn-icon" viewBox="0 0 24 24" fill="none" stroke="#EF4444" stroke-width="2" stroke-linecap="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              <span class="subj-main">pdv queimou</span>
+            </div>
+          </div>
+          <div class="td muted" style="font-size:11px">POSTO MANA</div>
+          <div class="td"><div><div class="depto-main">Pista</div></div></div>
+          <div class="td"><span class="badge b-waiting"><svg viewBox="0 0 6 6" fill="#0284C7"><circle cx="3" cy="3" r="3"/></svg>Aguardando</span></div>
+          <div class="td"><span class="badge b-mid">Média</span></div>
+          <div class="td muted" style="font-size:11px">—</div>
+          <div class="td"><span class="b-sla-viol">VIOLADO</span></div>
+          <div class="td muted mono">18/03/26 00:25</div>
+        </div>
+
+        <div class="tr">
+          <div class="td"><a class="ticket-num" href="#">#000033</a></div>
+          <div class="td" style="flex-direction:column;align-items:flex-start;gap:1px">
+            <div style="display:flex;align-items:center;gap:5px">
+              <svg class="warn-icon" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" stroke-width="2" stroke-linecap="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              <span class="subj-main">Atendimento WhatsApp - Marlon</span>
+            </div>
+          </div>
+          <div class="td muted" style="font-size:11px">POSTO GONGOGI</div>
+          <div class="td"><div><div class="depto-main">—</div></div></div>
+          <div class="td"><span class="badge b-closed"><svg viewBox="0 0 6 6" fill="#374151"><circle cx="3" cy="3" r="3"/></svg>Fechado</span></div>
+          <div class="td"><span class="badge b-crit">Crítica</span></div>
+          <div class="td muted" style="font-size:11px">—</div>
+          <div class="td"><span class="b-sla-ok">—</span></div>
+          <div class="td muted mono">17/03/26 22:13</div>
+        </div>
+
+      </div>
+
+      <div class="pagination">
+        <span class="page-info">Página 1 de 2 · 48 tickets</span>
+        <div class="page-btns">
+          <button class="pb"><svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg></button>
+          <button class="pb on">1</button>
+          <button class="pb">2</button>
+          <button class="pb"><svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+document.querySelectorAll('.ni').forEach(ni=>{ni.addEventListener('click',function(){document.querySelectorAll('.ni').forEach(n=>n.classList.remove('on'));this.classList.add('on')})});
+document.querySelectorAll('.stat-card').forEach(c=>{c.addEventListener('click',function(){document.querySelectorAll('.stat-card').forEach(s=>s.classList.remove('on'));this.classList.add('on')})});
+document.querySelectorAll('.vb').forEach(b=>{b.addEventListener('click',function(){document.querySelectorAll('.vb').forEach(v=>v.classList.remove('on'));this.classList.add('on')})});
+document.querySelectorAll('.pb').forEach(b=>{b.addEventListener('click',function(){if(!this.querySelector('svg')){document.querySelectorAll('.pb').forEach(p=>p.classList.remove('on'));this.classList.add('on')}})});
+</script>
+</body>
+</html>

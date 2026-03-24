@@ -1,0 +1,1091 @@
+AUDITORIA MULTI-TENANT
+Gerado em: Sat Mar 14 01:30:05 CET 2026
+Raiz: /opt/suporte-tecnico/backend/src
+==================================================
+
+
+==================================================
+1. findOne/findUnique/query por id sem tenant aparente
+==================================================
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.controller.ts:27:  findOne(@Request() req, @Param('id') id: string) {
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.controller.ts:37:  update(@Request() req, @Param('id') id: string, @Body() dto: UpdateContractDto) {
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.service.ts:21:    return this.contractRepo.find({
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.service.ts:40:    return this.contractRepo.findOne({
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.service.ts:90:      .update(Contract)
+/opt/suporte-tecnico/backend/src/modules/team/team.controller.ts:16:  findOne(@Request() req, @Param('id') id: string) {
+/opt/suporte-tecnico/backend/src/modules/team/team.controller.ts:21:  update(@Request() req, @Param('id') id: string, @Body() dto: any) {
+/opt/suporte-tecnico/backend/src/modules/team/team.service.ts:14:    return this.userRepo.find({
+/opt/suporte-tecnico/backend/src/modules/team/team.service.ts:21:    return this.userRepo.findOne({
+/opt/suporte-tecnico/backend/src/modules/networks/networks.controller.ts:21:  findOne(@Request() req: any, @Param('id') id: string) {
+/opt/suporte-tecnico/backend/src/modules/networks/networks.controller.ts:26:  update(@Request() req: any, @Param('id') id: string, @Body() dto: any) {
+/opt/suporte-tecnico/backend/src/modules/tenants/tenants.service.ts:17:    const exists = await this.repo.findOne({ where: { slug: data.slug } });
+/opt/suporte-tecnico/backend/src/modules/tenants/tenants.service.ts:23:  findAll()              { return this.repo.find({ order: { name: 'ASC' } }); }
+/opt/suporte-tecnico/backend/src/modules/tenants/tenants.service.ts:24:  async findOne(id: string) {
+/opt/suporte-tecnico/backend/src/modules/tenants/tenants.service.ts:25:    const t = await this.repo.findOne({ where: { id } });
+/opt/suporte-tecnico/backend/src/modules/tenants/tenants.service.ts:30:    const t = await this.repo.findOne({ where: { slug } });
+/opt/suporte-tecnico/backend/src/modules/tenants/tenants.service.ts:34:  async update(id: string, data: Partial<Tenant>) {
+/opt/suporte-tecnico/backend/src/modules/tenants/tenants.service.ts:35:    await this.findOne(id);
+/opt/suporte-tecnico/backend/src/modules/tenants/tenants.service.ts:36:    await this.repo.update(id, data);
+/opt/suporte-tecnico/backend/src/modules/tenants/tenants.service.ts:37:    return this.findOne(id);
+/opt/suporte-tecnico/backend/src/modules/tenants/tenants.controller.ts:20:  findOne(@Param('id') id: string) { return this.svc.findOne(id); }
+/opt/suporte-tecnico/backend/src/modules/tenants/tenants.controller.ts:23:  update(@Param('id') id: string, @Body() body: any) { return this.svc.update(id, body); }
+/opt/suporte-tecnico/backend/src/modules/devices/devices.service.ts:24:    return this.deviceRepo.find({ where, order: { createdAt: 'DESC' } });
+/opt/suporte-tecnico/backend/src/modules/devices/devices.service.ts:40:    const device = await this.deviceRepo.findOne({ where: { heartbeatToken: token } });
+/opt/suporte-tecnico/backend/src/modules/devices/devices.service.ts:71:    return this.eventRepo.find({
+/opt/suporte-tecnico/backend/src/modules/devices/devices.controller.ts:38:  findOne(@Request() req, @Param('id') id: string) {
+/opt/suporte-tecnico/backend/src/modules/devices/devices.controller.ts:44:  update(@Request() req, @Param('id') id: string, @Body() dto: any) {
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:31:    const client = await this.clients.findOne({
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:45:    const contact = await this.contacts.findOne({
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:243:    return this.contacts.findOne({
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:250:    return this.contacts.findOne({
+/opt/suporte-tecnico/backend/src/modules/customers/customers.controller.ts:28:  findOne(@Request() req: any, @Param('id') id: string) {
+/opt/suporte-tecnico/backend/src/modules/customers/customers.controller.ts:33:  update(@Request() req: any, @Param('id') id: string, @Body() dto: UpdateClientDto) {
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.controller.ts:38:  findOne(@Request() req, @Param('id') id: string) {
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.controller.ts:43:  update(@Request() req, @Param('id') id: string, @Body() dto: any) {
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.controller.ts:48:  delete(@Request() req, @Param('id') id: string) {
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:26:    const category = await this.catRepo.findOne({
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:45:    return this.catRepo.find({
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:111:    await this.artRepo.update(
+/opt/suporte-tecnico/backend/src/modules/auth/strategies/jwt.strategy.ts:25:    const user = await this.users.findOne({
+/opt/suporte-tecnico/backend/src/modules/auth/auth.service.ts:21:    const user = await this.users.findOne({ where: { email: dto.email } });
+/opt/suporte-tecnico/backend/src/modules/auth/auth.service.ts:26:    await this.users.update(user.id, { lastLogin: new Date() });
+/opt/suporte-tecnico/backend/src/modules/auth/auth.service.ts:39:      const user = await this.users.findOne({ where: { id: payload.sub } });
+/opt/suporte-tecnico/backend/src/modules/auth/auth.service.ts:48:    const exists = await this.users.findOne({ where: { email: dto.email } });
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:312:      .update(Ticket)
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.controller.ts:30:  findOne(@Request() req, @Param('id') id: string) {
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.controller.ts:35:  update(@Request() req, @Param('id') id: string, @Body() dto: UpdateTicketDto) {
+
+==================================================
+2. QueryBuilder com where sem tenant aparente
+==================================================
+----- /opt/suporte-tecnico/backend/src/modules/contracts/contracts.service.ts:76 -----
+----- /opt/suporte-tecnico/backend/src/modules/contracts/contracts.service.ts:89 -----
+      .createQueryBuilder()
+      .update(Contract)
+      .set({ status: ContractStatus.EXPIRED })
+      .where('status = :status', { status: ContractStatus.ACTIVE })
+      .andWhere('end_date < :today', { today })
+      .execute();
+  }
+}
+----- /opt/suporte-tecnico/backend/src/modules/networks/networks.service.ts:11 -----
+----- /opt/suporte-tecnico/backend/src/modules/networks/networks.service.ts:26 -----
+----- /opt/suporte-tecnico/backend/src/modules/devices/devices.service.ts:100 -----
+----- /opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:20 -----
+----- /opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:73 -----
+----- /opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:99 -----
+----- /opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:131 -----
+----- /opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:214 -----
+----- /opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:64 -----
+----- /opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:120 -----
+----- /opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:133 -----
+----- /opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:244 -----
+----- /opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:264 -----
+----- /opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:290 -----
+      .createQueryBuilder('t')
+      .where('t.status NOT IN (:...done)', { done: [TicketStatus.RESOLVED, TicketStatus.CLOSED, TicketStatus.CANCELLED] })
+      .andWhere('t.sla_resolve_at < :now', { now })
+      .andWhere('t.escalated = false')
+      .getMany();
+
+    for (const t of breached) {
+      t.escalated = true;
+      t.priority = TicketPriority.CRITICAL;
+    }
+
+    if (breached.length) {
+      await this.ticketRepo.save(breached);
+    }
+  }
+
+  @Cron('0 * * * *')
+  async autoCloseResolvedTickets() {
+    const cutoff = new Date(Date.now() - 48 * 3600 * 1000);
+
+    await this.ticketRepo
+      .createQueryBuilder()
+      .update(Ticket)
+      .set({ status: TicketStatus.CLOSED, closedAt: new Date() })
+      .where('status = :status', { status: TicketStatus.RESOLVED })
+      .andWhere('resolved_at < :cutoff', { cutoff })
+----- /opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:311 -----
+      .createQueryBuilder()
+      .update(Ticket)
+      .set({ status: TicketStatus.CLOSED, closedAt: new Date() })
+      .where('status = :status', { status: TicketStatus.RESOLVED })
+      .andWhere('resolved_at < :cutoff', { cutoff })
+      .execute();
+  }
+}
+----- /opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.service.ts:23 -----
+----- /opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.service.ts:32 -----
+----- /opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.service.ts:37 -----
+----- /opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.service.ts:58 -----
+----- /opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.service.ts:74 -----
+----- /opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.service.ts:87 -----
+----- /opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.service.ts:92 -----
+
+==================================================
+3. manager.query/raw SQL
+==================================================
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:60:    const result = await this.clients.manager.query(
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:153:    const tickets = await this.clients.manager.query(
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:158:    const devices = await this.clients.manager.query(
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:163:    const contracts = await this.clients.manager.query(
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:168:    const contacts = await this.clients.manager.query(
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:43:    const rows = await this.ticketRepo.manager.query(
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:60:        const rows = await this.ticketRepo.manager.query(
+
+==================================================
+4. controllers usando @Body com possíveis campos sensíveis
+==================================================
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.controller.ts:12:  create(@Request() req, @Body() dto: CreateContractDto) {
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.controller.ts:37:  update(@Request() req, @Param('id') id: string, @Body() dto: UpdateContractDto) {
+/opt/suporte-tecnico/backend/src/modules/team/team.controller.ts:21:  update(@Request() req, @Param('id') id: string, @Body() dto: any) {
+/opt/suporte-tecnico/backend/src/modules/networks/networks.controller.ts:11:  create(@Request() req: any, @Body() dto: any) {
+/opt/suporte-tecnico/backend/src/modules/networks/networks.controller.ts:26:  update(@Request() req: any, @Param('id') id: string, @Body() dto: any) {
+/opt/suporte-tecnico/backend/src/modules/tenants/tenants.controller.ts:14:  create(@Body() body: any) { return this.svc.create(body); }
+/opt/suporte-tecnico/backend/src/modules/tenants/tenants.controller.ts:23:  update(@Param('id') id: string, @Body() body: any) { return this.svc.update(id, body); }
+/opt/suporte-tecnico/backend/src/modules/devices/devices.controller.ts:14:  create(@Request() req, @Body() dto: any) {
+/opt/suporte-tecnico/backend/src/modules/devices/devices.controller.ts:44:  update(@Request() req, @Param('id') id: string, @Body() dto: any) {
+/opt/suporte-tecnico/backend/src/modules/devices/devices.controller.ts:55:  heartbeat(@Headers('x-device-token') token: string, @Body() body: any) {
+/opt/suporte-tecnico/backend/src/modules/customers/customers.controller.ts:18:  create(@Request() req: any, @Body() dto: CreateClientDto) {
+/opt/suporte-tecnico/backend/src/modules/customers/customers.controller.ts:33:  update(@Request() req: any, @Param('id') id: string, @Body() dto: UpdateClientDto) {
+/opt/suporte-tecnico/backend/src/modules/customers/customers.controller.ts:44:  createContact(@Request() req: any, @Param('id') cId: string, @Body() dto: CreateContactDto) {
+/opt/suporte-tecnico/backend/src/modules/customers/customers.controller.ts:54:  updateContact(@Request() req: any, @Param('cid') cid: string, @Body() dto: UpdateContactDto) {
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.controller.ts:23:  createCategory(@Request() req, @Body() dto: any) {
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.controller.ts:33:  create(@Request() req, @Body() dto: any) {
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.controller.ts:43:  update(@Request() req, @Param('id') id: string, @Body() dto: any) {
+/opt/suporte-tecnico/backend/src/modules/auth/auth.controller.ts:21:  login(@Body() dto: LoginDto) { return this.auth.login(dto); }
+/opt/suporte-tecnico/backend/src/modules/auth/auth.controller.ts:27:  refresh(@Body() dto: RefreshTokenDto) { return this.auth.refresh(dto.refreshToken); }
+/opt/suporte-tecnico/backend/src/modules/auth/auth.controller.ts:40:  createUser(@Request() req: any, @Body() dto: CreateUserDto) {
+/opt/suporte-tecnico/backend/src/modules/auth/auth.controller.ts:56:  updateUser(@Request() req: any, @Param('id') id: string, @Body() dto: UpdateUserDto) {
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.controller.ts:15:  create(@Request() req, @Body() dto: CreateTicketDto) {
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.controller.ts:35:  update(@Request() req, @Param('id') id: string, @Body() dto: UpdateTicketDto) {
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.controller.ts:40:  assign(@Request() req, @Param('id') id: string, @Body() body: { techId: string }) {
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.controller.ts:55:  addMessage(@Request() req, @Param('id') id: string, @Body() dto: AddMessageDto) {
+/opt/suporte-tecnico/backend/src/modules/alerts/alerts.controller.ts:11:  test(@Body() body: any) {
+
+==================================================
+5. uso direto de tenantId no request
+==================================================
+/opt/suporte-tecnico/backend/src/common/middlewares/tenant.middleware.ts:21:          req.tenantId = payload.tenantId;
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.controller.ts:13:    return this.contractsService.create(req.tenantId, dto);
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.controller.ts:18:    return this.contractsService.findByTenant(req.tenantId);
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.controller.ts:23:    return this.contractsService.getExpiringSoon(req.tenantId);
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.controller.ts:28:    return this.contractsService.findOne(req.tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.controller.ts:33:    return this.contractsService.getConsumption(req.tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.controller.ts:38:    return this.contractsService.update(req.tenantId, id, dto);
+/opt/suporte-tecnico/backend/src/modules/team/team.controller.ts:12:    return this.teamService.findTechnicians(req.tenantId);
+/opt/suporte-tecnico/backend/src/modules/team/team.controller.ts:17:    return this.teamService.findOne(req.tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/team/team.controller.ts:22:    return this.teamService.update(req.tenantId, id, dto);
+/opt/suporte-tecnico/backend/src/modules/networks/networks.controller.ts:12:    return this.svc.create(req.tenantId, dto);
+/opt/suporte-tecnico/backend/src/modules/networks/networks.controller.ts:17:    return this.svc.findAll(req.tenantId, search);
+/opt/suporte-tecnico/backend/src/modules/networks/networks.controller.ts:22:    return this.svc.findOne(req.tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/networks/networks.controller.ts:27:    return this.svc.update(req.tenantId, id, dto);
+/opt/suporte-tecnico/backend/src/modules/networks/networks.controller.ts:33:    return this.svc.remove(req.tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/tenants/tenants.controller.ts:17:  me(@Request() req: any) { return this.svc.findOne(req.tenantId); }
+/opt/suporte-tecnico/backend/src/modules/devices/devices.controller.ts:15:    return this.devicesService.create(req.tenantId, dto);
+/opt/suporte-tecnico/backend/src/modules/devices/devices.controller.ts:21:    return this.devicesService.findAll(req.tenantId, clientId);
+/opt/suporte-tecnico/backend/src/modules/devices/devices.controller.ts:27:    return this.devicesService.getSummary(req.tenantId);
+/opt/suporte-tecnico/backend/src/modules/devices/devices.controller.ts:33:    return this.devicesService.getOfflineDevices(req.tenantId);
+/opt/suporte-tecnico/backend/src/modules/devices/devices.controller.ts:39:    return this.devicesService.findOne(req.tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/devices/devices.controller.ts:45:    return this.devicesService.update(req.tenantId, id, dto);
+/opt/suporte-tecnico/backend/src/modules/devices/devices.controller.ts:51:    return this.devicesService.getEvents(req.tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.controller.ts:19:    return this.svc.create(req.tenantId, dto);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.controller.ts:24:    return this.svc.findAll(req.tenantId, q);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.controller.ts:29:    return this.svc.findOne(req.tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.controller.ts:34:    return this.svc.update(req.tenantId, id, dto);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.controller.ts:40:    return this.svc.remove(req.tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.controller.ts:45:    return this.svc.createContact(req.tenantId, cId, dto);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.controller.ts:50:    return this.svc.findContacts(req.tenantId, cId);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.controller.ts:55:    return this.svc.updateContact(req.tenantId, cid, dto);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.controller.ts:61:    return this.svc.removeContact(req.tenantId, cid);
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.controller.ts:14:    return this.knowledgeService.search(req.tenantId, q || '');
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.controller.ts:19:    return this.knowledgeService.getCategories(req.tenantId);
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.controller.ts:24:    return this.knowledgeService.createCategory(req.tenantId, dto);
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.controller.ts:29:    return this.knowledgeService.findArticles(req.tenantId, filters);
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.controller.ts:34:    return this.knowledgeService.createArticle(req.tenantId, req.user.id, dto);
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.controller.ts:39:    return this.knowledgeService.findOne(req.tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.controller.ts:44:    return this.knowledgeService.update(req.tenantId, id, dto);
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.controller.ts:49:    return this.knowledgeService.delete(req.tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/auth/guards/jwt-auth.guard.ts:40:    request.tenantId =
+/opt/suporte-tecnico/backend/src/modules/auth/guards/jwt-auth.guard.ts:50:    if (!request.tenantId) {
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.controller.ts:16:    return this.ticketsService.create(req.tenantId, req.user.id, req.user.name, dto);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.controller.ts:21:    return this.ticketsService.findAll(req.tenantId, filters);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.controller.ts:26:    return this.ticketsService.getStats(req.tenantId);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.controller.ts:31:    return this.ticketsService.findOne(req.tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.controller.ts:36:    return this.ticketsService.update(req.tenantId, id, req.user.id, req.user.name, dto);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.controller.ts:41:    return this.ticketsService.assign(req.tenantId, id, body.techId);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.controller.ts:46:    return this.ticketsService.escalate(req.tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.controller.ts:51:    return this.ticketsService.getMessages(req.tenantId, id, internal !== 'false');
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.controller.ts:56:    return this.ticketsService.addMessage(req.tenantId, id, req.user.id, req.user.name, 'user', dto);
+/opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.controller.ts:12:    return this.dashboardService.getSummary(req.tenantId);
+/opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.controller.ts:17:    return this.dashboardService.getTicketsByPriority(req.tenantId);
+/opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.controller.ts:22:    return this.dashboardService.getTicketTrend(req.tenantId, days ? parseInt(days) : 7);
+/opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.controller.ts:27:    return this.dashboardService.getSlaReport(req.tenantId);
+
+==================================================
+6. métodos create salvando dto inteiro
+==================================================
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.service.ts:16:    const contract = this.contractRepo.create({ ...dto, tenantId });
+/opt/suporte-tecnico/backend/src/modules/networks/networks.service.ts:22:    return this.repo.save(this.repo.create({ ...dto, tenantId, code }));
+/opt/suporte-tecnico/backend/src/modules/tenants/tenants.service.ts:19:    const t = this.repo.create({ ...data, limits: PLAN_LIMITS[data.plan ?? 'starter'] });
+/opt/suporte-tecnico/backend/src/modules/devices/devices.service.ts:17:    const device = this.deviceRepo.create({ ...dto, tenantId, heartbeatToken });
+/opt/suporte-tecnico/backend/src/modules/auth/auth.service.ts:50:    const user = this.users.create({ ...dto, tenantId, role: dto.role as any });
+
+==================================================
+7. relações potencialmente cruzadas por clientId/customerId/networkId/contractId/categoryId/assignedTo
+==================================================
+/opt/suporte-tecnico/backend/src/modules/contracts/entities/contract.entity.ts:29:  clientId: string;
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.service.ts:39:  async findActiveContractForClient(tenantId: string, clientId: string): Promise<Contract | null> {
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.service.ts:41:      where: { tenantId, clientId, status: ContractStatus.ACTIVE },
+/opt/suporte-tecnico/backend/src/modules/contracts/dto/contract.dto.ts:6:  clientId: string;
+/opt/suporte-tecnico/backend/src/modules/devices/entities/device.entity.ts:29:  clientId: string;
+/opt/suporte-tecnico/backend/src/modules/devices/devices.service.ts:21:  async findAll(tenantId: string, clientId?: string): Promise<Device[]> {
+/opt/suporte-tecnico/backend/src/modules/devices/devices.service.ts:23:    if (clientId) where.clientId = clientId;
+/opt/suporte-tecnico/backend/src/modules/devices/devices.controller.ts:20:  findAll(@Request() req, @Query('clientId') clientId?: string) {
+/opt/suporte-tecnico/backend/src/modules/devices/devices.controller.ts:21:    return this.devicesService.findAll(req.tenantId, clientId);
+/opt/suporte-tecnico/backend/src/modules/customers/entities/customer.entity.ts:12:  @Column({ name: 'network_id', nullable: true }) networkId: string;
+/opt/suporte-tecnico/backend/src/modules/customers/entities/customer.entity.ts:43:  @Column({ name: 'client_id' }) clientId: string;
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:57:  private async assertNetworkBelongsToTenant(tenantId: string, networkId?: string | null) {
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:58:    if (!networkId) return;
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:62:      [tenantId, networkId],
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:83:    await this.assertNetworkBelongsToTenant(tenantId, (dto as any).networkId);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:96:      search, status, city, state, page = 1, perPage = 20, networkId,
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:112:    if (networkId) qb.andWhere('c.network_id = :networkId', { networkId });
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:143:    await this.assertNetworkBelongsToTenant(tenantId, (dto as any).networkId);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:195:  async createContact(tenantId: string, clientId: string, dto: CreateContactDto) {
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:196:    await this.getClientOrFail(tenantId, clientId);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:204:      clientId,
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:211:  async findContacts(tenantId: string, clientId: string) {
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:212:    await this.getClientOrFail(tenantId, clientId);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:216:      .andWhere('ct.client_id = :clientId', { clientId })
+/opt/suporte-tecnico/backend/src/modules/customers/dto/customer.dto.ts:10:  @ApiPropertyOptional() @IsOptional() @IsString() networkId?: string;
+/opt/suporte-tecnico/backend/src/modules/customers/dto/customer.dto.ts:55:  @IsOptional() @IsString() networkId?: string;
+/opt/suporte-tecnico/backend/src/modules/knowledge/entities/knowledge.entity.ts:41:  categoryId: string;
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:23:  private async assertCategoryBelongsToTenant(tenantId: string, categoryId?: string | null) {
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:24:    if (!categoryId) return;
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:27:      where: { id: categoryId, tenantId },
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:52:    await this.assertCategoryBelongsToTenant(tenantId, dto.categoryId);
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:75:    if (filters.categoryId) {
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:76:      qb.andWhere('a.category_id = :c', { c: filters.categoryId });
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:101:    await this.assertCategoryBelongsToTenant(tenantId, dto.categoryId);
+/opt/suporte-tecnico/backend/src/modules/auth/guards/jwt-auth.guard.ts:45:    request.userId =
+/opt/suporte-tecnico/backend/src/modules/auth/guards/jwt-auth.guard.ts:47:      user.userId ||
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:40:  private async assertClientBelongsToTenant(tenantId: string, clientId?: string | null) {
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:41:    if (!clientId) return;
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:45:      [tenantId, clientId],
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:53:  private async assertUserBelongsToTenant(tenantId: string, userId?: string | null) {
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:54:    if (!userId) return;
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:62:          [tenantId, userId],
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:72:  private async assertContractBelongsToTenant(tenantId: string, contractId?: string | null) {
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:73:    if (!contractId) return;
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:74:    await this.contractsService.findOne(tenantId, contractId);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:77:  async create(tenantId: string, userId: string, userName: string, dto: CreateTicketDto): Promise<Ticket> {
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:78:    await this.assertClientBelongsToTenant(tenantId, (dto as any).clientId);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:79:    await this.assertUserBelongsToTenant(tenantId, (dto as any).assignedTo);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:80:    await this.assertContractBelongsToTenant(tenantId, (dto as any).contractId);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:87:    if (dto.contractId) {
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:89:        const contract = await this.contractsService.findOne(tenantId, dto.contractId);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:93:    } else if (dto.clientId) {
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:94:      const contract = await this.contractsService.findActiveContractForClient(tenantId, dto.clientId);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:98:        dto.contractId = contract.id;
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:120:      authorId: userId,
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:131:    const { page = 1, perPage = 20, status, priority, assignedTo, clientId, search } = filters;
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:141:    if (assignedTo) qb.andWhere('t.assigned_to = :assignedTo', { assignedTo });
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:142:    if (clientId) qb.andWhere('t.client_id = :clientId', { clientId });
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:159:  async update(tenantId: string, id: string, userId: string, userName: string, dto: UpdateTicketDto): Promise<Ticket> {
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:163:    await this.assertClientBelongsToTenant(tenantId, (dto as any).clientId);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:164:    await this.assertUserBelongsToTenant(tenantId, (dto as any).assignedTo);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:165:    await this.assertContractBelongsToTenant(tenantId, (dto as any).contractId);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:172:      if (ticket.contractId && ticket.timeSpentMin > 0) {
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:173:        await this.contractsService.findOne(tenantId, ticket.contractId);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:174:        await this.contractsService.consumeHours(ticket.contractId, ticket.timeSpentMin);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:188:        authorId: userId,
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:203:    ticket.assignedTo = techId;
+/opt/suporte-tecnico/backend/src/modules/tickets/entities/ticket.entity.ts:42:  clientId: string;
+/opt/suporte-tecnico/backend/src/modules/tickets/entities/ticket.entity.ts:48:  contractId: string;
+/opt/suporte-tecnico/backend/src/modules/tickets/entities/ticket.entity.ts:51:  assignedTo: string;
+/opt/suporte-tecnico/backend/src/modules/tickets/dto/ticket.dto.ts:6:  clientId: string;
+/opt/suporte-tecnico/backend/src/modules/tickets/dto/ticket.dto.ts:14:  contractId?: string;
+/opt/suporte-tecnico/backend/src/modules/tickets/dto/ticket.dto.ts:18:  assignedTo?: string;
+/opt/suporte-tecnico/backend/src/modules/tickets/dto/ticket.dto.ts:54:  assignedTo?: string;
+/opt/suporte-tecnico/backend/src/modules/tickets/dto/ticket.dto.ts:94:  assignedTo?: string;
+/opt/suporte-tecnico/backend/src/modules/tickets/dto/ticket.dto.ts:98:  clientId?: string;
+/opt/suporte-tecnico/backend/src/modules/alerts/alerts.service.ts:17:    await this.sendAlert('email', ticket.assignedTo, `SLA em risco: ${ticket.ticketNumber}`, `O ticket está próximo de violar o SLA.`);
+/opt/suporte-tecnico/backend/src/modules/alerts/alerts.service.ts:21:    await this.sendAlert('email', ticket.assignedTo, `SLA VIOLADO: ${ticket.ticketNumber}`, `O SLA do ticket foi violado.`);
+
+==================================================
+8. Redis/cache sem prefixo tenant
+==================================================
+/opt/suporte-tecnico/backend/src/common/middlewares/tenant.middleware.ts:18:        const secret  = this.cfg.get('JWT_SECRET', 'suporte-tecnico-jwt-secret-2024-change-in-prod');
+/opt/suporte-tecnico/backend/src/app.module.ts:28:        host:     cfg.get('DB_HOST', 'localhost'),
+/opt/suporte-tecnico/backend/src/app.module.ts:30:        username: cfg.get('DB_USER', 'suporte'),
+/opt/suporte-tecnico/backend/src/app.module.ts:31:        password: cfg.get('DB_PASSWORD', 'suporte123'),
+/opt/suporte-tecnico/backend/src/app.module.ts:32:        database: cfg.get('DB_NAME', 'suporte_tecnico'),
+/opt/suporte-tecnico/backend/src/app.module.ts:36:        ssl: cfg.get('DB_SSL') === 'true' ? { rejectUnauthorized: false } : false,
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.service.ts:91:      .set({ status: ContractStatus.EXPIRED })
+/opt/suporte-tecnico/backend/src/modules/auth/strategies/jwt.strategy.ts:17:      secretOrKey: cfg.get(
+/opt/suporte-tecnico/backend/src/modules/auth/auth.service.ts:37:        secret: this.cfg.get('JWT_REFRESH_SECRET', 'suporte-tecnico-refresh-secret-2024'),
+/opt/suporte-tecnico/backend/src/modules/auth/auth.service.ts:74:    const secret  = this.cfg.get('JWT_SECRET', 'suporte-tecnico-jwt-secret-2024-change-in-prod');
+/opt/suporte-tecnico/backend/src/modules/auth/auth.service.ts:75:    const refresh = this.cfg.get('JWT_REFRESH_SECRET', 'suporte-tecnico-refresh-secret-2024');
+/opt/suporte-tecnico/backend/src/modules/auth/auth.module.ts:18:        secret: cfg.get('JWT_SECRET', 'suporte-tecnico-jwt-secret-2024-change-in-prod'),
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:313:      .set({ status: TicketStatus.CLOSED, closedAt: new Date() })
+
+==================================================
+9. RabbitMQ/filas/eventos
+==================================================
+/opt/suporte-tecnico/backend/src/app.module.ts:60:  configure(consumer: MiddlewareConsumer) {
+/opt/suporte-tecnico/backend/src/app.module.ts:61:    consumer.apply(TenantMiddleware).forRoutes('*');
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.service.ts:46:  async consumeHours(id: string, minutes: number): Promise<void> {
+/opt/suporte-tecnico/backend/src/modules/knowledge/entities/knowledge.entity.ts:55:  @Column({ default: 'published' })
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:122:      .andWhere('a.status = :published', { published: 'published' })
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:174:        await this.contractsService.consumeHours(ticket.contractId, ticket.timeSpentMin);
+
+==================================================
+10. guards/strategies/auth
+==================================================
+/opt/suporte-tecnico/backend/src/common/middlewares/tenant.middleware.ts:13:  use(req: Request & { tenantId?: string; user?: any }, _res: Response, next: NextFunction) {
+/opt/suporte-tecnico/backend/src/common/middlewares/tenant.middleware.ts:20:        if (payload?.tenantId) {
+/opt/suporte-tecnico/backend/src/common/middlewares/tenant.middleware.ts:21:          req.tenantId = payload.tenantId;
+/opt/suporte-tecnico/backend/src/modules/contracts/entities/contract.entity.ts:25:  @Column({ name: 'tenant_id' })
+/opt/suporte-tecnico/backend/src/modules/contracts/entities/contract.entity.ts:26:  tenantId: string;
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.controller.ts:2:import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.controller.ts:6:@UseGuards(JwtAuthGuard)
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.controller.ts:13:    return this.contractsService.create(req.tenantId, dto);
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.controller.ts:18:    return this.contractsService.findByTenant(req.tenantId);
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.controller.ts:23:    return this.contractsService.getExpiringSoon(req.tenantId);
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.controller.ts:28:    return this.contractsService.findOne(req.tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.controller.ts:33:    return this.contractsService.getConsumption(req.tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.controller.ts:38:    return this.contractsService.update(req.tenantId, id, dto);
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.service.ts:15:  async create(tenantId: string, dto: CreateContractDto): Promise<Contract> {
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.service.ts:16:    const contract = this.contractRepo.create({ ...dto, tenantId });
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.service.ts:20:  async findByTenant(tenantId: string): Promise<Contract[]> {
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.service.ts:22:      where: { tenantId },
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.service.ts:27:  async findOne(tenantId: string, id: string): Promise<Contract> {
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.service.ts:28:    const contract = await this.contractRepo.findOne({ where: { id, tenantId } });
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.service.ts:33:  async update(tenantId: string, id: string, dto: UpdateContractDto): Promise<Contract> {
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.service.ts:34:    const contract = await this.findOne(tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.service.ts:39:  async findActiveContractForClient(tenantId: string, clientId: string): Promise<Contract | null> {
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.service.ts:41:      where: { tenantId, clientId, status: ContractStatus.ACTIVE },
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.service.ts:51:  async getConsumption(tenantId: string, id: string) {
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.service.ts:52:    const contract = await this.findOne(tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.service.ts:72:  async getExpiringSoon(tenantId: string, days = 30): Promise<Contract[]> {
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.service.ts:77:      .where('c.tenant_id = :tenantId', { tenantId })
+/opt/suporte-tecnico/backend/src/modules/team/team.controller.ts:2:import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+/opt/suporte-tecnico/backend/src/modules/team/team.controller.ts:5:@UseGuards(JwtAuthGuard)
+/opt/suporte-tecnico/backend/src/modules/team/team.controller.ts:12:    return this.teamService.findTechnicians(req.tenantId);
+/opt/suporte-tecnico/backend/src/modules/team/team.controller.ts:17:    return this.teamService.findOne(req.tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/team/team.controller.ts:22:    return this.teamService.update(req.tenantId, id, dto);
+/opt/suporte-tecnico/backend/src/modules/team/team.service.ts:13:  async findTechnicians(tenantId: string) {
+/opt/suporte-tecnico/backend/src/modules/team/team.service.ts:15:      where: { tenantId, status: 'active' as any },
+/opt/suporte-tecnico/backend/src/modules/team/team.service.ts:20:  async findOne(tenantId: string, id: string) {
+/opt/suporte-tecnico/backend/src/modules/team/team.service.ts:22:      where: { id, tenantId },
+/opt/suporte-tecnico/backend/src/modules/team/team.service.ts:27:  async update(tenantId: string, id: string, dto: any) {
+/opt/suporte-tecnico/backend/src/modules/team/team.service.ts:28:    await this.userRepo.update({ id, tenantId }, dto);
+/opt/suporte-tecnico/backend/src/modules/team/team.service.ts:29:    return this.findOne(tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/networks/network.entity.ts:6:  @Column({ name: 'tenant_id' }) tenantId: string;
+/opt/suporte-tecnico/backend/src/modules/networks/networks.controller.ts:2:import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+/opt/suporte-tecnico/backend/src/modules/networks/networks.controller.ts:5:@UseGuards(JwtAuthGuard)
+/opt/suporte-tecnico/backend/src/modules/networks/networks.controller.ts:12:    return this.svc.create(req.tenantId, dto);
+/opt/suporte-tecnico/backend/src/modules/networks/networks.controller.ts:17:    return this.svc.findAll(req.tenantId, search);
+/opt/suporte-tecnico/backend/src/modules/networks/networks.controller.ts:22:    return this.svc.findOne(req.tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/networks/networks.controller.ts:27:    return this.svc.update(req.tenantId, id, dto);
+/opt/suporte-tecnico/backend/src/modules/networks/networks.controller.ts:33:    return this.svc.remove(req.tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/networks/networks.service.ts:10:  private async nextCode(tenantId: string): Promise<string> {
+/opt/suporte-tecnico/backend/src/modules/networks/networks.service.ts:12:      .where('n.tenant_id = :tenantId', { tenantId })
+/opt/suporte-tecnico/backend/src/modules/networks/networks.service.ts:20:  async create(tenantId: string, dto: any) {
+/opt/suporte-tecnico/backend/src/modules/networks/networks.service.ts:21:    const code = await this.nextCode(tenantId);
+/opt/suporte-tecnico/backend/src/modules/networks/networks.service.ts:22:    return this.repo.save(this.repo.create({ ...dto, tenantId, code }));
+/opt/suporte-tecnico/backend/src/modules/networks/networks.service.ts:25:  async findAll(tenantId: string, search?: string) {
+/opt/suporte-tecnico/backend/src/modules/networks/networks.service.ts:27:      .where('n.tenant_id = :tenantId', { tenantId })
+/opt/suporte-tecnico/backend/src/modules/networks/networks.service.ts:34:  async findOne(tenantId: string, id: string) {
+/opt/suporte-tecnico/backend/src/modules/networks/networks.service.ts:35:    const n = await this.repo.findOne({ where: { id, tenantId } });
+/opt/suporte-tecnico/backend/src/modules/networks/networks.service.ts:40:  async update(tenantId: string, id: string, dto: any) {
+/opt/suporte-tecnico/backend/src/modules/networks/networks.service.ts:41:    await this.findOne(tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/networks/networks.service.ts:42:    await this.repo.update({ id, tenantId }, dto);
+/opt/suporte-tecnico/backend/src/modules/networks/networks.service.ts:43:    return this.findOne(tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/networks/networks.service.ts:46:  async remove(tenantId: string, id: string) {
+/opt/suporte-tecnico/backend/src/modules/networks/networks.service.ts:47:    await this.findOne(tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/networks/networks.service.ts:48:    await this.repo.update({ id, tenantId }, { status: 'inactive' });
+/opt/suporte-tecnico/backend/src/modules/tenants/tenants.controller.ts:2:import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+/opt/suporte-tecnico/backend/src/modules/tenants/tenants.controller.ts:5:@UseGuards(JwtAuthGuard)
+/opt/suporte-tecnico/backend/src/modules/tenants/tenants.controller.ts:17:  me(@Request() req: any) { return this.svc.findOne(req.tenantId); }
+/opt/suporte-tecnico/backend/src/modules/devices/entities/device.entity.ts:25:  @Column({ name: 'tenant_id' })
+/opt/suporte-tecnico/backend/src/modules/devices/entities/device.entity.ts:26:  tenantId: string;
+/opt/suporte-tecnico/backend/src/modules/devices/entities/device.entity.ts:73:  @Column({ name: 'tenant_id' })
+/opt/suporte-tecnico/backend/src/modules/devices/entities/device.entity.ts:74:  tenantId: string;
+/opt/suporte-tecnico/backend/src/modules/devices/devices.service.ts:15:  async create(tenantId: string, dto: Partial<Device>): Promise<Device> {
+/opt/suporte-tecnico/backend/src/modules/devices/devices.service.ts:17:    const device = this.deviceRepo.create({ ...dto, tenantId, heartbeatToken });
+/opt/suporte-tecnico/backend/src/modules/devices/devices.service.ts:21:  async findAll(tenantId: string, clientId?: string): Promise<Device[]> {
+/opt/suporte-tecnico/backend/src/modules/devices/devices.service.ts:22:    const where: any = { tenantId };
+/opt/suporte-tecnico/backend/src/modules/devices/devices.service.ts:27:  async findOne(tenantId: string, id: string): Promise<Device> {
+/opt/suporte-tecnico/backend/src/modules/devices/devices.service.ts:28:    const device = await this.deviceRepo.findOne({ where: { id, tenantId } });
+/opt/suporte-tecnico/backend/src/modules/devices/devices.service.ts:33:  async update(tenantId: string, id: string, dto: Partial<Device>): Promise<Device> {
+/opt/suporte-tecnico/backend/src/modules/devices/devices.service.ts:34:    const device = await this.findOne(tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/devices/devices.service.ts:58:        tenantId: device.tenantId,
+/opt/suporte-tecnico/backend/src/modules/devices/devices.service.ts:69:  async getEvents(tenantId: string, deviceId: string, limit = 50): Promise<DeviceEvent[]> {
+/opt/suporte-tecnico/backend/src/modules/devices/devices.service.ts:70:    await this.findOne(tenantId, deviceId);
+/opt/suporte-tecnico/backend/src/modules/devices/devices.service.ts:72:      where: { tenantId, deviceId },
+/opt/suporte-tecnico/backend/src/modules/devices/devices.service.ts:78:  async getOfflineDevices(tenantId: string): Promise<Device[]> {
+/opt/suporte-tecnico/backend/src/modules/devices/devices.service.ts:79:    return this.deviceRepo.find({ where: { tenantId, status: DeviceStatus.OFFLINE } });
+/opt/suporte-tecnico/backend/src/modules/devices/devices.service.ts:82:  async getSummary(tenantId: string) {
+/opt/suporte-tecnico/backend/src/modules/devices/devices.service.ts:83:    const devices = await this.findAll(tenantId);
+/opt/suporte-tecnico/backend/src/modules/devices/devices.service.ts:92:  async recordEvent(tenantId: string, deviceId: string, eventType: string, severity: string, message: string, metadata?: any): Promise<DeviceEvent> {
+/opt/suporte-tecnico/backend/src/modules/devices/devices.service.ts:93:    return this.eventRepo.save(this.eventRepo.create({ tenantId, deviceId, eventType, severity, message, metadata }));
+/opt/suporte-tecnico/backend/src/modules/devices/devices.service.ts:108:        tenantId: device.tenantId,
+/opt/suporte-tecnico/backend/src/modules/devices/devices.controller.ts:5:import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+/opt/suporte-tecnico/backend/src/modules/devices/devices.controller.ts:12:  @UseGuards(JwtAuthGuard)
+/opt/suporte-tecnico/backend/src/modules/devices/devices.controller.ts:15:    return this.devicesService.create(req.tenantId, dto);
+/opt/suporte-tecnico/backend/src/modules/devices/devices.controller.ts:18:  @UseGuards(JwtAuthGuard)
+/opt/suporte-tecnico/backend/src/modules/devices/devices.controller.ts:21:    return this.devicesService.findAll(req.tenantId, clientId);
+/opt/suporte-tecnico/backend/src/modules/devices/devices.controller.ts:24:  @UseGuards(JwtAuthGuard)
+/opt/suporte-tecnico/backend/src/modules/devices/devices.controller.ts:27:    return this.devicesService.getSummary(req.tenantId);
+/opt/suporte-tecnico/backend/src/modules/devices/devices.controller.ts:30:  @UseGuards(JwtAuthGuard)
+/opt/suporte-tecnico/backend/src/modules/devices/devices.controller.ts:33:    return this.devicesService.getOfflineDevices(req.tenantId);
+/opt/suporte-tecnico/backend/src/modules/devices/devices.controller.ts:36:  @UseGuards(JwtAuthGuard)
+/opt/suporte-tecnico/backend/src/modules/devices/devices.controller.ts:39:    return this.devicesService.findOne(req.tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/devices/devices.controller.ts:42:  @UseGuards(JwtAuthGuard)
+/opt/suporte-tecnico/backend/src/modules/devices/devices.controller.ts:45:    return this.devicesService.update(req.tenantId, id, dto);
+/opt/suporte-tecnico/backend/src/modules/devices/devices.controller.ts:48:  @UseGuards(JwtAuthGuard)
+/opt/suporte-tecnico/backend/src/modules/devices/devices.controller.ts:51:    return this.devicesService.getEvents(req.tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/customers/entities/customer.entity.ts:10:  @Column({ name: 'tenant_id' }) tenantId: string;
+/opt/suporte-tecnico/backend/src/modules/customers/entities/customer.entity.ts:42:  @Column({ name: 'tenant_id' }) tenantId: string;
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:19:  private async nextCode(tenantId: string): Promise<string> {
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:21:      .where('c.tenant_id = :tenantId', { tenantId })
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:30:  private async getClientOrFail(tenantId: string, id: string): Promise<Client> {
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:32:      where: { id, tenantId },
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:44:  private async getContactOrFail(tenantId: string, contactId: string): Promise<Contact> {
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:46:      where: { id: contactId, tenantId },
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:57:  private async assertNetworkBelongsToTenant(tenantId: string, networkId?: string | null) {
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:61:      'SELECT id FROM networks WHERE tenant_id = $1 AND id = $2 LIMIT 1',
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:62:      [tenantId, networkId],
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:70:  async create(tenantId: string, dto: CreateClientDto) {
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:74:        .where('c.tenant_id = :tenantId', { tenantId })
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:83:    await this.assertNetworkBelongsToTenant(tenantId, (dto as any).networkId);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:85:    const code = await this.nextCode(tenantId);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:89:      tenantId,
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:94:  async findAll(tenantId: string, filter: FilterClientsDto & PaginationDto) {
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:101:      .where('c.tenant_id = :tenantId', { tenantId })
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:124:  async findOne(tenantId: string, id: string) {
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:125:    return this.getClientOrFail(tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:128:  async update(tenantId: string, id: string, dto: UpdateClientDto) {
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:132:        .where('c.tenant_id = :tenantId', { tenantId })
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:142:    await this.getClientOrFail(tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:143:    await this.assertNetworkBelongsToTenant(tenantId, (dto as any).networkId);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:145:    await this.clients.update({ id, tenantId }, dto as any);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:147:    return this.getClientOrFail(tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:150:  async remove(tenantId: string, id: string) {
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:151:    await this.getClientOrFail(tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:154:      'SELECT id FROM tickets WHERE tenant_id = $1 AND client_id = $2 LIMIT 1',
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:155:      [tenantId, id],
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:159:      'SELECT id FROM devices WHERE tenant_id = $1 AND client_id = $2 LIMIT 1',
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:160:      [tenantId, id],
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:164:      'SELECT id FROM contracts WHERE tenant_id = $1 AND client_id = $2 LIMIT 1',
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:165:      [tenantId, id],
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:169:      "SELECT id FROM contacts WHERE tenant_id = $1 AND client_id = $2 AND status != 'inactive' LIMIT 1",
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:170:      [tenantId, id],
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:180:      await this.clients.update({ id, tenantId }, { status: 'inactive' });
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:187:    await this.clients.delete({ id, tenantId });
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:195:  async createContact(tenantId: string, clientId: string, dto: CreateContactDto) {
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:196:    await this.getClientOrFail(tenantId, clientId);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:203:      tenantId,
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:211:  async findContacts(tenantId: string, clientId: string) {
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:212:    await this.getClientOrFail(tenantId, clientId);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:215:      .where('ct.tenant_id = :tenantId', { tenantId })
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:222:  async updateContact(tenantId: string, contactId: string, dto: UpdateContactDto) {
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:223:    await this.getContactOrFail(tenantId, contactId);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:232:    await this.contacts.update({ id: contactId, tenantId }, updates);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:234:    return this.contacts.findOne({ where: { id: contactId, tenantId } });
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:237:  async removeContact(tenantId: string, contactId: string) {
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:238:    await this.getContactOrFail(tenantId, contactId);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:239:    await this.contacts.update({ id: contactId, tenantId }, { status: 'inactive' });
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:242:  findContactByWhatsapp(tenantId: string, whatsapp: string) {
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:244:      where: { tenantId, whatsapp },
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:249:  findContactByEmail(tenantId: string, email: string) {
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:251:      where: { tenantId, email },
+/opt/suporte-tecnico/backend/src/modules/customers/customers.controller.ts:5:import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+/opt/suporte-tecnico/backend/src/modules/customers/customers.controller.ts:12:@UseGuards(JwtAuthGuard)
+/opt/suporte-tecnico/backend/src/modules/customers/customers.controller.ts:19:    return this.svc.create(req.tenantId, dto);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.controller.ts:24:    return this.svc.findAll(req.tenantId, q);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.controller.ts:29:    return this.svc.findOne(req.tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.controller.ts:34:    return this.svc.update(req.tenantId, id, dto);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.controller.ts:40:    return this.svc.remove(req.tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.controller.ts:45:    return this.svc.createContact(req.tenantId, cId, dto);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.controller.ts:50:    return this.svc.findContacts(req.tenantId, cId);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.controller.ts:55:    return this.svc.updateContact(req.tenantId, cid, dto);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.controller.ts:61:    return this.svc.removeContact(req.tenantId, cid);
+/opt/suporte-tecnico/backend/src/modules/knowledge/entities/knowledge.entity.ts:10:  @Column({ name: 'tenant_id' })
+/opt/suporte-tecnico/backend/src/modules/knowledge/entities/knowledge.entity.ts:11:  tenantId: string;
+/opt/suporte-tecnico/backend/src/modules/knowledge/entities/knowledge.entity.ts:37:  @Column({ name: 'tenant_id' })
+/opt/suporte-tecnico/backend/src/modules/knowledge/entities/knowledge.entity.ts:38:  tenantId: string;
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.controller.ts:4:import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.controller.ts:7:@UseGuards(JwtAuthGuard)
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.controller.ts:14:    return this.knowledgeService.search(req.tenantId, q || '');
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.controller.ts:19:    return this.knowledgeService.getCategories(req.tenantId);
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.controller.ts:24:    return this.knowledgeService.createCategory(req.tenantId, dto);
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.controller.ts:29:    return this.knowledgeService.findArticles(req.tenantId, filters);
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.controller.ts:34:    return this.knowledgeService.createArticle(req.tenantId, req.user.id, dto);
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.controller.ts:39:    return this.knowledgeService.findOne(req.tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.controller.ts:44:    return this.knowledgeService.update(req.tenantId, id, dto);
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.controller.ts:49:    return this.knowledgeService.delete(req.tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:13:  private async getArticleOrFail(tenantId: string, id: string): Promise<KbArticle> {
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:14:    const article = await this.artRepo.findOne({ where: { id, tenantId } });
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:23:  private async assertCategoryBelongsToTenant(tenantId: string, categoryId?: string | null) {
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:27:      where: { id: categoryId, tenantId },
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:35:  async createCategory(tenantId: string, dto: Partial<KbCategory>) {
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:39:        tenantId,
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:44:  async getCategories(tenantId: string) {
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:46:      where: { tenantId },
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:51:  async createArticle(tenantId: string, authorId: string, dto: Partial<KbArticle>) {
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:52:    await this.assertCategoryBelongsToTenant(tenantId, dto.categoryId);
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:56:      tenantId,
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:63:  async findArticles(tenantId: string, filters: any = {}) {
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:65:      .where('a.tenant_id = :tenantId', { tenantId })
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:86:  async findOne(tenantId: string, id: string) {
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:87:    const article = await this.getArticleOrFail(tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:90:      { id: article.id, tenantId },
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:98:  async update(tenantId: string, id: string, dto: Partial<KbArticle>) {
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:99:    const article = await this.getArticleOrFail(tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:101:    await this.assertCategoryBelongsToTenant(tenantId, dto.categoryId);
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:108:  async delete(tenantId: string, id: string) {
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:109:    await this.getArticleOrFail(tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:112:      { id, tenantId },
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:119:  async search(tenantId: string, query: string) {
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:121:      .where('a.tenant_id = :tenantId', { tenantId })
+/opt/suporte-tecnico/backend/src/modules/auth/user.entity.ts:13:  @Column({ name: 'tenant_id', nullable: true }) tenantId: string;
+/opt/suporte-tecnico/backend/src/modules/auth/strategies/jwt.strategy.ts:2:import { PassportStrategy } from '@nestjs/passport';
+/opt/suporte-tecnico/backend/src/modules/auth/strategies/jwt.strategy.ts:10:export class JwtStrategy extends PassportStrategy(Strategy) {
+/opt/suporte-tecnico/backend/src/modules/auth/strategies/jwt.strategy.ts:28:        tenantId: payload.tenantId || payload.tenant_id,
+/opt/suporte-tecnico/backend/src/modules/auth/strategies/jwt.strategy.ts:40:      tenantId: user.tenantId,
+/opt/suporte-tecnico/backend/src/modules/auth/guards/jwt-auth.guard.ts:13:export class JwtAuthGuard extends AuthGuard('jwt') {
+/opt/suporte-tecnico/backend/src/modules/auth/guards/jwt-auth.guard.ts:40:    request.tenantId =
+/opt/suporte-tecnico/backend/src/modules/auth/guards/jwt-auth.guard.ts:41:      user.tenantId ||
+/opt/suporte-tecnico/backend/src/modules/auth/guards/jwt-auth.guard.ts:42:      user.tenant_id ||
+/opt/suporte-tecnico/backend/src/modules/auth/guards/jwt-auth.guard.ts:50:    if (!request.tenantId) {
+/opt/suporte-tecnico/backend/src/modules/auth/auth.service.ts:29:      user: { id: user.id, name: user.name, email: user.email, role: user.role, tenantId: user.tenantId },
+/opt/suporte-tecnico/backend/src/modules/auth/auth.service.ts:47:  async createUser(tenantId: string, dto: CreateUserDto) {
+/opt/suporte-tecnico/backend/src/modules/auth/auth.service.ts:50:    const user = this.users.create({ ...dto, tenantId, role: dto.role as any });
+/opt/suporte-tecnico/backend/src/modules/auth/auth.service.ts:55:  async findUsers(tenantId: string) {
+/opt/suporte-tecnico/backend/src/modules/auth/auth.service.ts:56:    return (await this.users.find({ where: { tenantId }, order: { name: 'ASC' } }))
+/opt/suporte-tecnico/backend/src/modules/auth/auth.service.ts:60:  async findOne(tenantId: string, id: string) {
+/opt/suporte-tecnico/backend/src/modules/auth/auth.service.ts:61:    const u = await this.users.findOne({ where: { id, tenantId } });
+/opt/suporte-tecnico/backend/src/modules/auth/auth.service.ts:66:  async updateUser(tenantId: string, id: string, data: Partial<User>) {
+/opt/suporte-tecnico/backend/src/modules/auth/auth.service.ts:67:    await this.findOne(tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/auth/auth.service.ts:68:    await this.users.update({ id, tenantId }, data as any);
+/opt/suporte-tecnico/backend/src/modules/auth/auth.service.ts:69:    return this.findOne(tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/auth/auth.service.ts:73:    const payload = { sub: user.id, email: user.email, role: user.role, tenantId: user.tenantId, name: user.name };
+/opt/suporte-tecnico/backend/src/modules/auth/auth.module.ts:9:import { JwtAuthGuard } from './guards/jwt-auth.guard';
+/opt/suporte-tecnico/backend/src/modules/auth/auth.module.ts:25:  providers: [AuthService, JwtStrategy, JwtAuthGuard],
+/opt/suporte-tecnico/backend/src/modules/auth/auth.module.ts:26:  exports: [AuthService, JwtModule, JwtAuthGuard],
+/opt/suporte-tecnico/backend/src/modules/auth/auth.controller.ts:8:import { JwtAuthGuard } from './guards/jwt-auth.guard';
+/opt/suporte-tecnico/backend/src/modules/auth/auth.controller.ts:29:  @UseGuards(JwtAuthGuard)
+/opt/suporte-tecnico/backend/src/modules/auth/auth.controller.ts:35:  @UseGuards(JwtAuthGuard, RolesGuard)
+/opt/suporte-tecnico/backend/src/modules/auth/auth.controller.ts:41:    return this.auth.createUser(req.user.tenantId, dto);
+/opt/suporte-tecnico/backend/src/modules/auth/auth.controller.ts:44:  @UseGuards(JwtAuthGuard, RolesGuard)
+/opt/suporte-tecnico/backend/src/modules/auth/auth.controller.ts:49:  listUsers(@Request() req: any) { return this.auth.findUsers(req.user.tenantId); }
+/opt/suporte-tecnico/backend/src/modules/auth/auth.controller.ts:51:  @UseGuards(JwtAuthGuard, RolesGuard)
+/opt/suporte-tecnico/backend/src/modules/auth/auth.controller.ts:57:    return this.auth.updateUser(req.user.tenantId, id, dto as any);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:28:  private async generateTicketNumber(tenantId: string): Promise<string> {
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:30:    const count = await this.ticketRepo.count({ where: { tenantId } });
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:34:  private async getTicketOrFail(tenantId: string, id: string): Promise<Ticket> {
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:35:    const ticket = await this.ticketRepo.findOne({ where: { id, tenantId } });
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:40:  private async assertClientBelongsToTenant(tenantId: string, clientId?: string | null) {
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:44:      'SELECT id FROM clients WHERE tenant_id = $1 AND id = $2 LIMIT 1',
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:45:      [tenantId, clientId],
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:53:  private async assertUserBelongsToTenant(tenantId: string, userId?: string | null) {
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:61:          `SELECT id FROM ${table} WHERE tenant_id = $1 AND id = $2 LIMIT 1`,
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:62:          [tenantId, userId],
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:72:  private async assertContractBelongsToTenant(tenantId: string, contractId?: string | null) {
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:74:    await this.contractsService.findOne(tenantId, contractId);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:77:  async create(tenantId: string, userId: string, userName: string, dto: CreateTicketDto): Promise<Ticket> {
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:78:    await this.assertClientBelongsToTenant(tenantId, (dto as any).clientId);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:79:    await this.assertUserBelongsToTenant(tenantId, (dto as any).assignedTo);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:80:    await this.assertContractBelongsToTenant(tenantId, (dto as any).contractId);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:82:    const ticketNumber = await this.generateTicketNumber(tenantId);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:89:        const contract = await this.contractsService.findOne(tenantId, dto.contractId);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:94:      const contract = await this.contractsService.findActiveContractForClient(tenantId, dto.clientId);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:109:      tenantId,
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:118:      tenantId,
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:130:  async findAll(tenantId: string, filters: FilterTicketsDto) {
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:134:      .where('t.tenant_id = :tenantId', { tenantId })
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:149:  async findOne(tenantId: string, id: string): Promise<Ticket> {
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:150:    return this.getTicketOrFail(tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:153:  async findByNumber(tenantId: string, number: string): Promise<Ticket> {
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:154:    const ticket = await this.ticketRepo.findOne({ where: { ticketNumber: number, tenantId } });
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:159:  async update(tenantId: string, id: string, userId: string, userName: string, dto: UpdateTicketDto): Promise<Ticket> {
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:160:    const ticket = await this.getTicketOrFail(tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:163:    await this.assertClientBelongsToTenant(tenantId, (dto as any).clientId);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:164:    await this.assertUserBelongsToTenant(tenantId, (dto as any).assignedTo);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:165:    await this.assertContractBelongsToTenant(tenantId, (dto as any).contractId);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:173:        await this.contractsService.findOne(tenantId, ticket.contractId);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:186:        tenantId,
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:199:  async assign(tenantId: string, id: string, techId: string): Promise<Ticket> {
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:200:    const ticket = await this.getTicketOrFail(tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:201:    await this.assertUserBelongsToTenant(tenantId, techId);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:210:    tenantId: string,
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:217:    const ticket = await this.getTicketOrFail(tenantId, ticketId);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:230:      tenantId,
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:241:  async getMessages(tenantId: string, ticketId: string, includeInternal = true): Promise<TicketMessage[]> {
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:242:    await this.getTicketOrFail(tenantId, ticketId);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:245:      .where('m.tenant_id = :tenantId', { tenantId })
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:256:  async escalate(tenantId: string, id: string): Promise<Ticket> {
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:257:    const ticket = await this.getTicketOrFail(tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:263:  async getStats(tenantId: string) {
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:264:    const qb = this.ticketRepo.createQueryBuilder('t').where('t.tenant_id = :tenantId', { tenantId });
+/opt/suporte-tecnico/backend/src/modules/tickets/entities/ticket.entity.ts:35:  @Column({ name: 'tenant_id' })
+/opt/suporte-tecnico/backend/src/modules/tickets/entities/ticket.entity.ts:36:  tenantId: string;
+/opt/suporte-tecnico/backend/src/modules/tickets/entities/ticket.entity.ts:120:  @Column({ name: 'tenant_id' })
+/opt/suporte-tecnico/backend/src/modules/tickets/entities/ticket.entity.ts:121:  tenantId: string;
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.controller.ts:5:import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.controller.ts:9:@UseGuards(JwtAuthGuard)
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.controller.ts:16:    return this.ticketsService.create(req.tenantId, req.user.id, req.user.name, dto);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.controller.ts:21:    return this.ticketsService.findAll(req.tenantId, filters);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.controller.ts:26:    return this.ticketsService.getStats(req.tenantId);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.controller.ts:31:    return this.ticketsService.findOne(req.tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.controller.ts:36:    return this.ticketsService.update(req.tenantId, id, req.user.id, req.user.name, dto);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.controller.ts:41:    return this.ticketsService.assign(req.tenantId, id, body.techId);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.controller.ts:46:    return this.ticketsService.escalate(req.tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.controller.ts:51:    return this.ticketsService.getMessages(req.tenantId, id, internal !== 'false');
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.controller.ts:56:    return this.ticketsService.addMessage(req.tenantId, id, req.user.id, req.user.name, 'user', dto);
+/opt/suporte-tecnico/backend/src/modules/alerts/alerts.controller.ts:2:import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+/opt/suporte-tecnico/backend/src/modules/alerts/alerts.controller.ts:5:@UseGuards(JwtAuthGuard)
+/opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.service.ts:14:  async getSummary(tenantId: string) {
+/opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.service.ts:20:      this.ticketRepo.count({ where: { tenantId, status: TicketStatus.OPEN } }),
+/opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.service.ts:21:      this.ticketRepo.count({ where: { tenantId, status: TicketStatus.IN_PROGRESS } }),
+/opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.service.ts:22:      this.ticketRepo.count({ where: { tenantId, status: TicketStatus.WAITING_CLIENT } }),
+/opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.service.ts:24:        .where('t.tenant_id = :tenantId', { tenantId })
+/opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.service.ts:33:        .where('t.tenant_id = :tenantId', { tenantId })
+/opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.service.ts:38:        .where('t.tenant_id = :tenantId', { tenantId })
+/opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.service.ts:49:      this.deviceRepo.count({ where: { tenantId, status: DeviceStatus.ONLINE } }),
+/opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.service.ts:50:      this.deviceRepo.count({ where: { tenantId, status: DeviceStatus.OFFLINE } }),
+/opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.service.ts:56:  async getTicketsByPriority(tenantId: string) {
+/opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.service.ts:61:      .where('t.tenant_id = :tenantId', { tenantId })
+/opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.service.ts:67:  async getTicketTrend(tenantId: string, days = 7) {
+/opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.service.ts:75:        .where('t.tenant_id = :tenantId', { tenantId })
+/opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.service.ts:83:  async getSlaReport(tenantId: string) {
+/opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.service.ts:88:        .where('t.tenant_id = :tenantId', { tenantId })
+/opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.service.ts:93:        .where('t.tenant_id = :tenantId', { tenantId })
+/opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.controller.ts:2:import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+/opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.controller.ts:5:@UseGuards(JwtAuthGuard)
+/opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.controller.ts:12:    return this.dashboardService.getSummary(req.tenantId);
+/opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.controller.ts:17:    return this.dashboardService.getTicketsByPriority(req.tenantId);
+/opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.controller.ts:22:    return this.dashboardService.getTicketTrend(req.tenantId, days ? parseInt(days) : 7);
+/opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.controller.ts:27:    return this.dashboardService.getSlaReport(req.tenantId);
+
+==================================================
+11. cron jobs sem tenant explícito
+==================================================
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.service.ts:85:  @Cron(CronExpression.EVERY_DAY_AT_8AM)
+/opt/suporte-tecnico/backend/src/modules/devices/devices.service.ts:96:  @Cron('*/2 * * * *')
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:285:  @Cron('*/5 * * * *')
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:306:  @Cron('0 * * * *')
+
+==================================================
+12. includes/relations que podem trazer dados sem scoping
+==================================================
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:33:      relations: ['contacts'],
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:47:      relations: ['client'],
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:100:      .leftJoinAndSelect('c.contacts', 'ct', "ct.status != 'inactive'")
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:245:      relations: ['client'],
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:252:      relations: ['client'],
+
+==================================================
+13. updates/deletes por id sem tenant explícito na mesma linha
+==================================================
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:232:    await this.contacts.update({ id: contactId, tenantId }, updates);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:239:    await this.contacts.update({ id: contactId, tenantId }, { status: 'inactive' });
+
+==================================================
+14. searches com ILIKE/contains sem tenant aparente
+==================================================
+/opt/suporte-tecnico/backend/src/modules/networks/networks.service.ts:29:    if (search) qb.andWhere('n.name ILIKE :s', { s: `%${search}%` });
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:106:        '(c.company_name ILIKE :s OR c.trade_name ILIKE :s OR c.cnpj ILIKE :s OR c.email ILIKE :s OR c.code ILIKE :s)',
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:113:    if (city) qb.andWhere('c.city ILIKE :city', { city: `%${city}%` });
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:70:      qb.andWhere('(a.title ILIKE :s OR a.content ILIKE :s)', {
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:123:      .andWhere('(a.title ILIKE :q OR a.content ILIKE :q)', {
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:143:    if (search) qb.andWhere('(t.subject ILIKE :s OR t.ticket_number ILIKE :s)', { s: `%${search}%` });
+
+==================================================
+15. possíveis DTOs com tenantId/tenant_id
+==================================================
+/opt/suporte-tecnico/backend/src/common/middlewares/tenant.middleware.ts:13:  use(req: Request & { tenantId?: string; user?: any }, _res: Response, next: NextFunction) {
+/opt/suporte-tecnico/backend/src/common/middlewares/tenant.middleware.ts:20:        if (payload?.tenantId) {
+/opt/suporte-tecnico/backend/src/common/middlewares/tenant.middleware.ts:21:          req.tenantId = payload.tenantId;
+/opt/suporte-tecnico/backend/src/modules/contracts/entities/contract.entity.ts:25:  @Column({ name: 'tenant_id' })
+/opt/suporte-tecnico/backend/src/modules/contracts/entities/contract.entity.ts:26:  tenantId: string;
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.controller.ts:13:    return this.contractsService.create(req.tenantId, dto);
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.controller.ts:18:    return this.contractsService.findByTenant(req.tenantId);
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.controller.ts:23:    return this.contractsService.getExpiringSoon(req.tenantId);
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.controller.ts:28:    return this.contractsService.findOne(req.tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.controller.ts:33:    return this.contractsService.getConsumption(req.tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.controller.ts:38:    return this.contractsService.update(req.tenantId, id, dto);
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.service.ts:15:  async create(tenantId: string, dto: CreateContractDto): Promise<Contract> {
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.service.ts:16:    const contract = this.contractRepo.create({ ...dto, tenantId });
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.service.ts:20:  async findByTenant(tenantId: string): Promise<Contract[]> {
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.service.ts:22:      where: { tenantId },
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.service.ts:27:  async findOne(tenantId: string, id: string): Promise<Contract> {
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.service.ts:28:    const contract = await this.contractRepo.findOne({ where: { id, tenantId } });
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.service.ts:33:  async update(tenantId: string, id: string, dto: UpdateContractDto): Promise<Contract> {
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.service.ts:34:    const contract = await this.findOne(tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.service.ts:39:  async findActiveContractForClient(tenantId: string, clientId: string): Promise<Contract | null> {
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.service.ts:41:      where: { tenantId, clientId, status: ContractStatus.ACTIVE },
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.service.ts:51:  async getConsumption(tenantId: string, id: string) {
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.service.ts:52:    const contract = await this.findOne(tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.service.ts:72:  async getExpiringSoon(tenantId: string, days = 30): Promise<Contract[]> {
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.service.ts:77:      .where('c.tenant_id = :tenantId', { tenantId })
+/opt/suporte-tecnico/backend/src/modules/team/team.controller.ts:12:    return this.teamService.findTechnicians(req.tenantId);
+/opt/suporte-tecnico/backend/src/modules/team/team.controller.ts:17:    return this.teamService.findOne(req.tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/team/team.controller.ts:22:    return this.teamService.update(req.tenantId, id, dto);
+/opt/suporte-tecnico/backend/src/modules/team/team.service.ts:13:  async findTechnicians(tenantId: string) {
+/opt/suporte-tecnico/backend/src/modules/team/team.service.ts:15:      where: { tenantId, status: 'active' as any },
+/opt/suporte-tecnico/backend/src/modules/team/team.service.ts:20:  async findOne(tenantId: string, id: string) {
+/opt/suporte-tecnico/backend/src/modules/team/team.service.ts:22:      where: { id, tenantId },
+/opt/suporte-tecnico/backend/src/modules/team/team.service.ts:27:  async update(tenantId: string, id: string, dto: any) {
+/opt/suporte-tecnico/backend/src/modules/team/team.service.ts:28:    await this.userRepo.update({ id, tenantId }, dto);
+/opt/suporte-tecnico/backend/src/modules/team/team.service.ts:29:    return this.findOne(tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/networks/network.entity.ts:6:  @Column({ name: 'tenant_id' }) tenantId: string;
+/opt/suporte-tecnico/backend/src/modules/networks/networks.controller.ts:12:    return this.svc.create(req.tenantId, dto);
+/opt/suporte-tecnico/backend/src/modules/networks/networks.controller.ts:17:    return this.svc.findAll(req.tenantId, search);
+/opt/suporte-tecnico/backend/src/modules/networks/networks.controller.ts:22:    return this.svc.findOne(req.tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/networks/networks.controller.ts:27:    return this.svc.update(req.tenantId, id, dto);
+/opt/suporte-tecnico/backend/src/modules/networks/networks.controller.ts:33:    return this.svc.remove(req.tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/networks/networks.service.ts:10:  private async nextCode(tenantId: string): Promise<string> {
+/opt/suporte-tecnico/backend/src/modules/networks/networks.service.ts:12:      .where('n.tenant_id = :tenantId', { tenantId })
+/opt/suporte-tecnico/backend/src/modules/networks/networks.service.ts:20:  async create(tenantId: string, dto: any) {
+/opt/suporte-tecnico/backend/src/modules/networks/networks.service.ts:21:    const code = await this.nextCode(tenantId);
+/opt/suporte-tecnico/backend/src/modules/networks/networks.service.ts:22:    return this.repo.save(this.repo.create({ ...dto, tenantId, code }));
+/opt/suporte-tecnico/backend/src/modules/networks/networks.service.ts:25:  async findAll(tenantId: string, search?: string) {
+/opt/suporte-tecnico/backend/src/modules/networks/networks.service.ts:27:      .where('n.tenant_id = :tenantId', { tenantId })
+/opt/suporte-tecnico/backend/src/modules/networks/networks.service.ts:34:  async findOne(tenantId: string, id: string) {
+/opt/suporte-tecnico/backend/src/modules/networks/networks.service.ts:35:    const n = await this.repo.findOne({ where: { id, tenantId } });
+/opt/suporte-tecnico/backend/src/modules/networks/networks.service.ts:40:  async update(tenantId: string, id: string, dto: any) {
+/opt/suporte-tecnico/backend/src/modules/networks/networks.service.ts:41:    await this.findOne(tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/networks/networks.service.ts:42:    await this.repo.update({ id, tenantId }, dto);
+/opt/suporte-tecnico/backend/src/modules/networks/networks.service.ts:43:    return this.findOne(tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/networks/networks.service.ts:46:  async remove(tenantId: string, id: string) {
+/opt/suporte-tecnico/backend/src/modules/networks/networks.service.ts:47:    await this.findOne(tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/networks/networks.service.ts:48:    await this.repo.update({ id, tenantId }, { status: 'inactive' });
+/opt/suporte-tecnico/backend/src/modules/tenants/tenants.controller.ts:17:  me(@Request() req: any) { return this.svc.findOne(req.tenantId); }
+/opt/suporte-tecnico/backend/src/modules/devices/entities/device.entity.ts:25:  @Column({ name: 'tenant_id' })
+/opt/suporte-tecnico/backend/src/modules/devices/entities/device.entity.ts:26:  tenantId: string;
+/opt/suporte-tecnico/backend/src/modules/devices/entities/device.entity.ts:73:  @Column({ name: 'tenant_id' })
+/opt/suporte-tecnico/backend/src/modules/devices/entities/device.entity.ts:74:  tenantId: string;
+/opt/suporte-tecnico/backend/src/modules/devices/devices.service.ts:15:  async create(tenantId: string, dto: Partial<Device>): Promise<Device> {
+/opt/suporte-tecnico/backend/src/modules/devices/devices.service.ts:17:    const device = this.deviceRepo.create({ ...dto, tenantId, heartbeatToken });
+/opt/suporte-tecnico/backend/src/modules/devices/devices.service.ts:21:  async findAll(tenantId: string, clientId?: string): Promise<Device[]> {
+/opt/suporte-tecnico/backend/src/modules/devices/devices.service.ts:22:    const where: any = { tenantId };
+/opt/suporte-tecnico/backend/src/modules/devices/devices.service.ts:27:  async findOne(tenantId: string, id: string): Promise<Device> {
+/opt/suporte-tecnico/backend/src/modules/devices/devices.service.ts:28:    const device = await this.deviceRepo.findOne({ where: { id, tenantId } });
+/opt/suporte-tecnico/backend/src/modules/devices/devices.service.ts:33:  async update(tenantId: string, id: string, dto: Partial<Device>): Promise<Device> {
+/opt/suporte-tecnico/backend/src/modules/devices/devices.service.ts:34:    const device = await this.findOne(tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/devices/devices.service.ts:58:        tenantId: device.tenantId,
+/opt/suporte-tecnico/backend/src/modules/devices/devices.service.ts:69:  async getEvents(tenantId: string, deviceId: string, limit = 50): Promise<DeviceEvent[]> {
+/opt/suporte-tecnico/backend/src/modules/devices/devices.service.ts:70:    await this.findOne(tenantId, deviceId);
+/opt/suporte-tecnico/backend/src/modules/devices/devices.service.ts:72:      where: { tenantId, deviceId },
+/opt/suporte-tecnico/backend/src/modules/devices/devices.service.ts:78:  async getOfflineDevices(tenantId: string): Promise<Device[]> {
+/opt/suporte-tecnico/backend/src/modules/devices/devices.service.ts:79:    return this.deviceRepo.find({ where: { tenantId, status: DeviceStatus.OFFLINE } });
+/opt/suporte-tecnico/backend/src/modules/devices/devices.service.ts:82:  async getSummary(tenantId: string) {
+/opt/suporte-tecnico/backend/src/modules/devices/devices.service.ts:83:    const devices = await this.findAll(tenantId);
+/opt/suporte-tecnico/backend/src/modules/devices/devices.service.ts:92:  async recordEvent(tenantId: string, deviceId: string, eventType: string, severity: string, message: string, metadata?: any): Promise<DeviceEvent> {
+/opt/suporte-tecnico/backend/src/modules/devices/devices.service.ts:93:    return this.eventRepo.save(this.eventRepo.create({ tenantId, deviceId, eventType, severity, message, metadata }));
+/opt/suporte-tecnico/backend/src/modules/devices/devices.service.ts:108:        tenantId: device.tenantId,
+/opt/suporte-tecnico/backend/src/modules/devices/devices.controller.ts:15:    return this.devicesService.create(req.tenantId, dto);
+/opt/suporte-tecnico/backend/src/modules/devices/devices.controller.ts:21:    return this.devicesService.findAll(req.tenantId, clientId);
+/opt/suporte-tecnico/backend/src/modules/devices/devices.controller.ts:27:    return this.devicesService.getSummary(req.tenantId);
+/opt/suporte-tecnico/backend/src/modules/devices/devices.controller.ts:33:    return this.devicesService.getOfflineDevices(req.tenantId);
+/opt/suporte-tecnico/backend/src/modules/devices/devices.controller.ts:39:    return this.devicesService.findOne(req.tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/devices/devices.controller.ts:45:    return this.devicesService.update(req.tenantId, id, dto);
+/opt/suporte-tecnico/backend/src/modules/devices/devices.controller.ts:51:    return this.devicesService.getEvents(req.tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/customers/entities/customer.entity.ts:10:  @Column({ name: 'tenant_id' }) tenantId: string;
+/opt/suporte-tecnico/backend/src/modules/customers/entities/customer.entity.ts:42:  @Column({ name: 'tenant_id' }) tenantId: string;
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:19:  private async nextCode(tenantId: string): Promise<string> {
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:21:      .where('c.tenant_id = :tenantId', { tenantId })
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:30:  private async getClientOrFail(tenantId: string, id: string): Promise<Client> {
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:32:      where: { id, tenantId },
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:44:  private async getContactOrFail(tenantId: string, contactId: string): Promise<Contact> {
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:46:      where: { id: contactId, tenantId },
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:57:  private async assertNetworkBelongsToTenant(tenantId: string, networkId?: string | null) {
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:61:      'SELECT id FROM networks WHERE tenant_id = $1 AND id = $2 LIMIT 1',
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:62:      [tenantId, networkId],
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:70:  async create(tenantId: string, dto: CreateClientDto) {
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:74:        .where('c.tenant_id = :tenantId', { tenantId })
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:83:    await this.assertNetworkBelongsToTenant(tenantId, (dto as any).networkId);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:85:    const code = await this.nextCode(tenantId);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:89:      tenantId,
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:94:  async findAll(tenantId: string, filter: FilterClientsDto & PaginationDto) {
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:101:      .where('c.tenant_id = :tenantId', { tenantId })
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:124:  async findOne(tenantId: string, id: string) {
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:125:    return this.getClientOrFail(tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:128:  async update(tenantId: string, id: string, dto: UpdateClientDto) {
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:132:        .where('c.tenant_id = :tenantId', { tenantId })
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:142:    await this.getClientOrFail(tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:143:    await this.assertNetworkBelongsToTenant(tenantId, (dto as any).networkId);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:145:    await this.clients.update({ id, tenantId }, dto as any);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:147:    return this.getClientOrFail(tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:150:  async remove(tenantId: string, id: string) {
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:151:    await this.getClientOrFail(tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:154:      'SELECT id FROM tickets WHERE tenant_id = $1 AND client_id = $2 LIMIT 1',
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:155:      [tenantId, id],
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:159:      'SELECT id FROM devices WHERE tenant_id = $1 AND client_id = $2 LIMIT 1',
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:160:      [tenantId, id],
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:164:      'SELECT id FROM contracts WHERE tenant_id = $1 AND client_id = $2 LIMIT 1',
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:165:      [tenantId, id],
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:169:      "SELECT id FROM contacts WHERE tenant_id = $1 AND client_id = $2 AND status != 'inactive' LIMIT 1",
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:170:      [tenantId, id],
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:180:      await this.clients.update({ id, tenantId }, { status: 'inactive' });
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:187:    await this.clients.delete({ id, tenantId });
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:195:  async createContact(tenantId: string, clientId: string, dto: CreateContactDto) {
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:196:    await this.getClientOrFail(tenantId, clientId);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:203:      tenantId,
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:211:  async findContacts(tenantId: string, clientId: string) {
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:212:    await this.getClientOrFail(tenantId, clientId);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:215:      .where('ct.tenant_id = :tenantId', { tenantId })
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:222:  async updateContact(tenantId: string, contactId: string, dto: UpdateContactDto) {
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:223:    await this.getContactOrFail(tenantId, contactId);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:232:    await this.contacts.update({ id: contactId, tenantId }, updates);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:234:    return this.contacts.findOne({ where: { id: contactId, tenantId } });
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:237:  async removeContact(tenantId: string, contactId: string) {
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:238:    await this.getContactOrFail(tenantId, contactId);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:239:    await this.contacts.update({ id: contactId, tenantId }, { status: 'inactive' });
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:242:  findContactByWhatsapp(tenantId: string, whatsapp: string) {
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:244:      where: { tenantId, whatsapp },
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:249:  findContactByEmail(tenantId: string, email: string) {
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts:251:      where: { tenantId, email },
+/opt/suporte-tecnico/backend/src/modules/customers/customers.controller.ts:19:    return this.svc.create(req.tenantId, dto);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.controller.ts:24:    return this.svc.findAll(req.tenantId, q);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.controller.ts:29:    return this.svc.findOne(req.tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.controller.ts:34:    return this.svc.update(req.tenantId, id, dto);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.controller.ts:40:    return this.svc.remove(req.tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.controller.ts:45:    return this.svc.createContact(req.tenantId, cId, dto);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.controller.ts:50:    return this.svc.findContacts(req.tenantId, cId);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.controller.ts:55:    return this.svc.updateContact(req.tenantId, cid, dto);
+/opt/suporte-tecnico/backend/src/modules/customers/customers.controller.ts:61:    return this.svc.removeContact(req.tenantId, cid);
+/opt/suporte-tecnico/backend/src/modules/knowledge/entities/knowledge.entity.ts:10:  @Column({ name: 'tenant_id' })
+/opt/suporte-tecnico/backend/src/modules/knowledge/entities/knowledge.entity.ts:11:  tenantId: string;
+/opt/suporte-tecnico/backend/src/modules/knowledge/entities/knowledge.entity.ts:37:  @Column({ name: 'tenant_id' })
+/opt/suporte-tecnico/backend/src/modules/knowledge/entities/knowledge.entity.ts:38:  tenantId: string;
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.controller.ts:14:    return this.knowledgeService.search(req.tenantId, q || '');
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.controller.ts:19:    return this.knowledgeService.getCategories(req.tenantId);
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.controller.ts:24:    return this.knowledgeService.createCategory(req.tenantId, dto);
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.controller.ts:29:    return this.knowledgeService.findArticles(req.tenantId, filters);
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.controller.ts:34:    return this.knowledgeService.createArticle(req.tenantId, req.user.id, dto);
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.controller.ts:39:    return this.knowledgeService.findOne(req.tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.controller.ts:44:    return this.knowledgeService.update(req.tenantId, id, dto);
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.controller.ts:49:    return this.knowledgeService.delete(req.tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:13:  private async getArticleOrFail(tenantId: string, id: string): Promise<KbArticle> {
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:14:    const article = await this.artRepo.findOne({ where: { id, tenantId } });
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:23:  private async assertCategoryBelongsToTenant(tenantId: string, categoryId?: string | null) {
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:27:      where: { id: categoryId, tenantId },
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:35:  async createCategory(tenantId: string, dto: Partial<KbCategory>) {
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:39:        tenantId,
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:44:  async getCategories(tenantId: string) {
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:46:      where: { tenantId },
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:51:  async createArticle(tenantId: string, authorId: string, dto: Partial<KbArticle>) {
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:52:    await this.assertCategoryBelongsToTenant(tenantId, dto.categoryId);
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:56:      tenantId,
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:63:  async findArticles(tenantId: string, filters: any = {}) {
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:65:      .where('a.tenant_id = :tenantId', { tenantId })
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:86:  async findOne(tenantId: string, id: string) {
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:87:    const article = await this.getArticleOrFail(tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:90:      { id: article.id, tenantId },
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:98:  async update(tenantId: string, id: string, dto: Partial<KbArticle>) {
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:99:    const article = await this.getArticleOrFail(tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:101:    await this.assertCategoryBelongsToTenant(tenantId, dto.categoryId);
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:108:  async delete(tenantId: string, id: string) {
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:109:    await this.getArticleOrFail(tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:112:      { id, tenantId },
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:119:  async search(tenantId: string, query: string) {
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts:121:      .where('a.tenant_id = :tenantId', { tenantId })
+/opt/suporte-tecnico/backend/src/modules/auth/user.entity.ts:13:  @Column({ name: 'tenant_id', nullable: true }) tenantId: string;
+/opt/suporte-tecnico/backend/src/modules/auth/strategies/jwt.strategy.ts:28:        tenantId: payload.tenantId || payload.tenant_id,
+/opt/suporte-tecnico/backend/src/modules/auth/strategies/jwt.strategy.ts:40:      tenantId: user.tenantId,
+/opt/suporte-tecnico/backend/src/modules/auth/guards/jwt-auth.guard.ts:40:    request.tenantId =
+/opt/suporte-tecnico/backend/src/modules/auth/guards/jwt-auth.guard.ts:41:      user.tenantId ||
+/opt/suporte-tecnico/backend/src/modules/auth/guards/jwt-auth.guard.ts:42:      user.tenant_id ||
+/opt/suporte-tecnico/backend/src/modules/auth/guards/jwt-auth.guard.ts:50:    if (!request.tenantId) {
+/opt/suporte-tecnico/backend/src/modules/auth/auth.service.ts:29:      user: { id: user.id, name: user.name, email: user.email, role: user.role, tenantId: user.tenantId },
+/opt/suporte-tecnico/backend/src/modules/auth/auth.service.ts:47:  async createUser(tenantId: string, dto: CreateUserDto) {
+/opt/suporte-tecnico/backend/src/modules/auth/auth.service.ts:50:    const user = this.users.create({ ...dto, tenantId, role: dto.role as any });
+/opt/suporte-tecnico/backend/src/modules/auth/auth.service.ts:55:  async findUsers(tenantId: string) {
+/opt/suporte-tecnico/backend/src/modules/auth/auth.service.ts:56:    return (await this.users.find({ where: { tenantId }, order: { name: 'ASC' } }))
+/opt/suporte-tecnico/backend/src/modules/auth/auth.service.ts:60:  async findOne(tenantId: string, id: string) {
+/opt/suporte-tecnico/backend/src/modules/auth/auth.service.ts:61:    const u = await this.users.findOne({ where: { id, tenantId } });
+/opt/suporte-tecnico/backend/src/modules/auth/auth.service.ts:66:  async updateUser(tenantId: string, id: string, data: Partial<User>) {
+/opt/suporte-tecnico/backend/src/modules/auth/auth.service.ts:67:    await this.findOne(tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/auth/auth.service.ts:68:    await this.users.update({ id, tenantId }, data as any);
+/opt/suporte-tecnico/backend/src/modules/auth/auth.service.ts:69:    return this.findOne(tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/auth/auth.service.ts:73:    const payload = { sub: user.id, email: user.email, role: user.role, tenantId: user.tenantId, name: user.name };
+/opt/suporte-tecnico/backend/src/modules/auth/auth.controller.ts:41:    return this.auth.createUser(req.user.tenantId, dto);
+/opt/suporte-tecnico/backend/src/modules/auth/auth.controller.ts:49:  listUsers(@Request() req: any) { return this.auth.findUsers(req.user.tenantId); }
+/opt/suporte-tecnico/backend/src/modules/auth/auth.controller.ts:57:    return this.auth.updateUser(req.user.tenantId, id, dto as any);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:28:  private async generateTicketNumber(tenantId: string): Promise<string> {
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:30:    const count = await this.ticketRepo.count({ where: { tenantId } });
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:34:  private async getTicketOrFail(tenantId: string, id: string): Promise<Ticket> {
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:35:    const ticket = await this.ticketRepo.findOne({ where: { id, tenantId } });
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:40:  private async assertClientBelongsToTenant(tenantId: string, clientId?: string | null) {
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:44:      'SELECT id FROM clients WHERE tenant_id = $1 AND id = $2 LIMIT 1',
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:45:      [tenantId, clientId],
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:53:  private async assertUserBelongsToTenant(tenantId: string, userId?: string | null) {
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:61:          `SELECT id FROM ${table} WHERE tenant_id = $1 AND id = $2 LIMIT 1`,
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:62:          [tenantId, userId],
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:72:  private async assertContractBelongsToTenant(tenantId: string, contractId?: string | null) {
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:74:    await this.contractsService.findOne(tenantId, contractId);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:77:  async create(tenantId: string, userId: string, userName: string, dto: CreateTicketDto): Promise<Ticket> {
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:78:    await this.assertClientBelongsToTenant(tenantId, (dto as any).clientId);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:79:    await this.assertUserBelongsToTenant(tenantId, (dto as any).assignedTo);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:80:    await this.assertContractBelongsToTenant(tenantId, (dto as any).contractId);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:82:    const ticketNumber = await this.generateTicketNumber(tenantId);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:89:        const contract = await this.contractsService.findOne(tenantId, dto.contractId);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:94:      const contract = await this.contractsService.findActiveContractForClient(tenantId, dto.clientId);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:109:      tenantId,
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:118:      tenantId,
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:130:  async findAll(tenantId: string, filters: FilterTicketsDto) {
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:134:      .where('t.tenant_id = :tenantId', { tenantId })
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:149:  async findOne(tenantId: string, id: string): Promise<Ticket> {
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:150:    return this.getTicketOrFail(tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:153:  async findByNumber(tenantId: string, number: string): Promise<Ticket> {
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:154:    const ticket = await this.ticketRepo.findOne({ where: { ticketNumber: number, tenantId } });
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:159:  async update(tenantId: string, id: string, userId: string, userName: string, dto: UpdateTicketDto): Promise<Ticket> {
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:160:    const ticket = await this.getTicketOrFail(tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:163:    await this.assertClientBelongsToTenant(tenantId, (dto as any).clientId);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:164:    await this.assertUserBelongsToTenant(tenantId, (dto as any).assignedTo);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:165:    await this.assertContractBelongsToTenant(tenantId, (dto as any).contractId);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:173:        await this.contractsService.findOne(tenantId, ticket.contractId);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:186:        tenantId,
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:199:  async assign(tenantId: string, id: string, techId: string): Promise<Ticket> {
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:200:    const ticket = await this.getTicketOrFail(tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:201:    await this.assertUserBelongsToTenant(tenantId, techId);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:210:    tenantId: string,
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:217:    const ticket = await this.getTicketOrFail(tenantId, ticketId);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:230:      tenantId,
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:241:  async getMessages(tenantId: string, ticketId: string, includeInternal = true): Promise<TicketMessage[]> {
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:242:    await this.getTicketOrFail(tenantId, ticketId);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:245:      .where('m.tenant_id = :tenantId', { tenantId })
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:256:  async escalate(tenantId: string, id: string): Promise<Ticket> {
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:257:    const ticket = await this.getTicketOrFail(tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:263:  async getStats(tenantId: string) {
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts:264:    const qb = this.ticketRepo.createQueryBuilder('t').where('t.tenant_id = :tenantId', { tenantId });
+/opt/suporte-tecnico/backend/src/modules/tickets/entities/ticket.entity.ts:35:  @Column({ name: 'tenant_id' })
+/opt/suporte-tecnico/backend/src/modules/tickets/entities/ticket.entity.ts:36:  tenantId: string;
+/opt/suporte-tecnico/backend/src/modules/tickets/entities/ticket.entity.ts:120:  @Column({ name: 'tenant_id' })
+/opt/suporte-tecnico/backend/src/modules/tickets/entities/ticket.entity.ts:121:  tenantId: string;
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.controller.ts:16:    return this.ticketsService.create(req.tenantId, req.user.id, req.user.name, dto);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.controller.ts:21:    return this.ticketsService.findAll(req.tenantId, filters);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.controller.ts:26:    return this.ticketsService.getStats(req.tenantId);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.controller.ts:31:    return this.ticketsService.findOne(req.tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.controller.ts:36:    return this.ticketsService.update(req.tenantId, id, req.user.id, req.user.name, dto);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.controller.ts:41:    return this.ticketsService.assign(req.tenantId, id, body.techId);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.controller.ts:46:    return this.ticketsService.escalate(req.tenantId, id);
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.controller.ts:51:    return this.ticketsService.getMessages(req.tenantId, id, internal !== 'false');
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.controller.ts:56:    return this.ticketsService.addMessage(req.tenantId, id, req.user.id, req.user.name, 'user', dto);
+/opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.service.ts:14:  async getSummary(tenantId: string) {
+/opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.service.ts:20:      this.ticketRepo.count({ where: { tenantId, status: TicketStatus.OPEN } }),
+/opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.service.ts:21:      this.ticketRepo.count({ where: { tenantId, status: TicketStatus.IN_PROGRESS } }),
+/opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.service.ts:22:      this.ticketRepo.count({ where: { tenantId, status: TicketStatus.WAITING_CLIENT } }),
+/opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.service.ts:24:        .where('t.tenant_id = :tenantId', { tenantId })
+/opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.service.ts:33:        .where('t.tenant_id = :tenantId', { tenantId })
+/opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.service.ts:38:        .where('t.tenant_id = :tenantId', { tenantId })
+/opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.service.ts:49:      this.deviceRepo.count({ where: { tenantId, status: DeviceStatus.ONLINE } }),
+/opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.service.ts:50:      this.deviceRepo.count({ where: { tenantId, status: DeviceStatus.OFFLINE } }),
+/opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.service.ts:56:  async getTicketsByPriority(tenantId: string) {
+/opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.service.ts:61:      .where('t.tenant_id = :tenantId', { tenantId })
+/opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.service.ts:67:  async getTicketTrend(tenantId: string, days = 7) {
+/opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.service.ts:75:        .where('t.tenant_id = :tenantId', { tenantId })
+/opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.service.ts:83:  async getSlaReport(tenantId: string) {
+/opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.service.ts:88:        .where('t.tenant_id = :tenantId', { tenantId })
+/opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.service.ts:93:        .where('t.tenant_id = :tenantId', { tenantId })
+/opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.controller.ts:12:    return this.dashboardService.getSummary(req.tenantId);
+/opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.controller.ts:17:    return this.dashboardService.getTicketsByPriority(req.tenantId);
+/opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.controller.ts:22:    return this.dashboardService.getTicketTrend(req.tenantId, days ? parseInt(days) : 7);
+/opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.controller.ts:27:    return this.dashboardService.getSlaReport(req.tenantId);
+
+==================================================
+16. resumo dos arquivos mais suspeitos
+==================================================
+     18 /opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts
+     13 /opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts
+      7 /opt/suporte-tecnico/backend/src/modules/networks/networks.service.ts
+      7 /opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.service.ts
+      7 /opt/suporte-tecnico/backend/src/modules/contracts/contracts.service.ts
+      7 /opt/suporte-tecnico/backend/src/modules/auth/auth.service.ts
+      6 /opt/suporte-tecnico/backend/src/modules/tenants/tenants.service.ts
+      6 /opt/suporte-tecnico/backend/src/modules/devices/devices.service.ts
+      5 /opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts
+      3 /opt/suporte-tecnico/backend/src/modules/team/team.service.ts
+      2 /opt/suporte-tecnico/backend/src/modules/tickets/tickets.controller.ts
+      2 /opt/suporte-tecnico/backend/src/modules/tenants/tenants.controller.ts
+      2 /opt/suporte-tecnico/backend/src/modules/team/team.controller.ts
+      2 /opt/suporte-tecnico/backend/src/modules/networks/networks.controller.ts
+      2 /opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.controller.ts
+      2 /opt/suporte-tecnico/backend/src/modules/devices/devices.controller.ts
+      2 /opt/suporte-tecnico/backend/src/modules/customers/customers.controller.ts
+      2 /opt/suporte-tecnico/backend/src/modules/contracts/contracts.controller.ts
+      1 /opt/suporte-tecnico/backend/src/modules/auth/strategies/jwt.strategy.ts
+
+==================================================
+17. módulos principais
+==================================================
+--- customers ---
+/opt/suporte-tecnico/backend/src/modules/customers/entities/customer.entity.ts
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts.bak.20260314-011246
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts.bak.20260314-011427
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts.bak.20260314-011216
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts.bak.20260314-011318
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts.bak.20260314-011158
+/opt/suporte-tecnico/backend/src/modules/customers/customers.controller.ts
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts.tenant-fix.bak
+/opt/suporte-tecnico/backend/src/modules/customers/customers.service.ts.bak
+/opt/suporte-tecnico/backend/src/modules/customers/dto/customer.dto.ts
+/opt/suporte-tecnico/backend/src/modules/customers/customers.module.ts
+--- knowledge ---
+/opt/suporte-tecnico/backend/src/modules/knowledge/entities/knowledge.entity.ts
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.controller.ts
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.service.ts.bak.20260314-011740
+/opt/suporte-tecnico/backend/src/modules/knowledge/knowledge.module.ts
+--- tickets ---
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts
+/opt/suporte-tecnico/backend/src/modules/tickets/entities/ticket.entity.ts
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts.fixdto.20260314-012614
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.controller.ts
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.module.ts
+/opt/suporte-tecnico/backend/src/modules/tickets/dto/ticket.dto.ts
+/opt/suporte-tecnico/backend/src/modules/tickets/tickets.service.ts.bak.20260314-012000
+--- contracts ---
+/opt/suporte-tecnico/backend/src/modules/contracts/entities/contract.entity.ts
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.controller.ts
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.module.ts
+/opt/suporte-tecnico/backend/src/modules/contracts/contracts.service.ts
+/opt/suporte-tecnico/backend/src/modules/contracts/dto/contract.dto.ts
+--- auth ---
+/opt/suporte-tecnico/backend/src/modules/auth/user.entity.ts
+/opt/suporte-tecnico/backend/src/modules/auth/strategies/jwt.strategy.ts
+/opt/suporte-tecnico/backend/src/modules/auth/strategies/jwt.strategy.ts.bak.20260314-012309
+/opt/suporte-tecnico/backend/src/modules/auth/guards/jwt-auth.guard.ts.bak.20260314-012107
+/opt/suporte-tecnico/backend/src/modules/auth/guards/jwt-auth.guard.ts
+/opt/suporte-tecnico/backend/src/modules/auth/auth.service.ts
+/opt/suporte-tecnico/backend/src/modules/auth/dto/auth.dto.ts
+/opt/suporte-tecnico/backend/src/modules/auth/auth.module.ts
+/opt/suporte-tecnico/backend/src/modules/auth/auth.controller.ts
+--- networks ---
+/opt/suporte-tecnico/backend/src/modules/networks/network.entity.ts
+/opt/suporte-tecnico/backend/src/modules/networks/networks.controller.ts
+/opt/suporte-tecnico/backend/src/modules/networks/networks.module.ts
+/opt/suporte-tecnico/backend/src/modules/networks/networks.service.ts
+--- devices ---
+/opt/suporte-tecnico/backend/src/modules/devices/entities/device.entity.ts
+/opt/suporte-tecnico/backend/src/modules/devices/devices.service.ts
+/opt/suporte-tecnico/backend/src/modules/devices/devices.controller.ts
+/opt/suporte-tecnico/backend/src/modules/devices/devices.module.ts
+--- users ---
+não encontrado
+--- dashboard ---
+/opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.service.ts
+/opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.controller.ts
+/opt/suporte-tecnico/backend/src/modules/dashboard/dashboard.module.ts
+--- reports ---
+não encontrado
+

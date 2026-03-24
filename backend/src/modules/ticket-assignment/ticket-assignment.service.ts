@@ -1,0 +1,523 @@
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { DataSource, In, Repository } from 'typeorm';
+import { AgentDepartment } from './entities/agent-department.entity';
+import { DistributionQueue } from './entities/distribution-queue.entity';
+import { Ticket, TicketStatus } from '../tickets/entities/ticket.entity';
+import { User, UserPresenceStatus } from '../auth/user.entity';
+import { RealtimePresenceService } from '../realtime/realtime-presence.service';
+import { RealtimeEmitterService } from '../realtime/realtime-emitter.service';
+import type { PresenceStatus } from '../realtime/presence.types';
+
+/** Chave de departamento quando o ticket não possui departamento */
+const GLOBAL_DEPT_KEY = '__global__';
+
+/** Alias público para uso no controller */
+export type AgentPresenceStatus = UserPresenceStatus;
+
+// ─── Tipos internos ──────────────────────────────────────────────────────────
+
+interface QueueRow {
+  id: string;
+  last_assigned_user_id: string | null;
+}
+
+interface UserIdRow {
+  id: string;
+}
+
+interface UserIdDeptRow {
+  user_id: string;
+}
+
+interface TicketCountRow {
+  user_id: string;
+  cnt: number;
+}
+
+interface StalePresenceRow {
+  id: string;
+  tenant_id: string;
+  presence_status: string;
+}
+
+// ─── Service ─────────────────────────────────────────────────────────────────
+
+@Injectable()
+export class TicketAssignmentService {
+  private readonly logger = new Logger(TicketAssignmentService.name);
+
+  constructor(
+    @InjectRepository(AgentDepartment)
+    private readonly agentDeptRepo: Repository<AgentDepartment>,
+    @InjectRepository(DistributionQueue)
+    private readonly queueRepo: Repository<DistributionQueue>,
+    @InjectRepository(Ticket)
+    private readonly ticketRepo: Repository<Ticket>,
+    @InjectRepository(User)
+    private readonly userRepo: Repository<User>,
+    private readonly dataSource: DataSource,
+    private readonly presenceService: RealtimePresenceService,
+    private readonly emitter: RealtimeEmitterService,
+  ) {}
+
+  // ─── Atribuição automática ────────────────────────────────────────────────
+
+  /**
+   * Atribui automaticamente um ticket ao próximo agente disponível via round-robin.
+   * Só age se o ticket ainda não possuir agente.
+   * Retorna o agentId atribuído ou null se nenhum disponível.
+   */
+  async assignTicket(tenantId: string, ticketId: string): Promise<string | null> {
+    const ticket = await this.ticketRepo.findOne({ where: { id: ticketId, tenantId } });
+    if (!ticket) {
+      this.logger.warn(`[assign] ticket=${ticketId} não encontrado`);
+      return null;
+    }
+    if (ticket.assignedTo) {
+      this.logger.debug(`[assign] ticket=${ticket.ticketNumber} já atribuído → ${ticket.assignedTo}`);
+      return ticket.assignedTo;
+    }
+
+    const dept = ticket.department ?? null;
+    const agentId = await this.getNextAgent(tenantId, dept);
+
+    if (!agentId) {
+      this.logger.warn(
+        `[assign] ticket=${ticket.ticketNumber} dept="${dept ?? 'sem depto'}" → nenhum agente disponível`,
+      );
+      return null;
+    }
+
+    await this.ticketRepo.update(
+      { id: ticketId, tenantId },
+      {
+        assignedTo: agentId,
+        autoAssignedAt: new Date(),
+        status: TicketStatus.IN_PROGRESS,
+      } as Partial<Ticket>,
+    );
+
+    this.logger.log(
+      `[assign] ✓ ticket=${ticket.ticketNumber} dept="${dept ?? 'global'}" → agent=${agentId}`,
+    );
+
+    // Notifica via realtime (não-crítico)
+    try {
+      this.emitter.emitToTenant(tenantId, 'ticket:assigned', {
+        ticketId,
+        ticketNumber: ticket.ticketNumber,
+        subject: ticket.subject,
+        department: dept,
+        agentId,
+      });
+    } catch {
+      // silencioso
+    }
+
+    return agentId;
+  }
+
+  // ─── Round-Robin com tiebreaker por carga ────────────────────────────────
+
+  /**
+   * Retorna o próximo agente disponível para o departamento via round-robin.
+   *
+   * Ordem de seleção:
+   * 1. Agentes elegíveis para o departamento (ou todos, se sem departamento)
+   * 2. Filtra pelos que estão online: Redis (WebSocket) ∪ DB (heartbeat HTTP)
+   * 3. Ordena por (tickets_abertos ASC, userId ASC) para tiebreaker por carga
+   * 4. Avança o ponteiro circular e retorna o próximo
+   *
+   * SELECT FOR UPDATE garante atomicidade em alta concorrência.
+   */
+  async getNextAgent(tenantId: string, departmentName: string | null): Promise<string | null> {
+    const deptKey = departmentName ?? GLOBAL_DEPT_KEY;
+
+    return this.dataSource.transaction(async (em) => {
+      // 1. Garante linha de queue (upsert atômico)
+      await em.query(
+        `INSERT INTO distribution_queues
+           (id, tenant_id, department_name, last_assigned_user_id, updated_at)
+         VALUES (gen_random_uuid(), $1, $2, NULL, NOW())
+         ON CONFLICT (tenant_id, department_name) DO NOTHING`,
+        [tenantId, deptKey],
+      );
+
+      // 2. Bloqueia linha para evitar dupla-atribuição simultânea
+      const queueRows = await em.query<QueueRow[]>(
+        `SELECT id, last_assigned_user_id
+           FROM distribution_queues
+          WHERE tenant_id = $1 AND department_name = $2
+          FOR UPDATE`,
+        [tenantId, deptKey],
+      );
+      const queue = queueRows[0] ?? null;
+
+      // 3. IDs de agentes elegíveis para o departamento
+      let eligibleIds: string[];
+      if (departmentName) {
+        const deptRows = await em.query<UserIdDeptRow[]>(
+          `SELECT user_id FROM agent_departments
+            WHERE tenant_id = $1 AND department_name = $2`,
+          [tenantId, departmentName],
+        );
+        eligibleIds = deptRows.map((r) => r.user_id);
+      } else {
+        // Sem departamento → todos técnicos/admin/manager ativos
+        const allRows = await em.query<UserIdRow[]>(
+          `SELECT id FROM users
+            WHERE tenant_id = $1
+              AND role IN ('technician','admin','manager')
+              AND status = 'active'`,
+          [tenantId],
+        );
+        eligibleIds = allRows.map((r) => r.id);
+      }
+
+      if (!eligibleIds.length) {
+        this.logger.debug(`[getNextAgent] dept="${deptKey}": nenhum agente cadastrado`);
+        return null;
+      }
+
+      // 4a. Presença via Redis (WebSocket — fonte primária)
+      const { statusMap } = await this.presenceService.getOnlineIdsAndStatus(tenantId);
+      const redisOnlineSet = new Set(
+        Object.entries(statusMap)
+          .filter(([, s]) => s !== 'offline')
+          .map(([id]) => id),
+      );
+
+      // 4b. Presença via DB (heartbeat HTTP — fallback com tolerância de 5 min)
+      const dbRows = await em.query<UserIdRow[]>(
+        `SELECT id FROM users
+          WHERE tenant_id = $1
+            AND presence_status IS NOT NULL
+            AND presence_status != 'offline'
+            AND last_seen_at > NOW() - INTERVAL '5 minutes'`,
+        [tenantId],
+      );
+      const dbOnlineSet = new Set(dbRows.map((r) => r.id));
+
+      // União das duas fontes
+      const onlineEligible = eligibleIds.filter(
+        (id) => redisOnlineSet.has(id) || dbOnlineSet.has(id),
+      );
+
+      if (!onlineEligible.length) {
+        this.logger.debug(
+          `[getNextAgent] dept="${deptKey}": nenhum online (elegíveis=${eligibleIds.length})`,
+        );
+        return null;
+      }
+
+      // 5. Tiebreaker: conta tickets abertos por agente elegível online
+      const countRows = await em.query<TicketCountRow[]>(
+        `SELECT assigned_to AS user_id, COUNT(*)::int AS cnt
+           FROM tickets
+          WHERE tenant_id = $1
+            AND assigned_to = ANY($2::uuid[])
+            AND status IN ('open','in_progress')
+          GROUP BY assigned_to`,
+        [tenantId, onlineEligible],
+      );
+      const ticketCounts = new Map<string, number>(
+        countRows.map((r) => [r.user_id, Number(r.cnt)]),
+      );
+
+      // Ordena: menos tickets abertos → primeiro; empate → ordem alfanumérica (estável)
+      const sorted = [...onlineEligible].sort((a, b) => {
+        const ca = ticketCounts.get(a) ?? 0;
+        const cb = ticketCounts.get(b) ?? 0;
+        return ca !== cb ? ca - cb : a.localeCompare(b);
+      });
+
+      // 6. Avança ponteiro circular sobre a lista ordenada
+      const lastId = queue?.last_assigned_user_id ?? null;
+      let nextId: string;
+      if (!lastId || !sorted.includes(lastId)) {
+        nextId = sorted[0];
+      } else {
+        const idx = sorted.indexOf(lastId);
+        nextId = sorted[(idx + 1) % sorted.length];
+      }
+
+      // 7. Persiste novo ponteiro
+      await em.query(
+        `UPDATE distribution_queues
+            SET last_assigned_user_id = $1, updated_at = NOW()
+          WHERE tenant_id = $2 AND department_name = $3`,
+        [nextId, tenantId, deptKey],
+      );
+
+      this.logger.debug(
+        `[getNextAgent] dept="${deptKey}" sorted=[${sorted.join(',')}] last=${lastId ?? 'none'} → next=${nextId}`,
+      );
+
+      return nextId;
+    });
+  }
+
+  // ─── Rebalanceamento: agente ONLINE ──────────────────────────────────────
+
+  /**
+   * Chamado quando um agente entra online (WebSocket join-tenant ou PATCH /me/status).
+   * Busca tickets OPEN sem agente nos departamentos do agente e os distribui.
+   */
+  async rebalanceOnAgentOnline(tenantId: string, userId: string): Promise<void> {
+    this.logger.log(`[rebalance:online] userId=${userId}`);
+
+    const depts = await this.agentDeptRepo.find({ where: { tenantId, userId } });
+    const deptNames = depts.map((d) => d.departmentName);
+
+    let qb = this.ticketRepo
+      .createQueryBuilder('t')
+      .where('t.tenant_id = :tenantId', { tenantId })
+      .andWhere('t.assigned_to IS NULL')
+      .andWhere('t.status = :status', { status: TicketStatus.OPEN });
+
+    if (deptNames.length > 0) {
+      qb = qb.andWhere(
+        '(t.department IN (:...deptNames) OR t.department IS NULL)',
+        { deptNames },
+      );
+    }
+
+    const unassigned = await qb.orderBy('t.created_at', 'ASC').limit(30).getMany();
+
+    this.logger.log(`[rebalance:online] ${unassigned.length} ticket(s) a distribuir`);
+
+    for (const ticket of unassigned) {
+      await this.assignTicket(tenantId, ticket.id).catch((err: unknown) =>
+        this.logger.error(`[rebalance:online] falha ticket=${ticket.id}`, err),
+      );
+    }
+  }
+
+  // ─── Redistribuição: agente OFFLINE ──────────────────────────────────────
+
+  /**
+   * Chamado quando um agente fica offline.
+   * Tickets IN_PROGRESS/OPEN voltam para OPEN sem agente e são redistribuídos.
+   */
+  async redistributeOnAgentOffline(tenantId: string, userId: string): Promise<void> {
+    this.logger.log(`[redistribute:offline] userId=${userId}`);
+
+    const tickets = await this.ticketRepo.find({
+      where: {
+        tenantId,
+        assignedTo: userId,
+        status: In([TicketStatus.OPEN, TicketStatus.IN_PROGRESS]),
+      },
+      order: { createdAt: 'ASC' },
+    });
+
+    if (!tickets.length) {
+      this.logger.debug(`[redistribute:offline] nenhum ticket ativo para userId=${userId}`);
+      return;
+    }
+
+    this.logger.log(`[redistribute:offline] devolvendo ${tickets.length} ticket(s) de userId=${userId}`);
+
+    // Devolve em lote para OPEN sem agente
+    await this.ticketRepo.update(
+      {
+        tenantId,
+        assignedTo: userId,
+        status: In([TicketStatus.OPEN, TicketStatus.IN_PROGRESS]) as unknown as TicketStatus,
+      },
+      {
+        assignedTo: null as unknown as string,
+        autoAssignedAt: null as unknown as Date,
+        status: TicketStatus.OPEN,
+      },
+    );
+
+    // Redistribui individualmente (respeita round-robin por departamento)
+    for (const ticket of tickets) {
+      await this.assignTicket(tenantId, ticket.id).catch((err: unknown) =>
+        this.logger.error(`[redistribute:offline] falha ticket=${ticket.id}`, err),
+      );
+    }
+  }
+
+  // ─── Transferência de departamento ──────────────────────────────────────
+
+  /**
+   * Chamado quando o departamento de um ticket muda.
+   * Remove agente atual e reatribui para o novo departamento.
+   */
+  async reassignOnDepartmentChange(tenantId: string, ticketId: string): Promise<void> {
+    this.logger.log(`[reassign:dept] ticketId=${ticketId}`);
+    await this.ticketRepo.update(
+      { id: ticketId, tenantId },
+      {
+        assignedTo: null as unknown as string,
+        autoAssignedAt: null as unknown as Date,
+      },
+    );
+    await this.assignTicket(tenantId, ticketId);
+  }
+
+  // ─── Presença via HTTP ───────────────────────────────────────────────────
+
+  /**
+   * PATCH /agents/me/status — atualiza status de presença manualmente.
+   * Persiste no DB, sincroniza Redis e dispara rebalance/redistribute.
+   */
+  async updatePresenceStatus(
+    tenantId: string,
+    userId: string,
+    status: AgentPresenceStatus,
+  ): Promise<{ previous: AgentPresenceStatus; current: AgentPresenceStatus }> {
+    const user = await this.userRepo.findOne({ where: { id: userId, tenantId } });
+    if (!user) {
+      throw new NotFoundException(`Agente ${userId} não encontrado`);
+    }
+
+    const previous: AgentPresenceStatus = user.presenceStatus ?? 'offline';
+
+    await this.userRepo.update(
+      { id: userId, tenantId },
+      {
+        presenceStatus: status,
+        ...(status !== 'offline' ? { lastSeenAt: new Date() } : {}),
+      },
+    );
+
+    // Sincroniza Redis (best-effort)
+    if (status === 'offline') {
+      await this.presenceService.setOffline(tenantId, userId).catch(() => {});
+    } else {
+      // Apenas atualiza se o agente já tiver entrada Redis (WebSocket ativo)
+      await this.presenceService
+        .setStatusAsync(tenantId, userId, status as PresenceStatus)
+        .catch(() => {});
+    }
+
+    this.logger.log(`[presence:status] userId=${userId} ${previous} → ${status}`);
+
+    // Dispara rebalance/redistribute assincronamente
+    if (previous === 'offline' && status !== 'offline') {
+      this.rebalanceOnAgentOnline(tenantId, userId).catch(() => {});
+    } else if (previous !== 'offline' && status === 'offline') {
+      this.redistributeOnAgentOffline(tenantId, userId).catch(() => {});
+    }
+
+    return { previous, current: status };
+  }
+
+  /**
+   * POST /agents/me/heartbeat — confirma que o agente está ativo.
+   * Atualiza last_seen_at; se estava offline, volta para online.
+   */
+  async heartbeatFromHttp(
+    tenantId: string,
+    userId: string,
+  ): Promise<{ status: AgentPresenceStatus; lastSeenAt: Date }> {
+    const user = await this.userRepo.findOne({ where: { id: userId, tenantId } });
+    const wasOffline = !user || user.presenceStatus === 'offline' || user.presenceStatus === null;
+    const currentStatus: AgentPresenceStatus = wasOffline
+      ? 'online'
+      : (user.presenceStatus ?? 'online');
+    const now = new Date();
+
+    await this.userRepo.update(
+      { id: userId, tenantId },
+      { lastSeenAt: now, presenceStatus: currentStatus },
+    );
+
+    if (wasOffline) {
+      this.logger.log(`[presence:heartbeat] userId=${userId} voltou online via HTTP`);
+      this.rebalanceOnAgentOnline(tenantId, userId).catch(() => {});
+    }
+
+    return { status: currentStatus, lastSeenAt: now };
+  }
+
+  /**
+   * Detecta agentes cujo last_seen_at excedeu 5 min e os marca offline.
+   * Chamado pelo scheduler a cada 2 minutos.
+   */
+  async markOfflineByDbTimeout(): Promise<void> {
+    const cutoff = new Date(Date.now() - 5 * 60_000);
+
+    const stale = await this.dataSource.query<StalePresenceRow[]>(
+      `SELECT id, tenant_id, presence_status
+         FROM users
+        WHERE presence_status IS NOT NULL
+          AND presence_status != 'offline'
+          AND last_seen_at IS NOT NULL
+          AND last_seen_at < $1`,
+      [cutoff],
+    );
+
+    if (!stale.length) return;
+
+    this.logger.log(`[presence:timeout] ${stale.length} agente(s) com heartbeat expirado`);
+
+    for (const row of stale) {
+      this.logger.warn(
+        `[presence:timeout] userId=${row.id} tenant=${row.tenant_id} ${row.presence_status} → offline`,
+      );
+      await this.userRepo.update({ id: row.id }, { presenceStatus: 'offline' });
+      await this.presenceService.setOffline(row.tenant_id, row.id).catch(() => {});
+      await this.redistributeOnAgentOffline(row.tenant_id, row.id).catch((err: unknown) =>
+        this.logger.error(`[presence:timeout] redistribuição falhou userId=${row.id}`, err),
+      );
+    }
+  }
+
+  // ─── Gestão de departamentos ─────────────────────────────────────────────
+
+  async getAgentDepartments(tenantId: string, userId: string): Promise<AgentDepartment[]> {
+    return this.agentDeptRepo.find({ where: { tenantId, userId } });
+  }
+
+  async setAgentDepartments(
+    tenantId: string,
+    userId: string,
+    departmentNames: string[],
+  ): Promise<AgentDepartment[]> {
+    await this.agentDeptRepo.delete({ tenantId, userId });
+    if (!departmentNames.length) return [];
+
+    const entities = departmentNames.map((name) =>
+      this.agentDeptRepo.create({ tenantId, userId, departmentName: name }),
+    );
+    const saved = await this.agentDeptRepo.save(entities);
+    this.logger.log(`[setDepts] userId=${userId} deptos=[${departmentNames.join(', ')}]`);
+    return saved;
+  }
+
+  /**
+   * Retorna agentes de um departamento com status de presença combinado (Redis + DB).
+   */
+  async getDepartmentAgents(
+    tenantId: string,
+    departmentName: string,
+  ): Promise<Array<{ userId: string; status: AgentPresenceStatus }>> {
+    const rows = await this.agentDeptRepo.find({ where: { tenantId, departmentName } });
+    if (!rows.length) return [];
+
+    const { statusMap } = await this.presenceService.getOnlineIdsAndStatus(tenantId);
+
+    // Para agentes não no Redis, busca presença do DB
+    const missingIds = rows.map((r) => r.userId).filter((id) => !(id in statusMap));
+    const dbStatuses = new Map<string, AgentPresenceStatus>();
+    if (missingIds.length) {
+      const dbUsers = await this.userRepo.find({
+        where: { id: In(missingIds), tenantId },
+        select: ['id', 'presenceStatus'],
+      });
+      for (const u of dbUsers) {
+        dbStatuses.set(u.id, u.presenceStatus ?? 'offline');
+      }
+    }
+
+    return rows.map((r) => ({
+      userId: r.userId,
+      status: (statusMap[r.userId] ?? dbStatuses.get(r.userId) ?? 'offline') as AgentPresenceStatus,
+    }));
+  }
+}

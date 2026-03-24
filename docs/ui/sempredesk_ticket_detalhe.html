@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SempreDesk — Ticket #000039</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --accent:#4F46E5;--accent-h:#4338CA;--accent-l:#EEF2FF;--accent-m:#C7D2FE;
+  --online:#10B981;--warn:#F59E0B;--danger:#EF4444;
+  --bg:#FFFFFF;--bg2:#F8F8FB;--bg3:#F1F1F6;--nav:#16133D;
+  --bd:rgba(0,0,0,.07);--bd2:rgba(0,0,0,.12);
+  --txt:#111118;--txt2:#6B6B80;--txt3:#A8A8BE;
+  --r:8px;--r-lg:12px;--nav-w:68px;
+  --font:'DM Sans',system-ui,sans-serif;--mono:'DM Mono',monospace;
+}
+html,body{height:100%;overflow:hidden}
+body{font-family:var(--font);font-size:13px;color:var(--txt);background:var(--bg3);display:flex}
+
+/* NAV */
+nav{width:var(--nav-w);background:var(--nav);display:flex;flex-direction:column;align-items:center;padding:16px 0 14px;gap:2px;flex-shrink:0}
+.logo{width:40px;height:40px;background:var(--accent);border-radius:12px;display:flex;align-items:center;justify-content:center;margin-bottom:20px}
+.logo svg{width:22px;height:22px}
+.ni{width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background .15s;position:relative}
+.ni:hover{background:rgba(255,255,255,.08)}
+.ni.on{background:rgba(255,255,255,.14)}
+.ni svg{width:19px;height:19px;stroke:rgba(255,255,255,.45);fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.ni.on svg{stroke:#fff}
+.nbadge{position:absolute;top:6px;right:6px;width:16px;height:16px;background:#EF4444;border-radius:50%;font-size:9px;font-weight:600;color:#fff;display:flex;align-items:center;justify-content:center;border:2px solid var(--nav)}
+.nsep{width:28px;height:1px;background:rgba(255,255,255,.08);margin:8px 0}
+.nsp{flex:1}
+.nav-av{width:34px;height:34px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:#fff;cursor:pointer;border:2px solid rgba(255,255,255,.12);margin-top:8px;position:relative}
+.nav-av .od{position:absolute;bottom:2px;right:2px;width:8px;height:8px;border-radius:50%;background:var(--online);border:2px solid var(--nav)}
+
+/* MAIN SHELL */
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+
+/* TICKET HEADER BAR */
+.ticket-bar{background:var(--bg);border-bottom:1px solid var(--bd);padding:0 24px;display:flex;align-items:center;gap:12px;height:54px;flex-shrink:0}
+.back-btn{width:30px;height:30px;border-radius:8px;border:1px solid var(--bd2);background:var(--bg2);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .1s;flex-shrink:0}
+.back-btn:hover{background:var(--bg3)}
+.back-btn svg{width:14px;height:14px;stroke:var(--txt2);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.ticket-id-chip{font-family:var(--mono);font-size:12px;font-weight:500;color:var(--accent);background:var(--accent-l);border:1px solid var(--accent-m);border-radius:7px;padding:4px 10px}
+.status-chip{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:500;padding:4px 10px;border-radius:7px}
+.sc-closed{background:#F9FAFB;color:#374151;border:1px solid rgba(0,0,0,.1)}
+.sc-open{background:var(--accent-l);color:var(--accent);border:1px solid var(--accent-m)}
+.sc-ongoing{background:#FFFBEB;color:#92400E;border:1px solid #FDE68A}
+.prio-chip{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:500;padding:4px 10px;border-radius:7px}
+.pc-mid{background:#FEF3C7;color:#92400E;border:1px solid #FDE68A}
+.pc-high{background:#FFF7ED;color:#C2410C;border:1px solid #FDBA74}
+.pc-crit{background:#FDF4FF;color:#7E22CE;border:1px solid #D8B4FE}
+.channel-chip{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:500;padding:4px 10px;border-radius:7px;background:#DCFCE7;color:#15803D;border:1px solid #BBF7D0}
+.channel-chip.portal{background:var(--accent-l);color:var(--accent);border-color:var(--accent-m)}
+.channel-chip svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:1.8}
+.tb-sp{flex:1}
+.btn-reopen{padding:6px 14px;background:var(--bg2);border:1px solid var(--bd2);border-radius:8px;font-size:12px;font-weight:500;color:var(--txt2);cursor:pointer;display:flex;align-items:center;gap:6px;transition:background .1s;font-family:var(--font)}
+.btn-reopen svg{width:13px;height:13px;stroke:var(--txt2);fill:none;stroke-width:1.8}
+.btn-reopen:hover{background:var(--bg3)}
+
+/* BODY */
+.body{flex:1;display:flex;overflow:hidden;gap:0}
+
+/* LEFT PANEL */
+.left{flex:1;display:flex;flex-direction:column;overflow:hidden;padding:20px 24px;gap:14px}
+
+/* TICKET INFO CARD */
+.info-card{background:var(--bg);border:1px solid var(--bd);border-radius:var(--r-lg);padding:16px 18px;flex-shrink:0}
+.info-meta-row{display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:11px;color:var(--txt2)}
+.info-meta-row svg{width:13px;height:13px;stroke:var(--txt3);fill:none;stroke-width:1.6;stroke-linecap:round}
+.info-meta-sep{color:var(--txt3)}
+.info-meta-row strong{color:var(--txt);font-weight:500}
+.info-subject{font-size:16px;font-weight:700;color:var(--txt);margin-bottom:5px}
+.info-desc{font-size:13px;color:var(--txt2);line-height:1.6}
+
+/* ACTIVITY FILTERS */
+.act-filters{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.act-label{font-size:11px;font-weight:600;color:var(--txt3);text-transform:uppercase;letter-spacing:.05em;margin-right:4px}
+.act-chip{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:6px;border:1px solid var(--bd2);background:transparent;font-size:11px;font-weight:500;color:var(--txt2);cursor:pointer;transition:all .1s}
+.act-chip svg{width:11px;height:11px;fill:none;stroke:currentColor;stroke-width:1.8}
+.act-chip.on{background:var(--bg2);color:var(--txt);border-color:var(--bd2)}
+.act-chip input[type=checkbox]{display:none}
+
+/* TIMELINE */
+.timeline{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:0}
+.timeline::-webkit-scrollbar{width:4px}
+.timeline::-webkit-scrollbar-thumb{background:var(--bd2);border-radius:4px}
+
+/* activity item */
+.act-item{display:flex;gap:12px;padding:12px 0;border-bottom:1px solid var(--bd);position:relative}
+.act-item:last-child{border-bottom:none}
+.act-avatar{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;flex-shrink:0;margin-top:2px}
+.av-indigo{background:var(--accent-l);color:var(--accent)}
+.av-green{background:#D1FAE5;color:#065F46}
+.av-gray{background:var(--bg3);color:var(--txt2)}
+.av-yellow{background:#FFFBEB;color:#92400E}
+.act-body{flex:1;min-width:0}
+.act-head{display:flex;align-items:center;gap:6px;margin-bottom:5px}
+.act-name{font-size:12px;font-weight:600;color:var(--txt)}
+.act-role{font-size:10px;font-weight:500;padding:2px 7px;border-radius:4px}
+.role-agente{background:var(--accent-l);color:var(--accent)}
+.role-cliente{background:#D1FAE5;color:#065F46}
+.role-sistema{background:var(--bg3);color:var(--txt2)}
+.act-time{font-size:11px;color:var(--txt3);margin-left:auto;font-family:var(--mono)}
+.act-content{font-size:13px;color:var(--txt);line-height:1.6;background:var(--bg2);border-radius:var(--r);padding:10px 12px;border:1px solid var(--bd)}
+.act-content.note{background:#FFFBEB;border-color:#FDE68A}
+.act-content.system{background:var(--bg2);border:none;padding:6px 0;font-size:12px;color:var(--txt2)}
+.note-label{font-size:10px;font-weight:700;color:#92400E;text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px;display:flex;align-items:center;gap:4px}
+.note-label svg{width:11px;height:11px;stroke:#92400E;fill:none;stroke-width:2}
+
+/* conversation block */
+.conv-block{border:1px solid var(--bd);border-radius:var(--r-lg);overflow:hidden;margin-top:0}
+.conv-block-header{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--bg2);border-bottom:1px solid var(--bd);cursor:pointer}
+.conv-block-header svg{width:13px;height:13px;fill:none;stroke:var(--txt2);stroke-width:1.6}
+.conv-client-name{font-size:12px;font-weight:600;color:var(--txt)}
+.conv-date{font-size:11px;color:var(--txt3);font-family:var(--mono)}
+.conv-tag{font-size:10px;padding:2px 7px;border-radius:4px;font-weight:500;background:#DCFCE7;color:#15803D}
+.load-more{font-size:11px;color:var(--accent);cursor:pointer;padding:3px 9px;border:1px solid var(--accent-m);border-radius:5px;background:var(--accent-l);font-weight:500;margin-left:auto;display:flex;align-items:center;gap:4px;transition:background .1s}
+.load-more:hover{background:#E0E7FF}
+.conv-count{background:#EEF2FF;color:var(--accent);font-size:10px;font-weight:600;padding:2px 7px;border-radius:10px}
+
+/* reply area */
+.reply-area{background:var(--bg);border:1px solid var(--bd);border-radius:var(--r-lg);flex-shrink:0;overflow:hidden}
+.reply-tabs{display:flex;border-bottom:1px solid var(--bd)}
+.rt{padding:9px 16px;font-size:12px;font-weight:500;cursor:pointer;color:var(--txt2);border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .15s;display:flex;align-items:center;gap:5px}
+.rt svg{width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:1.8}
+.rt.on{color:var(--accent);border-bottom-color:var(--accent)}
+.reply-body{padding:10px 14px}
+textarea.reply-input{width:100%;background:none;border:none;outline:none;font-size:13px;color:var(--txt);font-family:var(--font);line-height:1.6;resize:none;min-height:60px}
+textarea.reply-input::placeholder{color:var(--txt3)}
+.reply-footer{display:flex;align-items:center;gap:8px;padding:8px 14px;border-top:1px solid var(--bd)}
+.rf-icon{width:28px;height:28px;border-radius:7px;background:var(--bg2);border:1px solid var(--bd);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .1s}
+.rf-icon:hover{background:var(--bg3)}
+.rf-icon svg{width:13px;height:13px;fill:none;stroke:var(--txt2);stroke-width:1.6}
+.rf-sp{flex:1}
+.btn-send{padding:7px 18px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;font-family:var(--font);display:flex;align-items:center;gap:6px;transition:background .15s}
+.btn-send:hover{background:var(--accent-h)}
+.btn-send svg{width:13px;height:13px;fill:none;stroke:#fff;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+
+/* RIGHT SIDEBAR */
+.right{width:272px;background:var(--bg);border-left:1px solid var(--bd);overflow-y:auto;flex-shrink:0;display:flex;flex-direction:column}
+.right::-webkit-scrollbar{width:3px}
+.right::-webkit-scrollbar-thumb{background:var(--bd2);border-radius:3px}
+
+.rs-section{padding:14px 16px;border-bottom:1px solid var(--bd)}
+.rs-title{font-size:10px;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between}
+.rs-title-action{font-size:11px;color:var(--accent);cursor:pointer;text-transform:none;letter-spacing:0;font-weight:500}
+
+.detail-row{display:flex;justify-content:space-between;align-items:flex-start;padding:5px 0;gap:8px}
+.dr-label{font-size:12px;color:var(--txt2)}
+.dr-val{font-size:12px;color:var(--txt);font-weight:500;text-align:right}
+.dr-val.mono{font-family:var(--mono);font-size:11px}
+.dr-val.green{color:var(--online)}
+.dr-val.red{color:var(--danger)}
+
+/* client block */
+.client-block{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.client-av{width:38px;height:38px;border-radius:50%;background:#DBEAFE;color:#1E40AF;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0}
+.client-name{font-size:13px;font-weight:600;color:var(--txt)}
+.client-cnpj{font-size:11px;color:var(--txt2);font-family:var(--mono);margin-top:1px}
+
+/* contact */
+.contact-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--bd)}
+.contact-row:last-child{border-bottom:none}
+.contact-av{width:28px;height:28px;border-radius:50%;background:var(--online);color:#fff;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;flex-shrink:0}
+.contact-info{flex:1;min-width:0}
+.contact-name{font-size:12px;font-weight:500;color:var(--txt)}
+.contact-detail{font-size:11px;color:var(--txt2)}
+.wa-icon{width:24px;height:24px;border-radius:50%;background:#25D366;display:flex;align-items:center;justify-content:center;cursor:pointer}
+.wa-icon svg{width:13px;height:13px;fill:#fff}
+
+/* form fields */
+.field-group{display:flex;flex-direction:column;gap:10px}
+.field-item label{font-size:10px;font-weight:700;color:var(--txt3);text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:5px}
+select.rs-select{width:100%;padding:7px 28px 7px 10px;background:var(--bg2) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23A8A8BE' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 8px center;border:1px solid var(--bd2);border-radius:8px;font-size:12px;color:var(--txt);font-family:var(--font);cursor:pointer;outline:none;appearance:none;transition:border-color .15s}
+select.rs-select:focus{border-color:var(--accent)}
+input.rs-input{width:100%;padding:7px 10px;background:var(--bg2);border:1px solid var(--bd2);border-radius:8px;font-size:12px;color:var(--txt);font-family:var(--font);outline:none;transition:border-color .15s}
+input.rs-input:focus{border-color:var(--accent)}
+input.rs-input::placeholder{color:var(--txt3)}
+.btn-save{width:100%;padding:9px;background:var(--accent);color:#fff;border:none;border-radius:9px;font-size:13px;font-weight:600;cursor:pointer;font-family:var(--font);transition:background .15s;display:flex;align-items:center;justify-content:center;gap:6px}
+.btn-save:hover{background:var(--accent-h)}
+.btn-save svg{width:14px;height:14px;fill:none;stroke:#fff;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+
+/* history */
+.hist-row{display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--bd);cursor:pointer}
+.hist-row:last-child{border-bottom:none}
+.hist-row:hover .hist-id{text-decoration:underline}
+.hist-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.hd-closed{background:var(--txt3)}
+.hd-resolved{background:var(--online)}
+.hd-open{background:var(--accent)}
+.hist-info{flex:1;min-width:0}
+.hist-id{font-size:10px;color:var(--accent);font-family:var(--mono)}
+.hist-sub{font-size:11px;color:var(--txt);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}
+.hist-date{font-size:10px;color:var(--txt3)}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
+  <div class="ni"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></div>
+  <div class="ni" style="position:relative"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span class="nbadge">2</span></div>
+  <div class="ni"><svg viewBox="0 0 24 24"><path d="M17 8h2a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2h-2v4l-4-4H9a2 2 0 0 1-2-2v-1"/><path d="M15 4H5a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2v4l4-4h4a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z"/></svg></div>
+  <div class="ni on"><svg viewBox="0 0 24 24"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v2z"/></svg></div>
+  <div class="nsep"></div>
+  <div class="ni"><svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg></div>
+  <div class="ni"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/></svg></div>
+  <div class="ni"><svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
+  <div class="nsep"></div>
+  <div class="ni"><svg viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></div>
+  <div class="ni"><svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></div>
+  <div class="nsp"></div>
+  <div class="ni"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div>
+  <div class="nav-av">AD<span class="od"></span></div>
+</nav>
+
+<div class="main">
+  <!-- TICKET HEADER BAR -->
+  <div class="ticket-bar">
+    <div class="back-btn"><svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg></div>
+    <span class="ticket-id-chip">#000039</span>
+    <span class="status-chip sc-closed">
+      <svg width="6" height="6" viewBox="0 0 6 6"><circle cx="3" cy="3" r="3" fill="#374151"/></svg>
+      Fechado
+    </span>
+    <span class="prio-chip pc-mid">Média</span>
+    <span class="channel-chip">
+      <svg viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+      WhatsApp
+    </span>
+    <div class="tb-sp"></div>
+    <button class="btn-reopen">
+      <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+      Reabrir ticket
+    </button>
+  </div>
+
+  <div class="body">
+    <!-- LEFT -->
+    <div class="left">
+      <!-- info card -->
+      <div class="info-card">
+        <div class="info-meta-row">
+          <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          Abertura: <strong>18/03/2026 às 18:49</strong>
+          <span class="info-meta-sep">·</span>
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          Fechamento: <strong>20/03/2026 às 20:00</strong>
+          <span class="info-meta-sep">·</span>
+          Resolução: <strong>18/03/2026 às 19:18</strong>
+        </div>
+        <div class="info-subject">Atendimento WhatsApp - Edson Júnior</div>
+        <div class="info-desc">Conversa iniciada via chat.</div>
+      </div>
+
+      <!-- filters -->
+      <div class="act-filters">
+        <span class="act-label">Visualizar:</span>
+        <label class="act-chip on"><input type="checkbox" checked> <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg> Cliente</label>
+        <label class="act-chip on"><input type="checkbox" checked> <svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> Agente</label>
+        <label class="act-chip on"><input type="checkbox" checked> <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg> Atualizações</label>
+        <label class="act-chip on"><input type="checkbox" checked> <svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Notas internas</label>
+        <label class="act-chip on"><input type="checkbox" checked> <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> Conversa</label>
+      </div>
+
+      <!-- TIMELINE -->
+      <div class="timeline">
+
+        <!-- agent message -->
+        <div class="act-item">
+          <div class="act-avatar av-indigo">A</div>
+          <div class="act-body">
+            <div class="act-head">
+              <span class="act-name">Administrador</span>
+              <span class="act-role role-agente">Agente</span>
+              <span class="act-time">18:50</span>
+            </div>
+            <div class="act-content">clietne aguaradno conitadore</div>
+          </div>
+        </div>
+
+        <!-- system event -->
+        <div class="act-item">
+          <div class="act-avatar av-gray" style="background:var(--bg3);width:32px;height:32px;font-size:14px;display:flex;align-items:center;justify-content:center">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--txt3)" stroke-width="1.8"><polyline points="20 6 9 17 4 12"/></svg>
+          </div>
+          <div class="act-body">
+            <div class="act-head">
+              <span class="act-name" style="font-weight:400;color:var(--txt2)">Chamado resolvido: <strong style="color:var(--txt)">teste</strong></span>
+              <span class="act-time">19:18</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- conversation block -->
+        <div class="act-item" style="flex-direction:column;gap:8px;padding-left:0">
+          <div class="conv-block">
+            <div class="conv-block-header">
+              <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+              <span class="conv-client-name">POSTO MANA</span>
+              <span class="conv-tag">Chat</span>
+              <span class="conv-date">18/03/26, 18:49</span>
+              <div class="load-more">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+                Carregar mais
+              </div>
+              <span class="conv-count">1</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- REPLY AREA -->
+      <div class="reply-area">
+        <div class="reply-tabs">
+          <div class="rt on">
+            <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            Resposta pública
+          </div>
+          <div class="rt">
+            <svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            Nota interna
+          </div>
+          <div class="rt">
+            <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            Atualização
+          </div>
+        </div>
+        <div class="reply-body">
+          <textarea class="reply-input" placeholder="Digite sua resposta para o cliente..."></textarea>
+        </div>
+        <div class="reply-footer">
+          <div class="rf-icon"><svg viewBox="0 0 24 24"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></div>
+          <div class="rf-icon"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18"/></svg></div>
+          <div class="rf-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg></div>
+          <div class="rf-icon"><svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg></div>
+          <div class="rf-sp"></div>
+          <button class="btn-send">
+            <svg viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+            Enviar resposta
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT SIDEBAR -->
+    <div class="right">
+
+      <!-- DETALHES -->
+      <div class="rs-section">
+        <div class="rs-title">Detalhes</div>
+        <div class="detail-row"><span class="dr-label">Status</span><span class="dr-val"><span style="display:inline-flex;align-items:center;gap:5px;background:#F9FAFB;color:#374151;border:1px solid rgba(0,0,0,.1);border-radius:5px;padding:2px 8px;font-size:11px;font-weight:500"><svg width="6" height="6" viewBox="0 0 6 6"><circle cx="3" cy="3" r="3" fill="#374151"/></svg>Fechado</span></span></div>
+        <div class="detail-row"><span class="dr-label">Prioridade</span><span class="dr-val"><span style="display:inline-flex;align-items:center;background:#FEF3C7;color:#92400E;border:1px solid #FDE68A;border-radius:5px;padding:2px 8px;font-size:11px;font-weight:500">Média</span></span></div>
+        <div class="detail-row"><span class="dr-label">Abertura</span><span class="dr-val mono">18/03/26 18:49</span></div>
+        <div class="detail-row"><span class="dr-label">Resolução</span><span class="dr-val mono green">18/03/26 19:18</span></div>
+        <div class="detail-row"><span class="dr-label">Fechamento</span><span class="dr-val mono">20/03/26 20:00</span></div>
+        <div class="detail-row"><span class="dr-label">Tempo total</span><span class="dr-val">2 dias, 1h 11m</span></div>
+      </div>
+
+      <!-- DADOS DO CLIENTE -->
+      <div class="rs-section">
+        <div class="rs-title">Dados do cliente <span class="rs-title-action">Editar</span></div>
+        <div class="client-block">
+          <div class="client-av">PM</div>
+          <div>
+            <div class="client-name">POSTO MANA</div>
+            <div class="client-cnpj">12563158000159</div>
+          </div>
+        </div>
+        <div class="rs-title" style="margin-bottom:8px">Contato</div>
+        <div class="contact-row">
+          <div class="contact-av">EJ</div>
+          <div class="contact-info">
+            <div class="contact-name">Edson Júnior</div>
+            <div class="contact-detail"><a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="b5dfc0dbdcdac7d7c7d0c2f5dddac1d8d4dcd99bd6dad8">[email&#160;protected]</a></div>
+            <div class="contact-detail">73999272550</div>
+          </div>
+          <div class="wa-icon">
+            <svg viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" fill="#fff" stroke="none"/></svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- HISTÓRICO -->
+      <div class="rs-section">
+        <div class="rs-title">Histórico do cliente <span class="rs-title-action">Ver todos</span></div>
+        <div class="hist-row">
+          <div class="hist-dot hd-closed"></div>
+          <div class="hist-info">
+            <div class="hist-id">#000039</div>
+            <div class="hist-sub">Atend. WhatsApp - Edson Júnior</div>
+          </div>
+          <div class="hist-date">Atual</div>
+        </div>
+        <div class="hist-row">
+          <div class="hist-dot hd-closed"></div>
+          <div class="hist-info">
+            <div class="hist-id">#000032</div>
+            <div class="hist-sub">Problema no sistema PDV</div>
+          </div>
+          <div class="hist-date">1 sem.</div>
+        </div>
+        <div class="hist-row">
+          <div class="hist-dot hd-resolved"></div>
+          <div class="hist-info">
+            <div class="hist-id">#000027</div>
+            <div class="hist-sub">Configuração de impressora</div>
+          </div>
+          <div class="hist-date">3 sem.</div>
+        </div>
+      </div>
+
+      <!-- AÇÕES -->
+      <div class="rs-section">
+        <div class="rs-title">Ações</div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <button style="width:100%;padding:8px;background:var(--bg2);color:var(--txt);border:1px solid var(--bd2);border-radius:8px;font-size:12px;font-weight:500;cursor:pointer;font-family:var(--font);display:flex;align-items:center;justify-content:center;gap:6px;transition:background .1s" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='var(--bg2)'">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--txt2)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            Editar ticket
+          </button>
+          <button style="width:100%;padding:8px;background:var(--bg2);color:var(--txt);border:1px solid var(--bd2);border-radius:8px;font-size:12px;font-weight:500;cursor:pointer;font-family:var(--font);display:flex;align-items:center;justify-content:center;gap:6px;transition:background .1s" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='var(--bg2)'">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--txt2)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            Reabrir ticket
+          </button>
+        </div>
+      </div>
+
+      <!-- ATRIBUIÇÃO -->
+      <div class="rs-section">
+        <div class="rs-title">Atribuição</div>
+        <div class="field-group">
+          <div class="field-item">
+            <label>Prioridade</label>
+            <select class="rs-select"><option>Média</option><option>Baixa</option><option>Alta</option><option>Crítica</option></select>
+          </div>
+          <div class="field-item">
+            <label>Técnico</label>
+            <select class="rs-select"><option>Não atribuído</option><option>Administrador</option><option>Clebio</option><option>Tiago Navais</option></select>
+          </div>
+          <div class="field-item">
+            <label>Departamento</label>
+            <select class="rs-select"><option>Selecione</option><option>Pista</option><option>Gerencial</option></select>
+          </div>
+          <div class="field-item">
+            <label>Categoria</label>
+            <select class="rs-select"><option>Selecione</option><option>Servidor</option><option>Hardware</option><option>Dúvidas</option></select>
+          </div>
+          <div class="field-item">
+            <label>Subcategoria</label>
+            <select class="rs-select"><option>Selecione</option><option>Banco de dados</option><option>Rede</option></select>
+          </div>
+          <div class="field-item">
+            <label>Tags</label>
+            <input type="text" class="rs-input" placeholder="tag1, tag2">
+          </div>
+          <button class="btn-save">
+            <svg viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+            Salvar alterações
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script>
+document.querySelectorAll('.rt').forEach(t=>{t.addEventListener('click',function(){document.queryS

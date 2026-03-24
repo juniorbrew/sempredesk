@@ -1,0 +1,1242 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SempreDesk — Atendimento</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --accent:       #4F46E5;
+    --accent-hover: #4338CA;
+    --accent-light: #EEF2FF;
+    --accent-mid:   #C7D2FE;
+    --online:  #10B981;
+    --warn:    #F59E0B;
+    --danger:  #EF4444;
+
+    --bg:    #FFFFFF;
+    --bg2:   #F8F8FB;
+    --bg3:   #F1F1F6;
+    --nav-bg:#16133D;
+
+    --border:  rgba(0,0,0,.07);
+    --border2: rgba(0,0,0,.12);
+
+    --txt:  #111118;
+    --txt2: #6B6B80;
+    --txt3: #A8A8BE;
+
+    --r:    8px;
+    --r-lg: 12px;
+    --r-xl: 16px;
+
+    --nav-w:  68px;
+    --conv-w: 310px;
+    --cli-w:  290px;
+    --font: 'DM Sans', system-ui, sans-serif;
+    --mono: 'DM Mono', monospace;
+  }
+
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    font-family: var(--font);
+    font-size: 13px;
+    color: var(--txt);
+    background: var(--bg3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* ── SHELL ── */
+  .shell {
+    display: flex;
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+    background: var(--bg3);
+  }
+
+  /* ══ NAV ══ */
+  .nav {
+    width: var(--nav-w);
+    background: var(--nav-bg);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 16px 0 14px;
+    gap: 2px;
+    flex-shrink: 0;
+    z-index: 10;
+  }
+  .nav-logo {
+    width: 40px; height: 40px;
+    background: var(--accent);
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    margin-bottom: 20px;
+    flex-shrink: 0;
+  }
+  .nav-logo svg { width: 22px; height: 22px; }
+  .nav-group { display: flex; flex-direction: column; gap: 2px; width: 100%; align-items: center; }
+  .nav-item {
+    width: 44px; height: 44px;
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    transition: background .15s;
+    position: relative;
+    flex-shrink: 0;
+  }
+  .nav-item:hover { background: rgba(255,255,255,.08); }
+  .nav-item.active { background: rgba(255,255,255,.14); }
+  .nav-item svg {
+    width: 19px; height: 19px;
+    stroke: rgba(255,255,255,.45);
+    fill: none; stroke-width: 1.6;
+    stroke-linecap: round; stroke-linejoin: round;
+  }
+  .nav-item.active svg { stroke: #fff; }
+  .nav-badge {
+    position: absolute; top: 6px; right: 6px;
+    width: 16px; height: 16px;
+    background: #EF4444;
+    border-radius: 50%;
+    font-size: 9px; font-weight: 600; color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    border: 2px solid var(--nav-bg);
+  }
+  .nav-sep { width: 28px; height: 1px; background: rgba(255,255,255,.08); margin: 8px 0; }
+  .nav-spacer { flex: 1; }
+  .nav-label {
+    font-size: 9px; font-weight: 500; color: rgba(255,255,255,.25);
+    letter-spacing: .08em; text-transform: uppercase;
+    margin: 8px 0 4px; align-self: center;
+  }
+  .nav-avatar {
+    width: 34px; height: 34px;
+    border-radius: 50%;
+    background: var(--accent);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 600; color: #fff;
+    cursor: pointer;
+    border: 2px solid rgba(255,255,255,.12);
+    transition: border-color .15s;
+    margin-top: 8px;
+  }
+  .nav-avatar:hover { border-color: rgba(255,255,255,.3); }
+  .online-dot {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--online);
+    border: 2px solid var(--nav-bg);
+    position: absolute; bottom: 2px; right: 2px;
+  }
+
+  /* ══ CONVERSATION PANEL ══ */
+  .conv-panel {
+    width: var(--conv-w);
+    background: var(--bg);
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    flex-shrink: 0;
+  }
+  .conv-header {
+    padding: 16px 16px 12px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .conv-title-row {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .conv-title { font-size: 15px; font-weight: 600; color: var(--txt); }
+  .conv-actions { display: flex; gap: 6px; }
+  .icon-btn {
+    width: 30px; height: 30px;
+    border-radius: 8px;
+    border: 1px solid var(--border2);
+    background: var(--bg2);
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: background .1s;
+  }
+  .icon-btn:hover { background: var(--bg3); }
+  .icon-btn svg {
+    width: 14px; height: 14px;
+    stroke: var(--txt2); fill: none; stroke-width: 1.6;
+    stroke-linecap: round; stroke-linejoin: round;
+  }
+  .search-box {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    padding: 7px 11px;
+    transition: border-color .15s;
+  }
+  .search-box:focus-within { border-color: var(--accent); }
+  .search-box svg {
+    width: 13px; height: 13px;
+    stroke: var(--txt3); fill: none; stroke-width: 1.6; flex-shrink: 0;
+  }
+  .search-box input {
+    background: none; border: none; outline: none;
+    font-size: 12px; color: var(--txt); font-family: var(--font); width: 100%;
+  }
+  .search-box input::placeholder { color: var(--txt3); }
+
+  /* tabs */
+  .conv-tabs {
+    display: flex; gap: 2px;
+    padding: 10px 12px 0;
+    flex-shrink: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .tab {
+    padding: 6px 12px 8px;
+    border-radius: 0;
+    font-size: 12px; font-weight: 500;
+    cursor: pointer; color: var(--txt2);
+    transition: color .15s;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    white-space: nowrap;
+  }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab:hover:not(.active) { color: var(--txt); }
+
+  /* filters */
+  .conv-filters {
+    display: flex; gap: 6px; padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .filter-chip {
+    padding: 4px 10px; border-radius: 6px;
+    font-size: 11px; font-weight: 500;
+    cursor: pointer; color: var(--txt2);
+    border: 1px solid var(--border2);
+    background: transparent;
+    transition: all .12s;
+  }
+  .filter-chip.active { background: var(--accent-light); color: var(--accent); border-color: var(--accent-mid); }
+  .filter-chip:hover:not(.active) { background: var(--bg2); }
+
+  /* list */
+  .conv-list { flex: 1; overflow-y: auto; padding: 8px; }
+  .conv-list::-webkit-scrollbar { width: 4px; }
+  .conv-list::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; }
+  .conv-section-label {
+    font-size: 10px; font-weight: 600; color: var(--txt3);
+    padding: 8px 8px 4px;
+    letter-spacing: .06em; text-transform: uppercase;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .conv-section-count {
+    font-size: 10px; font-weight: 500; color: var(--txt3);
+    background: var(--bg2); border-radius: 10px;
+    padding: 1px 7px;
+  }
+  .conv-item {
+    padding: 10px; border-radius: 10px;
+    cursor: pointer; transition: background .1s;
+    display: flex; gap: 10px; align-items: flex-start;
+    margin-bottom: 2px;
+  }
+  .conv-item:hover { background: var(--bg2); }
+  .conv-item.active { background: var(--accent-light); }
+  .conv-avatar {
+    width: 38px; height: 38px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 600;
+    flex-shrink: 0; position: relative;
+  }
+  .conv-avatar.green  { background: #D1FAE5; color: #065F46; }
+  .conv-avatar.blue   { background: #DBEAFE; color: #1E40AF; }
+  .conv-avatar.orange { background: #FEF3C7; color: #92400E; }
+  .conv-avatar.purple { background: #EDE9FE; color: #5B21B6; }
+  .conv-avatar.rose   { background: #FFE4E6; color: #9F1239; }
+  .channel-dot {
+    position: absolute; bottom: -2px; right: -2px;
+    width: 15px; height: 15px;
+    border-radius: 50%; border: 2px solid var(--bg);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .conv-item.active .channel-dot { border-color: var(--accent-light); }
+  .channel-dot.wa     { background: #25D366; }
+  .channel-dot.portal { background: var(--accent); }
+  .channel-dot svg { width: 8px; height: 8px; fill: #fff; }
+  .conv-body { flex: 1; min-width: 0; }
+  .conv-top {
+    display: flex; justify-content: space-between;
+    align-items: flex-start; gap: 4px; margin-bottom: 3px;
+  }
+  .conv-name { font-size: 13px; font-weight: 600; color: var(--txt); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .conv-time { font-size: 10px; color: var(--txt3); white-space: nowrap; flex-shrink: 0; padding-top: 1px; }
+  .conv-preview { font-size: 12px; color: var(--txt2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 6px; line-height: 1.4; }
+  .conv-meta { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+  .badge {
+    font-size: 10px; padding: 2px 7px;
+    border-radius: 5px; font-weight: 500; white-space: nowrap;
+  }
+  .badge.ticket  { background: #EEF2FF; color: #4338CA; }
+  .badge.urgent  { background: #FEF2F2; color: #DC2626; }
+  .badge.normal  { background: var(--bg3); color: var(--txt2); }
+  .badge.empresa { background: #F0FDF4; color: #166534; }
+  .badge.unread  {
+    background: var(--accent); color: #fff;
+    min-width: 18px; text-align: center;
+    border-radius: 9px; padding: 2px 5px;
+  }
+  .badge.warn { background: #FFFBEB; color: #B45309; }
+
+  /* ══ CHAT ══ */
+  .chat-area {
+    flex: 1; display: flex; flex-direction: column;
+    min-width: 0; background: var(--bg);
+  }
+
+  .chat-header {
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 14px;
+    background: var(--bg);
+    flex-shrink: 0;
+  }
+  .chat-avatar {
+    width: 40px; height: 40px;
+    border-radius: 50%; background: #D1FAE5; color: #065F46;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px; font-weight: 600; flex-shrink: 0;
+    position: relative;
+  }
+  .chat-avatar .status-dot {
+    position: absolute; bottom: 0; right: 0;
+    width: 10px; height: 10px; border-radius: 50%;
+    border: 2px solid var(--bg);
+  }
+  .status-dot.online { background: var(--online); }
+  .status-dot.away   { background: var(--warn); }
+  .chat-info { flex: 1; min-width: 0; }
+  .chat-name { font-size: 15px; font-weight: 600; color: var(--txt); }
+  .chat-sub  {
+    font-size: 11px; color: var(--txt2);
+    display: flex; align-items: center; gap: 6px; margin-top: 2px;
+  }
+  .chat-sub-sep { color: var(--txt3); }
+  .channel-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 10px; font-weight: 600;
+    padding: 1px 7px; border-radius: 5px;
+  }
+  .channel-badge.portal { background: var(--accent-light); color: var(--accent); }
+  .channel-badge.wa { background: #DCFCE7; color: #15803D; }
+  .channel-badge svg { width: 9px; height: 9px; }
+  .chat-actions { display: flex; gap: 8px; align-items: center; }
+  .ticket-chip {
+    display: flex; align-items: center; gap: 6px;
+    background: var(--accent-light);
+    border: 1px solid var(--accent-mid);
+    border-radius: 8px; padding: 5px 12px;
+    font-size: 12px; color: var(--accent); font-weight: 600;
+    cursor: pointer; transition: background .15s;
+    font-family: var(--mono);
+  }
+  .ticket-chip:hover { background: #E0E7FF; }
+  .ticket-chip svg { width: 12px; height: 12px; stroke: var(--accent); fill: none; stroke-width: 2; }
+  .btn { padding: 7px 14px; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all .15s; font-family: var(--font); white-space: nowrap; }
+  .btn-outline { background: var(--bg2); color: var(--txt); border: 1px solid var(--border2); }
+  .btn-outline:hover { background: var(--bg3); }
+  .btn-danger { background: #FEF2F2; color: #DC2626; border: 1px solid #FECACA; }
+  .btn-danger:hover { background: #FEE2E2; }
+  .btn-primary { background: var(--accent); color: #fff; border: none; }
+  .btn-primary:hover { background: var(--accent-hover); }
+
+  /* messages */
+  .messages {
+    flex: 1; overflow-y: auto;
+    padding: 24px 28px;
+    display: flex; flex-direction: column; gap: 16px;
+    background: var(--bg2);
+  }
+  .messages::-webkit-scrollbar { width: 4px; }
+  .messages::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; }
+
+  .msg-divider {
+    display: flex; align-items: center; gap: 12px; margin: 4px 0;
+  }
+  .msg-divider-line { flex: 1; height: 1px; background: var(--border); }
+  .msg-divider-text {
+    font-size: 11px; color: var(--txt3); white-space: nowrap;
+    font-weight: 500;
+  }
+
+  .msg-group { display: flex; flex-direction: column; gap: 4px; }
+  .msg-group.them { align-items: flex-start; }
+  .msg-group.us   { align-items: flex-end; }
+  .msg-sender { font-size: 11px; font-weight: 500; color: var(--txt2); margin-bottom: 4px; padding-left: 42px; }
+  .msg-group.us .msg-sender { padding-right: 42px; padding-left: 0; }
+
+  .msg-row { display: flex; align-items: flex-end; gap: 10px; }
+  .msg-row.us { flex-direction: row-reverse; }
+
+  .mini-avatar {
+    width: 30px; height: 30px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 600; flex-shrink: 0;
+  }
+  .mini-avatar.green  { background: #D1FAE5; color: #065F46; }
+  .mini-avatar.indigo { background: var(--accent-light); color: var(--accent); }
+
+  .bubble {
+    max-width: 420px; padding: 10px 14px;
+    font-size: 13px; line-height: 1.55; position: relative;
+  }
+  .bubble.them {
+    background: var(--bg);
+    border: 1px solid var(--border2);
+    color: var(--txt);
+    border-radius: 16px 16px 16px 4px;
+  }
+  .bubble.us {
+    background: var(--accent);
+    color: #fff;
+    border-radius: 16px 16px 4px 16px;
+  }
+  .bubble-meta { display: flex; align-items: center; gap: 6px; margin-top: 5px; }
+  .bubble-time { font-size: 10px; }
+  .bubble.them .bubble-time { color: var(--txt3); }
+  .bubble.us .bubble-time   { color: rgba(255,255,255,.6); }
+  .bubble-check { width: 12px; height: 12px; }
+
+  /* note bubble */
+  .bubble.note {
+    background: #FFFBEB;
+    border: 1px solid #FDE68A;
+    color: var(--txt);
+    border-radius: 16px 16px 16px 4px;
+  }
+  .note-label {
+    font-size: 10px; font-weight: 600; color: #B45309;
+    margin-bottom: 4px; display: flex; align-items: center; gap: 4px;
+  }
+  .note-label svg { width: 11px; height: 11px; stroke: #B45309; fill: none; stroke-width: 2; }
+
+  /* typing */
+  .typing-row { display: flex; align-items: flex-end; gap: 10px; }
+  .typing-dots {
+    background: var(--bg); border: 1px solid var(--border2);
+    border-radius: 16px 16px 16px 4px;
+    padding: 12px 16px;
+    display: flex; gap: 5px; align-items: center;
+  }
+  .typing-dots span {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--txt3);
+    animation: bounce 1.3s ease-in-out infinite;
+  }
+  .typing-dots span:nth-child(2) { animation-delay: .18s; }
+  .typing-dots span:nth-child(3) { animation-delay: .36s; }
+  @keyframes bounce {
+    0%,70%,100% { transform: translateY(0); }
+    35%          { transform: translateY(-5px); }
+  }
+
+  /* input area */
+  .chat-input-area {
+    border-top: 1px solid var(--border);
+    background: var(--bg);
+    padding: 0;
+    flex-shrink: 0;
+  }
+  .input-toolbar {
+    display: flex; gap: 4px; padding: 10px 16px 0;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 10px;
+  }
+  .toolbar-btn {
+    padding: 5px 10px; border-radius: 7px;
+    background: transparent; border: none;
+    font-size: 12px; color: var(--txt2);
+    cursor: pointer; display: flex; align-items: center; gap: 5px;
+    transition: background .1s; font-family: var(--font);
+  }
+  .toolbar-btn svg { width: 13px; height: 13px; stroke: var(--txt2); fill: none; stroke-width: 1.6; }
+  .toolbar-btn:hover { background: var(--bg2); color: var(--txt); }
+  .toolbar-btn:hover svg { stroke: var(--txt); }
+  .toolbar-btn.note-btn:hover { background: #FFFBEB; color: #B45309; }
+  .toolbar-btn.note-btn:hover svg { stroke: #B45309; }
+  .toolbar-sep { width: 1px; background: var(--border2); margin: 4px 2px; }
+  .input-row { display: flex; align-items: flex-end; gap: 10px; padding: 12px 16px; }
+  .input-box {
+    flex: 1; background: var(--bg2);
+    border: 1px solid var(--border2);
+    border-radius: 12px; padding: 10px 14px;
+    font-size: 13px; color: var(--txt);
+    outline: none; resize: none;
+    font-family: var(--font); line-height: 1.5;
+    min-height: 44px; max-height: 120px;
+    transition: border-color .15s;
+  }
+  .input-box:focus { border-color: var(--accent); background: var(--bg); }
+  .input-actions { display: flex; align-items: flex-end; gap: 6px; }
+  .input-icon-btn {
+    width: 38px; height: 38px; border-radius: 9px;
+    border: 1px solid var(--border2); background: var(--bg2);
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    transition: background .1s;
+  }
+  .input-icon-btn:hover { background: var(--bg3); }
+  .input-icon-btn svg { width: 16px; height: 16px; stroke: var(--txt2); fill: none; stroke-width: 1.6; }
+  .send-btn {
+    width: 40px; height: 40px; border-radius: 11px;
+    background: var(--accent); border: none;
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    transition: background .15s, transform .1s;
+    flex-shrink: 0;
+  }
+  .send-btn:hover { background: var(--accent-hover); }
+  .send-btn:active { transform: scale(.95); }
+  .send-btn svg { width: 17px; height: 17px; stroke: #fff; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* ══ CLIENT PANEL ══ */
+  .client-panel {
+    width: var(--cli-w);
+    border-left: 1px solid var(--border);
+    background: var(--bg);
+    display: flex; flex-direction: column;
+    overflow-y: auto; flex-shrink: 0;
+  }
+  .client-panel::-webkit-scrollbar { width: 4px; }
+  .client-panel::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; }
+
+  .client-top {
+    padding: 16px 16px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  .client-avatar-row { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+  .client-avatar {
+    width: 46px; height: 46px; border-radius: 50%;
+    background: #D1FAE5; color: #065F46;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; font-weight: 700; flex-shrink: 0;
+  }
+  .client-name { font-size: 14px; font-weight: 700; color: var(--txt); }
+  .client-company { font-size: 12px; color: var(--txt2); margin-top: 2px; }
+  .client-tags { display: flex; gap: 5px; flex-wrap: wrap; }
+  .client-tag { font-size: 10px; padding: 3px 8px; border-radius: 5px; font-weight: 500; }
+  .client-tag.premium { background: #FEF3C7; color: #92400E; }
+  .client-tag.portal  { background: var(--accent-light); color: var(--accent); }
+  .client-tag.active  { background: #D1FAE5; color: #065F46; }
+
+  .client-section {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .section-head {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 12px;
+  }
+  .section-title {
+    font-size: 10px; font-weight: 700; color: var(--txt3);
+    text-transform: uppercase; letter-spacing: .07em;
+  }
+  .section-action {
+    font-size: 11px; color: var(--accent); cursor: pointer;
+    font-weight: 500;
+  }
+  .section-action:hover { text-decoration: underline; }
+
+  .field { display: flex; justify-content: space-between; align-items: flex-start; padding: 5px 0; gap: 10px; }
+  .field-label { font-size: 12px; color: var(--txt2); flex-shrink: 0; }
+  .field-val { font-size: 12px; color: var(--txt); font-weight: 500; text-align: right; }
+  .field-val.link { color: var(--accent); cursor: pointer; }
+  .field-val.link:hover { text-decoration: underline; }
+  .field-val.mono { font-family: var(--mono); font-size: 11px; }
+
+  /* stats */
+  .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .stat-card { background: var(--bg2); border-radius: 10px; padding: 10px 12px; }
+  .stat-val   { font-size: 22px; font-weight: 700; color: var(--txt); line-height: 1.1; }
+  .stat-label { font-size: 10px; color: var(--txt2); margin-top: 3px; font-weight: 500; }
+  .stat-trend { font-size: 10px; margin-top: 2px; font-weight: 500; }
+  .stat-trend.up   { color: var(--online); }
+  .stat-trend.down { color: var(--danger); }
+
+  /* assign */
+  .assign-row { display: flex; align-items: center; justify-content: space-between; }
+  .assign-user { display: flex; align-items: center; gap: 8px; }
+  .assign-avatar {
+    width: 26px; height: 26px; border-radius: 50%;
+    background: var(--accent); color: #fff;
+    font-size: 10px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .assign-name { font-size: 12px; font-weight: 500; color: var(--txt); }
+  .assign-btn {
+    font-size: 11px; color: var(--accent); cursor: pointer;
+    border: 1px solid var(--accent-mid);
+    border-radius: 6px; padding: 3px 9px;
+    background: var(--accent-light); font-weight: 500;
+    transition: background .1s;
+  }
+  .assign-btn:hover { background: #E0E7FF; }
+
+  /* tickets */
+  .ticket-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 0; border-bottom: 1px solid var(--border);
+  }
+  .ticket-row:last-child { border-bottom: none; }
+  .ticket-status { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .ticket-status.open     { background: var(--accent); }
+  .ticket-status.resolved { background: var(--online); }
+  .ticket-status.urgent   { background: var(--danger); }
+  .ticket-info { flex: 1; min-width: 0; }
+  .ticket-id { font-size: 10px; color: var(--txt3); font-family: var(--mono); }
+  .ticket-subject { font-size: 12px; color: var(--txt); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
+  .ticket-right { text-align: right; flex-shrink: 0; }
+  .ticket-date { font-size: 10px; color: var(--txt3); }
+  .ticket-badge { font-size: 9px; padding: 1px 5px; border-radius: 4px; font-weight: 600; }
+  .ticket-badge.open     { background: var(--accent-light); color: var(--accent); }
+  .ticket-badge.resolved { background: #D1FAE5; color: #065F46; }
+  .ticket-badge.urgent   { background: #FEF2F2; color: var(--danger); }
+
+  /* SLA bar */
+  .sla-bar-wrap { margin-top: 8px; }
+  .sla-bar-head { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 5px; }
+  .sla-bar-head span { color: var(--txt2); }
+  .sla-bar-head strong { color: var(--txt); }
+  .sla-bar { height: 5px; background: var(--bg3); border-radius: 3px; overflow: hidden; }
+  .sla-bar-fill { height: 100%; border-radius: 3px; }
+  .sla-bar-fill.green  { background: var(--online); width: 82%; }
+  .sla-bar-fill.yellow { background: var(--warn); width: 58%; }
+  .sla-bar-fill.red    { background: var(--danger); width: 92%; }
+
+  /* top bar */
+  .topbar {
+    display: none; /* hidden on desktop */
+  }
+
+</style>
+</head>
+<body>
+
+<div class="shell">
+
+  <!-- ══ NAV ══ -->
+  <nav class="nav">
+    <div class="nav-logo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+      </svg>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-item" title="Dashboard">
+        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+      </div>
+      <div class="nav-item active" title="Atendimento" style="position:relative">
+        <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        <span class="nav-badge">2</span>
+      </div>
+      <div class="nav-item" title="Chat Interno">
+        <svg viewBox="0 0 24 24"><path d="M17 8h2a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2h-2v4l-4-4H9a2 2 0 0 1-2-2v-1"/><path d="M15 4H5a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2v4l4-4h4a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z"/></svg>
+      </div>
+    </div>
+
+    <div class="nav-sep"></div>
+
+    <div class="nav-group">
+      <div class="nav-item" title="Tickets">
+        <svg viewBox="0 0 24 24"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v2z"/></svg>
+      </div>
+      <div class="nav-item" title="Clientes">
+        <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      </div>
+      <div class="nav-item" title="Contratos">
+        <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+      </div>
+      <div class="nav-item" title="Monitoramento PDV">
+        <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+      </div>
+    </div>
+
+    <div class="nav-sep"></div>
+
+    <div class="nav-group">
+      <div class="nav-item" title="Base de Conhecimento">
+        <svg viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+      </div>
+      <div class="nav-item" title="Relatórios">
+        <svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+      </div>
+    </div>
+
+    <div class="nav-spacer"></div>
+
+    <div class="nav-item" title="Configurações">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    </div>
+    <div class="nav-avatar" style="position:relative" title="Administrador">
+      AD
+      <span class="online-dot"></span>
+    </div>
+  </nav>
+
+  <!-- ══ CONVERSATION LIST ══ -->
+  <div class="conv-panel">
+    <div class="conv-header">
+      <div class="conv-title-row">
+        <span class="conv-title">Atendimento</span>
+        <div class="conv-actions">
+          <div class="icon-btn" title="Nova conversa">
+            <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          </div>
+          <div class="icon-btn" title="Filtros">
+            <svg viewBox="0 0 24 24"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+          </div>
+          <div class="icon-btn" title="Atualizar">
+            <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+          </div>
+        </div>
+      </div>
+      <div class="search-box">
+        <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" placeholder="Buscar por nome, empresa ou ticket...">
+      </div>
+    </div>
+
+    <div class="conv-tabs">
+      <div class="tab active">Todos</div>
+      <div class="tab">WhatsApp</div>
+      <div class="tab">Portal</div>
+      <div class="tab">Sem ticket</div>
+    </div>
+
+    <div class="conv-filters">
+      <div class="filter-chip active">Em aberto</div>
+      <div class="filter-chip">Encerradas</div>
+      <div class="filter-chip">Vinculadas</div>
+    </div>
+
+    <div class="conv-list">
+      <div class="conv-section-label">
+        Em aberto
+        <span class="conv-section-count">2</span>
+      </div>
+
+      <!-- Conversa 1 (ativa) -->
+      <div class="conv-item active">
+        <div class="conv-avatar green">
+          KN
+          <div class="channel-dot portal">
+            <svg viewBox="0 0 10 10"><circle cx="5" cy="5" r="3.2" fill="#fff"/></svg>
+          </div>
+        </div>
+        <div class="conv-body">
+          <div class="conv-top">
+            <span class="conv-name">Kleiton Neves</span>
+            <span class="conv-time">3min</span>
+          </div>
+          <div class="conv-preview">precisando de sua ajuda hoje urgente, sempre fica assim</div>
+          <div class="conv-meta">
+            <span class="badge ticket">#000048</span>
+            <span class="badge empresa">Posto Novo Lago</span>
+            <span class="badge urgent">● Urgente</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Conversa 2 -->
+      <div class="conv-item">
+        <div class="conv-avatar blue">
+          EJ
+          <div class="channel-dot wa">
+            <svg viewBox="0 0 10 10"><path d="M5 1.2C2.9 1.2 1.2 2.9 1.2 5c0 .75.2 1.45.56 2.05L1.1 8.9l1.9-.65C3.55 8.7 4.25 9 5 9c2.1 0 3.8-1.7 3.8-3.8S7.1 1.2 5 1.2zm1.95 5.2c-.12.33-.7.62-1 .64-.24.02-.54-.08-.84-.2-.8-.34-1.45-1-1.85-1.8-.2-.42-.28-.82-.1-1.1.1-.16.26-.3.44-.36.06-.02.12-.03.18-.02l.5 1.15-.26.42.08.16c.3.46.72.8 1.2 1l.22-.2.36-.2 1.05.44v.42l-.48.45z" fill="#fff" stroke="none"/></svg>
+          </div>
+        </div>
+        <div class="conv-body">
+          <div class="conv-top">
+            <span class="conv-name">Edson Júnior</span>
+            <span class="conv-time">11min</span>
+          </div>
+          <div class="conv-preview">Boa tarde, preciso verificar uma questão sobre o sistema</div>
+          <div class="conv-meta">
+            <span class="badge ticket">#000047</span>
+            <span class="badge empresa">Posto Mana</span>
+            <span class="badge unread">2</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="conv-section-label" style="margin-top: 8px">
+        Encerradas hoje
+        <span class="conv-section-count">3</span>
+      </div>
+
+      <div class="conv-item">
+        <div class="conv-avatar orange">
+          MR
+          <div class="channel-dot wa">
+            <svg viewBox="0 0 10 10"><path d="M5 1.2C2.9 1.2 1.2 2.9 1.2 5c0 .75.2 1.45.56 2.05L1.1 8.9l1.9-.65C3.55 8.7 4.25 9 5 9c2.1 0 3.8-1.7 3.8-3.8S7.1 1.2 5 1.2zm1.95 5.2c-.12.33-.7.62-1 .64-.24.02-.54-.08-.84-.2-.8-.34-1.45-1-1.85-1.8-.2-.42-.28-.82-.1-1.1.1-.16.26-.3.44-.36.06-.02.12-.03.18-.02l.5 1.15-.26.42.08.16c.3.46.72.8 1.2 1l.22-.2.36-.2 1.05.44v.42l-.48.45z" fill="#fff" stroke="none"/></svg>
+          </div>
+        </div>
+        <div class="conv-body">
+          <div class="conv-top">
+            <span class="conv-name">Marcos Rodrigues</span>
+            <span class="conv-time">1h</span>
+          </div>
+          <div class="conv-preview">Obrigado pela ajuda, resolveu!</div>
+          <div class="conv-meta">
+            <span class="badge normal">#000046</span>
+            <span class="badge empresa">Auto Peças Silva</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="conv-item">
+        <div class="conv-avatar purple">
+          AC
+          <div class="channel-dot portal">
+            <svg viewBox="0 0 10 10"><circle cx="5" cy="5" r="3.2" fill="#fff"/></svg>
+          </div>
+        </div>
+        <div class="conv-body">
+          <div class="conv-top">
+            <span class="conv-name">Ana Carvalho</span>
+            <span class="conv-time">2h</span>
+          </div>
+          <div class="conv-preview">Perfeito, vou aguardar o retorno.</div>
+          <div class="conv-meta">
+            <span class="badge normal">#000045</span>
+            <span class="badge empresa">Distribuidora Norte</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="conv-item">
+        <div class="conv-avatar rose">
+          JP
+          <div class="channel-dot wa">
+            <svg viewBox="0 0 10 10"><path d="M5 1.2C2.9 1.2 1.2 2.9 1.2 5c0 .75.2 1.45.56 2.05L1.1 8.9l1.9-.65C3.55 8.7 4.25 9 5 9c2.1 0 3.8-1.7 3.8-3.8S7.1 1.2 5 1.2zm1.95 5.2c-.12.33-.7.62-1 .64-.24.02-.54-.08-.84-.2-.8-.34-1.45-1-1.85-1.8-.2-.42-.28-.82-.1-1.1.1-.16.26-.3.44-.36.06-.02.12-.03.18-.02l.5 1.15-.26.42.08.16c.3.46.72.8 1.2 1l.22-.2.36-.2 1.05.44v.42l-.48.45z" fill="#fff" stroke="none"/></svg>
+          </div>
+        </div>
+        <div class="conv-body">
+          <div class="conv-top">
+            <span class="conv-name">João Pereira</span>
+            <span class="conv-time">3h</span>
+          </div>
+          <div class="conv-preview">Entendido, muito obrigado!</div>
+          <div class="conv-meta">
+            <span class="badge normal">#000044</span>
+            <span class="badge empresa">Posto Central</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ CHAT ══ -->
+  <div class="chat-area">
+    <!-- Header -->
+    <div class="chat-header">
+      <div class="chat-avatar">
+        KN
+        <span class="status-dot away"></span>
+      </div>
+      <div class="chat-info">
+        <div class="chat-name">Kleiton Neves</div>
+        <div class="chat-sub">
+          <span class="channel-badge portal">
+            <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="4"/></svg>
+            Portal
+          </span>
+          <span class="chat-sub-sep">·</span>
+          <span>Posto Novo Lago</span>
+          <span class="chat-sub-sep">·</span>
+          <span>Visto 3min atrás</span>
+        </div>
+      </div>
+      <div class="chat-actions">
+        <div class="ticket-chip">
+          <svg viewBox="0 0 24 24"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v2z"/></svg>
+          #000048
+        </div>
+        <button class="btn btn-outline">Vincular ticket</button>
+        <button class="btn btn-outline">Transferir</button>
+        <button class="btn btn-danger">Encerrar</button>
+      </div>
+    </div>
+
+    <!-- Messages -->
+    <div class="messages">
+      <div class="msg-divider">
+        <div class="msg-divider-line"></div>
+        <div class="msg-divider-text">Hoje · 21:14</div>
+        <div class="msg-divider-line"></div>
+      </div>
+
+      <!-- Ticket aberto automaticamente -->
+      <div style="display:flex;justify-content:center;margin:4px 0;">
+        <div style="background:#EEF2FF;border:1px solid #C7D2FE;border-radius:8px;padding:5px 14px;font-size:11px;color:#4338CA;font-weight:500;display:flex;align-items:center;gap:6px;">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#4338CA" stroke-width="2"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v2z"/></svg>
+          Ticket #000048 aberto automaticamente
+        </div>
+      </div>
+
+      <!-- msg them -->
+      <div class="msg-group them">
+        <div class="msg-sender">Kleiton Neves</div>
+        <div class="msg-row">
+          <div class="mini-avatar green">KN</div>
+          <div class="bubble them">
+            boa noite
+            <div class="bubble-meta">
+              <span class="bubble-time">21:15</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- msg us -->
+      <div class="msg-group us">
+        <div class="msg-sender">Você · Administrador</div>
+        <div class="msg-row us">
+          <div class="mini-avatar indigo">AD</div>
+          <div>
+            <div class="bubble us">
+              boas noites! como posso te ajudar?
+              <div class="bubble-meta" style="justify-content:flex-end">
+                <span class="bubble-time">21:15</span>
+                <svg class="bubble-check" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.7)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- msg them -->
+      <div class="msg-group them">
+        <div class="msg-sender">Kleiton Neves</div>
+        <div class="msg-row">
+          <div class="mini-avatar green">KN</div>
+          <div class="bubble them">
+            precisando de sua ajuda hoje urgente, sempre fica assim
+            <div class="bubble-meta">
+              <span class="bubble-time">21:16</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- nota interna -->
+      <div class="msg-group us">
+        <div class="msg-sender">Você · Nota interna</div>
+        <div class="msg-row us">
+          <div class="mini-avatar indigo">AD</div>
+          <div class="bubble note">
+            <div class="note-label">
+              <svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+              Nota interna
+            </div>
+            Cliente relata problema recorrente no PDV. Verificar logs do sistema antes de responder.
+            <div class="bubble-meta">
+              <span class="bubble-time" style="color:#B45309">21:17</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- typing -->
+      <div class="typing-row">
+        <div class="mini-avatar green">KN</div>
+        <div class="typing-dots">
+          <span></span><span></span><span></span>
+        </div>
+        <span style="font-size:11px;color:var(--txt3);margin-left:2px">digitando...</span>
+      </div>
+    </div>
+
+    <!-- Input -->
+    <div class="chat-input-area">
+      <div class="input-toolbar">
+        <button class="toolbar-btn">
+          <svg viewBox="0 0 24 24"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+          Arquivo
+        </button>
+        <button class="toolbar-btn">
+          <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M9 3v18"/><path d="M15 3v18"/></svg>
+          Imagem
+        </button>
+        <button class="toolbar-btn">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
+          Emoji
+        </button>
+        <button class="toolbar-btn">
+          <svg viewBox="0 0 24 24"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg>
+          Resposta rápida
+        </button>
+        <div class="toolbar-sep"></div>
+        <button class="toolbar-btn note-btn">
+          <svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          Nota interna
+        </button>
+        <div class="toolbar-sep"></div>
+        <button class="toolbar-btn">
+          <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          Macro
+        </button>
+      </div>
+      <div class="input-row">
+        <textarea class="input-box" rows="1" placeholder="Digite sua mensagem para Kleiton...">pode descrever melhor o que está acontecendo?</textarea>
+        <div class="input-actions">
+          <div class="input-icon-btn" title="Áudio">
+            <svg viewBox="0 0 24 24"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+          </div>
+          <button class="send-btn" title="Enviar">
+            <svg viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ CLIENT PANEL ══ -->
+  <div class="client-panel">
+
+    <div class="client-top">
+      <div class="client-avatar-row">
+        <div class="client-avatar">KN</div>
+        <div>
+          <div class="client-name">Kleiton Neves</div>
+          <div class="client-company">Posto Novo Lago</div>
+        </div>
+      </div>
+      <div class="client-tags">
+        <span class="client-tag premium">Premium</span>
+        <span class="client-tag portal">Portal</span>
+        <span class="client-tag active">Ativo</span>
+      </div>
+    </div>
+
+    <!-- Responsável -->
+    <div class="client-section">
+      <div class="section-head">
+        <span class="section-title">Responsável</span>
+        <span class="section-action">Reatribuir</span>
+      </div>
+      <div class="assign-row">
+        <div class="assign-user">
+          <div class="assign-avatar">AD</div>
+          <div class="assign-name">Administrador</div>
+        </div>
+        <div class="assign-btn">Trocar</div>
+      </div>
+    </div>
+
+    <!-- SLA -->
+    <div class="client-section">
+      <div class="section-head">
+        <span class="section-title">SLA do ticket</span>
+        <span style="font-size:11px;color:var(--danger);font-weight:600">42min restantes</span>
+      </div>
+      <div class="sla-bar-wrap">
+        <div class="sla-bar-head">
+          <span>Tempo de resposta</span>
+          <strong>2h garantido</strong>
+        </div>
+        <div class="sla-bar">
+          <div class="sla-bar-fill yellow"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Informações -->
+    <div class="client-section">
+      <div class="section-head">
+        <span class="section-title">Informações</span>
+        <span class="section-action">Editar</span>
+      </div>
+      <div class="field">
+        <span class="field-label">Empresa</span>
+        <span class="field-val">Posto Novo Lago</span>
+      </div>
+      <div class="field">
+        <span class="field-label">Rede</span>
+        <span class="field-val">Rede Sul</span>
+      </div>
+      <div class="field">
+        <span class="field-label">CNPJ</span>
+        <span class="field-val mono">12.345.678/0001-90</span>
+      </div>
+      <div class="field">
+        <span class="field-label">WhatsApp</span>
+        <span class="field-val link">(48) 99999-0001</span>
+      </div>
+      <div class="field">
+        <span class="field-label">E-mail</span>
+        <span class="field-val link" style="font-size:11px"><a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="573c3b323e2338391727382423387934383a793525">[email&#160;protected]</a></span>
+      </div>
+      <div class="field">
+        <span class="field-label">Cidade</span>
+        <span class="field-val">Florianópolis, SC</span>
+      </div>
+      <div class="field">
+        <span class="field-label">Cliente desde</span>
+        <span class="field-val">Mar 2022</span>
+      </div>
+    </div>
+
+    <!-- Estatísticas -->
+    <div class="client-section">
+      <div class="section-head">
+        <span class="section-title">Atividade</span>
+      </div>
+      <div class="stat-grid">
+        <div class="stat-card">
+          <div class="stat-val">48</div>
+          <div class="stat-label">Tickets total</div>
+          <div class="stat-trend up">+3 esse mês</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-val" style="color:#10B981">96%</div>
+          <div class="stat-label">Resolução</div>
+          <div class="stat-trend up">+2% vs mês ant.</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-val">1,4h</div>
+          <div class="stat-label">Tempo médio</div>
+          <div class="stat-trend down">+0,3h vs mês ant.</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-val" style="color:#F59E0B">2</div>
+          <div class="stat-label">Urgentes abertos</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tickets -->
+    <div class="client-section">
+      <div class="section-head">
+        <span class="section-title">Tickets recentes</span>
+        <span class="section-action">Ver todos</span>
+      </div>
+      <div class="ticket-row">
+        <div class="ticket-status urgent"></div>
+        <div class="ticket-info">
+          <div class="ticket-id">#000048</div>
+          <div class="ticket-subject">Sistema travando no PDV</div>
+        </div>
+        <div class="ticket-right">
+          <div class="ticket-badge urgent">Urgente</div>
+          <div class="ticket-date">Agora</div>
+        </div>
+      </div>
+      <div class="ticket-row">
+        <div class="ticket-status resolved"></div>
+        <div class="ticket-info">
+          <div class="ticket-id">#000041</div>
+          <div class="ticket-subject">Integração NF-e bloqueada</div>
+        </div>
+        <div class="ticket-right">
+          <div class="ticket-badge resolved">Resolvido</div>
+          <div class="ticket-date">3 dias</div>
+        </div>
+      </div>
+      <div class="ticket-row">
+        <div class="ticket-status open"></div>
+        <div class="ticket-info">
+          <div class="ticket-id">#000039</div>
+          <div class="ticket-subject">Impressora fiscal sem papel</div>
+        </div>
+        <div class="ticket-right">
+          <div class="ticket-badge open">Aberto</div>
+          <div class="ticket-date">5 dias</div>
+        </div>
+      </div>
+      <div class="ticket-row">
+        <div class="ticket-status resolved"></div>
+        <div class="ticket-info">
+          <div class="ticket-id">#000035</div>
+          <div class="ticket-subject">Dúvida sobre relatórios</div>
+        </div>
+        <div class="ticket-right">
+          <div class="ticket-badge resolved">Resolvido</div>
+          <div class="ticket-date">2 sem.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Contrato -->
+    <div class="client-section">
+      <div class="section-head">
+        <span class="section-title">Contrato</span>
+        <span class="section-action">Ver detalhes</span>
+      </div>
+      <div class="field">
+        <span class="field-label">Plano</span>
+        <span class="field-val">Enterprise</span>
+      </div>
+      <div class="field">
+        <span class="field-label">Vencimento</span>
+        <span class="field-val">31/12/2026</span>
+      </div>
+      <div class="field">
+        <span class="field-label">Módulos</span>
+        <span class="field-val">PDV, NF-e, Relatórios</span>
+      </div>
+      <div class="sla-bar-wrap" style="margin-top:10px">
+        <div class="sla-bar-head">
+          <span>Vigência do contrato</span>
+          <strong style="color:#10B981">Ativo</strong>
+        </div>
+        <div class="sla-bar">
+          <div class="sla-bar-fill green"></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script>
+  // Tabs interativas
+  document.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', function() {
+      this.closest('.conv-tabs').querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      this.classList.add('active');
+    });
+  });
+
+  // Filter chips
+  document.querySelectorAll('.filter-chip').forEach(chip => {
+    chip.addEventListener('click', function() {
+      this.closest('.conv-filters').querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+      this.classList.add('active');
+    });
+  });
+
+  // Conversa selecionada
+  document.querySelectorAll('.conv-item').forEach(item => {
+    item.addEventListener('click', function() {
+      document.querySelectorAll('.conv-item').forEach(i => i.classList.remove('active'));
+      this.classList.add('active');
+    });
+  });
+
+  // Nav items
+  document.querySelectorAll('.nav-item').forEach(item => {
+    item.addEventListener('click', function() {
+      document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+      this.classList.add('active');
+    });
+  });
+
+  // Textarea auto-resize
+  const textarea = document.querySe

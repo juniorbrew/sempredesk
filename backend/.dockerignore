@@ -1,0 +1,17 @@
+node_modules
+npm-debug.log
+.git
+.gitignore
+.env
+.env.*
+*.md
+dist
+coverage
+.nyc_output
+*.log
+*.bak
+*.spec.ts
+test
+e2e
+.eslintrc*
+.prettierrc*
