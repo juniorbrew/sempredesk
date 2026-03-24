@@ -391,6 +391,10 @@ export class ContactValidationService {
       );
       contactCustomerId = upsertResult[0]?.id ?? '';
 
+      // Vincula o contato ao cliente no cadastro (contact.clientId)
+      contact.clientId = clientId;
+      await trx.save(Contact, contact);
+
       // Atualiza ticket
       ticket.clientId = clientId;
       ticket.customerSelectedAt = new Date();
