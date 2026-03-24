@@ -9,6 +9,7 @@ yarn-error.log*
 out/
 dist/
 build/
+**/cache/webpack/
 
 # Logs
 logs/
