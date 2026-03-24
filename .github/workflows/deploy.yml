@@ -26,11 +26,10 @@ jobs:
             echo "🔨 Rebuilding backend..."
             docker compose build backend
 
-            echo "🛑 Removendo container antigo do backend..."
-            docker stop suporte_backend 2>/dev/null || true
-            docker rm suporte_backend 2>/dev/null || true
+            echo "🛑 Derrubando todos os containers..."
+            docker compose down --remove-orphans
 
-            echo "🚀 Reiniciando containers..."
-            docker compose up -d --remove-orphans
+            echo "🚀 Subindo containers..."
+            docker compose up -d
 
             echo "✅ Deploy concluído!"
