@@ -1,24 +1,57 @@
 # Node
 node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
 # Next.js
 .next/
 out/
 dist/
+build/
 
 # Logs
 logs/
 *.log
 
-# Env
+# Env — NUNCA subir arquivos de ambiente com credenciais
 .env
 .env.local
+.env.production
+.env.staging
+.env.*.local
+# Permitir apenas o exemplo sem segredos
+!.env.example
 
 # Claude
 .claude/
 
 # System
 .DS_Store
+Thumbs.db
 
 # Docker
 *.pid
+
+# WhatsApp sessions — contém dados de sessão autenticada
+backend/whatsapp-sessions/
+**/whatsapp-sessions/
+
+# Uploads / arquivos gerados em runtime
+backend/uploads/
+**/uploads/
+
+# Chaves e certificados
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+
+# Audits / backups locais
+audits/
+
+# Coverage
+coverage/
+.nyc_output/
