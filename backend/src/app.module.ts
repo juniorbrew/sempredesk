@@ -125,6 +125,14 @@ export class AppModule implements NestModule, OnModuleInit {
       const convSvc = this.moduleRef.get(ConversationsService, { strict: false });
       if (chatbotSvc && convSvc) convSvc.setChatbotService(chatbotSvc);
     } catch { /* opcional */ }
+
+    // Wira o TicketAssignmentService no TicketsService (distribuição automática round-robin)
+    try {
+      const { TicketsService } = require('./modules/tickets/tickets.service');
+      const ticketsSvc = this.moduleRef.get(TicketsService, { strict: false });
+      const assignmentSvc = this.moduleRef.get(TicketAssignmentService, { strict: false });
+      if (ticketsSvc && assignmentSvc) ticketsSvc.setAssignmentService(assignmentSvc);
+    } catch { /* opcional */ }
   }
 
   configure(consumer: MiddlewareConsumer) {

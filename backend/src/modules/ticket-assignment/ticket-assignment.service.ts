@@ -30,10 +30,6 @@ interface UserIdDeptRow {
   user_id: string;
 }
 
-interface TicketCountRow {
-  user_id: string;
-  cnt: number;
-}
 
 interface StalePresenceRow {
   id: string;
@@ -118,16 +114,16 @@ export class TicketAssignmentService {
     return agentId;
   }
 
-  // ─── Round-Robin com tiebreaker por carga ────────────────────────────────
+  // ─── Round-Robin puro ────────────────────────────────────────────────────
 
   /**
-   * Retorna o próximo agente disponível para o departamento via round-robin.
+   * Retorna o próximo agente disponível para o departamento via round-robin puro.
    *
    * Ordem de seleção:
    * 1. Agentes elegíveis para o departamento (ou todos, se sem departamento)
    * 2. Filtra pelos que estão online: Redis (WebSocket) ∪ DB (heartbeat HTTP)
-   * 3. Ordena por (tickets_abertos ASC, userId ASC) para tiebreaker por carga
-   * 4. Avança o ponteiro circular e retorna o próximo
+   * 3. Ordena alfabeticamente por userId (lista estável, sem tiebreaker por carga)
+   * 4. Avança o ponteiro circular → rodízio independente de tickets ativos
    *
    * SELECT FOR UPDATE garante atomicidade em alta concorrência.
    */
@@ -211,26 +207,9 @@ export class TicketAssignmentService {
         return null;
       }
 
-      // 5. Tiebreaker: conta tickets abertos por agente elegível online
-      const countRows = await em.query<TicketCountRow[]>(
-        `SELECT assigned_to AS user_id, COUNT(*)::int AS cnt
-           FROM tickets
-          WHERE tenant_id = $1
-            AND assigned_to = ANY($2::uuid[])
-            AND status IN ('open','in_progress')
-          GROUP BY assigned_to`,
-        [tenantId, onlineEligible],
-      );
-      const ticketCounts = new Map<string, number>(
-        countRows.map((r) => [r.user_id, Number(r.cnt)]),
-      );
-
-      // Ordena: menos tickets abertos → primeiro; empate → ordem alfanumérica (estável)
-      const sorted = [...onlineEligible].sort((a, b) => {
-        const ca = ticketCounts.get(a) ?? 0;
-        const cb = ticketCounts.get(b) ?? 0;
-        return ca !== cb ? ca - cb : a.localeCompare(b);
-      });
+      // 5. Ordem estável para rodízio puro (sem tiebreaker por carga)
+      //    Ordem alfabética por userId garante lista consistente entre chamadas
+      const sorted = [...onlineEligible].sort((a, b) => a.localeCompare(b));
 
       // 6. Avança ponteiro circular sobre a lista ordenada
       const lastId = queue?.last_assigned_user_id ?? null;
