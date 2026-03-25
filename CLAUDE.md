@@ -1,81 +1,51 @@
-# SempreDesk — Contexto do Projeto
-
+# SempreDesk — Portal do Cliente
+## Visão geral do projeto
+Portal de atendimento ao cliente onde um usuário pode ser vinculado a múltiplas empresas.
+Cada empresa tem seus próprios tickets, estatísticas e notificações completamente independentes.
 ## Stack
-- **Frontend (admin):** Next.js 14 (App Router), React, TypeScript, Tailwind CSS, Zustand
-- **Frontend (portal):** Next.js 14 (App Router), React, TypeScript, Tailwind CSS
-- **Backend:** NestJS, TypeScript, TypeORM, PostgreSQL, Redis, RabbitMQ
-- **Infra:** Docker Compose, Nginx (reverse proxy)
-- **Comunicação real-time:** WebSockets (Socket.io ou WS nativo)
-
-## Comandos
-- Dev admin:   `npm run dev`
-- Dev portal:  `npm run dev` (pasta separada ou mesmo repo com turbo)
-- Build:       `npm run build`
-- Lint:        `npm run lint`
-- Types:       `npx tsc --noEmit`
-- Testes:      `npm run test`
-
-## Estrutura de pastas esperada (admin)
-```
+- React + Vite
+- Sem UI library externa (CSS-in-JS com variáveis CSS nativas)
+- Dark mode automático via prefers-color-scheme
+## Estrutura de pastas relevante
 src/
-  app/
-    (admin)/
-      dashboard/
-      atendimento/
-      tickets/
-        [id]/
-      contratos/
-      clientes/
-      monitoramento-pdv/
-      base-conhecimento/
-      relatorios/
-      configuracoes/
-    layout.tsx          ← shell com NavSidebar
-  components/
-    ui/                 ← primitivos reutilizáveis
-    atendimento/
-    tickets/
-    shared/
-  stores/
-  types/
-  lib/
-  hooks/
-```
-
-## Estrutura de pastas esperada (portal)
-```
-src/
-  app/
-    (portal)/
-      dashboard/
-      tickets/
-        [id]/
-      base-conhecimento/
-      conta/
-    layout.tsx
-  components/
-    portal/
-  types/
-  lib/
-```
-
-## Convenções obrigatórias
-- Functional components com hooks — sem class components
-- Tailwind para tudo — sem CSS modules, sem styled-components
-- Nomear componentes: PascalCase | arquivos: kebab-case
-- Tipos em `.types.ts` separados por domínio
-- Stores Zustand em `src/stores/`, um arquivo por domínio
-- Nunca hardcodar cores — usar apenas tokens do design system (`src/lib/tokens.ts`)
-- `npx tsc --noEmit` + `npm run lint` ao final de cada fase
-
-## Design System — referência visual completa
-Ver: `docs/design-system.md`
-
-## Telas redesenhadas (HTML de referência)
-- Atendimento (chat):     `docs/ui/sempredesk_atendimento.html`
-- Tickets (lista):        `docs/ui/sempredesk_tickets_lista.html`
-- Ticket (detalhe):       `docs/ui/sempredesk_ticket_detalhe.html`
-- Portal cliente:         `docs/ui/sempredesk_portal.html`  ← gerado em fase posterior
-
-## Spec de implementação por módulo
-Ver: `docs/refactor-spec.md`
+├── components/
+│   └── PortalCliente.jsx
+├── hooks/
+│   └── usePortal.js
+├── data/
+│   └── mockData.js
+└── main.jsx
+## Regras de negócio — IMPORTANTE
+### Multi-empresa
+- Um usuário pode estar vinculado a N empresas simultaneamente
+- Cada empresa tem um papel por usuário: Administrador, Operador ou Visualizador
+- Ao trocar de empresa, SEMPRE resetar: filtro de tickets, busca e fechar dropdowns
+- NUNCA misturar dados (tickets, stats, notificações) entre empresas diferentes
+- O activeCompanyId em usePortal.js é a fonte de verdade da empresa ativa
+### Permissões por papel
+- Administrador — acesso total, pode abrir e gerenciar chamados
+- Operador — pode abrir e acompanhar chamados
+- Visualizador — somente leitura, botão de abrir chamado desabilitado
+### Tickets
+- O campo progress vai de 0 a 4:
+  0 = Aberto · 1 = Recebido · 2 = Em análise · 3 = Em atendimento · 4 = Resolvido
+- Status possíveis: Aberto, Em andamento, Resolvido
+- Prioridades possíveis: Alta, Média, Baixa
+## Endpoints da API
+GET  /api/me
+GET  /api/companies/:companyId/tickets?status=&search=
+GET  /api/companies/:companyId/stats
+GET  /api/companies/:companyId/notifications
+PATCH /api/companies/:companyId/notifications/read-all
+POST /api/companies/:companyId/tickets
+## Padrões de código a seguir
+- Componentes funcionais com hooks, sem classes
+- CSS-in-JS com objetos de estilo inline + variáveis CSS
+- Nenhuma dependência de UI library externa
+- Nomes de variáveis e comentários em português
+- Dark mode sempre via variáveis CSS, nunca hardcoded
+## O que NÃO fazer
+- Não instalar Chakra, MUI, Ant Design ou similares
+- Não usar localStorage para estado de empresa ativa
+- Não fazer fetch de tickets sem o companyId na URL
+- Não exibir notificações de uma empresa quando outra estiver ativa
