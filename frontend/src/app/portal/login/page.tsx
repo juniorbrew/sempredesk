@@ -24,15 +24,17 @@ export default function PortalLoginPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error?.message || 'Credenciais inválidas');
-      const { accessToken, contact, clients } = data.data;
+      const payload = data?.data ?? data;
+      if (!payload?.accessToken) throw new Error('Resposta inválida do servidor');
+      const { accessToken, contact, clients } = payload;
       setAuth({ contact, clients, accessToken });
       // Se só tem 1 empresa vai direto, senão vai para seletor
-      if (clients.length <= 1) {
+      if ((clients?.length ?? 0) <= 1) {
         router.push('/portal/dashboard');
       } else {
         router.push('/portal/select-company');
       }
-    } catch(e: any) { setError(e.message || 'Erro ao fazer login'); }
+    } catch(e: any) { setError(e?.message || 'Erro ao fazer login'); }
     setLoading(false);
   };
 

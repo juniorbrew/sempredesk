@@ -5,10 +5,10 @@ import { LayoutDashboard, Ticket, BookOpen, User, LogOut } from 'lucide-react';
 import { usePortalStore } from '@/store/portal.store';
 
 const NAV = [
-  { href: '/portal/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-  { href: '/portal/tickets',   icon: Ticket,          label: 'Meus Tickets' },
-  { href: '/portal/knowledge', icon: BookOpen,         label: 'Base de Conhecimento' },
-  { href: '/portal/profile',   icon: User,             label: 'Minha Conta' },
+  { href: '/portal/dashboard',           icon: LayoutDashboard, label: 'Dashboard' },
+  { href: '/portal/dashboard/tickets',   icon: Ticket,          label: 'Meus Tickets' },
+  { href: '/portal/dashboard/knowledge', icon: BookOpen,         label: 'Base de Conhecimento' },
+  { href: '/portal/dashboard/profile',   icon: User,             label: 'Minha Conta' },
 ];
 
 const S = {
