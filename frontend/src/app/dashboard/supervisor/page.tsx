@@ -1,7 +1,7 @@
 'use client';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { api } from '@/lib/api';
-import { RefreshCw, Users, MessageSquare, Clock, Send, X, Check, ArrowRightLeft } from 'lucide-react';
+import { RefreshCw, X, Check, ArrowRightLeft, Send } from 'lucide-react';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 function initials(name: string) {
@@ -13,25 +13,32 @@ function avatarBg(name: string) {
   let h = 0; for (let i = 0; i < (name||'').length; i++) h = name.charCodeAt(i) + ((h << 5) - h);
   return C[Math.abs(h) % C.length];
 }
+function clockSince(date: string | Date | null) {
+  if (!date) return '00:00:00';
+  const diff = Date.now() - new Date(date).getTime();
+  const h = Math.floor(diff / 3600000);
+  const m = Math.floor((diff % 3600000) / 60000);
+  const s = Math.floor((diff % 60000) / 1000);
+  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+}
 function timeAgo(date: string | Date) {
-  const d = new Date(date).getTime(), diff = Date.now() - d;
-  const m = Math.floor(diff / 60000), h = Math.floor(m / 60), dy = Math.floor(h / 24);
-  if (dy > 0) return `${dy}d`;
+  const diff = Date.now() - new Date(date).getTime();
+  const m = Math.floor(diff / 60000), h = Math.floor(m / 60);
   if (h > 0) return `${h}h ${m % 60}min`;
   return m < 1 ? 'agora' : `${m}min`;
 }
-function clockSince(date: string) {
-  const d = new Date(date).getTime(), diff = Date.now() - d;
-  const h = Math.floor(diff / 3600000), m = Math.floor((diff % 3600000) / 60000);
-  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
-}
 
 // ── types ─────────────────────────────────────────────────────────────────────
+interface ConvItem {
+  convId: string; ticketId: string; ticketNumber: string;
+  contactName: string; channel: string; lastMessageAt: string;
+}
 interface Agent {
   userId: string; userName: string; userEmail: string;
   availability: 'online' | 'paused' | 'offline';
-  pauseType: string | null; clockIn: string;
+  pauseType: string | null; pauseSince: string | null; clockIn: string;
   activeTickets: number; activeConversations: number;
+  finishedToday: number; activeConvList: ConvItem[];
 }
 interface QueueItem {
   ticketId: string; ticketNumber: string; subject: string;
@@ -48,66 +55,329 @@ interface Conv {
   id: string; type?: string; contactName?: string; clientId?: string;
   ticketId?: string; ticketNumber?: string; channel?: string;
   status?: string; lastMessageAt?: string; createdAt?: string;
-  lastMessage?: string; assignedTo?: string; contactId?: string;
+  lastMessage?: string; assignedTo?: string;
 }
 
 // ── constants ─────────────────────────────────────────────────────────────────
-const AVAIL_COLOR: Record<string,string> = { online:'#16A34A', paused:'#D97706', offline:'#9CA3AF' };
-const AVAIL_BG:    Record<string,string> = { online:'#F0FDF4', paused:'#FFFBEB', offline:'#F8FAFC' };
-const AVAIL_LABEL: Record<string,string> = { online:'Online',  paused:'Em pausa', offline:'Offline' };
 const PAUSE_LABEL: Record<string,string> = { lunch:'Almoço', bathroom:'Fisiológica', technical:'Técnica', personal:'Pessoal' };
 const PRIO_COLOR:  Record<string,string> = { critical:'#DC2626', high:'#EA580C', medium:'#D97706', low:'#16A34A' };
 const PRIO_LABEL:  Record<string,string> = { critical:'Crítica', high:'Alta', medium:'Média', low:'Baixa' };
 
-// ── styles ────────────────────────────────────────────────────────────────────
 const S = {
   border: '1px solid rgba(0,0,0,.07)',
   border2: '1px solid rgba(0,0,0,.12)',
   txt: '#111118', txt2: '#6B6B80', txt3: '#A8A8BE',
   bg: '#FFFFFF', bg2: '#F8F8FB', bg3: '#F1F1F6',
-  accent: '#4F46E5', accentLight: '#EEF2FF', accentMid: '#C7D2FE',
+  accent: '#4F46E5', accentLight: '#EEF2FF',
 } as const;
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ── Ícone de estado (▶ / ⏸ / ✖) ─────────────────────────────────────────────
+function StatusIcon({ availability, pauseType }: { availability: string; pauseType: string | null }) {
+  if (availability === 'online') {
+    return (
+      <div title="Online" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+          <circle cx="14" cy="14" r="13" fill="#DCFCE7" stroke="#16A34A" strokeWidth="1.5"/>
+          <polygon points="11,9 21,14 11,19" fill="#16A34A"/>
+        </svg>
+        <span style={{ fontSize: 11, color: '#16A34A', fontWeight: 600 }}>Online</span>
+      </div>
+    );
+  }
+  if (availability === 'paused') {
+    return (
+      <div title={`Em pausa${pauseType ? ` · ${PAUSE_LABEL[pauseType] ?? pauseType}` : ''}`}
+        style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+          <circle cx="14" cy="14" r="13" fill="#FFFBEB" stroke="#D97706" strokeWidth="1.5"/>
+          <rect x="9" y="9" width="4" height="10" rx="1.5" fill="#D97706"/>
+          <rect x="15" y="9" width="4" height="10" rx="1.5" fill="#D97706"/>
+        </svg>
+        <span style={{ fontSize: 11, color: '#D97706', fontWeight: 600 }}>
+          {pauseType ? PAUSE_LABEL[pauseType] ?? pauseType : 'Em pausa'}
+        </span>
+      </div>
+    );
+  }
+  return (
+    <div title="Offline" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+        <circle cx="14" cy="14" r="13" fill="#FEF2F2" stroke="#DC2626" strokeWidth="1.5"/>
+        <line x1="9" y1="9" x2="19" y2="19" stroke="#DC2626" strokeWidth="2" strokeLinecap="round"/>
+        <line x1="19" y1="9" x2="9" y2="19" stroke="#DC2626" strokeWidth="2" strokeLinecap="round"/>
+      </svg>
+      <span style={{ fontSize: 11, color: '#DC2626', fontWeight: 600 }}>Offline</span>
+    </div>
+  );
+}
+
+// ── Célula de chats com hover mostrando lista ─────────────────────────────────
+function ChatsCell({ agent, onOpenConv }: { agent: Agent; onOpenConv: (ticketId: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const count = agent.activeConversations;
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  return (
+    <div ref={ref} style={{ position: 'relative', display: 'inline-block' }}>
+      <button
+        onClick={() => count > 0 && setOpen(v => !v)}
+        style={{
+          background: count > 0 ? S.accentLight : S.bg3,
+          border: `1px solid ${count > 0 ? '#C7D2FE' : 'rgba(0,0,0,.08)'}`,
+          borderRadius: 8, padding: '4px 12px', cursor: count > 0 ? 'pointer' : 'default',
+          display: 'flex', alignItems: 'center', gap: 6,
+        }}
+      >
+        <span style={{ fontSize: 15, fontWeight: 800, color: count > 0 ? S.accent : S.txt3 }}>
+          {count}
+        </span>
+        {count > 0 && (
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" style={{ opacity: .5 }}>
+            <path d="M2 4l3 3 3-3" stroke={S.accent} strokeWidth="1.5" strokeLinecap="round"/>
+          </svg>
+        )}
+      </button>
+
+      {open && count > 0 && (
+        <div style={{
+          position: 'absolute', top: '100%', left: 0, zIndex: 200, marginTop: 4,
+          background: S.bg, border: S.border2, borderRadius: 10,
+          boxShadow: '0 8px 24px rgba(0,0,0,.12)', minWidth: 280, overflow: 'hidden',
+        }}>
+          <div style={{ padding: '10px 14px', borderBottom: S.border, fontSize: 11, fontWeight: 700, color: S.txt3, textTransform: 'uppercase', letterSpacing: '.05em' }}>
+            Conversas ativas — {agent.userName.split(' ')[0]}
+          </div>
+          {agent.activeConvList.map(c => (
+            <button
+              key={c.convId}
+              onClick={() => { onOpenConv(c.ticketId); setOpen(false); }}
+              style={{
+                width: '100%', padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10,
+                background: 'transparent', border: 'none', borderBottom: S.border,
+                cursor: 'pointer', textAlign: 'left',
+              }}
+              onMouseEnter={e => (e.currentTarget.style.background = S.bg2)}
+              onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+            >
+              <div style={{
+                width: 30, height: 30, borderRadius: '50%', flexShrink: 0,
+                background: avatarBg(c.contactName), color: '#fff',
+                fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                {initials(c.contactName)}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: S.txt, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {c.contactName}
+                </div>
+                <div style={{ fontSize: 10, color: S.txt3 }}>
+                  {c.ticketNumber} · {c.channel === 'whatsapp' ? 'WhatsApp' : 'Portal'} · {timeAgo(c.lastMessageAt)}
+                </div>
+              </div>
+              <svg width="13" height="13" viewBox="0 0 13 13" fill="none" style={{ flexShrink: 0, opacity: .4 }}>
+                <path d="M2 6.5h9M7.5 2.5l4 4-4 4" stroke={S.txt} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Tabela de agentes (layout estilo Kentro) ──────────────────────────────────
+function AgentTable({
+  agents, onTransfer, onOpenConv,
+}: {
+  agents: Agent[];
+  onTransfer: (agentId: string, agentName: string) => void;
+  onOpenConv: (ticketId: string) => void;
+}) {
+  const [, setTick] = useState(0);
+
+  // Relógio ao vivo — atualiza a cada segundo
+  useEffect(() => {
+    const t = setInterval(() => setTick(v => v + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  const COLS = ['Agente', 'Fila', 'Estado', 'Chats', 'Finalizados', 'Logado', 'Pausa', 'Funções'];
+
+  return (
+    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <thead>
+        <tr>
+          {COLS.map(h => (
+            <th key={h} style={{
+              textAlign: h === 'Funções' ? 'right' : 'left',
+              fontSize: 10, fontWeight: 700, color: S.txt3,
+              textTransform: 'uppercase', letterSpacing: '.06em',
+              padding: '0 12px 10px 0', borderBottom: S.border,
+              whiteSpace: 'nowrap',
+            }}>
+              {h}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {agents.map(a => (
+          <tr key={a.userId} style={{ borderBottom: S.border }}
+            onMouseEnter={e => (e.currentTarget.style.background = S.bg2)}
+            onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+          >
+            {/* Agente */}
+            <td style={{ padding: '12px 12px 12px 0', minWidth: 180 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{
+                  width: 34, height: 34, borderRadius: '50%', flexShrink: 0,
+                  background: avatarBg(a.userName), color: '#fff',
+                  fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  {initials(a.userName)}
+                </div>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: S.txt }}>{a.userName}</div>
+                  <div style={{ fontSize: 11, color: S.txt3 }}>{a.userEmail}</div>
+                </div>
+              </div>
+            </td>
+
+            {/* Fila (tickets ativos) */}
+            <td style={{ padding: '12px 12px 12px 0' }}>
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                minWidth: 28, height: 22, borderRadius: 6, padding: '0 8px',
+                fontSize: 12, fontWeight: 700,
+                background: a.activeTickets > 0 ? '#EEF2FF' : S.bg3,
+                color: a.activeTickets > 0 ? S.accent : S.txt3,
+              }}>
+                {a.activeTickets}
+              </span>
+            </td>
+
+            {/* Estado — ícone visual */}
+            <td style={{ padding: '12px 12px 12px 0' }}>
+              <StatusIcon availability={a.availability} pauseType={a.pauseType} />
+            </td>
+
+            {/* Chats atribuídos com hover */}
+            <td style={{ padding: '12px 12px 12px 0' }}>
+              <ChatsCell agent={a} onOpenConv={onOpenConv} />
+            </td>
+
+            {/* Finalizados hoje */}
+            <td style={{ padding: '12px 12px 12px 0' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                <span style={{
+                  fontSize: 14, fontWeight: 700,
+                  color: a.finishedToday > 0 ? '#16A34A' : S.txt3,
+                }}>
+                  {a.finishedToday}
+                </span>
+                {a.finishedToday > 0 && (
+                  <span style={{ fontSize: 9, color: '#16A34A', fontWeight: 600 }}>hoje</span>
+                )}
+              </div>
+            </td>
+
+            {/* Logado há (relógio ao vivo) */}
+            <td style={{ padding: '12px 12px 12px 0' }}>
+              <span style={{ fontSize: 12, fontFamily: 'monospace', color: S.txt2, fontWeight: 600 }}>
+                {clockSince(a.clockIn)}
+              </span>
+            </td>
+
+            {/* Pausa (tempo em pausa atual ou 00:00:00) */}
+            <td style={{ padding: '12px 12px 12px 0' }}>
+              <span style={{
+                fontSize: 12, fontFamily: 'monospace', fontWeight: 600,
+                color: a.availability === 'paused' ? '#D97706' : S.txt3,
+              }}>
+                {a.availability === 'paused' ? clockSince(a.pauseSince) : '00:00:00'}
+              </span>
+            </td>
+
+            {/* Funções */}
+            <td style={{ padding: '12px 0', textAlign: 'right' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end' }}>
+                {/* Transferir todos os atendimentos */}
+                <button
+                  onClick={() => onTransfer(a.userId, a.userName)}
+                  title="Transferir atendimentos"
+                  style={{
+                    width: 30, height: 30, borderRadius: 7, border: S.border2,
+                    background: S.bg, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    cursor: 'pointer', color: S.txt2,
+                  }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = S.accentLight; (e.currentTarget as HTMLButtonElement).style.color = S.accent; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = S.bg; (e.currentTarget as HTMLButtonElement).style.color = S.txt2; }}
+                >
+                  <ArrowRightLeft size={13} strokeWidth={1.8} />
+                </button>
+                {/* Info (placeholder) */}
+                <button
+                  title="Ver detalhes"
+                  style={{
+                    width: 30, height: 30, borderRadius: 7, border: S.border2,
+                    background: S.bg, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    cursor: 'pointer', color: S.txt2,
+                  }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = S.bg2; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = S.bg; }}
+                >
+                  <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                    <circle cx="6.5" cy="6.5" r="5.5" stroke="currentColor" strokeWidth="1.5"/>
+                    <path d="M6.5 5.5v4M6.5 4h.01" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                  </svg>
+                </button>
+              </div>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+// ── Página principal ──────────────────────────────────────────────────────────
 export default function SupervisorPage() {
-  const [tab, setTab] = useState<'agents'|'conversations'|'queue'>('agents');
-  const [stats, setStats]     = useState<QueueStats | null>(null);
-  const [convs, setConvs]     = useState<Conv[]>([]);
-  const [team, setTeam]       = useState<any[]>([]);
-  const [customers, setCustomers] = useState<any[]>([]);
+  const [tab, setTab]     = useState<'agents'|'conversations'|'queue'>('agents');
+  const [stats, setStats] = useState<QueueStats | null>(null);
+  const [convs, setConvs] = useState<Conv[]>([]);
+  const [team, setTeam]   = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [lastAt, setLastAt]   = useState(new Date());
   const [toast, setToast]     = useState<{ msg: string; ok: boolean } | null>(null);
 
-  // Transfer modal
-  const [transferTicketId, setTransferTicketId]   = useState<string | null>(null);
-  const [transferConvLabel, setTransferConvLabel] = useState('');
-  const [transferAgentId, setTransferAgentId]     = useState('');
-  const [transferring, setTransferring]           = useState(false);
+  // Modal transferir
+  const [transferModal, setTransferModal] = useState<{ ticketId?: string; agentId?: string; agentName?: string; mode: 'ticket'|'agent' } | null>(null);
+  const [transferAgentId, setTransferAgentId] = useState('');
+  const [transferring, setTransferring]       = useState(false);
 
   const showToast = (msg: string, ok = true) => { setToast({ msg, ok }); setTimeout(() => setToast(null), 3500); };
 
-  // ── load ──
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const [statsRes, convRes, convTicketRes, teamRes, custRes] = await Promise.all([
+      const [statsRes, convRes, teamRes] = await Promise.all([
         api.getAttendanceQueueStats(),
-        api.getConversations({ status: 'active', hasTicket: 'all' }),
-        (api as any).getTicketConversations?.({ status: 'active', perPage: 100 }).catch(() => []),
+        api.getConversations({ status: 'active' }),
         team.length ? Promise.resolve(team) : api.getTeam(),
-        customers.length ? Promise.resolve(customers) : api.getCustomers({ perPage: 300 }),
       ]);
       setStats(statsRes as any);
       const ca: Conv[] = Array.isArray(convRes) ? convRes : (convRes as any)?.data ?? [];
-      const ta: Conv[] = Array.isArray(convTicketRes) ? convTicketRes : (convTicketRes as any)?.data ?? [];
-      const merged = [...ca.map((c:any) => ({ ...c, type: c.type||'conversation' })), ...ta]
-        .sort((a,b) => new Date(b.lastMessageAt||b.createdAt||0).getTime() - new Date(a.lastMessageAt||a.createdAt||0).getTime());
-      // dedup by id
-      const seen = new Set<string>();
-      setConvs(merged.filter(c => { if (seen.has(c.id)) return false; seen.add(c.id); return true; }));
+      setConvs(ca.sort((a,b) => new Date(b.lastMessageAt||b.createdAt||0).getTime() - new Date(a.lastMessageAt||a.createdAt||0).getTime()));
       if (!team.length) setTeam(Array.isArray(teamRes) ? teamRes : (teamRes as any)?.data ?? []);
-      if (!customers.length) setCustomers(Array.isArray(custRes) ? custRes : (custRes as any)?.data ?? []);
       setLastAt(new Date());
     } catch (e) { console.error(e); }
     setLoading(false);
@@ -120,42 +390,45 @@ export default function SupervisorPage() {
     return () => clearInterval(t);
   }, [load]);
 
-  // ── helpers ──
   const agentName = (id?: string) => {
-    if (!id) return null;
     const u = team.find((u:any) => u.id === id);
     return u ? (u.name || u.email) : null;
   };
-  const customerName = (id?: string) => {
-    if (!id) return null;
-    const c = customers.find((c:any) => c.id === id);
-    return c ? (c.tradeName || c.companyName) : null;
-  };
 
-  // ── transfer ──
-  const openTransfer = (ticketId: string, label: string) => {
-    setTransferTicketId(ticketId);
-    setTransferConvLabel(label);
-    setTransferAgentId('');
-  };
+  // Transferir ticket para agente
   const confirmTransfer = async () => {
-    if (!transferTicketId || !transferAgentId) return;
+    if (!transferAgentId) return;
     setTransferring(true);
     try {
-      await api.assignTicket(transferTicketId, transferAgentId);
-      showToast('Atendimento transferido com sucesso!');
-      setTransferTicketId(null);
+      if (transferModal?.ticketId) {
+        await api.assignTicket(transferModal.ticketId, transferAgentId);
+        showToast('Transferido com sucesso!');
+      } else if (transferModal?.agentId) {
+        // Transferir todos os tickets do agente
+        const agentConvs = stats?.agents.find(a => a.userId === transferModal.agentId)?.activeConvList ?? [];
+        await Promise.all(agentConvs.map(c => api.assignTicket(c.ticketId, transferAgentId)));
+        showToast(`${agentConvs.length} atendimento(s) transferido(s)!`);
+      }
+      setTransferModal(null);
+      setTransferAgentId('');
       load(true);
     } catch (e:any) { showToast(e?.response?.data?.message || 'Erro ao transferir', false); }
     setTransferring(false);
   };
 
-  const onlineAgents = stats?.agents.filter(a => a.availability === 'online') ?? [];
-  const pausedAgents = stats?.agents.filter(a => a.availability === 'paused') ?? [];
+  const openConvTransfer = (ticketId: string) => {
+    setTransferModal({ ticketId, mode: 'ticket' });
+    setTransferAgentId('');
+  };
+  const openAgentTransfer = (agentId: string, agentName: string) => {
+    setTransferModal({ agentId, agentName, mode: 'agent' });
+    setTransferAgentId('');
+  };
 
-  // ─────────────────────────────────────────────────────────────────────────
+  const summary = stats?.summary;
+
   return (
-    <div style={{ padding: '24px 28px', minHeight: '100vh', background: S.bg3, fontFamily: 'inherit' }}>
+    <div style={{ padding: '24px 28px', minHeight: '100vh', background: S.bg2, fontFamily: 'inherit' }}>
 
       {/* Toast */}
       {toast && (
@@ -165,104 +438,96 @@ export default function SupervisorPage() {
       )}
 
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 22 }}>
         <div>
-          <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: S.txt }}>Painel do Supervisor</h1>
-          <p style={{ margin: '3px 0 0', fontSize: 12, color: S.txt2 }}>
-            Visão em tempo real de agentes e atendimentos
+          <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: S.txt }}>Painel do Supervisor</h1>
+          <p style={{ margin: '2px 0 0', fontSize: 12, color: S.txt2 }}>
+            Visão em tempo real · atualizado às {lastAt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
           </p>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontSize: 11, color: S.txt3 }}>Atualizado {lastAt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
-          <button onClick={() => load(false)} title="Atualizar"
-            style={{ width: 34, height: 34, borderRadius: 9, border: S.border2, background: S.bg, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <RefreshCw size={15} color={S.txt2} strokeWidth={1.6} />
-          </button>
-        </div>
+        <button onClick={() => load(false)} title="Atualizar"
+          style={{ width: 34, height: 34, borderRadius: 9, border: S.border2, background: S.bg, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <RefreshCw size={15} color={S.txt2} strokeWidth={1.6} />
+        </button>
       </div>
 
-      {/* Summary cards */}
-      {stats && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 24 }}>
+      {/* Cards de resumo */}
+      {summary && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 22 }}>
           {[
-            { label: 'Online', value: stats.summary.online, color: '#16A34A', bg: '#F0FDF4', icon: '🟢' },
-            { label: 'Em pausa', value: stats.summary.paused, color: '#D97706', bg: '#FFFBEB', icon: '🟡' },
-            { label: 'Atendimentos ativos', value: convs.filter(c => c.status !== 'closed').length, color: S.accent, bg: S.accentLight, icon: '💬' },
-            { label: 'Na fila (sem agente)', value: stats.summary.queueLength, color: '#DC2626', bg: '#FEF2F2', icon: '⏳' },
+            { label: 'Online',              value: summary.online,      color: '#16A34A', bg: '#F0FDF4', icon: '🟢' },
+            { label: 'Em pausa',            value: summary.paused,      color: '#D97706', bg: '#FFFBEB', icon: '🟡' },
+            { label: 'Atendimentos ativos', value: convs.filter(c => c.status !== 'closed').length, color: S.accent, bg: '#EEF2FF', icon: '💬' },
+            { label: 'Na fila',             value: summary.queueLength, color: '#DC2626', bg: '#FEF2F2', icon: '⏳' },
           ].map(({ label, value, color, bg, icon }) => (
-            <div key={label} style={{ background: S.bg, borderRadius: 12, padding: '16px 20px', border: S.border, display: 'flex', alignItems: 'center', gap: 14 }}>
-              <div style={{ width: 44, height: 44, borderRadius: 11, background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>{icon}</div>
+            <div key={label} style={{ background: S.bg, borderRadius: 12, padding: '14px 18px', border: S.border, display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ width: 40, height: 40, borderRadius: 10, background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>{icon}</div>
               <div>
-                <div style={{ fontSize: 26, fontWeight: 800, color, lineHeight: 1 }}>{value}</div>
-                <div style={{ fontSize: 11, color: S.txt2, marginTop: 4, fontWeight: 500 }}>{label}</div>
+                <div style={{ fontSize: 24, fontWeight: 800, color, lineHeight: 1 }}>{value}</div>
+                <div style={{ fontSize: 11, color: S.txt2, marginTop: 3, fontWeight: 500 }}>{label}</div>
               </div>
             </div>
           ))}
         </div>
       )}
 
-      {/* Tabs */}
+      {/* Abas */}
       <div style={{ background: S.bg, borderRadius: 14, border: S.border, overflow: 'hidden' }}>
-        <div style={{ display: 'flex', borderBottom: S.border, padding: '0 20px' }}>
+        <div style={{ display: 'flex', borderBottom: S.border, padding: '0 16px', gap: 0 }}>
           {([
-            ['agents', `Agentes (${stats?.summary.total ?? 0})`],
-            ['conversations', `Atendimentos (${convs.filter(c => c.status !== 'closed').length})`],
-            ['queue', `Fila (${stats?.summary.queueLength ?? 0})`],
+            ['agents',        `Painel de Agentes (${summary?.total ?? 0})`],
+            ['conversations', `Painel de Atendimentos (${convs.filter(c => c.status !== 'closed').length})`],
+            ['queue',         `Fila (${summary?.queueLength ?? 0})`],
           ] as const).map(([key, label]) => (
             <button key={key} onClick={() => setTab(key)}
-              style={{ padding: '14px 18px', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit',
-                fontSize: 13, fontWeight: 600, color: tab === key ? S.accent : S.txt2,
-                borderBottom: `2px solid ${tab === key ? S.accent : 'transparent'}`, marginBottom: -1, transition: 'color .15s' }}>
+              style={{
+                padding: '13px 16px', background: 'none', border: 'none', cursor: 'pointer',
+                fontFamily: 'inherit', fontSize: 13, fontWeight: 600,
+                color: tab === key ? S.accent : S.txt2,
+                borderBottom: `2px solid ${tab === key ? S.accent : 'transparent'}`,
+                marginBottom: -1, transition: 'color .15s', whiteSpace: 'nowrap',
+              }}>
               {label}
             </button>
           ))}
         </div>
 
-        <div style={{ padding: 20 }}>
+        <div style={{ padding: 20, overflowX: 'auto' }}>
           {loading ? (
-            <div style={{ padding: 40, textAlign: 'center', color: S.txt3 }}>
-              <div className="animate-spin w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full" style={{ margin: '0 auto 12px' }} />
-              Carregando...
-            </div>
+            <div style={{ padding: 40, textAlign: 'center', color: S.txt3 }}>Carregando...</div>
           ) : (
             <>
-              {/* ── TAB AGENTES ─────────────────────────────────────── */}
+              {/* ── ABA AGENTES ─────────────────────────────────────────────── */}
               {tab === 'agents' && (
                 <div>
-                  {/* Online */}
-                  {onlineAgents.length > 0 && (
-                    <div style={{ marginBottom: 24 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: S.txt3, textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 10 }}>
-                        Online — {onlineAgents.length}
-                      </div>
-                      <AgentTable agents={onlineAgents} />
+                  {(stats?.agents.length ?? 0) === 0 ? (
+                    <div style={{ padding: 48, textAlign: 'center', color: S.txt3 }}>
+                      <div style={{ fontSize: 32, marginBottom: 8, opacity: .3 }}>👤</div>
+                      <p style={{ margin: 0, fontSize: 13 }}>Nenhum agente em turno no momento</p>
                     </div>
-                  )}
-                  {/* Em pausa */}
-                  {pausedAgents.length > 0 && (
-                    <div style={{ marginBottom: 24 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: S.txt3, textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 10 }}>
-                        Em pausa — {pausedAgents.length}
-                      </div>
-                      <AgentTable agents={pausedAgents} />
-                    </div>
-                  )}
-                  {onlineAgents.length === 0 && pausedAgents.length === 0 && (
-                    <EmptyState icon={<Users size={32} />} text="Nenhum agente clocked-in no momento" />
+                  ) : (
+                    <AgentTable
+                      agents={stats!.agents}
+                      onTransfer={openAgentTransfer}
+                      onOpenConv={openConvTransfer}
+                    />
                   )}
                 </div>
               )}
 
-              {/* ── TAB ATENDIMENTOS ─────────────────────────────────── */}
+              {/* ── ABA ATENDIMENTOS ─────────────────────────────────────────── */}
               {tab === 'conversations' && (
                 <div>
                   {convs.filter(c => c.status !== 'closed').length === 0 ? (
-                    <EmptyState icon={<MessageSquare size={32} />} text="Nenhum atendimento ativo no momento" />
+                    <div style={{ padding: 48, textAlign: 'center', color: S.txt3 }}>
+                      <div style={{ fontSize: 32, marginBottom: 8, opacity: .3 }}>💬</div>
+                      <p style={{ margin: 0, fontSize: 13 }}>Nenhum atendimento ativo</p>
+                    </div>
                   ) : (
                     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                       <thead>
                         <tr>
-                          {['Contato / Cliente', 'Canal', 'Agente', 'Ticket', 'Última mensagem', 'Aguarda', ''].map(h => (
+                          {['Contato', 'Canal', 'Agente', 'Ticket', 'Aguarda', ''].map(h => (
                             <th key={h} style={{ textAlign: 'left', fontSize: 10, fontWeight: 700, color: S.txt3, textTransform: 'uppercase', letterSpacing: '.06em', padding: '0 12px 10px 0', borderBottom: S.border }}>
                               {h}
                             </th>
@@ -270,59 +535,48 @@ export default function SupervisorPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {convs.filter(c => c.status !== 'closed').map((c) => {
+                        {convs.filter(c => c.status !== 'closed').map(c => {
                           const isWa = c.channel === 'whatsapp';
                           const agent = agentName(c.assignedTo);
-                          const client = customerName(c.clientId);
-                          const ticketId = c.ticketId || (c.type === 'ticket' ? c.id?.replace?.(/^ticket:/, '') : null);
                           return (
-                            <tr key={c.id} style={{ borderBottom: S.border }}>
+                            <tr key={c.id} style={{ borderBottom: S.border }}
+                              onMouseEnter={e => (e.currentTarget.style.background = S.bg2)}
+                              onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                            >
                               <td style={{ padding: '12px 12px 12px 0' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                  <div style={{ width: 34, height: 34, borderRadius: '50%', background: avatarBg(c.contactName || '?'), display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                  <div style={{ width: 30, height: 30, borderRadius: '50%', background: avatarBg(c.contactName || '?'), color: '#fff', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                                     {initials(c.contactName || '?')}
                                   </div>
-                                  <div>
-                                    <div style={{ fontSize: 13, fontWeight: 600, color: S.txt }}>{c.contactName || '—'}</div>
-                                    {client && <div style={{ fontSize: 11, color: S.txt2 }}>{client}</div>}
-                                  </div>
+                                  <span style={{ fontSize: 13, fontWeight: 600, color: S.txt }}>{c.contactName || '—'}</span>
                                 </div>
                               </td>
                               <td style={{ padding: '12px 12px 12px 0' }}>
-                                <span style={{ fontSize: 10, fontWeight: 600, padding: '3px 8px', borderRadius: 5, background: isWa ? '#DCFCE7' : S.accentLight, color: isWa ? '#15803D' : S.accent }}>
+                                <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 5, background: isWa ? '#DCFCE7' : '#EEF2FF', color: isWa ? '#15803D' : S.accent }}>
                                   {isWa ? 'WhatsApp' : 'Portal'}
                                 </span>
                               </td>
                               <td style={{ padding: '12px 12px 12px 0' }}>
                                 {agent ? (
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                                    <div style={{ width: 26, height: 26, borderRadius: '50%', background: avatarBg(agent), display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 10, fontWeight: 700 }}>
-                                      {initials(agent)}
-                                    </div>
-                                    <span style={{ fontSize: 12, color: S.txt, fontWeight: 500 }}>{agent}</span>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                    <div style={{ width: 22, height: 22, borderRadius: '50%', background: avatarBg(agent), color: '#fff', fontSize: 9, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{initials(agent)}</div>
+                                    <span style={{ fontSize: 12, color: S.txt }}>{agent}</span>
                                   </div>
-                                ) : (
-                                  <span style={{ fontSize: 11, color: '#D97706', fontWeight: 500 }}>Sem agente</span>
-                                )}
+                                ) : <span style={{ fontSize: 11, color: '#D97706' }}>Sem agente</span>}
                               </td>
                               <td style={{ padding: '12px 12px 12px 0' }}>
                                 {c.ticketNumber
-                                  ? <span style={{ fontFamily: 'monospace', fontSize: 12, color: S.accent, fontWeight: 600 }}>{c.ticketNumber}</span>
+                                  ? <span style={{ fontFamily: 'monospace', fontSize: 12, color: S.accent, fontWeight: 700 }}>{c.ticketNumber}</span>
                                   : <span style={{ fontSize: 11, color: S.txt3 }}>—</span>}
                               </td>
-                              <td style={{ padding: '12px 12px 12px 0', maxWidth: 220 }}>
-                                <span style={{ fontSize: 12, color: S.txt2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>
-                                  {c.lastMessage || '—'}
-                                </span>
-                              </td>
                               <td style={{ padding: '12px 12px 12px 0' }}>
-                                <span style={{ fontSize: 12, color: S.txt3 }}>{timeAgo(c.lastMessageAt || c.createdAt || new Date())}</span>
+                                <span style={{ fontSize: 12, color: S.txt3 }}>{timeAgo(c.lastMessageAt || c.createdAt || new Date().toISOString())}</span>
                               </td>
                               <td style={{ padding: '12px 0' }}>
-                                {ticketId && (
-                                  <button onClick={() => openTransfer(ticketId, c.contactName || c.ticketNumber || ticketId)}
-                                    style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 12px', borderRadius: 7, border: S.border2, background: S.bg2, color: S.txt, fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: 'inherit' }}>
-                                    <ArrowRightLeft size={13} /> Transferir
+                                {c.ticketId && (
+                                  <button onClick={() => openConvTransfer(c.ticketId!)}
+                                    style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 10px', borderRadius: 7, border: S.border2, background: S.bg2, color: S.txt, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+                                    <ArrowRightLeft size={12} /> Transferir
                                   </button>
                                 )}
                               </td>
@@ -335,11 +589,14 @@ export default function SupervisorPage() {
                 </div>
               )}
 
-              {/* ── TAB FILA ─────────────────────────────────────────── */}
+              {/* ── ABA FILA ─────────────────────────────────────────────────── */}
               {tab === 'queue' && (
                 <div>
                   {!stats?.queue.length ? (
-                    <EmptyState icon={<Clock size={32} />} text="Nenhum ticket na fila no momento" />
+                    <div style={{ padding: 48, textAlign: 'center', color: S.txt3 }}>
+                      <div style={{ fontSize: 32, marginBottom: 8, opacity: .3 }}>✅</div>
+                      <p style={{ margin: 0, fontSize: 13 }}>Fila vazia — todos os chamados estão atribuídos</p>
+                    </div>
                   ) : (
                     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                       <thead>
@@ -352,39 +609,39 @@ export default function SupervisorPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {stats.queue.map((q) => {
-                          const waiting = q.waitingMinutes;
-                          const waitColor = waiting > 30 ? '#DC2626' : waiting > 10 ? '#EA580C' : S.txt2;
+                        {stats.queue.map(q => {
+                          const waitColor = q.waitingMinutes > 30 ? '#DC2626' : q.waitingMinutes > 10 ? '#EA580C' : S.txt2;
                           return (
-                            <tr key={q.ticketId} style={{ borderBottom: S.border }}>
+                            <tr key={q.ticketId} style={{ borderBottom: S.border }}
+                              onMouseEnter={e => (e.currentTarget.style.background = S.bg2)}
+                              onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                            >
                               <td style={{ padding: '12px 12px 12px 0' }}>
                                 <span style={{ fontFamily: 'monospace', fontSize: 12, color: S.accent, fontWeight: 700 }}>{q.ticketNumber}</span>
                               </td>
                               <td style={{ padding: '12px 12px 12px 0', maxWidth: 200 }}>
-                                <span style={{ fontSize: 13, color: S.txt, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block', fontWeight: 500 }}>{q.subject}</span>
+                                <span style={{ fontSize: 13, color: S.txt, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>{q.subject}</span>
                               </td>
                               <td style={{ padding: '12px 12px 12px 0' }}>
-                                <div style={{ fontSize: 13, fontWeight: 600, color: S.txt }}>{q.clientName || '—'}</div>
+                                <div style={{ fontSize: 13, fontWeight: 600, color: S.txt }}>{q.clientName}</div>
                                 {q.contactName && <div style={{ fontSize: 11, color: S.txt2 }}>{q.contactName}</div>}
                               </td>
                               <td style={{ padding: '12px 12px 12px 0' }}>
-                                <span style={{ fontSize: 10, fontWeight: 600, padding: '3px 8px', borderRadius: 5, background: q.origin === 'whatsapp' ? '#DCFCE7' : S.accentLight, color: q.origin === 'whatsapp' ? '#15803D' : S.accent }}>
+                                <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 5, background: q.origin === 'whatsapp' ? '#DCFCE7' : '#EEF2FF', color: q.origin === 'whatsapp' ? '#15803D' : S.accent }}>
                                   {q.origin === 'whatsapp' ? 'WhatsApp' : 'Portal'}
                                 </span>
                               </td>
                               <td style={{ padding: '12px 12px 12px 0' }}>
-                                <span style={{ fontSize: 11, fontWeight: 700, color: PRIO_COLOR[q.priority] ?? S.txt2 }}>
-                                  {PRIO_LABEL[q.priority] ?? q.priority}
-                                </span>
+                                <span style={{ fontSize: 11, fontWeight: 700, color: PRIO_COLOR[q.priority] ?? S.txt2 }}>{PRIO_LABEL[q.priority] ?? q.priority}</span>
                               </td>
                               <td style={{ padding: '12px 12px 12px 0' }}>
                                 <span style={{ fontSize: 12, fontWeight: 600, color: waitColor }}>
-                                  {waiting < 1 ? 'agora' : waiting < 60 ? `${waiting}min` : `${Math.floor(waiting/60)}h${waiting%60}min`}
+                                  {q.waitingMinutes < 1 ? 'agora' : q.waitingMinutes < 60 ? `${q.waitingMinutes}min` : `${Math.floor(q.waitingMinutes/60)}h${q.waitingMinutes%60}min`}
                                 </span>
                               </td>
                               <td style={{ padding: '12px 0' }}>
-                                <button onClick={() => openTransfer(q.ticketId, q.ticketNumber)}
-                                  style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 12px', borderRadius: 7, border: 'none', background: S.accent, color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+                                <button onClick={() => openConvTransfer(q.ticketId)}
+                                  style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 10px', borderRadius: 7, border: 'none', background: S.accent, color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
                                   <Send size={12} /> Atribuir
                                 </button>
                               </td>
@@ -401,114 +658,55 @@ export default function SupervisorPage() {
         </div>
       </div>
 
-      {/* ── Modal Transferir / Atribuir ─────────────────────────────────────── */}
-      {transferTicketId && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: 16 }} onClick={() => setTransferTicketId(null)}>
-          <div style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 440, boxShadow: '0 16px 48px rgba(0,0,0,0.2)', overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
-            <div style={{ padding: '18px 22px', borderBottom: '1px solid #F1F5F9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      {/* ── Modal Transferir ─────────────────────────────────────────────────── */}
+      {transferModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: 16 }} onClick={() => setTransferModal(null)}>
+          <div style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 420, boxShadow: '0 16px 48px rgba(0,0,0,.2)', overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid #F1F5F9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div>
-                <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#0F172A' }}>Transferir Atendimento</h3>
-                <p style={{ margin: '4px 0 0', fontSize: 12, color: '#94A3B8' }}>{transferConvLabel}</p>
+                <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>
+                  {transferModal.mode === 'agent' ? `Transferir atendimentos de ${transferModal.agentName}` : 'Transferir atendimento'}
+                </h3>
+                <p style={{ margin: '3px 0 0', fontSize: 11, color: '#94A3B8' }}>Selecione o agente destino</p>
               </div>
-              <button onClick={() => setTransferTicketId(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94A3B8' }}>
-                <X size={18} />
+              <button onClick={() => setTransferModal(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94A3B8' }}>
+                <X size={16} />
               </button>
             </div>
-            <div style={{ padding: '16px 22px', display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 320, overflowY: 'auto' }}>
-              {team.filter((u:any) => ['technician','admin','manager'].includes(u.role)).map((u:any) => {
+            <div style={{ padding: '12px 20px', display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 300, overflowY: 'auto' }}>
+              {team.filter((u:any) => ['technician','admin','manager'].includes(u.role) && u.id !== transferModal.agentId).map((u:any) => {
                 const agentStat = stats?.agents.find(a => a.userId === u.id);
-                const isOnline = agentStat?.availability === 'online';
+                const isOnline  = agentStat?.availability === 'online';
                 return (
                   <button key={u.id} onClick={() => setTransferAgentId(u.id)}
-                    style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderRadius: 10, border: `1.5px solid ${transferAgentId === u.id ? S.accent : '#E2E8F0'}`, background: transferAgentId === u.id ? S.accentLight : '#fff', cursor: 'pointer', textAlign: 'left', transition: 'all .12s' }}>
+                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 9, border: `1.5px solid ${transferAgentId === u.id ? S.accent : '#E2E8F0'}`, background: transferAgentId === u.id ? '#EEF2FF' : '#fff', cursor: 'pointer', textAlign: 'left' }}>
                     <div style={{ position: 'relative', flexShrink: 0 }}>
-                      <div style={{ width: 36, height: 36, borderRadius: '50%', background: transferAgentId === u.id ? S.accent : avatarBg(u.name || u.email || '?'), display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 13, fontWeight: 700 }}>
-                        {initials(u.name || u.email || '?')}
+                      <div style={{ width: 32, height: 32, borderRadius: '50%', background: avatarBg(u.name || u.email), color: '#fff', fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        {initials(u.name || u.email)}
                       </div>
-                      <span style={{ position: 'absolute', bottom: 0, right: 0, width: 10, height: 10, borderRadius: '50%', background: isOnline ? '#16A34A' : '#9CA3AF', border: '2px solid #fff' }} />
+                      <span style={{ position: 'absolute', bottom: 0, right: 0, width: 9, height: 9, borderRadius: '50%', background: isOnline ? '#16A34A' : '#9CA3AF', border: '2px solid #fff' }} />
                     </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: '#0F172A' }}>{u.name || u.email}</p>
-                      <p style={{ margin: '2px 0 0', fontSize: 11, color: isOnline ? '#16A34A' : '#9CA3AF', fontWeight: 500 }}>
+                    <div style={{ flex: 1 }}>
+                      <p style={{ margin: 0, fontSize: 12, fontWeight: 600 }}>{u.name || u.email}</p>
+                      <p style={{ margin: '1px 0 0', fontSize: 10, color: isOnline ? '#16A34A' : '#9CA3AF', fontWeight: 500 }}>
                         {isOnline ? `Online · ${agentStat?.activeTickets ?? 0} tickets` : 'Offline'}
                       </p>
                     </div>
-                    {transferAgentId === u.id && <Check size={16} color={S.accent} />}
+                    {transferAgentId === u.id && <Check size={14} color={S.accent} />}
                   </button>
                 );
               })}
             </div>
-            <div style={{ padding: '14px 22px', borderTop: '1px solid #F1F5F9', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button onClick={() => setTransferTicketId(null)} style={{ padding: '9px 18px', borderRadius: 8, border: '1.5px solid #E2E8F0', background: '#fff', color: '#475569', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancelar</button>
+            <div style={{ padding: '12px 20px', borderTop: '1px solid #F1F5F9', display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button onClick={() => setTransferModal(null)} style={{ padding: '8px 16px', borderRadius: 8, border: '1.5px solid #E2E8F0', background: '#fff', color: '#475569', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Cancelar</button>
               <button onClick={confirmTransfer} disabled={!transferAgentId || transferring}
-                style={{ padding: '9px 20px', borderRadius: 8, border: 'none', background: !transferAgentId ? '#E2E8F0' : S.accent, color: !transferAgentId ? '#94A3B8' : '#fff', fontSize: 13, fontWeight: 700, cursor: !transferAgentId ? 'not-allowed' : 'pointer', opacity: transferring ? 0.7 : 1 }}>
+                style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: !transferAgentId ? '#E2E8F0' : S.accent, color: !transferAgentId ? '#94A3B8' : '#fff', fontSize: 12, fontWeight: 700, cursor: !transferAgentId ? 'not-allowed' : 'pointer', opacity: transferring ? .7 : 1 }}>
                 {transferring ? 'Transferindo...' : 'Confirmar'}
               </button>
             </div>
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-// ── Sub-components ─────────────────────────────────────────────────────────────
-function AgentTable({ agents }: { agents: Agent[] }) {
-  return (
-    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-      <thead>
-        <tr>
-          {['Agente', 'Status', 'Logado há', 'Tickets ativos', 'Conversas ativas'].map(h => (
-            <th key={h} style={{ textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#A8A8BE', textTransform: 'uppercase', letterSpacing: '.06em', padding: '0 12px 10px 0', borderBottom: '1px solid rgba(0,0,0,.07)' }}>
-              {h}
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {agents.map((a) => (
-          <tr key={a.userId} style={{ borderBottom: '1px solid rgba(0,0,0,.07)' }}>
-            <td style={{ padding: '12px 12px 12px 0' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div style={{ position: 'relative', flexShrink: 0 }}>
-                  <div style={{ width: 36, height: 36, borderRadius: '50%', background: avatarBg(a.userName), display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 13, fontWeight: 700 }}>
-                    {initials(a.userName)}
-                  </div>
-                  <span style={{ position: 'absolute', bottom: 0, right: 0, width: 10, height: 10, borderRadius: '50%', background: AVAIL_COLOR[a.availability], border: '2px solid #fff' }} />
-                </div>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: '#111118' }}>{a.userName}</div>
-                  <div style={{ fontSize: 11, color: '#6B6B80' }}>{a.userEmail}</div>
-                </div>
-              </div>
-            </td>
-            <td style={{ padding: '12px 12px 12px 0' }}>
-              <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 9px', borderRadius: 6, background: AVAIL_BG[a.availability], color: AVAIL_COLOR[a.availability] }}>
-                {AVAIL_LABEL[a.availability]}
-                {a.pauseType ? ` · ${PAUSE_LABEL[a.pauseType] ?? a.pauseType}` : ''}
-              </span>
-            </td>
-            <td style={{ padding: '12px 12px 12px 0' }}>
-              <span style={{ fontSize: 12, color: '#6B6B80', fontFamily: 'monospace' }}>{clockSince(a.clockIn)}</span>
-            </td>
-            <td style={{ padding: '12px 12px 12px 0' }}>
-              <span style={{ fontSize: 14, fontWeight: 700, color: a.activeTickets > 0 ? '#4F46E5' : '#A8A8BE' }}>{a.activeTickets}</span>
-            </td>
-            <td style={{ padding: '12px 0' }}>
-              <span style={{ fontSize: 14, fontWeight: 700, color: a.activeConversations > 0 ? '#16A34A' : '#A8A8BE' }}>{a.activeConversations}</span>
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-}
-
-function EmptyState({ icon, text }: { icon: React.ReactNode; text: string }) {
-  return (
-    <div style={{ padding: 48, textAlign: 'center', color: '#A8A8BE' }}>
-      <div style={{ opacity: 0.3, marginBottom: 12 }}>{icon}</div>
-      <p style={{ margin: 0, fontSize: 13, fontWeight: 500 }}>{text}</p>
     </div>
   );
 }

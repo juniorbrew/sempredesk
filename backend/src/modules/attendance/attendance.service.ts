@@ -167,11 +167,63 @@ export class AttendanceService {
       );
     }
 
+    // Tickets finalizados hoje por agente
+    let finishedRows: { assigned_to: string; count: string }[] = [];
+    if (agentIds.length > 0) {
+      finishedRows = await this.repo.manager.query(
+        `SELECT assigned_to, COUNT(*)::int AS count
+         FROM tickets
+         WHERE tenant_id = $1
+           AND assigned_to = ANY($2::text[])
+           AND status = 'resolved'
+           AND updated_at >= CURRENT_DATE
+         GROUP BY assigned_to`,
+        [tenantId, agentIds],
+      );
+    }
+
+    // Lista de conversas ativas por agente (para hover no painel do supervisor)
+    let convListRows: any[] = [];
+    if (agentIds.length > 0) {
+      convListRows = await this.repo.manager.query(
+        `SELECT c.id, c.channel, c.status,
+                COALESCE(ct.name, ct.phone, ct.email, '') AS contact_name,
+                t.assigned_to, t.ticket_number, t.id AS ticket_id,
+                c.last_message_at
+         FROM conversations c
+         JOIN tickets t ON t.id::text = c.ticket_id::text AND t.tenant_id = c.tenant_id
+         LEFT JOIN contacts ct ON ct.id::text = c.contact_id::text AND ct.tenant_id = c.tenant_id
+         WHERE c.tenant_id = $1
+           AND c.status = 'active'
+           AND t.assigned_to = ANY($2::text[])
+         ORDER BY c.last_message_at DESC NULLS LAST`,
+        [tenantId, agentIds],
+      );
+    }
+
     const ticketCountMap: Record<string, number> = {};
-    const convCountMap: Record<string, number> = {};
-    agentIds.forEach(id => { ticketCountMap[id] = 0; convCountMap[id] = 0; });
-    ticketRows.forEach(r => { ticketCountMap[r.assigned_to] = Number(r.count); });
-    convRows.forEach(r => { convCountMap[r.assigned_to] = Number(r.count); });
+    const convCountMap:   Record<string, number> = {};
+    const finishedMap:    Record<string, number> = {};
+    const convListMap:    Record<string, any[]>  = {};
+    agentIds.forEach(id => {
+      ticketCountMap[id] = 0;
+      convCountMap[id]   = 0;
+      finishedMap[id]    = 0;
+      convListMap[id]    = [];
+    });
+    ticketRows.forEach(r   => { ticketCountMap[r.assigned_to] = Number(r.count); });
+    convRows.forEach(r     => { convCountMap[r.assigned_to]   = Number(r.count); });
+    finishedRows.forEach(r => { finishedMap[r.assigned_to]    = Number(r.count); });
+    convListRows.forEach(r => {
+      convListMap[r.assigned_to]?.push({
+        convId:        r.id,
+        ticketId:      r.ticket_id,
+        ticketNumber:  r.ticket_number,
+        contactName:   r.contact_name || '—',
+        channel:       r.channel,
+        lastMessageAt: r.last_message_at,
+      });
+    });
 
     // Unassigned chat tickets in queue (whatsapp + portal, open/in_progress, no assigned agent)
     const queueRows: any[] = await this.repo.manager.query(
@@ -192,14 +244,17 @@ export class AttendanceService {
     );
 
     const agents = agentRecords.map(r => ({
-      userId:             r.userId,
-      userName:           r.userName || r.userEmail,
-      userEmail:          r.userEmail,
-      availability:       r.availability,
-      pauseType:          r.pauseType || null,
-      clockIn:            r.clockIn,
-      activeTickets:      ticketCountMap[r.userId] ?? 0,
-      activeConversations: convCountMap[r.userId] ?? 0,
+      userId:              r.userId,
+      userName:            r.userName || r.userEmail,
+      userEmail:           r.userEmail,
+      availability:        r.availability,
+      pauseType:           r.pauseType || null,
+      pauseSince:          r.pauseStart || null,
+      clockIn:             r.clockIn,
+      activeTickets:       ticketCountMap[r.userId] ?? 0,
+      activeConversations: convCountMap[r.userId]   ?? 0,
+      finishedToday:       finishedMap[r.userId]    ?? 0,
+      activeConvList:      convListMap[r.userId]    ?? [],
     }));
 
     const queue = queueRows.map(r => ({
