@@ -179,17 +179,23 @@ export class ConversationsService {
     channel: ConversationChannel,
   ): Promise<Conversation> {
     const contact = await this.customersService.findContactById(tenantId, contactId);
-    if (!contact || contact.clientId !== clientId) throw new BadRequestException('Contato inválido');
+    if (!contact) throw new BadRequestException('Contato não encontrado');
+    // Permite contatos vinculados ao cliente informado OU contatos sem cliente (serão vinculados depois)
+    if (contact.clientId && String(contact.clientId) !== String(clientId)) {
+      throw new BadRequestException('Contato pertence a outro cliente');
+    }
     if (channel === ConversationChannel.WHATSAPP && !contact.whatsapp) {
       throw new BadRequestException('Contato não possui WhatsApp cadastrado');
     }
+    // Usa o clientId do contato se já vinculado; caso contrário usa o informado
+    const resolvedClientId = contact.clientId ? String(contact.clientId) : clientId;
     const existing = await this.convRepo.findOne({
-      where: { tenantId, clientId, contactId, channel, status: ConversationStatus.ACTIVE },
+      where: { tenantId, clientId: resolvedClientId, contactId, channel, status: ConversationStatus.ACTIVE },
     });
     if (existing) return existing;
     const conv = this.convRepo.create({
       tenantId,
-      clientId,
+      clientId: resolvedClientId,
       contactId,
       channel,
       status: ConversationStatus.ACTIVE,

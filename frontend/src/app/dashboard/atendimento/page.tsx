@@ -425,11 +425,13 @@ export default function AtendimentoPage() {
     e.preventDefault();
     if (!input.trim() || !selected?.id) return;
     const ticketId = isTicketType ? (selected.ticketId || selected.id?.replace?.(/^ticket:/, '')) : selected?.ticketId;
-    const isPortalNoTicket = selected?.channel === 'portal' && !ticketId && !isTicketType;
-    if (!isPortalNoTicket && !ticketId && !isTicketType) return;
+    const channel = selected?.channel || 'whatsapp';
+    const isPortalNoTicket = channel === 'portal' && !ticketId && !isTicketType;
+    // Conversa WhatsApp/canal sem ticket ainda → usa addConversationMessage
+    const isConvNoTicket = !isTicketType && !ticketId && !!selected?.id;
+    if (!isPortalNoTicket && !isConvNoTicket && !ticketId && !isTicketType) return;
     setSending(true);
     try {
-      const channel = selected?.channel || 'whatsapp';
       if (isTicketType && ticketId) await api.addMessage(ticketId, { content: input, messageType: 'comment' });
       else if (channel === 'whatsapp' && ticketId) await api.sendWhatsappFromTicket(ticketId, input);
       else await api.addConversationMessage(selected.id, { content: input });
