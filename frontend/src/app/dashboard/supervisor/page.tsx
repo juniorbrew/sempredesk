@@ -2,6 +2,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { api } from '@/lib/api';
 import { RefreshCw, X, Check, ArrowRightLeft, Send } from 'lucide-react';
+import { usePresenceStore } from '@/store/presence.store';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 function initials(name: string) {
@@ -55,7 +56,8 @@ interface Conv {
   id: string; type?: string; contactName?: string; clientId?: string;
   ticketId?: string; ticketNumber?: string; channel?: string;
   status?: string; lastMessageAt?: string; createdAt?: string;
-  lastMessage?: string; assignedTo?: string;
+  lastMessage?: string; assignedTo?: string; assignedToName?: string;
+  clientName?: string;
 }
 
 // ── constants ─────────────────────────────────────────────────────────────────
@@ -351,13 +353,21 @@ function AgentTable({
 
 // ── Página principal ──────────────────────────────────────────────────────────
 export default function SupervisorPage() {
-  const [tab, setTab]     = useState<'agents'|'conversations'|'queue'>('agents');
+  const [tab, setTab]     = useState<'agents'|'conversations'|'queue'|'history'>('agents');
   const [stats, setStats] = useState<QueueStats | null>(null);
   const [convs, setConvs] = useState<Conv[]>([]);
   const [team, setTeam]   = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [lastAt, setLastAt]   = useState(new Date());
   const [toast, setToast]     = useState<{ msg: string; ok: boolean } | null>(null);
+
+  // Histórico de ponto
+  const [history, setHistory]         = useState<any[]>([]);
+  const [historyDate, setHistoryDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  // Reage a mudanças de presença (WebSocket) → reload imediato dos stats
+  const onlineIds = usePresenceStore(s => s.onlineIds);
 
   // Modal transferir
   const [transferModal, setTransferModal] = useState<{ ticketId?: string; agentId?: string; agentName?: string; mode: 'ticket'|'agent' } | null>(null);
@@ -384,11 +394,60 @@ export default function SupervisorPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const loadHistory = useCallback(async (date: string) => {
+    setHistoryLoading(true);
+    try {
+      // endDate = dia seguinte para cobrir todo o dia selecionado
+      const next = new Date(date); next.setDate(next.getDate() + 1);
+      const endDate = next.toISOString().slice(0, 10);
+      const res: any = await api.getAttendance({ startDate: date, endDate, perPage: 100 });
+      const rows = Array.isArray(res) ? res : (res?.data ?? []);
+      setHistory(rows);
+    } catch {}
+    setHistoryLoading(false);
+  }, []);
+
   useEffect(() => { load(); }, [load]);
+
+  // Polling de backup a cada 15s
   useEffect(() => {
-    const t = setInterval(() => load(true), 30_000);
+    const t = setInterval(() => load(true), 15_000);
     return () => clearInterval(t);
   }, [load]);
+
+  // Reload imediato quando presença muda via WebSocket (agente entra/sai)
+  const prevSizeRef = useRef(onlineIds.size);
+  useEffect(() => {
+    if (prevSizeRef.current !== onlineIds.size) {
+      prevSizeRef.current = onlineIds.size;
+      load(true);
+    }
+  }, [onlineIds, load]);
+
+  // Reload imediato ao receber evento de transferência/atribuição de ticket
+  useEffect(() => {
+    const WS_BASE = process.env.NEXT_PUBLIC_API_URL
+      ? process.env.NEXT_PUBLIC_API_URL.replace('/api/v1', '')
+      : (typeof window !== 'undefined' ? window.location.origin : '');
+    const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+    if (!token || !WS_BASE) return;
+    let socket: any;
+    (async () => {
+      const { io } = await import('socket.io-client');
+      const user = (await import('@/store/auth.store')).useAuthStore.getState().user;
+      if (!user?.tenantId) return;
+      socket = io(`${WS_BASE}/realtime`, { path: '/socket.io', transports: ['websocket', 'polling'], auth: { token } });
+      socket.emit('join-tenant', { tenantId: user.tenantId, userId: user.id });
+      socket.on('queue:updated', () => load(true));
+    })();
+    return () => { if (socket) socket.disconnect(); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Carrega histórico ao abrir aba ou mudar data
+  useEffect(() => {
+    if (tab === 'history') loadHistory(historyDate);
+  }, [tab, historyDate, loadHistory]);
 
   const agentName = (id?: string) => {
     const u = team.find((u:any) => u.id === id);
@@ -478,6 +537,7 @@ export default function SupervisorPage() {
             ['agents',        `Painel de Agentes (${summary?.total ?? 0})`],
             ['conversations', `Painel de Atendimentos (${convs.filter(c => c.status !== 'closed').length})`],
             ['queue',         `Fila (${summary?.queueLength ?? 0})`],
+            ['history',       'Histórico de Ponto'],
           ] as const).map(([key, label]) => (
             <button key={key} onClick={() => setTab(key)}
               style={{
@@ -537,7 +597,7 @@ export default function SupervisorPage() {
                       <tbody>
                         {convs.filter(c => c.status !== 'closed').map(c => {
                           const isWa = c.channel === 'whatsapp';
-                          const agent = agentName(c.assignedTo);
+                          const agent = c.assignedToName || agentName(c.assignedTo);
                           return (
                             <tr key={c.id} style={{ borderBottom: S.border }}
                               onMouseEnter={e => (e.currentTarget.style.background = S.bg2)}
@@ -579,6 +639,114 @@ export default function SupervisorPage() {
                                     <ArrowRightLeft size={12} /> Transferir
                                   </button>
                                 )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              )}
+
+              {/* ── ABA HISTÓRICO DE PONTO ───────────────────────────────────── */}
+              {tab === 'history' && (
+                <div>
+                  {/* Filtro de data */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: S.txt2 }}>Data:</label>
+                    <input
+                      type="date"
+                      value={historyDate}
+                      onChange={e => setHistoryDate(e.target.value)}
+                      style={{ fontSize: 13, padding: '5px 10px', borderRadius: 7, border: S.border2, color: S.txt, background: S.bg, fontFamily: 'inherit' }}
+                    />
+                    {historyLoading && <span style={{ fontSize: 11, color: S.txt3 }}>Carregando...</span>}
+                  </div>
+
+                  {history.length === 0 && !historyLoading ? (
+                    <div style={{ padding: 48, textAlign: 'center', color: S.txt3 }}>
+                      <div style={{ fontSize: 32, marginBottom: 8, opacity: .3 }}>📋</div>
+                      <p style={{ margin: 0, fontSize: 13 }}>Nenhum registro de ponto para esta data</p>
+                    </div>
+                  ) : (
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr>
+                          {['Agente', 'Entrada', 'Saída', 'Duração', 'Pausa', 'Status', 'Observação'].map(h => (
+                            <th key={h} style={{ textAlign: 'left', fontSize: 10, fontWeight: 700, color: S.txt3, textTransform: 'uppercase', letterSpacing: '.06em', padding: '0 12px 10px 0', borderBottom: S.border, whiteSpace: 'nowrap' }}>
+                              {h}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {history.map((r: any) => {
+                          const cin  = r.clockIn  ? new Date(r.clockIn)  : null;
+                          const cout = r.clockOut ? new Date(r.clockOut) : null;
+                          const durMs  = cout && cin ? cout.getTime() - cin.getTime() : (cin ? Date.now() - cin.getTime() : 0);
+                          const durH   = Math.floor(durMs / 3600000);
+                          const durM   = Math.floor((durMs % 3600000) / 60000);
+                          const durStr = cin ? `${durH}h ${String(durM).padStart(2,'0')}min` : '—';
+                          const fmtTime = (d: Date | null) => d ? d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—';
+                          const isOnline = !r.clockOut;
+                          return (
+                            <tr key={r.id} style={{ borderBottom: S.border }}
+                              onMouseEnter={e => (e.currentTarget.style.background = S.bg2)}
+                              onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                            >
+                              {/* Agente */}
+                              <td style={{ padding: '10px 12px 10px 0' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                  <div style={{ width: 30, height: 30, borderRadius: '50%', background: avatarBg(r.userName || r.userEmail || '?'), color: '#fff', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                    {initials(r.userName || r.userEmail || '?')}
+                                  </div>
+                                  <div>
+                                    <div style={{ fontSize: 13, fontWeight: 600, color: S.txt }}>{r.userName || '—'}</div>
+                                    <div style={{ fontSize: 10, color: S.txt3 }}>{r.userEmail}</div>
+                                  </div>
+                                </div>
+                              </td>
+                              {/* Entrada */}
+                              <td style={{ padding: '10px 12px 10px 0' }}>
+                                <span style={{ fontSize: 12, fontFamily: 'monospace', color: '#16A34A', fontWeight: 600 }}>
+                                  {fmtTime(cin)}
+                                </span>
+                                {r.ipAddress && <div style={{ fontSize: 10, color: S.txt3, marginTop: 1 }}>{r.ipAddress}</div>}
+                              </td>
+                              {/* Saída */}
+                              <td style={{ padding: '10px 12px 10px 0' }}>
+                                {cout
+                                  ? <span style={{ fontSize: 12, fontFamily: 'monospace', color: '#DC2626', fontWeight: 600 }}>{fmtTime(cout)}</span>
+                                  : <span style={{ fontSize: 11, fontWeight: 700, color: '#16A34A' }}>● Em turno</span>
+                                }
+                              </td>
+                              {/* Duração */}
+                              <td style={{ padding: '10px 12px 10px 0' }}>
+                                <span style={{ fontSize: 12, fontFamily: 'monospace', color: S.txt2, fontWeight: 600 }}>{durStr}</span>
+                              </td>
+                              {/* Pausa total */}
+                              <td style={{ padding: '10px 12px 10px 0' }}>
+                                {(r.totalPauseMinutes ?? 0) > 0
+                                  ? <span style={{ fontSize: 12, color: '#D97706', fontWeight: 600 }}>{Math.floor((r.totalPauseMinutes ?? 0) / 60)}h {(r.totalPauseMinutes ?? 0) % 60}min</span>
+                                  : <span style={{ fontSize: 11, color: S.txt3 }}>—</span>
+                                }
+                              </td>
+                              {/* Status */}
+                              <td style={{ padding: '10px 12px 10px 0' }}>
+                                <span style={{
+                                  fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 5,
+                                  background: isOnline ? '#DCFCE7' : '#F1F5F9',
+                                  color: isOnline ? '#15803D' : S.txt2,
+                                }}>
+                                  {isOnline ? 'Online' : 'Encerrado'}
+                                </span>
+                              </td>
+                              {/* Observação */}
+                              <td style={{ padding: '10px 0', maxWidth: 180 }}>
+                                <span style={{ fontSize: 11, color: S.txt3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>
+                                  {r.notes || '—'}
+                                </span>
                               </td>
                             </tr>
                           );

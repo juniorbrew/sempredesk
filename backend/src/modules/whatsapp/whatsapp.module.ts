@@ -8,6 +8,7 @@ import { WhatsappConnection } from './entities/whatsapp-connection.entity';
 import { CustomersModule } from '../customers/customers.module';
 import { TicketsModule } from '../tickets/tickets.module';
 import { ConversationsModule } from '../conversations/conversations.module';
+import { ConversationsService } from '../conversations/conversations.service';
 import { PermissionsModule } from '../permissions/permissions.module';
 import { RealtimeModule } from '../realtime/realtime.module';
 import { ChatbotModule } from '../chatbot/chatbot.module';
@@ -34,12 +35,24 @@ export class WhatsappModule implements OnModuleInit {
   constructor(
     private readonly baileysService: BaileysService,
     private readonly whatsappService: WhatsappService,
+    private readonly conversationsService: ConversationsService,
     @Optional() private readonly chatbotService: ChatbotService,
   ) {}
 
   async onModuleInit() {
+    // Registra dispatcher de mensagens outbound (agente → contato via WhatsApp)
+    this.conversationsService.setOutboundSender(async (tenantId: string, toWhatsapp: string, text: string) => {
+      if (this.baileysService) {
+        const sent = await this.baileysService.sendMessage(tenantId, toWhatsapp, text);
+        if (sent) return true;
+      }
+      // Fallback Meta API
+      try { await this.whatsappService.sendWhatsappMessage(toWhatsapp, text); return true; } catch { return false; }
+    });
+    this.logger.log('Outbound WhatsApp sender registered for conversations');
+
     // 1. Wire Baileys incoming messages → chatbot → WhatsApp message handler
-    this.baileysService.setMessageHandler(async (tenantId: string, from: string, text: string, messageId: string, senderName?: string) => {
+    this.baileysService.setMessageHandler(async (tenantId: string, from: string, text: string, messageId: string, senderName?: string, isLid?: boolean) => {
       try {
         // Run through chatbot first if available
         let transferDept: string | undefined;
@@ -67,7 +80,7 @@ export class WhatsappModule implements OnModuleInit {
         }
 
         // Bot didn't handle (or is handing off) → normal ticket/conversation flow
-        const msg = { provider: 'generic' as const, from, text, messageId, senderName };
+        const msg = { provider: 'generic' as const, from, text, messageId, senderName, isLid };
         const result = await this.whatsappService.handleIncomingMessage(tenantId, msg, transferDept, transferClientId);
         this.logger.log(`Baileys message processed: tenantId=${tenantId} from=${from} result=${JSON.stringify(result)}`);
       } catch (err) {

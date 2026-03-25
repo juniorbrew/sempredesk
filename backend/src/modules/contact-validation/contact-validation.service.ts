@@ -238,12 +238,27 @@ export class ContactValidationService {
       ? await this.clients.findOne({ where: { id: ticket.clientId, tenantId } })
       : null;
 
+    // Detecta cliente temporário (WhatsApp) por metadata OU pelo padrão de nome "(WhatsApp)"
     const isAutoCreated =
       currentClient?.metadata?.['autoCreated'] === true ||
-      currentClient?.metadata?.['autoCreated'] === 'true';
+      currentClient?.metadata?.['autoCreated'] === 'true' ||
+      /\(WhatsApp\)$/i.test(currentClient?.companyName ?? '') ||
+      /\(WhatsApp\)$/i.test(currentClient?.tradeName ?? '');
 
-    // Se o cliente não é auto-criado, não há necessidade de validação
-    if (!isAutoCreated) {
+    // O contato já está vinculado a um cliente real (não auto-criado) → sem necessidade de validação
+    // Verifica tanto o contato em si quanto o cliente do ticket
+    const contactLinkedClient = contact.clientId
+      ? await this.clients.findOne({ where: { id: contact.clientId, tenantId } })
+      : null;
+    const contactClientIsTemp =
+      !contactLinkedClient ||
+      /\(WhatsApp\)$/i.test(contactLinkedClient?.companyName ?? '') ||
+      contactLinkedClient?.metadata?.['autoCreated'] === true;
+
+    const contactAlreadyLinked = !!contact.clientId && !contactClientIsTemp;
+    const clientIsReal = currentClient && !isAutoCreated;
+
+    if (contactAlreadyLinked && clientIsReal) {
       return {
         needsValidation: false,
         alreadyValidated: false,
@@ -254,13 +269,12 @@ export class ContactValidationService {
           email: contact.email ?? null,
           phone: contact.phone ?? null,
         },
-        currentClient: currentClient
-          ? { id: currentClient.id, companyName: currentClient.companyName, autoCreated: false }
-          : null,
+        currentClient: { id: currentClient.id, companyName: currentClient.companyName, autoCreated: false },
         candidateClients: [],
       };
     }
 
+    // Contato sem cliente vinculado OU cliente auto-criado → agente precisa confirmar/vincular
     // Busca candidatos: clientes vinculados via pivot + sugestão por dados do contato
     const linked = await this.linkedClients(tenantId, contact.id);
     const suggested = await this.suggestByContactInfo(
@@ -284,7 +298,7 @@ export class ContactValidationService {
         ? {
             id: currentClient.id,
             companyName: currentClient.companyName,
-            autoCreated: true,
+            autoCreated: isAutoCreated,
           }
         : null,
       candidateClients,
@@ -322,6 +336,22 @@ export class ContactValidationService {
       ticket.customerSelectedAt = new Date();
       await trx.save(Ticket, ticket);
 
+      // Atualiza conversa vinculada ao ticket
+      if (ticket.conversationId) {
+        await trx.query(
+          `UPDATE conversations SET client_id = $1 WHERE id = $2 AND tenant_id = $3`,
+          [clientId, ticket.conversationId, tenantId],
+        );
+      }
+
+      // Vincula o contato ao cliente (se ainda não tiver clientId)
+      if (ticket.contactId) {
+        await trx.query(
+          `UPDATE contacts SET client_id = $1 WHERE id = $2 AND tenant_id = $3 AND client_id IS NULL`,
+          [clientId, ticket.contactId, tenantId],
+        );
+      }
+
       // Audit log
       await trx.query(
         `INSERT INTO ticket_messages
@@ -333,7 +363,7 @@ export class ContactValidationService {
           tenantId,
           ticketId,
           agentId,
-          `Cliente vinculado ao ticket: "${client.companyName}" (selecionado pelo agente)`,
+          `Cliente vinculado: "${client.tradeName || client.companyName}" — contato adicionado automaticamente ao cadastro`,
         ],
       );
     });

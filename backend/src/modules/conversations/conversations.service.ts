@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, IsNull } from 'typeorm';
 import { Conversation, ConversationChannel, ConversationStatus, ConversationInitiatedBy } from './entities/conversation.entity';
 import { ConversationMessage } from './entities/conversation-message.entity';
 import { TicketsService } from '../tickets/tickets.service';
@@ -14,6 +14,12 @@ export class ConversationsService {
   private chatbotService: { resetSession(tenantId: string, identifier: string, channel?: string): Promise<void> } | null = null;
   setChatbotService(svc: { resetSession(tenantId: string, identifier: string, channel?: string): Promise<void> }) {
     this.chatbotService = svc;
+  }
+
+  /** Dispatcher de envio outbound (WhatsApp/Baileys) — registrado pelo WhatsappModule.onModuleInit */
+  private outboundSender: ((tenantId: string, toWhatsapp: string, text: string) => Promise<boolean>) | null = null;
+  setOutboundSender(fn: (tenantId: string, toWhatsapp: string, text: string) => Promise<boolean>) {
+    this.outboundSender = fn;
   }
 
   constructor(
@@ -32,7 +38,7 @@ export class ConversationsService {
    */
   async getOrCreateForContact(
     tenantId: string,
-    clientId: string,
+    clientId: string | null,
     contactId: string,
     channel: ConversationChannel,
     opts?: { chatAlert?: boolean; firstMessage?: string; contactName?: string; department?: string },
@@ -40,7 +46,7 @@ export class ConversationsService {
     const active = await this.convRepo.findOne({
       where: {
         tenantId,
-        clientId,
+        clientId: clientId ?? IsNull(),
         contactId,
         channel,
         status: ConversationStatus.ACTIVE,
@@ -133,7 +139,7 @@ export class ConversationsService {
    */
   async startConversation(
     tenantId: string,
-    clientId: string,
+    clientId: string | null,
     contactId: string,
     channel: ConversationChannel,
     opts?: {
@@ -326,17 +332,25 @@ export class ConversationsService {
       );
     }
 
-    // Include contact name and ticket number
+    // Include contact name, ticket number, assigned agent and client company name
     qb.leftJoin('contacts', 'ct', 'ct.id::text = c.contact_id::text')
       .addSelect('ct.name', 'contactName')
       .leftJoin('tickets', 'tk', 'tk.id::text = c.ticket_id::text')
-      .addSelect('tk.ticket_number', 'ticketNumber');
+      .addSelect('tk.ticket_number', 'ticketNumber')
+      .addSelect('tk.assigned_to', 'assignedTo')
+      .leftJoin('clients', 'cu', 'cu.id::text = c.client_id::text')
+      .addSelect('COALESCE(cu.trade_name, cu.company_name)', 'clientName')
+      .leftJoin('users', 'ag', 'ag.id::text = tk.assigned_to::text')
+      .addSelect('ag.name', 'assignedToName');
 
     const raws = await qb.getRawAndEntities();
     return raws.entities.map((entity, i) => ({
       ...entity,
-      contactName: raws.raw[i]?.contactName ?? null,
-      ticketNumber: raws.raw[i]?.ticketNumber ?? null,
+      contactName:    raws.raw[i]?.contactName    ?? null,
+      ticketNumber:   raws.raw[i]?.ticketNumber   ?? null,
+      clientName:     raws.raw[i]?.clientName     ?? null,
+      assignedTo:     raws.raw[i]?.assignedTo     ?? null,
+      assignedToName: raws.raw[i]?.assignedToName ?? null,
     }));
   }
 
@@ -385,6 +399,20 @@ export class ConversationsService {
       content: saved.content,
       createdAt: saved.createdAt,
     });
+
+    // Envia via WhatsApp quando é mensagem do agente em conversa WhatsApp
+    if (authorType === 'user' && conv.channel === ConversationChannel.WHATSAPP && this.outboundSender) {
+      try {
+        const contact = await this.customersService.findContactById(tenantId, conv.contactId);
+        if (contact?.whatsapp) {
+          await this.outboundSender(tenantId, contact.whatsapp, content);
+        }
+      } catch (e) {
+        // Falha no envio WhatsApp não deve impedir o salvamento da mensagem
+        console.error('[ConversationsService] Falha ao enviar mensagem outbound WhatsApp:', e);
+      }
+    }
+
     return saved;
   }
 

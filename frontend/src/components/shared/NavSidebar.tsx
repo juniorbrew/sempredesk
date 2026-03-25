@@ -3,11 +3,12 @@ import { useEffect, useState } from 'react';
 import {
   LayoutDashboard, MessageCircle, MessageSquare, Ticket,
   Users, Users2, FileText, Monitor, BookOpen, BarChart2,
-  Settings, Smartphone, LogOut, Headphones, ChevronRight,
+  Settings, Smartphone, LogOut, Headphones, ChevronRight, Bell,
   Network, FolderTree, Tag, Layers, ShieldCheck, Database,
   Activity,
 } from 'lucide-react';
 import { useAuthStore, hasPermission } from '@/store/auth.store';
+import { usePresenceStore } from '@/store/presence.store';
 import { usePathname, useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import NavItem from './NavItem';
@@ -35,6 +36,7 @@ const CADASTROS_ITEMS = [
 ];
 
 const BOTTOM_ITEMS = [
+  { href: '/dashboard/alerts',    icon: Bell,       label: 'Alertas',        perm: 'alerts.view' },
   { href: '/dashboard/whatsapp',  icon: Smartphone, label: 'WhatsApp',       perm: 'settings.manage' },
   { href: '/dashboard/settings',  icon: Settings,   label: 'Configurações',  perm: 'settings.manage' },
 ];
@@ -102,6 +104,7 @@ interface NavSidebarProps {
 
 export default function NavSidebar({ isOpen, onClose, expanded = false, onToggleExpand }: NavSidebarProps) {
   const { user, clearAuth } = useAuthStore();
+  const setPresence = usePresenceStore((s) => s.setPresence);
   const router = useRouter();
   const pathname = usePathname();
   const [atendimentoCount, setAtendimentoCount] = useState(0);
@@ -124,7 +127,16 @@ export default function NavSidebar({ isOpen, onClose, expanded = false, onToggle
     if (isCadastrosActive) setCadastrosOpen(true);
   }, [isCadastrosActive]);
 
-  const logout = () => { clearAuth(); router.push('/auth/login'); };
+  const logout = async () => {
+    try { await api.logout(); } catch {}
+    setPresence([], {});  // limpa presença local imediatamente
+    clearAuth();
+    router.push('/auth/login');
+  };
+
+  // Clock-out é feito apenas pelo WebSocket (desconexão real) ou pelo botão de logout.
+  // O sendBeacon via beforeunload foi removido pois disparava também no F5 (refresh),
+  // causando registros de "Logout automático" falsos.
 
   const visibleMain      = MAIN_ITEMS.filter(n => hasPermission(user, n.perm));
   const visibleCadastros = CADASTROS_ITEMS.filter(n => hasPermission(user, n.perm));

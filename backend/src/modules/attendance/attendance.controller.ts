@@ -51,6 +51,12 @@ export class AttendanceController {
     return this.svc.getQueueStats(req.tenantId);
   }
 
+  /** Fecha manualmente todos os registros órfãos do tenant (admin) */
+  @Post('close-stale')
+  closeStale() {
+    return this.svc.closeStaleRecords();
+  }
+
   @Get()
   list(@Request() req: any, @Query() query: any) {
     return this.svc.getRecords(req.tenantId, query);

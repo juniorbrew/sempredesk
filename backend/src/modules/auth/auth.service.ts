@@ -102,10 +102,10 @@ export class AuthService {
     const secret  = this.cfg.get('JWT_SECRET', 'suporte-tecnico-jwt-secret-2024-change-in-prod');
     const refresh = this.cfg.get('JWT_REFRESH_SECRET', 'suporte-tecnico-refresh-secret-2024');
     const [accessToken, refreshToken] = await Promise.all([
-      this.jwt.signAsync(payload, { secret, expiresIn: '15m' }),
-      this.jwt.signAsync(payload, { secret: refresh, expiresIn: '7d' }),
+      this.jwt.signAsync(payload, { secret, expiresIn: '8h' }),
+      this.jwt.signAsync(payload, { secret: refresh, expiresIn: '30d' }),
     ]);
-    return { accessToken, refreshToken, expiresIn: 900 };
+    return { accessToken, refreshToken, expiresIn: 28800 };
   }
 
   async portalLogin(email: string, password: string, tenantId?: string, tenantSlug?: string) {

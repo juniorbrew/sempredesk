@@ -37,6 +37,7 @@ import { RedisModule } from './modules/redis/redis.module';
 import { TenantMiddleware } from './common/middlewares/tenant.middleware';
 import { RealtimeGateway } from './modules/realtime/realtime.gateway';
 import { TicketAssignmentService } from './modules/ticket-assignment/ticket-assignment.service';
+import { AttendanceService } from './modules/attendance/attendance.service';
 
 @Module({
   imports: [
@@ -105,6 +106,10 @@ export class AppModule implements NestModule, OnModuleInit {
       const assignmentSvc = this.moduleRef.get(TicketAssignmentService, { strict: false });
       if (gateway && assignmentSvc) {
         gateway.setAssignmentService(assignmentSvc);
+      }
+      const attendanceSvc = this.moduleRef.get(AttendanceService, { strict: false });
+      if (gateway && attendanceSvc) {
+        gateway.setAttendanceService(attendanceSvc);
       }
     } catch { /* opcional — não quebra se não encontrar */ }
 

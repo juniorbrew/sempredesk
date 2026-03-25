@@ -31,8 +31,8 @@ export class Conversation {
   @Column({ name: 'tenant_id' })
   tenantId: string;
 
-  @Column({ name: 'client_id' })
-  clientId: string;
+  @Column({ name: 'client_id', nullable: true })
+  clientId: string | null;
 
   @Column({ name: 'contact_id' })
   contactId: string;

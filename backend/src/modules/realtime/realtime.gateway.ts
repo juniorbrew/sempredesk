@@ -26,6 +26,13 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayDisconnect {
   private assignmentSvc: any = null;
   setAssignmentService(svc: any) { this.assignmentSvc = svc; }
 
+  /** Injetado via setter em app.module para evitar dependência circular */
+  private attendanceSvc: any = null;
+  setAttendanceService(svc: any) { this.attendanceSvc = svc; }
+
+  /** Clock-outs pendentes: "tenantId:userId" → timer (grace period 60s) */
+  private readonly pendingClockOuts = new Map<string, ReturnType<typeof setTimeout>>();
+
   constructor(
     private readonly emitter: RealtimeEmitterService,
     private readonly presence: RealtimePresenceService,
@@ -54,6 +61,19 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayDisconnect {
       // Redistribui tickets ao agente desconectar
       if (this.assignmentSvc) {
         this.assignmentSvc.redistributeOnAgentOffline(info.tenantId, info.userId).catch(() => {});
+      }
+      // Clock-out automático após grace period (60s) — cancela se reconectar
+      if (this.attendanceSvc) {
+        const key = `${info.tenantId}:${info.userId}`;
+        const existing = this.pendingClockOuts.get(key);
+        if (existing) clearTimeout(existing);
+        const timer = setTimeout(async () => {
+          this.pendingClockOuts.delete(key);
+          try {
+            await this.attendanceSvc.clockOut(info.tenantId, info.userId, 'Desconexão detectada');
+          } catch {}
+        }, 60_000);
+        this.pendingClockOuts.set(key, timer);
       }
     }
   }
@@ -91,14 +111,33 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayDisconnect {
   }
 
   @SubscribeMessage('join-tenant')
-  async handleJoinTenant(client: any, payload: { tenantId: string; userId?: string }) {
-    const { tenantId, userId } = payload || {};
+  async handleJoinTenant(client: any, payload: {
+    tenantId: string;
+    userId?: string;
+    userName?: string;
+    userEmail?: string;
+    userRole?: string;
+  }) {
+    const { tenantId, userId, userName, userEmail, userRole } = payload || {};
     if (tenantId && userId) {
+      // Cancela clock-out pendente (reconexão dentro do grace period)
+      const key = `${tenantId}:${userId}`;
+      const pending = this.pendingClockOuts.get(key);
+      if (pending) { clearTimeout(pending); this.pendingClockOuts.delete(key); }
+
       client.join(`tenant:${tenantId}`);
       this.presence.add(tenantId, String(userId), client.id);
       const { onlineIds, statusMap } = await this.presence.getOnlineIdsAndStatus(tenantId);
       this.emitter.emitPresence(tenantId, onlineIds, statusMap);
       client.emit('internal-chat:presence', { onlineIds, statusMap });
+
+      // Garante clock-in ativo — recupera sessão caso tenha sido encerrada por refresh/beacon acidental
+      if (this.attendanceSvc && userName && userEmail) {
+        try {
+          await this.attendanceSvc.clockIn(tenantId, String(userId), userName, userEmail, userRole || 'agent');
+        } catch {}
+      }
+
       // Rebalanceia tickets pendentes ao agente entrar online
       if (this.assignmentSvc) {
         this.assignmentSvc.rebalanceOnAgentOnline(tenantId, String(userId)).catch(() => {});

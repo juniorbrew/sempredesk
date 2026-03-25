@@ -53,6 +53,8 @@ interface Props {
   initialCustomerSelectedAt?: string | Date | null;
   /** Se já verdadeiro, pula a chamada de API */
   initialUnlinkedContact?: boolean;
+  /** Nome do cliente já vinculado (vem do cadastro de clientes) */
+  initialCustomerName?: string | null;
   onResolved: (data: ResolvedData) => void;
 }
 
@@ -62,6 +64,7 @@ export default function ContactValidationBanner({
   ticketId,
   initialCustomerSelectedAt,
   initialUnlinkedContact,
+  initialCustomerName,
   onResolved,
 }: Props) {
   const [bannerState, setBannerState] = useState<BannerState>('idle');
@@ -174,6 +177,7 @@ export default function ContactValidationBanner({
   if (bannerState === 'resolved_selected' || bannerState === 'resolved_linked') {
     const name = resolvedClient?.name
       ?? validationData?.currentClient?.companyName
+      ?? initialCustomerName
       ?? 'Empresa vinculada';
     return (
       <div style={{

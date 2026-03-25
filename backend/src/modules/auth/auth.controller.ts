@@ -1,5 +1,5 @@
 import {
-  Controller, Post, Get, Put, Body, Param,
+  Controller, Post, Get, Put, Body, Param, Query,
   UseGuards, Request, HttpCode, HttpStatus,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
@@ -38,6 +38,23 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   logout(@Request() req: any) {
     return this.auth.logout(req.user.tenantId, req.user.id);
+  }
+
+  /** Endpoint para sendBeacon (browser close) — aceita token via query param */
+  @Public()
+  @Post('logout-beacon')
+  @HttpCode(HttpStatus.OK)
+  async logoutBeacon(@Query('token') token: string) {
+    try {
+      if (!token) return { success: false };
+      // Decodifica sem verificar assinatura — apenas para obter userId/tenantId
+      const jwt = require('jsonwebtoken') as typeof import('jsonwebtoken');
+      const payload: any = jwt.decode(token);
+      if (payload?.sub && payload?.tenantId) {
+        await this.auth.logout(payload.tenantId, payload.sub);
+      }
+    } catch {}
+    return { success: true };
   }
 
   @Public()

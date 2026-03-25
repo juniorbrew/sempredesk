@@ -70,7 +70,11 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
     return () => clearInterval(interval);
   }, []);
 
-  const logout = () => { clearAuth(); router.push('/auth/login'); };
+  const logout = async () => {
+    try { await api.logout(); } catch {}
+    clearAuth();
+    router.push('/auth/login');
+  };
   const isActive = (href: string) =>
     href === '/dashboard' ? pathname === href : pathname.startsWith(href);
 

@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between, IsNull } from 'typeorm';
+import { Repository, Between, IsNull, LessThan } from 'typeorm';
+import { Cron } from '@nestjs/schedule';
 import { AgentAttendance, PauseType } from './attendance.entity';
 
 const PAUSE_LABELS: Record<PauseType, string> = {
@@ -88,6 +89,26 @@ export class AttendanceService {
     const canAuthorize = ['admin', 'super_admin', 'manager'].includes(authorizer.role);
     if (!canAuthorize) throw new ForbiddenException('Sem permissão para autorizar pausas técnicas');
     return this.startPause(tenantId, targetUserId, 'technical', authorizer);
+  }
+
+  /** Fecha registros órfãos abertos há mais de 12h (executa a cada hora) */
+  @Cron('0 * * * *')
+  async closeStaleRecords() {
+    const cutoff = new Date(Date.now() - 12 * 60 * 60 * 1000);
+    const stale = await this.repo.find({
+      where: { clockOut: IsNull(), clockIn: LessThan(cutoff) },
+    });
+    for (const record of stale) {
+      if (record.pauseStart && !record.pauseEnd) {
+        const mins = Math.floor((cutoff.getTime() - record.pauseStart.getTime()) / 60000);
+        record.pauseEnd = cutoff;
+        record.totalPauseMinutes = (record.totalPauseMinutes || 0) + mins;
+      }
+      record.clockOut = cutoff;
+      record.availability = 'offline';
+      record.notes = 'Encerrado automaticamente (sessão expirada)';
+    }
+    if (stale.length > 0) await this.repo.save(stale);
   }
 
   async isAvailable(tenantId: string, userId: string): Promise<boolean> {

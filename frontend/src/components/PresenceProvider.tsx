@@ -90,7 +90,15 @@ export function PresenceProvider({ children }: { children: React.ReactNode }) {
       socket.on('connect', () => {
         stopPoll();
         setIsConnected(true);
-        socket.emit('join-tenant', { tenantId, userId: String(userId) });
+        // Passa dados completos do usuário para o backend poder fazer clock-in automático se necessário
+        const u = useAuthStore.getState().user;
+        socket.emit('join-tenant', {
+          tenantId,
+          userId: String(userId),
+          userName: u?.name,
+          userEmail: u?.email,
+          userRole: u?.role,
+        });
         setTimeout(loadPresence, 500);
         heartbeatInterval = setInterval(() => {
           if (socket?.connected) socket.emit('presence:heartbeat', { tenantId, userId: String(userId) });

@@ -39,9 +39,9 @@ export class BaileysService {
     }
   }
 
-  private onMessageCallback: ((tenantId: string, from: string, text: string, messageId: string, senderName?: string) => void) | null = null;
+  private onMessageCallback: ((tenantId: string, from: string, text: string, messageId: string, senderName?: string, isLid?: boolean) => void) | null = null;
 
-  setMessageHandler(cb: (tenantId: string, from: string, text: string, messageId: string, senderName?: string) => void) {
+  setMessageHandler(cb: (tenantId: string, from: string, text: string, messageId: string, senderName?: string, isLid?: boolean) => void) {
     this.onMessageCallback = cb;
   }
 
@@ -266,13 +266,14 @@ export class BaileysService {
           || msg.message?.videoMessage?.caption;
         if (!text) return;
         // Strip all JID suffixes: @s.whatsapp.net, @lid, @c.us
+        const isLid = remoteJid.endsWith('@lid');
         const from = remoteJid.replace(/@s\.whatsapp\.net|@lid|@c\.us/g, '').trim();
         if (!from || from.includes('@')) {
           this.logger.warn(`Skipping message from unrecognized JID format: ${remoteJid}`);
           return;
         }
-        this.logger.log(`Incoming WhatsApp message from ${from} (JID: ${remoteJid})`);
-        this.onMessageCallback?.(tenantId, from, text, msg.key.id, msg.pushName || undefined);
+        this.logger.log(`Incoming WhatsApp message from ${from} (JID: ${remoteJid}, lid=${isLid})`);
+        this.onMessageCallback?.(tenantId, from, text, msg.key.id, msg.pushName || undefined, isLid);
       });
     } catch (error) {
       this.logger.error(`Failed to start Baileys session for tenant ${tenantId}`, error);
@@ -320,11 +321,24 @@ export class BaileysService {
       return false;
     }
     try {
-      const digits = to.replace(/\D/g, '');
-      // LID numbers have 15+ digits (WhatsApp internal ID, not a real phone).
-      // Real phone numbers are ≤13 digits (e.g. Brazilian: 5511999999999 = 13).
-      // For @lid JIDs we must use @lid suffix, not @s.whatsapp.net.
-      const jid = digits.length > 13 ? `${digits}@lid` : `${digits}@s.whatsapp.net`;
+      let digits = to.replace(/\D/g, '');
+
+      // LID: identificador interno do WhatsApp (14+ dígitos) — usa sufixo @lid
+      if (digits.length >= 14) {
+        const jid = `${digits}@lid`;
+        this.logger.log(`Sending WhatsApp message to ${jid}`);
+        await sock.sendMessage(jid, { text });
+        return true;
+      }
+
+      // Número real: normaliza para formato internacional brasileiro
+      // 10-11 dígitos sem código do país → adiciona 55 (Brasil)
+      if (digits.length <= 11 && !digits.startsWith('55')) {
+        digits = `55${digits}`;
+      }
+      // 12 dígitos com 55 + área + 8 dígitos (fixo sem 9) → adiciona 9 após o DDD
+      // Ex: 5573XXXXXXXX (12) → 557391XXXXXXXX não é o caso, deixa como está
+      const jid = `${digits}@s.whatsapp.net`;
       this.logger.log(`Sending WhatsApp message to ${jid}`);
       await sock.sendMessage(jid, { text });
       return true;

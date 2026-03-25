@@ -102,19 +102,37 @@ export class WhatsappService {
       }
     }
 
+    // Detecta se é um identificador LID (não é número de telefone real)
+    // LIDs são identificadores internos do WhatsApp — 14+ dígitos ou flag explícita do Baileys
+    const isLid = (msg as any).isLid === true || wa.length >= 14;
+
     let contact = await this.customersService.findContactByWhatsapp(tenantId, wa);
-    if (!contact || !contact.client) {
-      // Auto-create client + contact for unknown WhatsApp number
-      this.logger.log(`Auto-creating client+contact for unknown WhatsApp: ${wa} (${msg.senderName || 'no name'})`);
-      contact = await this.customersService.findOrCreateByWhatsapp(tenantId, wa, msg.senderName);
+    if (!contact) {
+      // Cria apenas o contato (sem cliente temporário)
+      this.logger.log(`Criando contato para WhatsApp desconhecido: ${wa} isLid=${isLid} (${msg.senderName || 'sem nome'})`);
+      contact = await this.customersService.findOrCreateByWhatsapp(tenantId, wa, msg.senderName, isLid);
     }
-    if (!contact || !contact.client) {
+    if (!contact) {
       return { created: false, reason: 'CONTACT_CREATE_FAILED' };
     }
 
+    // Se o chatbot identificou o cliente via CNPJ, vincula o contato antes de criar a conversa
+    if (chatbotClientId && !contact.clientId) {
+      try {
+        await this.customersService.linkContactToClient(tenantId, contact.id, chatbotClientId);
+        contact.clientId = chatbotClientId;
+        this.logger.log(`Contato ${contact.id} vinculado automaticamente ao cliente ${chatbotClientId} via CNPJ`);
+      } catch (e) {
+        this.logger.warn(`Falha ao vincular contato ${contact.id} ao cliente ${chatbotClientId} via CNPJ`, e);
+      }
+    }
+
+    // clientId: prioriza o identificado pelo chatbot (CNPJ), depois o já vinculado ao contato
+    const resolvedClientId = chatbotClientId ?? contact.clientId ?? null;
+
     const { conversation, ticket } = await this.conversationsService.getOrCreateForContact(
       tenantId,
-      contact.client.id,
+      resolvedClientId,
       contact.id,
       ConversationChannel.WHATSAPP,
       {
@@ -133,16 +151,13 @@ export class WhatsappService {
       text,
     );
 
-    // Auto-link company detected by chatbot (CNPJ informed during bot conversation)
-    if (ticket && chatbotClientId && !ticket.customerSelectedAt && !ticket.unlinkedContact) {
+    // Se o cliente foi identificado via CNPJ, marca o ticket como validado automaticamente
+    if (chatbotClientId && ticket) {
       try {
-        await this.ticketsService.update(tenantId, ticket.id, 'system', 'Sistema', {
-          clientId: chatbotClientId,
-          customerSelectedAt: new Date() as any,
-        } as any);
-        this.logger.log(`Chatbot auto-linked ticket ${ticket.id} to client ${chatbotClientId}`);
+        await this.ticketsService.markCustomerSelectedByCnpj(tenantId, ticket.id, chatbotClientId);
+        this.logger.log(`Ticket ${ticket.id} marcado como validado via CNPJ (cliente ${chatbotClientId})`);
       } catch (e) {
-        this.logger.warn(`Failed to auto-link chatbot clientId to ticket ${ticket.id}`, e);
+        this.logger.warn(`Falha ao marcar ticket ${ticket.id} como validado via CNPJ`, e);
       }
     }
 

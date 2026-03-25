@@ -40,9 +40,9 @@ export class Client {
 export class Contact {
   @PrimaryGeneratedColumn('uuid') id: string;
   @Column({ name: 'tenant_id' }) tenantId: string;
-  @Column({ name: 'client_id' }) clientId: string;
-  @ManyToOne(() => Client, (c) => c.contacts, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'client_id' }) client: Client;
+  @Column({ name: 'client_id', nullable: true }) clientId: string | null;
+  @ManyToOne(() => Client, (c) => c.contacts, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'client_id' }) client: Client | null;
   @Column({ length: 200 }) name: string;
   @Column({ nullable: true, length: 100 }) role: string;
   @Column({ nullable: true, length: 100 }) department: string;

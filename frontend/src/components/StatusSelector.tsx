@@ -15,11 +15,9 @@ const STATUS_OPTIONS = (['online', 'away', 'busy'] as const).map((v) => ({
 export function StatusSelector() {
   const { user } = useAuthStore();
   const { setStatus, isConnected } = usePresence();
-  const getStatus = usePresenceStore((s) => s.getStatus);
+  const myStatus = usePresenceStore((s) => user?.id ? (s.statusMap[user.id] || 'offline') : 'offline');
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-
-  const myStatus = user?.id ? getStatus(user.id) : 'offline';
   const current = myStatus === 'offline'
   ? { value: 'offline' as const, label: STATUS_STYLE.offline.label, color: STATUS_STYLE.offline.color }
   : STATUS_OPTIONS.find((o) => o.value === myStatus) || STATUS_OPTIONS[0];

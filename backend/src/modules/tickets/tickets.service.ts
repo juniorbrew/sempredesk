@@ -720,8 +720,19 @@ export class TicketsService {
     });
   }
 
-  async findOne(tenantId: string, id: string): Promise<Ticket> {
-    return this.getTicketOrFail(tenantId, id);
+  async findOne(tenantId: string, id: string): Promise<any> {
+    const ticket = await this.getTicketOrFail(tenantId, id);
+    // Inclui dados do responsável para evitar chamada extra ao endpoint /team
+    if ((ticket as any).assignedTo) {
+      try {
+        const rows = await this.ticketRepo.manager.query(
+          `SELECT id, name, email FROM users WHERE tenant_id = $1 AND id = $2 LIMIT 1`,
+          [tenantId, (ticket as any).assignedTo],
+        );
+        if (rows[0]) (ticket as any).assignedUser = rows[0];
+      } catch {}
+    }
+    return ticket;
   }
 
   async linkToConversation(tenantId: string, ticketId: string, conversationId: string): Promise<void> {
@@ -878,7 +889,38 @@ export class TicketsService {
       `Chamado atribuído ao técnico: ${techName ?? techId}`,
       MessageType.SYSTEM,
     );
+
+    // Notifica supervisor e demais agentes em tempo real sobre a transferência
+    this.realtimeEmitter.emitToTenant(tenantId, 'queue:updated', {
+      ticketId: id,
+      assignedTo: techId,
+      assignedToName: techName ?? techId,
+    });
+
     return saved;
+  }
+
+  /**
+   * Marca o ticket como validado automaticamente via CNPJ fornecido pelo contato no chatbot.
+   * Atualiza client_id do ticket e da conversa, e define customer_selected_at.
+   */
+  async markCustomerSelectedByCnpj(tenantId: string, ticketId: string, clientId: string): Promise<void> {
+    await this.ticketRepo.manager.transaction(async (trx) => {
+      // Atualiza o ticket com o cliente identificado e marca como validado
+      await trx.query(
+        `UPDATE tickets
+         SET client_id = $1, customer_selected_at = NOW(), unlinked_contact = false
+         WHERE id = $2 AND tenant_id = $3 AND customer_selected_at IS NULL`,
+        [clientId, ticketId, tenantId],
+      );
+
+      // Atualiza a conversa vinculada ao ticket
+      await trx.query(
+        `UPDATE conversations SET client_id = $1
+         WHERE ticket_id = $2 AND tenant_id = $3`,
+        [clientId, ticketId, tenantId],
+      );
+    });
   }
 
   async resolve(

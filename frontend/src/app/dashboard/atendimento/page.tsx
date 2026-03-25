@@ -11,6 +11,23 @@ import { EmojiPicker } from '@/components/ui/EmojiPicker';
 import ContactValidationBanner, { type ResolvedData } from '@/components/atendimento/ContactValidationBanner';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
+
+/** Formata número de WhatsApp para exibição: remove prefixo 55 e aplica máscara BR */
+function formatWhatsApp(raw?: string | null): string {
+  if (!raw) return '';
+  // Remove tudo que não é dígito
+  const digits = raw.replace(/\D/g, '');
+  // LID: identificador interno do WhatsApp (14+ dígitos) — não é número de telefone real
+  if (digits.length >= 14) return '';
+  // Remove prefixo do país (55) se presente e resultar em 10-11 dígitos BR
+  const local = digits.startsWith('55') && digits.length >= 12 ? digits.slice(2) : digits;
+  // Celular BR: (XX) 9 XXXX-XXXX
+  if (local.length === 11) return `(${local.slice(0,2)}) ${local.slice(2,3)} ${local.slice(3,7)}-${local.slice(7)}`;
+  // Fixo BR:   (XX) XXXX-XXXX
+  if (local.length === 10) return `(${local.slice(0,2)}) ${local.slice(2,6)}-${local.slice(6)}`;
+  return digits;
+}
+
 function timeAgo(date: string | Date) {
   const d = new Date(date).getTime();
   const diff = Date.now() - d;
@@ -197,7 +214,16 @@ export default function AtendimentoPage() {
       }
       setCustomers(customersArr);
       if (ticketRes) setCurrentTicket(ticketRes);
-      if (teamRes) setTeam(Array.isArray(teamRes) ? teamRes : teamRes?.data ?? []);
+      // Monta lista de agentes e garante que o responsável do ticket esteja nela
+      let teamArr: any[] = teamRes ? (Array.isArray(teamRes) ? teamRes : teamRes?.data ?? []) : [];
+      if (ticketRes?.assignedTo && !teamArr.find((u: any) => String(u.id) === String(ticketRes.assignedTo))) {
+        try {
+          const m: any = await api.getTeamMember(ticketRes.assignedTo);
+          const member = m?.data ?? m;
+          if (member?.id) teamArr = [...teamArr, member];
+        } catch {}
+      }
+      if (teamArr.length > 0) setTeam(teamArr);
       const msgs = isTicket && ticketId
         ? (await api.getMessages(ticketId, false) || [])
         : (await api.getConversationMessages(conv.id) || []);
@@ -611,7 +637,7 @@ export default function AtendimentoPage() {
                 const isClo = c.status === 'closed';
                 const ch = c.channel || 'whatsapp';
                 const dispName = c.contactName || customerName(c.clientId) || '—';
-                const compName = c.contactName ? customerName(c.clientId) : (customerName(c.clientId) || null);
+                const compName = c.clientName || (c.contactName ? customerName(c.clientId) : null) || (customerName(c.clientId) !== '—' ? customerName(c.clientId) : null);
                 const col = avatarColor(dispName);
                 return (
                   <button key={c.id} onClick={() => setSelected(c)}
@@ -727,6 +753,13 @@ export default function AtendimentoPage() {
                       </span>
                       <span style={{ color: S.txt3 }}>·</span>
                       <span>{customerName(selected.clientId)}</span>
+                      {/* Número do contato visível no cabeçalho */}
+                      {contacts[0]?.whatsapp && isWhatsapp && (
+                        <>
+                          <span style={{ color: S.txt3 }}>·</span>
+                          <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 10 }}>{formatWhatsApp(contacts[0].whatsapp)}</span>
+                        </>
+                      )}
                       {selected.lastMessageAt && (
                         <>
                           <span style={{ color: S.txt3 }}>·</span>
@@ -781,6 +814,7 @@ export default function AtendimentoPage() {
                     ticketId={currentTicket.id}
                     initialCustomerSelectedAt={currentTicket.customerSelectedAt ?? null}
                     initialUnlinkedContact={currentTicket.unlinkedContact ?? false}
+                    initialCustomerName={customerName(selected?.clientId) !== '—' ? customerName(selected?.clientId) : null}
                     onResolved={(data: ResolvedData) => {
                       setCurrentTicket((prev: any) => prev ? { ...prev, ...data } : prev);
                     }}
@@ -910,7 +944,9 @@ export default function AtendimentoPage() {
           {selected ? (() => {
             const customer = customers.find((c: any) => c.id === selected?.clientId);
             const contact = contacts.find((c: any) => c.id === selected?.contactId) || contacts[0];
-            const assignedUser = team.find((u: any) => u.id === currentTicket?.assignedTo);
+            // Usa assignedUser embutido no ticket (retornado pelo backend) ou faz fallback na lista de equipe
+            const assignedUser = currentTicket?.assignedUser
+              || team.find((u: any) => String(u.id) === String(currentTicket?.assignedTo));
             // SLA calc
             const slaInfo = (() => {
               if (!currentTicket?.slaResolveAt || ['resolved','closed','cancelled'].includes(currentTicket?.status)) return null;
@@ -1023,7 +1059,7 @@ export default function AtendimentoPage() {
                     {field('Empresa', <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140, display: 'block' }}>{customer.tradeName || customer.companyName || '—'}</span>)}
                     {customer.networkName && field('Rede', customer.networkName)}
                     {customer.cnpj && field('CNPJ', <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11 }}>{customer.cnpj}</span>)}
-                    {contact?.whatsapp && field('WhatsApp', <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11 }}>{contact.whatsapp}</span>)}
+                    {contact?.whatsapp && field('WhatsApp', <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11 }}>{formatWhatsApp(contact.whatsapp)}</span>)}
                     {contact?.email && field('E-mail', <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140, display: 'block', color: S.accent }}>{contact.email}</span>)}
                     {customer.city && field('Cidade', `${customer.city}${customer.state ? `, ${customer.state}` : ''}`)}
                     {customer.createdAt && field('Cliente desde', new Date(customer.createdAt).toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' }))}

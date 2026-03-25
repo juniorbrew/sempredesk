@@ -432,43 +432,43 @@ export class CustomersService {
     return rows;
   }
 
-  async findOrCreateByWhatsapp(tenantId: string, phone: string, displayName?: string) {
-    // 1. Try to find by whatsapp field
-    let contact = await this.contacts.findOne({
+  async findOrCreateByWhatsapp(tenantId: string, phone: string, displayName?: string, isLid = false) {
+    // 1. Tenta encontrar contato existente pelo número
+    const existing = await this.contacts.findOne({
       where: { tenantId, whatsapp: phone },
       relations: ['client'],
     });
-    if (contact?.client) return contact;
+    if (existing) return existing;
 
-    // 2. Auto-create a client and primary contact for this WhatsApp number
-    const label = displayName
-      ? `${displayName} (WhatsApp)`
-      : `WhatsApp +${phone}`;
-
-    const client = await this.clients.save(
-      this.clients.create({
-        tenantId,
-        companyName: label,
-        whatsapp: phone,
-        phone,
-        status: 'active',
-        metadata: { autoCreated: true, source: 'whatsapp' },
-      }),
-    );
-
-    contact = await this.contacts.save(
+    // 2. Cria SOMENTE o contato — sem cliente temporário
+    // Se for LID (@lid JID), NÃO armazena como phone (pois não é número de telefone real).
+    // O campo whatsapp guarda o LID para roteamento de respostas.
+    // O agente vinculará ao cliente real durante o atendimento via ContactValidationBanner
+    const contact = await this.contacts.save(
       this.contacts.create({
         tenantId,
-        clientId: client.id,
-        name: displayName || `+${phone}`,
+        clientId: null as any,
+        name: displayName || (isLid ? 'WhatsApp' : `+${phone}`),
         whatsapp: phone,
-        phone,
+        phone: isLid ? (null as any) : phone,
         preferredChannel: 'whatsapp',
         canOpenTickets: true,
         status: 'active',
       }),
     );
-    contact.client = client;
+    contact.client = null as any;
     return contact;
+  }
+
+  /**
+   * Vincula um contato a um cliente existente e adiciona ao cadastro de contatos do cliente.
+   * Usado quando o contato informa o CNPJ e o sistema identifica automaticamente.
+   */
+  async linkContactToClient(tenantId: string, contactId: string, clientId: string): Promise<void> {
+    const contact = await this.contacts.findOne({ where: { id: contactId, tenantId } });
+    if (!contact) return;
+    // Só vincula se o contato ainda não estiver associado a nenhum cliente
+    if (contact.clientId) return;
+    await this.contacts.update({ id: contactId, tenantId }, { clientId } as any);
   }
 }

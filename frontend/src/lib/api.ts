@@ -151,6 +151,7 @@ class ApiClient {
   getSettings      = ()             => this.client.get('/settings');
   updateSettings   = (data: any)    => this.client.put('/settings', data);
   testSmtp         = ()             => this.client.post('/settings/test-smtp');
+  logout           = ()             => this.client.post('/auth/logout');
   clockIn          = ()             => this.client.post('/attendance/clock-in');
   clockOut         = (data?: any)   => this.client.post('/attendance/clock-out', data || {});
   attendanceStatus = ()             => this.client.get('/attendance/status');
