@@ -103,9 +103,6 @@ export default function AtendimentoPage() {
   const [closeForm, setCloseForm] = useState({ solution:'', rootCause:'', timeSpent:'', internalNote:'', complexity:0 });
   const [currentTicket, setCurrentTicket] = useState<any>(null);
   const [clientTickets, setClientTickets] = useState<any[]>([]);
-  const [showAssignModal, setShowAssignModal] = useState(false);
-  const [assignAgentId, setAssignAgentId] = useState('');
-  const [assignLoading, setAssignLoading] = useState(false);
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [transferAgentId, setTransferAgentId] = useState('');
   const [transferLoading, setTransferLoading] = useState(false);
@@ -176,7 +173,9 @@ export default function AtendimentoPage() {
         setSelected(merged.length ? merged[0] : null);
       } else {
         const found = merged.find((c: any) => sameItem(c, currentSelected));
-        setSelected(found || (merged.length ? merged[0] : null));
+        // Mantém seleção atual se ainda existe; só atualiza o objeto (dados frescos)
+        if (found) setSelected(found);
+        // else: conversa não encontrada na lista (filtro mudou) → não força primeiro item
       }
     } catch (e) { console.error(e); setConversations([]); }
     setLoading(false);
@@ -277,25 +276,6 @@ export default function AtendimentoPage() {
   };
 
   // ── assign agent ──
-  const openAssignModal = async () => {
-    if (team.length === 0) { try { const r: any = await api.getTeam(); setTeam(Array.isArray(r) ? r : r?.data ?? []); } catch {} }
-    setAssignAgentId(currentTicket?.assignedTo || '');
-    setShowAssignModal(true);
-  };
-
-  const confirmAssign = async () => {
-    const tid = isTicketType ? (selected?.ticketId || selected?.id?.replace?.(/^ticket:/, '')) : selected?.ticketId;
-    if (!tid) return;
-    setAssignLoading(true);
-    try {
-      await api.assignTicket(tid, assignAgentId);
-      setCurrentTicket((t: any) => ({ ...t, assignedTo: assignAgentId }));
-      setShowAssignModal(false);
-      showToast('Responsável atualizado!');
-    } catch (e: any) { showToast(e?.response?.data?.message || 'Erro ao atribuir', 'error'); }
-    setAssignLoading(false);
-  };
-
   // ── transfer ──
   const openTransferModal = async () => {
     if (team.length === 0) { try { const r: any = await api.getTeam(); setTeam(Array.isArray(r) ? r : r?.data ?? []); } catch {} }
@@ -694,11 +674,17 @@ export default function AtendimentoPage() {
                         {c.escalated && (
                           <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 5, fontWeight: 600, background: '#FEF2F2', color: '#DC2626' }}>● Urgente</span>
                         )}
+                        {c.slaCritical && (
+                          <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 5, fontWeight: 600, background: '#FFF1F0', color: '#CF1322' }}>⚠ SLA</span>
+                        )}
                         {noTicket && !isClo && (
                           <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 5, fontWeight: 500, background: '#FEF3C7', color: '#D97706' }}>Sem ticket</span>
                         )}
                         {c.unreadCount > 0 && (
                           <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 9, fontWeight: 600, background: S.accent, color: '#fff', minWidth: 18, textAlign: 'center' }}>{c.unreadCount}</span>
+                        )}
+                        {!isClo && c.awaitingResponse && (
+                          <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 5, fontWeight: 500, background: '#EEF2FF', color: '#4338CA' }}>Aguardando</span>
                         )}
                       </div>
                     </div>
@@ -862,11 +848,12 @@ export default function AtendimentoPage() {
                             {initials(m.authorName || '?')}
                           </div>
                           <div style={{
-                            maxWidth: 420, padding: '10px 14px', fontSize: 13, lineHeight: 1.55, position: 'relative',
+                            maxWidth: 420, padding: '11px 16px', fontSize: 13, lineHeight: 1.6, position: 'relative',
                             background: isContact ? S.bg : S.accent,
                             color: isContact ? S.txt : '#fff',
-                            border: isContact ? `1px solid rgba(0,0,0,.12)` : 'none',
-                            borderRadius: isContact ? '16px 16px 16px 4px' : '16px 16px 4px 16px',
+                            border: isContact ? `1px solid rgba(0,0,0,.09)` : 'none',
+                            borderRadius: isContact ? '18px 18px 18px 4px' : '18px 18px 4px 18px',
+                            boxShadow: isContact ? '0 1px 3px rgba(0,0,0,.06)' : '0 2px 8px rgba(79,70,229,.25)',
                           }}>
                             <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{m.content}</p>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 5 }}>
@@ -1004,20 +991,22 @@ export default function AtendimentoPage() {
                 {/* RESPONSÁVEL */}
                 {currentTicket && (
                   <div style={{ padding: '14px 16px', borderBottom: S.border }}>
-                    {secTitle('Responsável', <span onClick={openAssignModal} style={{ fontSize: 11, color: S.accent, cursor: 'pointer', fontWeight: 500 }}>Reatribuir</span>)}
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    {secTitle('Responsável')}
+                    {assignedUser ? (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <div style={{ width: 26, height: 26, borderRadius: '50%', background: S.accent, color: '#fff', fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                          {assignedUser ? initials(assignedUser.name || assignedUser.email || 'U') : '?'}
+                          {initials(assignedUser.name || assignedUser.email || 'U')}
                         </div>
                         <span style={{ fontSize: 12, fontWeight: 500, color: S.txt }}>
-                          {assignedUser ? (assignedUser.name || assignedUser.email) : 'Não atribuído'}
+                          {assignedUser.name || assignedUser.email}
                         </span>
                       </div>
-                      <button onClick={openAssignModal} style={{ fontSize: 11, color: S.accent, cursor: 'pointer', border: `1px solid ${S.accentMid}`, borderRadius: 6, padding: '3px 9px', background: S.accentLight, fontWeight: 500, fontFamily: 'inherit' }}>
-                        Trocar
-                      </button>
-                    </div>
+                    ) : (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '6px 10px', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8 }}>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#D97706" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                        <span style={{ fontSize: 11, color: '#92400E', fontWeight: 500 }}>Aguardando distribuição automática</span>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -1025,12 +1014,29 @@ export default function AtendimentoPage() {
                 {slaInfo && (
                   <div style={{ padding: '14px 16px', borderBottom: S.border }}>
                     {secTitle('SLA do Ticket')}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
-                      <span style={{ fontSize: 11, color: slaInfo.violated ? '#DC2626' : '#D97706', fontWeight: 700 }}>{slaInfo.label}</span>
-                      <span style={{ fontSize: 11, color: S.txt2 }}>Tempo de resposta</span>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                      <span style={{
+                        fontSize: 11, fontWeight: 700,
+                        color: slaInfo.violated ? '#DC2626' : slaInfo.pct > 80 ? '#EA580C' : '#16A34A',
+                        display: 'flex', alignItems: 'center', gap: 4,
+                      }}>
+                        {slaInfo.violated && <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: '#DC2626' }} />}
+                        {slaInfo.label}
+                      </span>
+                      <span style={{ fontSize: 10, color: S.txt3, fontWeight: 500 }}>{Math.round(slaInfo.pct)}%</span>
                     </div>
-                    <div style={{ height: 5, background: S.bg3, borderRadius: 3, overflow: 'hidden', marginBottom: 5 }}>
-                      <div style={{ height: '100%', borderRadius: 3, background: slaInfo.violated ? '#EF4444' : slaInfo.pct > 80 ? '#F97316' : '#10B981', width: `${slaInfo.pct}%`, transition: 'width .3s' }} />
+                    <div style={{ height: 8, background: S.bg3, borderRadius: 4, overflow: 'hidden' }}>
+                      <div style={{
+                        height: '100%', borderRadius: 4, transition: 'width .4s',
+                        width: `${slaInfo.pct}%`,
+                        background: slaInfo.violated
+                          ? '#EF4444'
+                          : slaInfo.pct > 80
+                          ? 'linear-gradient(90deg,#F97316,#EF4444)'
+                          : slaInfo.pct > 50
+                          ? '#EAB308'
+                          : '#22C55E',
+                      }} />
                     </div>
                   </div>
                 )}
@@ -1545,49 +1551,6 @@ export default function AtendimentoPage() {
         </div>
       )}
       {/* ══════════ MODAL: Atribuir Responsável ══════════ */}
-      {showAssignModal && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={() => setShowAssignModal(false)}>
-          <div style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 420, boxShadow: '0 16px 48px rgba(0,0,0,0.2)', overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
-            <div style={{ padding: '18px 22px', borderBottom: '1px solid #F1F5F9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div>
-                <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#0F172A' }}>Atribuir Responsável</h3>
-                <p style={{ margin: '4px 0 0', fontSize: 12, color: '#94A3B8' }}>Selecione o agente responsável pelo ticket</p>
-              </div>
-              <button onClick={() => setShowAssignModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94A3B8' }}><X size={18} /></button>
-            </div>
-            <div style={{ padding: '18px 22px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 280, overflowY: 'auto' }}>
-                <button onClick={() => setAssignAgentId('')}
-                  style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderRadius: 10, border: `1.5px solid ${assignAgentId === '' ? S.accent : '#E2E8F0'}`, background: assignAgentId === '' ? S.accentLight : '#fff', cursor: 'pointer', textAlign: 'left', transition: 'all .12s' }}>
-                  <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#E2E8F0', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748B', fontSize: 13, fontWeight: 700, flexShrink: 0 }}>?</div>
-                  <span style={{ fontSize: 13, color: '#475569', fontWeight: 500 }}>Não atribuído</span>
-                  {assignAgentId === '' && <Check size={16} color={S.accent} style={{ marginLeft: 'auto' }} />}
-                </button>
-                {team.map((u: any) => (
-                  <button key={u.id} onClick={() => setAssignAgentId(u.id)}
-                    style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderRadius: 10, border: `1.5px solid ${assignAgentId === u.id ? S.accent : '#E2E8F0'}`, background: assignAgentId === u.id ? S.accentLight : '#fff', cursor: 'pointer', textAlign: 'left', transition: 'all .12s' }}>
-                    <div style={{ width: 36, height: 36, borderRadius: '50%', background: assignAgentId === u.id ? S.accent : '#E2E8F0', display: 'flex', alignItems: 'center', justifyContent: 'center', color: assignAgentId === u.id ? '#fff' : '#64748B', fontSize: 13, fontWeight: 700, flexShrink: 0 }}>
-                      {initials(u.name || u.email || 'U')}
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: '#0F172A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.name || u.email}</p>
-                      {u.name && u.email && <p style={{ margin: '2px 0 0', fontSize: 11, color: '#64748B' }}>{u.email}</p>}
-                    </div>
-                    {assignAgentId === u.id && <Check size={16} color={S.accent} />}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div style={{ padding: '14px 22px', borderTop: '1px solid #F1F5F9', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button onClick={() => setShowAssignModal(false)} style={{ padding: '9px 18px', borderRadius: 8, border: '1.5px solid #E2E8F0', background: '#fff', color: '#475569', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancelar</button>
-              <button onClick={confirmAssign} disabled={assignLoading}
-                style={{ padding: '9px 20px', borderRadius: 8, border: 'none', background: S.accent, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', opacity: assignLoading ? 0.7 : 1 }}>
-                {assignLoading ? 'Salvando...' : 'Confirmar'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ══════════ MODAL: Transferir ══════════ */}
       {showTransferModal && (
