@@ -185,12 +185,19 @@ export default function AtendimentoPage() {
     try {
       const isTicket = conv.type === 'ticket' || conv.id?.startsWith?.('ticket:');
       const ticketId = isTicket ? (conv.ticketId || conv.id?.replace?.(/^ticket:/, '')) : conv.ticketId;
-      const [customersRes, ticketRes] = await Promise.all([
+      const [customersRes, ticketRes, teamRes] = await Promise.all([
         api.getCustomers({ perPage: 200 }),
         (ticketId || conv.ticketId) ? api.getTicket(ticketId || conv.ticketId).catch(() => null) : null,
+        api.getTeam().catch(() => null),
       ]);
-      setCustomers(customersRes?.data || customersRes || []);
+      const customersArr: any[] = customersRes?.data || customersRes || [];
+      // Se o cliente da conversa não está na lista paginada, busca individualmente
+      if (conv.clientId && !customersArr.find((c: any) => c.id === conv.clientId)) {
+        try { const r: any = await api.getCustomer(conv.clientId); if (r) customersArr.push(r?.data ?? r); } catch {}
+      }
+      setCustomers(customersArr);
       if (ticketRes) setCurrentTicket(ticketRes);
+      if (teamRes) setTeam(Array.isArray(teamRes) ? teamRes : teamRes?.data ?? []);
       const msgs = isTicket && ticketId
         ? (await api.getMessages(ticketId, false) || [])
         : (await api.getConversationMessages(conv.id) || []);
