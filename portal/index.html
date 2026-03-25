@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SempreDesk — Portal do Cliente</title>
+    <style>
+      :root {
+        --cor-bg:          #f1f5f9;
+        --cor-bg2:         #ffffff;
+        --cor-bg3:         #f8fafc;
+        --cor-borda:       rgba(0,0,0,0.07);
+        --cor-borda2:      rgba(0,0,0,0.12);
+        --cor-texto:       #0f172a;
+        --cor-texto2:      #64748b;
+        --cor-texto3:      #94a3b8;
+        --cor-acento:      #4f46e5;
+        --cor-acento-c:    #eef2ff;
+        --cor-acento-m:    #c7d2fe;
+        --cor-sucesso:     #16a34a;
+        --cor-sucesso-c:   #f0fdf4;
+        --cor-aviso:       #d97706;
+        --cor-aviso-c:     #fffbeb;
+        --cor-erro:        #dc2626;
+        --cor-erro-c:      #fef2f2;
+        --cor-info:        #0891b2;
+        --cor-info-c:      #ecfeff;
+        --cor-nav:         #16133d;
+        --cor-nav2:        #1e1a4f;
+        --sombra-sm:       0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+        --sombra:          0 4px 12px rgba(0,0,0,0.08);
+        --sombra-lg:       0 10px 30px rgba(0,0,0,0.12);
+        --raio:            12px;
+        --raio-sm:         8px;
+        --raio-lg:         16px;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --cor-bg:        #0f172a;
+          --cor-bg2:       #1e293b;
+          --cor-bg3:       #0f172a;
+          --cor-borda:     rgba(255,255,255,0.07);
+          --cor-borda2:    rgba(255,255,255,0.12);
+          --cor-texto:     #f1f5f9;
+          --cor-texto2:    #94a3b8;
+          --cor-texto3:    #475569;
+          --cor-acento:    #6366f1;
+          --cor-acento-c:  #1e1b4b;
+          --cor-acento-m:  #3730a3;
+          --cor-sucesso:   #22c55e;
+          --cor-sucesso-c: #052e16;
+          --cor-aviso:     #f59e0b;
+          --cor-aviso-c:   #1c1400;
+          --cor-erro:      #ef4444;
+          --cor-erro-c:    #1c0000;
+          --cor-info:      #22d3ee;
+          --cor-info-c:    #001c1f;
+          --cor-nav:       #0d0b26;
+          --cor-nav2:      #16133d;
+          --sombra-sm:     0 1px 3px rgba(0,0,0,0.3);
+          --sombra:        0 4px 12px rgba(0,0,0,0.4);
+          --sombra-lg:     0 10px 30px rgba(0,0,0,0.5);
+        }
+      }
+
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+      html, body, #root { height: 100%; }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        background: var(--cor-bg);
+        color: var(--cor-texto);
+        -webkit-font-smoothing: antialiased;
+      }
+
+      ::-webkit-scrollbar { width: 5px; height: 5px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      ::-webkit-scrollbar-thumb { background: var(--cor-borda2); border-radius: 10px; }
+
+      button { font-family: inherit; cursor: pointer; }
+      input  { font-family: inherit; }
+      a      { color: inherit; text-decoration: none; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

@@ -23,8 +23,8 @@ jobs:
             echo "📥 Baixando código atualizado..."
             git pull origin main
 
-            echo "🔨 Rebuilding backend e frontend..."
-            docker compose build backend frontend
+            echo "🔨 Rebuilding backend, frontend e portal..."
+            docker compose build backend frontend portal
 
             echo "🛑 Removendo containers conflitantes..."
             docker stop suporte_frontend suporte_backend 2>/dev/null || true
