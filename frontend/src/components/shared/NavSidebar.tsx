@@ -5,6 +5,7 @@ import {
   Users, Users2, FileText, Monitor, BookOpen, BarChart2,
   Settings, Smartphone, LogOut, Headphones, ChevronRight,
   Network, FolderTree, Tag, Layers, ShieldCheck, Database,
+  Activity,
 } from 'lucide-react';
 import { useAuthStore, hasPermission } from '@/store/auth.store';
 import { usePathname, useRouter } from 'next/navigation';
@@ -14,6 +15,7 @@ import NavItem from './NavItem';
 const MAIN_ITEMS = [
   { href: '/dashboard',              icon: LayoutDashboard, label: 'Dashboard',             perm: 'dashboard.view' },
   { href: '/dashboard/atendimento',  icon: MessageCircle,   label: 'Atendimento',            perm: 'attendance.view', badge: true },
+  { href: '/dashboard/supervisor',   icon: Activity,        label: 'Supervisor',             perm: 'settings.manage' },
   { href: '/dashboard/chat-interno', icon: MessageSquare,   label: 'Chat interno',           perm: 'chat.view' },
   { href: '/dashboard/tickets',      icon: Ticket,          label: 'Tickets',                perm: 'ticket.view' },
   { href: '/dashboard/contracts',    icon: FileText,        label: 'Contratos',              perm: 'contracts.view' },
