@@ -109,9 +109,6 @@ export default function AtendimentoPage() {
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [transferAgentId, setTransferAgentId] = useState('');
   const [transferLoading, setTransferLoading] = useState(false);
-  const [showEditCustomerModal, setShowEditCustomerModal] = useState(false);
-  const [editCustomerForm, setEditCustomerForm] = useState({ tradeName: '', cnpj: '', city: '', state: '' });
-  const [editCustomerLoading, setEditCustomerLoading] = useState(false);
   const [showQueuePanel, setShowQueuePanel] = useState(false);
   const [queueUnassigned, setQueueUnassigned] = useState(0);
 
@@ -161,8 +158,16 @@ export default function AtendimentoPage() {
       ]);
       const convArr = Array.isArray(convList) ? convList : convList?.data ?? [];
       const ticketArr = Array.isArray(ticketConvList) ? ticketConvList : ticketConvList?.data ?? [];
-      const merged = [...convArr.map((c: any) => ({ ...c, type: c.type || 'conversation' })), ...ticketArr]
+      const sorted = [...convArr.map((c: any) => ({ ...c, type: c.type || 'conversation' })), ...ticketArr]
         .sort((a: any, b: any) => new Date(b.lastMessageAt || b.createdAt).getTime() - new Date(a.lastMessageAt || a.createdAt).getTime());
+      // Deduplica por contactId — 1 chat ativo por contato (mantém o mais recente)
+      const seenContacts = new Set<string>();
+      const merged = sorted.filter((c: any) => {
+        if (!c.contactId) return true;
+        if (seenContacts.has(c.contactId)) return false;
+        seenContacts.add(c.contactId);
+        return true;
+      });
       setConversations(merged);
       const currentSelected = selectedRef.current;
       if (resetSelection) {
@@ -312,26 +317,6 @@ export default function AtendimentoPage() {
       await reloadMessages(selected);
     } catch (e: any) { showToast(e?.response?.data?.message || 'Erro ao transferir', 'error'); }
     setTransferLoading(false);
-  };
-
-  // ── edit customer ──
-  const openEditCustomerModal = () => {
-    const cust = customers.find((c: any) => c.id === selected?.clientId);
-    if (!cust) return;
-    setEditCustomerForm({ tradeName: cust.tradeName || '', cnpj: cust.cnpj || '', city: cust.city || '', state: cust.state || '' });
-    setShowEditCustomerModal(true);
-  };
-
-  const confirmEditCustomer = async () => {
-    if (!selected?.clientId) return;
-    setEditCustomerLoading(true);
-    try {
-      await api.updateCustomer(selected.clientId, editCustomerForm);
-      setCustomers((cs: any[]) => cs.map((c: any) => c.id === selected.clientId ? { ...c, ...editCustomerForm } : c));
-      setShowEditCustomerModal(false);
-      showToast('Cliente atualizado!');
-    } catch (e: any) { showToast(e?.response?.data?.message || 'Erro ao salvar', 'error'); }
-    setEditCustomerLoading(false);
   };
 
   // ── start conversation ──
@@ -1053,7 +1038,7 @@ export default function AtendimentoPage() {
                 {/* INFORMAÇÕES */}
                 {customer && (
                   <div style={{ padding: '14px 16px', borderBottom: S.border }}>
-                    {secTitle('Informações', <span onClick={openEditCustomerModal} style={{ fontSize: 11, color: S.accent, cursor: 'pointer', fontWeight: 500 }}>Editar</span>)}
+                    {secTitle('Informações')}
                     {field('Empresa', <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140, display: 'block' }}>{customer.tradeName || customer.companyName || '—'}</span>)}
                     {customer.networkName && field('Rede', customer.networkName)}
                     {customer.cnpj && field('CNPJ', <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11 }}>{customer.cnpj}</span>)}
@@ -1642,41 +1627,6 @@ export default function AtendimentoPage() {
         </div>
       )}
 
-      {/* ══════════ MODAL: Editar Cliente ══════════ */}
-      {showEditCustomerModal && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={() => setShowEditCustomerModal(false)}>
-          <div style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 440, boxShadow: '0 16px 48px rgba(0,0,0,0.2)', overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
-            <div style={{ padding: '18px 22px', borderBottom: '1px solid #F1F5F9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div>
-                <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#0F172A' }}>Editar Cliente</h3>
-                <p style={{ margin: '4px 0 0', fontSize: 12, color: '#94A3B8' }}>Atualize as informações do cliente</p>
-              </div>
-              <button onClick={() => setShowEditCustomerModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94A3B8' }}><X size={18} /></button>
-            </div>
-            <div style={{ padding: '18px 22px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-              {([
-                { key: 'tradeName', label: 'Nome / Razão Social' },
-                { key: 'cnpj', label: 'CNPJ' },
-                { key: 'city', label: 'Cidade' },
-                { key: 'state', label: 'Estado (UF)' },
-              ] as const).map(({ key, label }) => (
-                <div key={key}>
-                  <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 6 }}>{label}</label>
-                  <input value={editCustomerForm[key]} onChange={e => setEditCustomerForm(f => ({ ...f, [key]: e.target.value }))}
-                    style={{ width: '100%', padding: '9px 12px', border: '1.5px solid #E2E8F0', borderRadius: 8, fontSize: 13, outline: 'none', boxSizing: 'border-box' as const }} />
-                </div>
-              ))}
-            </div>
-            <div style={{ padding: '14px 22px', borderTop: '1px solid #F1F5F9', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button onClick={() => setShowEditCustomerModal(false)} style={{ padding: '9px 18px', borderRadius: 8, border: '1.5px solid #E2E8F0', background: '#fff', color: '#475569', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancelar</button>
-              <button onClick={confirmEditCustomer} disabled={editCustomerLoading}
-                style={{ padding: '9px 20px', borderRadius: 8, border: 'none', background: S.accent, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', opacity: editCustomerLoading ? 0.7 : 1 }}>
-                {editCustomerLoading ? 'Salvando...' : 'Salvar'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </>
   );
 }
