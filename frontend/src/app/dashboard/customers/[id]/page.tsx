@@ -6,6 +6,47 @@ import { api } from '@/lib/api';
 import { ArrowLeft, Save, Plus, Trash2, User, MapPin, Building2, CheckCircle2, Network, Lock, Edit2, Phone, Mail, MessageCircle, Star, Eye, EyeOff, KeyRound, ExternalLink } from 'lucide-react';
 import toast from 'react-hot-toast';
 
+// ── Países para seleção de DDI ──────────────────────────────────────────────
+const COUNTRIES = [
+  { code:'+55', flag:'🇧🇷', name:'Brasil' },
+  { code:'+1',  flag:'🇺🇸', name:'EUA / Canadá' },
+  { code:'+54', flag:'🇦🇷', name:'Argentina' },
+  { code:'+351',flag:'🇵🇹', name:'Portugal' },
+  { code:'+34', flag:'🇪🇸', name:'Espanha' },
+  { code:'+44', flag:'🇬🇧', name:'Reino Unido' },
+  { code:'+49', flag:'🇩🇪', name:'Alemanha' },
+  { code:'+33', flag:'🇫🇷', name:'França' },
+  { code:'+39', flag:'🇮🇹', name:'Itália' },
+  { code:'+52', flag:'🇲🇽', name:'México' },
+  { code:'+56', flag:'🇨🇱', name:'Chile' },
+  { code:'+57', flag:'🇨🇴', name:'Colômbia' },
+  { code:'+51', flag:'🇵🇪', name:'Peru' },
+  { code:'+58', flag:'🇻🇪', name:'Venezuela' },
+  { code:'+598',flag:'🇺🇾', name:'Uruguai' },
+  { code:'+595',flag:'🇵🇾', name:'Paraguai' },
+  { code:'+591',flag:'🇧🇴', name:'Bolívia' },
+  { code:'+81', flag:'🇯🇵', name:'Japão' },
+  { code:'+86', flag:'🇨🇳', name:'China' },
+  { code:'+91', flag:'🇮🇳', name:'Índia' },
+];
+
+/** Dado um número completo armazenado, extrai o DDI e o número local */
+function parsePhone(full: string): { country: string; local: string } {
+  const digits = (full || '').replace(/\D/g,'');
+  for (const c of COUNTRIES.sort((a,b) => b.code.length - a.code.length)) {
+    const ddi = c.code.replace('+','');
+    if (digits.startsWith(ddi)) return { country: c.code, local: digits.slice(ddi.length) };
+  }
+  return { country: '+55', local: digits };
+}
+
+/** Monta número completo: DDI + número local (remove não-dígitos do local) */
+function composePhone(country: string, local: string): string {
+  const localDigits = local.replace(/\D/g,'');
+  if (!localDigits) return '';
+  return country.replace('+','') + localDigits;
+}
+
 const PLANS = ['enterprise','premium','standard','basic'];
 const PLAN_LABELS: Record<string,string> = { enterprise:'Enterprise', premium:'Premium', standard:'Standard', basic:'Básico' };
 const PLAN_COLORS: Record<string,string> = { enterprise:'#7C3AED', premium:'#D97706', standard:'#2563EB', basic:'#64748B' };
@@ -32,11 +73,13 @@ export default function CustomerDetailPage() {
   const [contacts, setContacts] = useState<any[]>([]);
   const [showContactModal, setShowContactModal] = useState(false);
   const [editingContact, setEditingContact] = useState<any>(null);
-  const [contactForm, setContactForm] = useState({ name:'', role:'', email:'', phone:'', whatsapp:'', notes:'', isPrimary:false, password:'' });
+  const [contactForm, setContactForm] = useState({ name:'', role:'', email:'', phone:'', phoneCountry:'+55', whatsapp:'', whatsappCountry:'+55', notes:'', isPrimary:false, password:'' });
   const [showContactPass, setShowContactPass] = useState(false);
   const [emailSearching, setEmailSearching] = useState(false);
   const [focusCF, setFocusCF] = useState('');
   const [savingContact, setSavingContact] = useState(false);
+  const [showPhoneCountry, setShowPhoneCountry] = useState(false);
+  const [showWhatsCountry, setShowWhatsCountry] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -75,7 +118,13 @@ export default function CustomerDetailPage() {
 
   const openContactModal = (c?:any) => {
     setEditingContact(c || null);
-    setContactForm(c ? { name:c.name, role:c.role||'', email:c.email||'', phone:c.phone||'', whatsapp:c.whatsapp||'', notes:c.notes||'', isPrimary:c.isPrimary||false, password:'' } : { name:'', role:'', email:'', phone:'', whatsapp:'', notes:'', isPrimary:false, password:'' });
+    if (c) {
+      const ph = parsePhone(c.phone || '');
+      const wa = parsePhone(c.whatsapp || '');
+      setContactForm({ name:c.name, role:c.role||'', email:c.email||'', phone:ph.local, phoneCountry:ph.country, whatsapp:wa.local, whatsappCountry:wa.country, notes:c.notes||'', isPrimary:c.isPrimary||false, password:'' });
+    } else {
+      setContactForm({ name:'', role:'', email:'', phone:'', phoneCountry:'+55', whatsapp:'', whatsappCountry:'+55', notes:'', isPrimary:false, password:'' });
+    }
     setShowContactPass(false);
     
     setShowContactModal(true);
@@ -86,8 +135,11 @@ export default function CustomerDetailPage() {
     if (!contactForm.name.trim()) return;
     setSavingContact(true);
     try {
-      const { password, ...rest } = contactForm;
-      const clean: any = Object.fromEntries(Object.entries(rest).filter(([_, v]) => v !== '' && v !== null));
+      const { password, phoneCountry, whatsappCountry, ...rest } = contactForm;
+      // Monta números completos com DDI
+      const phoneComplete = composePhone(phoneCountry, rest.phone);
+      const whatsComplete = composePhone(whatsappCountry, rest.whatsapp);
+      const clean: any = Object.fromEntries(Object.entries({ ...rest, phone: phoneComplete, whatsapp: whatsComplete }).filter(([_, v]) => v !== '' && v !== null));
       if (password) clean.password = password;
       if (editingContact) await api.updateContact(id as string, editingContact.id, clean);
       else await api.createContact(id as string, clean);
@@ -574,13 +626,61 @@ export default function CustomerDetailPage() {
                 <label style={lbl}>Cargo</label>
                 <input id="cm_role" value={contactForm.role} onChange={fc('role')} onFocus={() => setFocusCF('role')} onBlur={() => setFocusCF('')} onKeyDown={nxtC('cm_phone')} style={inp(focusCF==='role')} />
               </div>
+              {/* Telefone com seletor de DDI */}
               <div>
                 <label style={lbl}>Telefone</label>
-                <input id="cm_phone" value={contactForm.phone} onChange={fc('phone')} onFocus={() => setFocusCF('phone')} onBlur={() => setFocusCF('')} onKeyDown={nxtC('cm_whats')} style={inp(focusCF==='phone')} />
+                <div style={{ display:'flex', gap:6, position:'relative' }}>
+                  <div style={{ position:'relative' }}>
+                    <button type="button" onClick={() => { setShowPhoneCountry(p=>!p); setShowWhatsCountry(false); }}
+                      style={{ height:40, padding:'0 10px', borderRadius:8, border:`1.5px solid ${focusCF==='phone'?'#6366F1':'#E2E8F0'}`, background:'#F8FAFC', cursor:'pointer', display:'flex', alignItems:'center', gap:6, fontSize:13, whiteSpace:'nowrap', minWidth:72 }}>
+                      <span style={{ fontSize:16 }}>{COUNTRIES.find(c=>c.code===contactForm.phoneCountry)?.flag}</span>
+                      <span style={{ color:'#374151', fontWeight:600 }}>{contactForm.phoneCountry}</span>
+                      <span style={{ color:'#94A3B8', fontSize:10 }}>▾</span>
+                    </button>
+                    {showPhoneCountry && (
+                      <div style={{ position:'absolute', top:'calc(100% + 4px)', left:0, zIndex:200, background:'#fff', border:'1px solid #E2E8F0', borderRadius:10, boxShadow:'0 8px 24px rgba(0,0,0,.12)', width:200, maxHeight:220, overflowY:'auto' }}>
+                        {COUNTRIES.map(c => (
+                          <button key={c.code} type="button" onClick={() => { setContactForm(p=>({...p, phoneCountry:c.code})); setShowPhoneCountry(false); }}
+                            style={{ display:'flex', alignItems:'center', gap:8, width:'100%', padding:'8px 12px', background:contactForm.phoneCountry===c.code?'#EEF2FF':'transparent', border:'none', cursor:'pointer', fontSize:13, textAlign:'left' }}>
+                            <span style={{ fontSize:16 }}>{c.flag}</span>
+                            <span style={{ color:'#374151' }}>{c.name}</span>
+                            <span style={{ marginLeft:'auto', color:'#6366F1', fontWeight:600 }}>{c.code}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <input id="cm_phone" value={contactForm.phone} onChange={fc('phone')} onFocus={() => { setFocusCF('phone'); setShowPhoneCountry(false); }} onBlur={() => setFocusCF('')} onKeyDown={nxtC('cm_whats')}
+                    placeholder="(XX) 9 XXXX-XXXX" style={{ ...inp(focusCF==='phone'), flex:1 }} />
+                </div>
               </div>
+              {/* WhatsApp com seletor de DDI */}
               <div>
                 <label style={lbl}>WhatsApp</label>
-                <input id="cm_whats" value={contactForm.whatsapp} onChange={fc('whatsapp')} onFocus={() => setFocusCF('whats')} onBlur={() => setFocusCF('')} onKeyDown={nxtC('cm_notes')} style={inp(focusCF==='whats')} />
+                <div style={{ display:'flex', gap:6, position:'relative' }}>
+                  <div style={{ position:'relative' }}>
+                    <button type="button" onClick={() => { setShowWhatsCountry(p=>!p); setShowPhoneCountry(false); }}
+                      style={{ height:40, padding:'0 10px', borderRadius:8, border:`1.5px solid ${focusCF==='whats'?'#6366F1':'#E2E8F0'}`, background:'#F8FAFC', cursor:'pointer', display:'flex', alignItems:'center', gap:6, fontSize:13, whiteSpace:'nowrap', minWidth:72 }}>
+                      <span style={{ fontSize:16 }}>{COUNTRIES.find(c=>c.code===contactForm.whatsappCountry)?.flag}</span>
+                      <span style={{ color:'#374151', fontWeight:600 }}>{contactForm.whatsappCountry}</span>
+                      <span style={{ color:'#94A3B8', fontSize:10 }}>▾</span>
+                    </button>
+                    {showWhatsCountry && (
+                      <div style={{ position:'absolute', top:'calc(100% + 4px)', left:0, zIndex:200, background:'#fff', border:'1px solid #E2E8F0', borderRadius:10, boxShadow:'0 8px 24px rgba(0,0,0,.12)', width:200, maxHeight:220, overflowY:'auto' }}>
+                        {COUNTRIES.map(c => (
+                          <button key={c.code} type="button" onClick={() => { setContactForm(p=>({...p, whatsappCountry:c.code})); setShowWhatsCountry(false); }}
+                            style={{ display:'flex', alignItems:'center', gap:8, width:'100%', padding:'8px 12px', background:contactForm.whatsappCountry===c.code?'#EEF2FF':'transparent', border:'none', cursor:'pointer', fontSize:13, textAlign:'left' }}>
+                            <span style={{ fontSize:16 }}>{c.flag}</span>
+                            <span style={{ color:'#374151' }}>{c.name}</span>
+                            <span style={{ marginLeft:'auto', color:'#6366F1', fontWeight:600 }}>{c.code}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <input id="cm_whats" value={contactForm.whatsapp} onChange={fc('whatsapp')} onFocus={() => { setFocusCF('whats'); setShowWhatsCountry(false); }} onBlur={() => setFocusCF('')} onKeyDown={nxtC('cm_notes')}
+                    placeholder="(XX) 9 XXXX-XXXX" style={{ ...inp(focusCF==='whats'), flex:1 }} />
+                </div>
               </div>
               <div>
                 <div className="flex items-center gap-2 h-full pt-5 cursor-pointer select-none"
