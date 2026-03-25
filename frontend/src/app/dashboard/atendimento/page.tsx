@@ -5,9 +5,8 @@ import Link from 'next/link';
 import { useRealtimeConversation, useRealtimeTicket } from '@/lib/realtime';
 import {
   MessageSquare, Send, Phone, RefreshCw, Lock, ExternalLink, Plus, Link2, Globe,
-  Check, Search, X, CheckCircle2, User, Mail, MapPin, Building2, Hash, Users,
+  Check, Search, X, CheckCircle2, User, Mail, MapPin, Building2, Hash,
 } from 'lucide-react';
-import QueueManagerPanel from '@/components/atendimento/QueueManagerPanel';
 import { EmojiPicker } from '@/components/ui/EmojiPicker';
 import ContactValidationBanner, { type ResolvedData } from '@/components/atendimento/ContactValidationBanner';
 
@@ -106,8 +105,6 @@ export default function AtendimentoPage() {
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [transferAgentId, setTransferAgentId] = useState('');
   const [transferLoading, setTransferLoading] = useState(false);
-  const [showQueuePanel, setShowQueuePanel] = useState(false);
-  const [queueUnassigned, setQueueUnassigned] = useState(0);
 
   const selectedRef = useRef<any>(null);
   selectedRef.current = selected;
@@ -454,18 +451,6 @@ export default function AtendimentoPage() {
     return () => clearInterval(interval);
   }, [loadConversations]);
 
-  // Load queue unassigned count badge (every 60s)
-  useEffect(() => {
-    const fetchQueueCount = async () => {
-      try {
-        const res: any = await api.getAttendanceQueueStats();
-        setQueueUnassigned(res?.summary?.queueLength ?? 0);
-      } catch {}
-    };
-    fetchQueueCount();
-    const t = setInterval(fetchQueueCount, 60_000);
-    return () => clearInterval(t);
-  }, []);
 
   useEffect(() => { if (selected) loadChat(selected); else setMessages([]); }, [selected?.id]);
   useEffect(() => {
@@ -515,13 +500,6 @@ export default function AtendimentoPage() {
   // ── render ────────────────────────────────────────────────────────────────
   return (
     <>
-      {/* ── Queue Manager Panel ── */}
-      {showQueuePanel && (
-        <QueueManagerPanel
-          onClose={() => setShowQueuePanel(false)}
-          onAssigned={() => { loadConversations(false, true); }}
-        />
-      )}
 
       {/* ── Main layout ── */}
       <div style={{ margin: 0, height: 'calc(100vh - 44px)', display: 'flex', overflow: 'hidden', background: S.bg3 }}>
@@ -534,16 +512,6 @@ export default function AtendimentoPage() {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
               <span style={{ fontSize: 15, fontWeight: 600, color: S.txt }}>Atendimento</span>
               <div style={{ display: 'flex', gap: 6 }}>
-                {/* Gestão de Fila */}
-                <button onClick={() => setShowQueuePanel(true)} title="Gestão de Fila"
-                  style={{ height: 30, borderRadius: 8, border: S.border2, background: queueUnassigned > 0 ? '#EEF2FF' : S.bg2, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, padding: '0 9px' }}>
-                  <Users size={13} color={queueUnassigned > 0 ? '#4F46E5' : S.txt2} strokeWidth={1.6} />
-                  {queueUnassigned > 0 && (
-                    <span style={{ fontSize: 10, fontWeight: 700, color: '#4F46E5', background: '#C7D2FE', borderRadius: 4, padding: '1px 5px' }}>
-                      {queueUnassigned}
-                    </span>
-                  )}
-                </button>
                 <button onClick={openStartModal} title="Nova conversa"
                   style={{ width: 30, height: 30, borderRadius: 8, border: S.border2, background: S.bg2, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <Plus size={14} color={S.txt2} strokeWidth={1.6} />
