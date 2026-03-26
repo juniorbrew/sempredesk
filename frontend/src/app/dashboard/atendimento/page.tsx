@@ -15,17 +15,20 @@ import ContactValidationBanner, { type ResolvedData } from '@/components/atendim
 /** Formata número de WhatsApp para exibição: remove prefixo 55 e aplica máscara BR */
 function formatWhatsApp(raw?: string | null): string {
   if (!raw) return '';
-  // Remove tudo que não é dígito
   const digits = raw.replace(/\D/g, '');
   // LID: identificador interno do WhatsApp (14+ dígitos) — não é número de telefone real
   if (digits.length >= 14) return '';
-  // Remove prefixo do país (55) se presente e resultar em 10-11 dígitos BR
-  const local = digits.startsWith('55') && digits.length >= 12 ? digits.slice(2) : digits;
-  // Celular BR: (XX) 9 XXXX-XXXX
-  if (local.length === 11) return `(${local.slice(0,2)}) ${local.slice(2,3)} ${local.slice(3,7)}-${local.slice(7)}`;
-  // Fixo BR:   (XX) XXXX-XXXX
-  if (local.length === 10) return `(${local.slice(0,2)}) ${local.slice(2,6)}-${local.slice(6)}`;
-  return digits;
+  // Brasil: remove prefixo 55 e formata com DDI
+  if (digits.startsWith('55') && digits.length >= 12) {
+    const local = digits.slice(2);
+    if (local.length === 11) return `+55 (${local.slice(0,2)}) ${local.slice(2,3)} ${local.slice(3,7)}-${local.slice(7)}`;
+    if (local.length === 10) return `+55 (${local.slice(0,2)}) ${local.slice(2,6)}-${local.slice(6)}`;
+  }
+  // Número local BR sem DDI (10-11 dígitos)
+  if (digits.length === 11) return `(${digits.slice(0,2)}) ${digits.slice(2,3)} ${digits.slice(3,7)}-${digits.slice(7)}`;
+  if (digits.length === 10) return `(${digits.slice(0,2)}) ${digits.slice(2,6)}-${digits.slice(6)}`;
+  // Outro: retorna com + se parece internacional
+  return digits.length > 11 ? `+${digits}` : digits;
 }
 
 function timeAgo(date: string | Date) {
@@ -463,7 +466,9 @@ export default function AtendimentoPage() {
   const isClosed = selected?.status === 'closed';
   const isWhatsapp = selected?.channel === 'whatsapp';
   const isPortalNoTicket = selected?.channel === 'portal' && !hasTicket && selected?.status !== 'closed';
-  const canSend = hasTicket || isPortalNoTicket;
+  // Conversa WhatsApp/canal sem ticket — iniciada pelo agente ou pelo contato, ainda sem ticket vinculado
+  const isConvNoTicket = !isTicketType && !hasTicket && !!selected?.id && selected?.status !== 'closed';
+  const canSend = hasTicket || isPortalNoTicket || isConvNoTicket;
   const ticketIdForRealtime = isTicketType ? (selected?.ticketId || selected?.id?.replace?.(/^ticket:/, '')) : null;
   const conversationIdForRealtime = !isTicketType ? selected?.id : null;
 

@@ -340,10 +340,11 @@ export class BaileysService {
       // Ex: 5573XXXXXXXX (12) → 557391XXXXXXXX não é o caso, deixa como está
       const jid = `${digits}@s.whatsapp.net`;
       this.logger.log(`Sending WhatsApp message to ${jid}`);
-      await sock.sendMessage(jid, { text });
+      const result = await sock.sendMessage(jid, { text });
+      this.logger.log(`WhatsApp send result: messageId=${result?.key?.id ?? 'none'} status=${result?.status ?? 'unknown'}`);
       return true;
-    } catch (error) {
-      this.logger.error(`Failed to send message via Baileys for tenant ${tenantId}`, error);
+    } catch (error: any) {
+      this.logger.error(`Failed to send message via Baileys for tenant ${tenantId} to ${to}: ${error?.message}`, error?.stack);
       return false;
     }
   }
