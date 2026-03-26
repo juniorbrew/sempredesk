@@ -114,6 +114,12 @@ export default function AtendimentoPage() {
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
   const [networks, setNetworks] = useState<any[]>([]);
   const [createCustomers, setCreateCustomers] = useState<any[]>([]);
+  const [createClientSearch, setCreateClientSearch] = useState('');
+  const [createClientName, setCreateClientName] = useState('');
+  const [createClientResults, setCreateClientResults] = useState<any[]>([]);
+  const [createClientLoading, setCreateClientLoading] = useState(false);
+  const [showCreateClientDropdown, setShowCreateClientDropdown] = useState(false);
+  const createClientSearchTimer = useRef<any>(null);
   const [showEndModal, setShowEndModal] = useState(false);
   const [showKeepOpenModal, setShowKeepOpenModal] = useState(false);
   const [keepOpenReason, setKeepOpenReason] = useState('');
@@ -231,8 +237,20 @@ export default function AtendimentoPage() {
         ? (await api.getMessages(ticketId, false) || [])
         : (await api.getConversationMessages(conv.id) || []);
       setMessages(Array.isArray(msgs) ? msgs : msgs?.data ?? []);
+      const contactId = conv.contactId || (ticketRes as any)?.contactId;
       if (conv.clientId) {
-        try { const ct = await api.getContacts(conv.clientId); setContacts(Array.isArray(ct) ? ct : (ct as any)?.data ?? []); } catch { setContacts([]); }
+        try {
+          const ct = await api.getContacts(conv.clientId);
+          const ctArr: any[] = Array.isArray(ct) ? ct : (ct as any)?.data ?? [];
+          // Se o contato específico não está na lista (ex: sem cliente ou cliente diferente), busca individualmente
+          if (contactId && !ctArr.find((c: any) => c.id === contactId)) {
+            try { const ind: any = await api.getContactById(contactId); if (ind) ctArr.push(ind?.data ?? ind); } catch {}
+          }
+          setContacts(ctArr);
+        } catch { setContacts([]); }
+      } else if (contactId) {
+        // Conversa sem cliente: carrega apenas o contato específico
+        try { const ind: any = await api.getContactById(contactId); setContacts(ind ? [ind?.data ?? ind] : []); } catch { setContacts([]); }
       }
     } catch (e) { console.error(e); }
     setLoadingChat(false);
@@ -300,10 +318,10 @@ export default function AtendimentoPage() {
       } else if (tid) {
         await api.resolveTicket(tid, { resolutionSummary: closeForm.solution, timeSpentMin, rootCause: closeForm.rootCause || undefined, complexity: closeForm.complexity || undefined });
         if (closeForm.internalNote.trim()) await api.addMessage(tid, { content: closeForm.internalNote, messageType: 'internal' });
-        await api.closeTicket(tid);
+        // Ticket permanece como "Resolvido" — cliente tem 7 dias para confirmar no portal
       } else { showToast('Ticket não encontrado', 'error'); return; }
       setShowCloseForm(false);
-      showToast('Atendimento encerrado com sucesso!');
+      showToast('Chamado marcado como resolvido! O cliente será notificado para confirmar.');
       loadConversations(true, true);
     } catch (e: any) { showToast(e?.response?.data?.message || 'Erro ao encerrar', 'error'); }
   };
@@ -379,6 +397,12 @@ export default function AtendimentoPage() {
         try { const r: any = await api.getCustomers({ perPage: 200 }); setCreateCustomers(Array.isArray(r) ? r : r?.data ?? []); } catch {}
       }
     }
+    setCreateClientSearch('');
+    // Resolve display name for pre-selected client
+    const preClient = preClientId ? customers.find((c: any) => c.id === preClientId) : null;
+    setCreateClientName(preClient ? (preClient.tradeName || preClient.companyName || '') : '');
+    setCreateClientResults([]);
+    setShowCreateClientDropdown(false);
     setShowCreateModal(true);
   };
 
@@ -950,7 +974,7 @@ export default function AtendimentoPage() {
         <div style={{ width: 290, borderLeft: S.border, background: S.bg, display: 'flex', flexDirection: 'column', overflowY: 'auto', flexShrink: 0 }}>
           {selected ? (() => {
             const customer = customers.find((c: any) => c.id === selected?.clientId);
-            const contact = contacts.find((c: any) => c.id === selected?.contactId) || contacts[0];
+            const contact = contacts.find((c: any) => c.id === (selected?.contactId || currentTicket?.contactId)) || null;
             // Usa assignedUser embutido no ticket (retornado pelo backend) ou faz fallback na lista de equipe
             const assignedUser = currentTicket?.assignedUser
               || team.find((u: any) => String(u.id) === String(currentTicket?.assignedTo));
@@ -1349,6 +1373,7 @@ export default function AtendimentoPage() {
                   <select value={createForm.networkId} onChange={async e => {
                     const nid = e.target.value;
                     setCreateForm(f => ({ ...f, networkId: nid, clientId: '' }));
+                    setCreateClientSearch(''); setCreateClientName(''); setCreateClientResults([]); setShowCreateClientDropdown(false);
                     if (nid) {
                       setCreateCustomers([]);
                       try { const r: any = await api.getCustomers({ networkId: nid, perPage: 200 }); setCreateCustomers(Array.isArray(r) ? r : r?.data ?? []); } catch {}
@@ -1362,13 +1387,76 @@ export default function AtendimentoPage() {
                     {networks.map((n: any) => <option key={n.id} value={n.id}>{n.name}</option>)}
                   </select>
                 </div>
-                <div>
+                <div style={{ position: 'relative' }}>
                   <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 5 }}>Cliente <span style={{ color: '#EF4444' }}>*</span></label>
-                  <select value={createForm.clientId} onChange={e => setCreateForm(f => ({ ...f, clientId: e.target.value }))}
-                    style={{ width: '100%', padding: '9px 10px', border: `1.5px solid ${createForm.clientId ? '#E2E8F0' : '#FCA5A5'}`, borderRadius: 8, fontSize: 13, outline: 'none', background: '#fff' }}>
-                    <option value=''>Selecione o cliente...</option>
-                    {createCustomers.map((c: any) => <option key={c.id} value={c.id}>{c.tradeName || c.companyName}</option>)}
-                  </select>
+                  <div style={{ position: 'relative' }}>
+                    <Search style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', width: 14, height: 14, color: '#94A3B8', pointerEvents: 'none' }} />
+                    <input
+                      value={createForm.clientId ? createClientName : createClientSearch}
+                      readOnly={!!createForm.clientId}
+                      onChange={e => {
+                        if (createForm.clientId) return; // readonly quando selecionado
+                        const q = e.target.value;
+                        setCreateClientSearch(q);
+                        setShowCreateClientDropdown(true);
+                        if (createClientSearchTimer.current) clearTimeout(createClientSearchTimer.current);
+                        if (!q.trim()) {
+                          setCreateClientResults(createCustomers.slice(0, 20));
+                          setCreateClientLoading(false);
+                          return;
+                        }
+                        setCreateClientLoading(true);
+                        createClientSearchTimer.current = setTimeout(async () => {
+                          try {
+                            const params: any = { search: q, perPage: 20 };
+                            if (createForm.networkId) params.networkId = createForm.networkId;
+                            const r: any = await api.getCustomers(params);
+                            setCreateClientResults(Array.isArray(r) ? r : r?.data ?? []);
+                          } catch { setCreateClientResults([]); }
+                          setCreateClientLoading(false);
+                        }, 300);
+                      }}
+                      onFocus={() => {
+                        if (createForm.clientId) return;
+                        setShowCreateClientDropdown(true);
+                        if (!createClientSearch.trim()) setCreateClientResults(createCustomers.slice(0, 20));
+                      }}
+                      onBlur={() => setTimeout(() => setShowCreateClientDropdown(false), 200)}
+                      placeholder="Buscar cliente..."
+                      style={{ width: '100%', padding: '9px 12px 9px 32px', border: `1.5px solid ${createForm.clientId ? '#BBF7D0' : '#FCA5A5'}`, borderRadius: 8, fontSize: 13, outline: 'none', boxSizing: 'border-box' as const, background: createForm.clientId ? '#F0FDF4' : '#fff', cursor: createForm.clientId ? 'default' : 'text' }}
+                    />
+                    {createClientLoading && (
+                      <div style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', width: 14, height: 14, border: '2px solid #6366F1', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.6s linear infinite' }} />
+                    )}
+                    {createForm.clientId && !createClientLoading && (
+                      <button type="button" onClick={() => { setCreateForm(f => ({ ...f, clientId: '' })); setCreateClientName(''); setCreateClientSearch(''); setCreateClientResults(createCustomers.slice(0, 20)); setShowCreateClientDropdown(false); }}
+                        style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#94A3B8', display: 'flex', padding: 2 }}>
+                        <X size={14} />
+                      </button>
+                    )}
+                  </div>
+                  {showCreateClientDropdown && createClientResults.length > 0 && (
+                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100, background: '#fff', border: '1px solid #E2E8F0', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', maxHeight: 200, overflowY: 'auto', marginTop: 2 }}>
+                      {createClientResults.map((c: any) => (
+                        <button key={c.id} type="button"
+                          onMouseDown={() => {
+                            setCreateForm(f => ({ ...f, clientId: c.id }));
+                            setCreateClientName(c.tradeName || c.companyName || '');
+                            setCreateClientSearch('');
+                            setShowCreateClientDropdown(false);
+                          }}
+                          style={{ display: 'block', width: '100%', padding: '9px 12px', textAlign: 'left', border: 'none', background: createForm.clientId === c.id ? '#EEF2FF' : 'transparent', cursor: 'pointer', fontSize: 13, color: '#0F172A', borderBottom: '1px solid #F1F5F9' }}>
+                          <span style={{ fontWeight: 600 }}>{c.tradeName || c.companyName}</span>
+                          {c.tradeName && c.companyName && <span style={{ fontSize: 11, color: '#94A3B8', marginLeft: 6 }}>{c.companyName}</span>}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {showCreateClientDropdown && createClientResults.length === 0 && createClientSearch.trim() && !createClientLoading && (
+                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100, background: '#fff', border: '1px solid #E2E8F0', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', padding: '10px 12px', marginTop: 2 }}>
+                      <span style={{ fontSize: 13, color: '#94A3B8' }}>Nenhum cliente encontrado</span>
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 5 }}>Assunto <span style={{ color: '#EF4444' }}>*</span></label>

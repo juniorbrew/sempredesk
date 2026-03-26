@@ -103,8 +103,12 @@ export class ConversationsService {
     } else {
       const c = await this.customersService.findContactById(tenantId, contactId);
       if (!c) throw new BadRequestException('Contato não encontrado');
-      // contactId vem do JWT autenticado — apenas confirmar que existe no tenant
+      // contactId vem do JWT autenticado — usa o clientId do contato se disponível
+      // (resolve conflito quando portal seleciona empresa diferente da vinculada ao contato)
       contactName = c.name;
+      if ((c as any).clientId && !(dto as any).overrideClientId) {
+        dto.clientId = String((c as any).clientId);
+      }
     }
 
     const result = await this.startConversation(tenantId, dto.clientId, contactId, ConversationChannel.PORTAL, {
@@ -488,8 +492,8 @@ export class ConversationsService {
         });
       }
 
-      // 3. Fechar o ticket
-      await this.ticketsService.close(tenantId, ticketId, uid, uname);
+      // Ticket permanece como "resolvido" — cliente tem 7 dias para confirmar no portal.
+      // O cron autoCloseResolvedTickets fecha automaticamente após esse prazo.
     }
 
     conv.status = ConversationStatus.CLOSED;

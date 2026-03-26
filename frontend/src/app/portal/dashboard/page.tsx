@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePortalStore } from '@/store/portal.store';
-import { Ticket, FileText, Clock, CheckCircle, AlertTriangle, Plus, ArrowRight } from 'lucide-react';
+import { Ticket, FileText, Clock, CheckCircle, AlertTriangle, Plus, ArrowRight, Bell } from 'lucide-react';
 
 export default function PortalHomePage() {
   const { contact, client, accessToken } = usePortalStore();
@@ -26,6 +26,8 @@ export default function PortalHomePage() {
 
   const open = tickets.filter(t => ['open','in_progress','waiting_client'].includes(t.status)).length;
   const resolved = tickets.filter(t => t.status === 'resolved').length;
+  // Tickets aguardando confirmação de resolução (sem avaliação ainda)
+  const pendingConfirmation = tickets.filter(t => t.status === 'resolved' && !t.satisfactionScore);
 
   const STATUS_LABELS: Record<string,string> = { open:'Aberto', in_progress:'Em andamento', waiting_client:'Aguardando', resolved:'Resolvido', closed:'Fechado', cancelled:'Cancelado' };
   const STATUS_STYLE: Record<string,{ bg:string; color:string }> = {
@@ -43,6 +45,28 @@ export default function PortalHomePage() {
         </h1>
         <p style={{ color:'#94A3B8', fontSize:14, margin:0 }}>{client?.tradeName||client?.companyName}</p>
       </div>
+
+      {/* Notificação: tickets aguardando confirmação */}
+      {pendingConfirmation.length > 0 && (
+        <div style={{ background:'#FFFBEB', border:'1.5px solid #FCD34D', borderRadius:14, padding:'14px 18px', marginBottom:20, display:'flex', alignItems:'center', gap:14 }}>
+          <div style={{ width:40, height:40, borderRadius:12, background:'#FEF3C7', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+            <Bell style={{ width:20, height:20, color:'#D97706' }} />
+          </div>
+          <div style={{ flex:1 }}>
+            <p style={{ margin:0, fontSize:14, fontWeight:700, color:'#92400E' }}>
+              {pendingConfirmation.length === 1
+                ? '1 chamado aguarda sua confirmação'
+                : `${pendingConfirmation.length} chamados aguardam sua confirmação`}
+            </p>
+            <p style={{ margin:'3px 0 0', fontSize:12, color:'#B45309' }}>
+              O suporte marcou {pendingConfirmation.length === 1 ? 'um chamado' : 'chamados'} como resolvido. Confirme se o problema foi solucionado.
+            </p>
+          </div>
+          <Link href="/portal/tickets?status=resolved" style={{ flexShrink:0, padding:'8px 14px', background:'#D97706', border:'none', borderRadius:8, color:'#fff', fontSize:12, fontWeight:700, textDecoration:'none', display:'flex', alignItems:'center', gap:4 }}>
+            Ver <ArrowRight style={{ width:13, height:13 }} />
+          </Link>
+        </div>
+      )}
 
       {/* Stats */}
       <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:16, marginBottom:28 }}>

@@ -131,6 +131,15 @@ export default function CustomerDetailPage() {
     setTimeout(() => document.getElementById('cm_email')?.focus(), 100);
   };
 
+  /** Gera senha aleatória segura */
+  const generatePassword = () => {
+    const chars = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789@#!';
+    let pwd = '';
+    for (let i = 0; i < 10; i++) pwd += chars[Math.floor(Math.random() * chars.length)];
+    setContactForm(p => ({ ...p, password: pwd }));
+    setShowContactPass(true);
+  };
+
   const handleSaveContact = async () => {
     if (!contactForm.name.trim()) return;
     setSavingContact(true);
@@ -140,7 +149,16 @@ export default function CustomerDetailPage() {
       const phoneComplete = composePhone(phoneCountry, rest.phone);
       const whatsComplete = composePhone(whatsappCountry, rest.whatsapp);
       const clean: any = Object.fromEntries(Object.entries({ ...rest, phone: phoneComplete, whatsapp: whatsComplete }).filter(([_, v]) => v !== '' && v !== null));
-      if (password) clean.password = password;
+      // Inclui senha: ao criar sempre (gerar automaticamente se vazio); ao editar só se preenchido
+      if (password) {
+        clean.password = password;
+      } else if (!editingContact) {
+        // Novo contato sem senha: gera automaticamente para habilitar acesso ao portal
+        const chars = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789@#!';
+        let pwd = '';
+        for (let i = 0; i < 10; i++) pwd += chars[Math.floor(Math.random() * chars.length)];
+        clean.password = pwd;
+      }
       if (editingContact) await api.updateContact(id as string, editingContact.id, clean);
       else await api.createContact(id as string, clean);
       setShowContactModal(false); load();
@@ -573,153 +591,183 @@ export default function CustomerDetailPage() {
       {/* Modal Contato */}
       {showContactModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background:'rgba(15,23,42,0.6)', backdropFilter:'blur(4px)' }}>
-          <div className="card w-full max-w-md" style={{ boxShadow:'0 20px 60px rgba(0,0,0,0.15)' }}>
-            <div className="flex items-center justify-between p-5" style={{ borderBottom:'1px solid #F1F5F9' }}>
-              <div>
-                <h2 className="font-bold" style={{ color:'#0F172A', fontSize:16 }}>{editingContact ? 'Editar Contato' : 'Novo Contato'}</h2>
-                <p className="text-xs mt-0.5" style={{ color:'#94A3B8' }}>Preencha os dados do contato</p>
+          <div className="card w-full" style={{ maxWidth:520, maxHeight:'92vh', overflowY:'auto', boxShadow:'0 24px 64px rgba(0,0,0,0.2)' }}>
+            {/* Header */}
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'16px 20px', borderBottom:'1px solid #F1F5F9', position:'sticky', top:0, background:'#fff', zIndex:1 }}>
+              <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                <div style={{ width:36, height:36, borderRadius:10, background:'#EEF2FF', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                  <User style={{ width:16, height:16, color:'#4F46E5' }} />
+                </div>
+                <div>
+                  <h2 style={{ color:'#0F172A', fontSize:15, fontWeight:700, margin:0 }}>{editingContact ? 'Editar Contato' : 'Novo Contato'}</h2>
+                  <p style={{ color:'#94A3B8', fontSize:11, margin:0 }}>{editingContact ? 'Atualize os dados abaixo' : 'Preencha os dados do novo contato'}</p>
+                </div>
               </div>
               <button onClick={() => setShowContactModal(false)}
                 style={{ background:'#F1F5F9', border:'none', borderRadius:8, width:32, height:32, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color:'#64748B', fontSize:18 }}>×</button>
             </div>
-            <div className="p-5" style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
-              <div style={{ gridColumn:'1/-1' }}>
-                <label style={lbl}>E-mail</label>
-                <div style={{ position:'relative' }}>
-                  <input id="cm_email" autoFocus value={contactForm.email} onChange={async (e) => {
-                    const val = e.target.value;
-                    fc('email')(e);
-                    if (val.includes('@') && val.includes('.')) {
-                      setEmailSearching(true);
-                      try {
-                        const token = localStorage.getItem('accessToken');
-                        // Busca o cliente atual para pegar a rede
-                        const custRes = await fetch(`/api/v1/customers/${id}`, { headers:{ Authorization:`Bearer ${token}` } });
-                        const custData = await custRes.json();
-                        const networkId = custData?.data?.networkId || custData?.networkId;
-                        // Busca todos clientes da rede
-                        const netRes = await fetch(`/api/v1/customers?networkId=${networkId}&limit=100`, { headers:{ Authorization:`Bearer ${token}` } });
-                        const netData = await netRes.json();
-                        const clients = netData?.data?.data || netData?.data || [];
-                        let found = null;
-                        for (const cl of clients) {
-                          if (cl.contacts) {
-                            found = cl.contacts.find((c: any) => c.email?.toLowerCase() === val.toLowerCase() && c.status === 'active');
-                            if (found) break;
-                          }
+
+            <div style={{ padding:'18px 20px', display:'flex', flexDirection:'column', gap:14 }}>
+              {/* Identificação */}
+              <div style={{ background:'#F8FAFC', borderRadius:10, padding:'14px 16px', border:'1px solid #E2E8F0' }}>
+                <p style={{ fontSize:10, fontWeight:700, color:'#94A3B8', textTransform:'uppercase', letterSpacing:'0.07em', margin:'0 0 12px' }}>Identificação</p>
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+                  <div style={{ gridColumn:'1/-1' }}>
+                    <label style={lbl}>Nome <span style={{ color:'#4F46E5' }}>*</span></label>
+                    <input id="cm_name" value={contactForm.name} onChange={fc('name')} onFocus={() => setFocusCF('name')} onBlur={() => setFocusCF('')} onKeyDown={nxtC('cm_role')} style={inp(focusCF==='name')} placeholder="Nome completo" autoFocus />
+                  </div>
+                  <div>
+                    <label style={lbl}>Cargo</label>
+                    <input id="cm_role" value={contactForm.role} onChange={fc('role')} onFocus={() => setFocusCF('role')} onBlur={() => setFocusCF('')} onKeyDown={nxtC('cm_email')} style={inp(focusCF==='role')} placeholder="Ex: Gerente de TI" />
+                  </div>
+                  <div style={{ display:'flex', alignItems:'center', gap:10, paddingTop:20, cursor:'pointer' }}
+                    onClick={() => setContactForm(p => ({ ...p, isPrimary: !p.isPrimary }))}>
+                    <div style={{ width:38, height:22, borderRadius:11, background:contactForm.isPrimary?'#4F46E5':'#E2E8F0', position:'relative', transition:'background 0.2s', flexShrink:0 }}>
+                      <div style={{ position:'absolute', top:3, left:contactForm.isPrimary?18:3, width:16, height:16, borderRadius:'50%', background:'#fff', transition:'left 0.2s', boxShadow:'0 1px 3px rgba(0,0,0,0.2)' }} />
+                    </div>
+                    <span style={{ fontSize:13, fontWeight:500, color:contactForm.isPrimary?'#4F46E5':'#64748B', userSelect:'none' }}>Contato Principal</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Contato */}
+              <div style={{ background:'#F8FAFC', borderRadius:10, padding:'14px 16px', border:'1px solid #E2E8F0' }}>
+                <p style={{ fontSize:10, fontWeight:700, color:'#94A3B8', textTransform:'uppercase', letterSpacing:'0.07em', margin:'0 0 12px' }}>Contato</p>
+                <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+                  <div>
+                    <label style={lbl}>E-mail</label>
+                    <div style={{ position:'relative' }}>
+                      <input id="cm_email" value={contactForm.email} onChange={async (e) => {
+                        const val = e.target.value;
+                        fc('email')(e);
+                        if (val.includes('@') && val.includes('.')) {
+                          setEmailSearching(true);
+                          try {
+                            const token = localStorage.getItem('accessToken');
+                            const custRes = await fetch(`/api/v1/customers/${id}`, { headers:{ Authorization:`Bearer ${token}` } });
+                            const custData = await custRes.json();
+                            const networkId = custData?.data?.networkId || custData?.networkId;
+                            const netRes = await fetch(`/api/v1/customers?networkId=${networkId}&limit=100`, { headers:{ Authorization:`Bearer ${token}` } });
+                            const netData = await netRes.json();
+                            const clients = netData?.data?.data || netData?.data || [];
+                            let found = null;
+                            for (const cl of clients) {
+                              if (cl.contacts) {
+                                found = cl.contacts.find((c: any) => c.email?.toLowerCase() === val.toLowerCase() && c.status === 'active');
+                                if (found) break;
+                              }
+                            }
+                            if (found) {
+                              setContactForm(p => ({ ...p, email: val, name: found.name||p.name, role: found.role||p.role, phone: found.phone||p.phone, whatsapp: found.whatsapp||p.whatsapp, isPrimary: found.isPrimary||p.isPrimary }));
+                            }
+                          } catch {}
+                          setEmailSearching(false);
                         }
-                        if (found) {
-                          setContactForm(p => ({ ...p, email: val, name: found.name||p.name, role: found.role||p.role, phone: found.phone||p.phone, whatsapp: found.whatsapp||p.whatsapp, isPrimary: found.isPrimary||p.isPrimary }));
-                        }
-                      } catch {}
-                      setEmailSearching(false);
-                    }
-                  }} onFocus={() => setFocusCF('email')} onBlur={() => setFocusCF('')} onKeyDown={nxtC('cm_name')} style={inp(focusCF==='email')} placeholder="email@exemplo.com" />
-                  {emailSearching && <div style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)', width:14, height:14, border:'2px solid #6366F1', borderTopColor:'transparent', borderRadius:'50%', animation:'spin 0.6s linear infinite' }} />}
-                </div>
-              </div>
-              <div style={{ gridColumn:'1/-1' }}>
-                <label style={lbl}>Nome <span style={{ color:'#4F46E5' }}>*</span></label>
-                <input id="cm_name" value={contactForm.name} onChange={fc('name')} onFocus={() => setFocusCF('name')} onBlur={() => setFocusCF('')} onKeyDown={nxtC('cm_role')} style={inp(focusCF==='name')} placeholder="Nome completo" />
-              </div>
-              <div style={{ gridColumn:'1/-1' }}>
-                <label style={lbl}>Cargo</label>
-                <input id="cm_role" value={contactForm.role} onChange={fc('role')} onFocus={() => setFocusCF('role')} onBlur={() => setFocusCF('')} onKeyDown={nxtC('cm_phone')} style={inp(focusCF==='role')} />
-              </div>
-              {/* Telefone com seletor de DDI */}
-              <div>
-                <label style={lbl}>Telefone</label>
-                <div style={{ display:'flex', gap:6, position:'relative' }}>
-                  <div style={{ position:'relative' }}>
-                    <button type="button" onClick={() => { setShowPhoneCountry(p=>!p); setShowWhatsCountry(false); }}
-                      style={{ height:40, padding:'0 10px', borderRadius:8, border:`1.5px solid ${focusCF==='phone'?'#6366F1':'#E2E8F0'}`, background:'#F8FAFC', cursor:'pointer', display:'flex', alignItems:'center', gap:6, fontSize:13, whiteSpace:'nowrap', minWidth:72 }}>
-                      <span style={{ fontSize:16 }}>{COUNTRIES.find(c=>c.code===contactForm.phoneCountry)?.flag}</span>
-                      <span style={{ color:'#374151', fontWeight:600 }}>{contactForm.phoneCountry}</span>
-                      <span style={{ color:'#94A3B8', fontSize:10 }}>▾</span>
-                    </button>
-                    {showPhoneCountry && (
-                      <div style={{ position:'absolute', top:'calc(100% + 4px)', left:0, zIndex:200, background:'#fff', border:'1px solid #E2E8F0', borderRadius:10, boxShadow:'0 8px 24px rgba(0,0,0,.12)', width:200, maxHeight:220, overflowY:'auto' }}>
-                        {COUNTRIES.map(c => (
-                          <button key={c.code} type="button" onClick={() => { setContactForm(p=>({...p, phoneCountry:c.code})); setShowPhoneCountry(false); }}
-                            style={{ display:'flex', alignItems:'center', gap:8, width:'100%', padding:'8px 12px', background:contactForm.phoneCountry===c.code?'#EEF2FF':'transparent', border:'none', cursor:'pointer', fontSize:13, textAlign:'left' }}>
-                            <span style={{ fontSize:16 }}>{c.flag}</span>
-                            <span style={{ color:'#374151' }}>{c.name}</span>
-                            <span style={{ marginLeft:'auto', color:'#6366F1', fontWeight:600 }}>{c.code}</span>
+                      }} onFocus={() => setFocusCF('email')} onBlur={() => setFocusCF('')} onKeyDown={nxtC('cm_phone')} style={inp(focusCF==='email')} placeholder="email@exemplo.com" />
+                      {emailSearching && <div style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)', width:14, height:14, border:'2px solid #6366F1', borderTopColor:'transparent', borderRadius:'50%', animation:'spin 0.6s linear infinite' }} />}
+                    </div>
+                  </div>
+                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+                    {/* Telefone com DDI */}
+                    <div>
+                      <label style={lbl}>Telefone</label>
+                      <div style={{ display:'flex', gap:5 }}>
+                        <div style={{ position:'relative' }}>
+                          <button type="button" onClick={() => { setShowPhoneCountry(p=>!p); setShowWhatsCountry(false); }}
+                            style={{ height:40, padding:'0 8px', borderRadius:8, border:`1.5px solid ${focusCF==='phone'?'#6366F1':'#E2E8F0'}`, background:'#fff', cursor:'pointer', display:'flex', alignItems:'center', gap:4, fontSize:13, whiteSpace:'nowrap', minWidth:68 }}>
+                            <span style={{ fontSize:15 }}>{COUNTRIES.find(c=>c.code===contactForm.phoneCountry)?.flag}</span>
+                            <span style={{ color:'#374151', fontWeight:600, fontSize:12 }}>{contactForm.phoneCountry}</span>
+                            <span style={{ color:'#94A3B8', fontSize:9 }}>▾</span>
                           </button>
-                        ))}
+                          {showPhoneCountry && (
+                            <div style={{ position:'absolute', top:'calc(100% + 4px)', left:0, zIndex:200, background:'#fff', border:'1px solid #E2E8F0', borderRadius:10, boxShadow:'0 8px 24px rgba(0,0,0,.15)', width:210, maxHeight:220, overflowY:'auto' }}>
+                              {COUNTRIES.map(c => (
+                                <button key={c.code} type="button" onClick={() => { setContactForm(p=>({...p, phoneCountry:c.code})); setShowPhoneCountry(false); }}
+                                  style={{ display:'flex', alignItems:'center', gap:8, width:'100%', padding:'7px 12px', background:contactForm.phoneCountry===c.code?'#EEF2FF':'transparent', border:'none', cursor:'pointer', fontSize:12, textAlign:'left' }}>
+                                  <span style={{ fontSize:15 }}>{c.flag}</span>
+                                  <span style={{ color:'#374151' }}>{c.name}</span>
+                                  <span style={{ marginLeft:'auto', color:'#6366F1', fontWeight:700, fontSize:11 }}>{c.code}</span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <input id="cm_phone" value={contactForm.phone} onChange={fc('phone')} onFocus={() => { setFocusCF('phone'); setShowPhoneCountry(false); }} onBlur={() => setFocusCF('')} onKeyDown={nxtC('cm_whats')}
+                          placeholder="(XX) 9 XXXX" style={{ ...inp(focusCF==='phone'), flex:1 }} />
                       </div>
-                    )}
-                  </div>
-                  <input id="cm_phone" value={contactForm.phone} onChange={fc('phone')} onFocus={() => { setFocusCF('phone'); setShowPhoneCountry(false); }} onBlur={() => setFocusCF('')} onKeyDown={nxtC('cm_whats')}
-                    placeholder="(XX) 9 XXXX-XXXX" style={{ ...inp(focusCF==='phone'), flex:1 }} />
-                </div>
-              </div>
-              {/* WhatsApp com seletor de DDI */}
-              <div>
-                <label style={lbl}>WhatsApp</label>
-                <div style={{ display:'flex', gap:6, position:'relative' }}>
-                  <div style={{ position:'relative' }}>
-                    <button type="button" onClick={() => { setShowWhatsCountry(p=>!p); setShowPhoneCountry(false); }}
-                      style={{ height:40, padding:'0 10px', borderRadius:8, border:`1.5px solid ${focusCF==='whats'?'#6366F1':'#E2E8F0'}`, background:'#F8FAFC', cursor:'pointer', display:'flex', alignItems:'center', gap:6, fontSize:13, whiteSpace:'nowrap', minWidth:72 }}>
-                      <span style={{ fontSize:16 }}>{COUNTRIES.find(c=>c.code===contactForm.whatsappCountry)?.flag}</span>
-                      <span style={{ color:'#374151', fontWeight:600 }}>{contactForm.whatsappCountry}</span>
-                      <span style={{ color:'#94A3B8', fontSize:10 }}>▾</span>
-                    </button>
-                    {showWhatsCountry && (
-                      <div style={{ position:'absolute', top:'calc(100% + 4px)', left:0, zIndex:200, background:'#fff', border:'1px solid #E2E8F0', borderRadius:10, boxShadow:'0 8px 24px rgba(0,0,0,.12)', width:200, maxHeight:220, overflowY:'auto' }}>
-                        {COUNTRIES.map(c => (
-                          <button key={c.code} type="button" onClick={() => { setContactForm(p=>({...p, whatsappCountry:c.code})); setShowWhatsCountry(false); }}
-                            style={{ display:'flex', alignItems:'center', gap:8, width:'100%', padding:'8px 12px', background:contactForm.whatsappCountry===c.code?'#EEF2FF':'transparent', border:'none', cursor:'pointer', fontSize:13, textAlign:'left' }}>
-                            <span style={{ fontSize:16 }}>{c.flag}</span>
-                            <span style={{ color:'#374151' }}>{c.name}</span>
-                            <span style={{ marginLeft:'auto', color:'#6366F1', fontWeight:600 }}>{c.code}</span>
+                    </div>
+                    {/* WhatsApp com DDI */}
+                    <div>
+                      <label style={lbl}>WhatsApp</label>
+                      <div style={{ display:'flex', gap:5 }}>
+                        <div style={{ position:'relative' }}>
+                          <button type="button" onClick={() => { setShowWhatsCountry(p=>!p); setShowPhoneCountry(false); }}
+                            style={{ height:40, padding:'0 8px', borderRadius:8, border:`1.5px solid ${focusCF==='whats'?'#6366F1':'#E2E8F0'}`, background:'#fff', cursor:'pointer', display:'flex', alignItems:'center', gap:4, fontSize:13, whiteSpace:'nowrap', minWidth:68 }}>
+                            <span style={{ fontSize:15 }}>{COUNTRIES.find(c=>c.code===contactForm.whatsappCountry)?.flag}</span>
+                            <span style={{ color:'#374151', fontWeight:600, fontSize:12 }}>{contactForm.whatsappCountry}</span>
+                            <span style={{ color:'#94A3B8', fontSize:9 }}>▾</span>
                           </button>
-                        ))}
+                          {showWhatsCountry && (
+                            <div style={{ position:'absolute', top:'calc(100% + 4px)', left:0, zIndex:200, background:'#fff', border:'1px solid #E2E8F0', borderRadius:10, boxShadow:'0 8px 24px rgba(0,0,0,.15)', width:210, maxHeight:220, overflowY:'auto' }}>
+                              {COUNTRIES.map(c => (
+                                <button key={c.code} type="button" onClick={() => { setContactForm(p=>({...p, whatsappCountry:c.code})); setShowWhatsCountry(false); }}
+                                  style={{ display:'flex', alignItems:'center', gap:8, width:'100%', padding:'7px 12px', background:contactForm.whatsappCountry===c.code?'#EEF2FF':'transparent', border:'none', cursor:'pointer', fontSize:12, textAlign:'left' }}>
+                                  <span style={{ fontSize:15 }}>{c.flag}</span>
+                                  <span style={{ color:'#374151' }}>{c.name}</span>
+                                  <span style={{ marginLeft:'auto', color:'#6366F1', fontWeight:700, fontSize:11 }}>{c.code}</span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <input id="cm_whats" value={contactForm.whatsapp} onChange={fc('whatsapp')} onFocus={() => { setFocusCF('whats'); setShowWhatsCountry(false); }} onBlur={() => setFocusCF('')} onKeyDown={nxtC('cm_notes')}
+                          placeholder="(XX) 9 XXXX" style={{ ...inp(focusCF==='whats'), flex:1 }} />
                       </div>
-                    )}
+                    </div>
                   </div>
-                  <input id="cm_whats" value={contactForm.whatsapp} onChange={fc('whatsapp')} onFocus={() => { setFocusCF('whats'); setShowWhatsCountry(false); }} onBlur={() => setFocusCF('')} onKeyDown={nxtC('cm_notes')}
-                    placeholder="(XX) 9 XXXX-XXXX" style={{ ...inp(focusCF==='whats'), flex:1 }} />
                 </div>
               </div>
-              <div>
-                <div className="flex items-center gap-2 h-full pt-5 cursor-pointer select-none"
-                  onClick={() => setContactForm(p => ({ ...p, isPrimary: !p.isPrimary }))}>
-                  <div style={{ width:38, height:22, borderRadius:11, background:contactForm.isPrimary?'#4F46E5':'#E2E8F0', position:'relative', transition:'background 0.2s', flexShrink:0 }}>
-                    <div style={{ position:'absolute', top:3, left:contactForm.isPrimary?18:3, width:16, height:16, borderRadius:'50%', background:'#fff', transition:'left 0.2s', boxShadow:'0 1px 3px rgba(0,0,0,0.2)' }} />
-                  </div>
-                  <span className="text-sm font-medium" style={{ color:contactForm.isPrimary?'#4F46E5':'#64748B' }}>Principal</span>
-                </div>
-              </div>
+
               {/* Senha portal */}
-              <div style={{ gridColumn:'1/-1', background:'#F8FAFC', border:'1px solid #E2E8F0', borderRadius:10, padding:'12px 14px' }}>
-                <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
-                  <KeyRound style={{ width:14, height:14, color:'#6366F1' }} />
-                  <label style={{ ...lbl, margin:0 }}>Senha Portal do Cliente</label>
+              <div style={{ background:'#F0F9FF', borderRadius:10, padding:'14px 16px', border:'1px solid #BAE6FD' }}>
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                    <KeyRound style={{ width:14, height:14, color:'#0284C7' }} />
+                    <label style={{ ...lbl, margin:0, color:'#0369A1' }}>Acesso ao Portal</label>
+                  </div>
+                  <button type="button" onClick={generatePassword}
+                    style={{ padding:'4px 10px', borderRadius:6, border:'1.5px solid #0284C7', background:'#fff', color:'#0284C7', fontSize:11, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', gap:4 }}>
+                    <KeyRound style={{ width:11, height:11 }} /> Gerar senha
+                  </button>
                 </div>
                 <div style={{ position:'relative' }}>
                   <input id="cm_pass" type={showContactPass?'text':'password'} value={contactForm.password} onChange={fc('password')}
                     onFocus={() => setFocusCF('pass')} onBlur={() => setFocusCF('')}
-                    placeholder={editingContact ? 'Deixe em branco para manter' : 'Definir senha de acesso ao portal'}
-                    style={{ ...inp(focusCF==='pass'), paddingRight:40 }} />
+                    placeholder={editingContact ? 'Deixe em branco para manter a senha atual' : 'Senha gerada automaticamente se vazio'}
+                    style={{ ...inp(focusCF==='pass'), paddingRight:44 }} />
                   <button type="button" onClick={() => setShowContactPass(p=>!p)}
                     style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', color:'#94A3B8', display:'flex' }}>
                     {showContactPass ? <EyeOff style={{width:15,height:15}}/> : <Eye style={{width:15,height:15}}/>}
                   </button>
                 </div>
-                <p style={{ fontSize:11, color:'#94A3B8', margin:'6px 0 0' }}>O contato usará este email e senha para acessar o portal</p>
+                <p style={{ fontSize:11, color:'#0369A1', margin:'6px 0 0', opacity:0.8 }}>
+                  {editingContact ? 'Login: email do contato + senha definida' : 'Novo contato recebe senha automática se não informada'}
+                </p>
               </div>
-              <div style={{ gridColumn:'1/-1' }}>
+
+              {/* Observações */}
+              <div>
                 <label style={lbl}>Observações</label>
                 <textarea id="cm_notes" value={contactForm.notes} onChange={fc('notes')} rows={2}
-                  style={{ ...inp(focusCF==='notes'), resize:'vertical' as const }} onFocus={() => setFocusCF('notes')} onBlur={() => setFocusCF('')} />
+                  style={{ ...inp(focusCF==='notes'), resize:'vertical' as const }} onFocus={() => setFocusCF('notes')} onBlur={() => setFocusCF('')} placeholder="Informações adicionais sobre o contato..." />
               </div>
             </div>
-            <div className="flex justify-end gap-3 p-5" style={{ borderTop:'1px solid #F1F5F9' }}>
+
+            <div style={{ display:'flex', justifyContent:'flex-end', gap:10, padding:'14px 20px', borderTop:'1px solid #F1F5F9', background:'#fff', position:'sticky', bottom:0 }}>
               <button onClick={() => setShowContactModal(false)} className="btn-secondary">Cancelar</button>
               <button onClick={handleSaveContact} disabled={savingContact || !contactForm.name.trim()} className="btn-primary"
                 style={{ opacity:!contactForm.name.trim()?0.5:1 }}>
-                {savingContact ? 'Salvando...' : 'Salvar'}
+                {savingContact ? 'Salvando...' : (editingContact ? 'Salvar alterações' : 'Criar contato')}
               </button>
             </div>
           </div>

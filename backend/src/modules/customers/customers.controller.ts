@@ -87,4 +87,11 @@ export class CustomersController {
   removeContact(@TenantId() tenantId: string, @Param('cid') cid: string) {
     return this.svc.removeContact(tenantId, cid);
   }
+
+  /** GET /customers/contact/:id — busca contato por ID (independente do cliente) */
+  @Get('contact/:contactId')
+  @RequirePermission('ticket.view')
+  getContactById(@TenantId() tenantId: string, @Param('contactId') contactId: string) {
+    return this.svc.findContactById(tenantId, contactId);
+  }
 }
