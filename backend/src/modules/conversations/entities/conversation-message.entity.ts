@@ -24,6 +24,14 @@ export class ConversationMessage {
   @Column({ name: 'content', type: 'text' })
   content: string;
 
+  /** ID externo da mensagem no WhatsApp (Baileys key.id). Nulo para mensagens de chat/portal. */
+  @Column({ name: 'external_id', nullable: true, type: 'text' })
+  externalId: string | null;
+
+  /** Status de entrega WhatsApp: 'pending' | 'sent' | 'failed'. Nulo para canal não-WhatsApp. */
+  @Column({ name: 'whatsapp_status', nullable: true, type: 'text' })
+  whatsappStatus: string | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

@@ -212,10 +212,11 @@ export class WhatsappService {
       throw new BadRequestException('Número WhatsApp do contato inválido');
     }
 
-    // Try Baileys (QR-based) first; fall back to Meta API
+    // Tenta Baileys (QR) primeiro; fallback Meta API
     let sent = false;
     if (this.baileysService) {
-      sent = await this.baileysService.sendMessage(tenantId, rawWhatsapp, text);
+      const result = await this.baileysService.sendMessage(tenantId, rawWhatsapp, text);
+      sent = result.success;
     }
     if (!sent) {
       await this.sendWhatsappMessage(digits, text);
@@ -230,6 +231,136 @@ export class WhatsappService {
     }
 
     return { success: true };
+  }
+
+  /**
+   * Inicia uma conversa WhatsApp outbound completa:
+   * 1. Normaliza e valida o número
+   * 2. Cria ou localiza o contato
+   * 3. Cria ou localiza a conversa
+   * 4. Cria ticket vinculado
+   * 5. Envia a primeira mensagem
+   * 6. Retorna logs detalhados de cada etapa
+   */
+  async startOutboundConversation(
+    tenantId: string,
+    authorId: string,
+    authorName: string,
+    dto: {
+      phone?: string;
+      contactId?: string;
+      clientId?: string;
+      subject?: string;
+      firstMessage?: string;
+    },
+  ): Promise<{
+    conversation: any;
+    contact: any;
+    ticket: any | null;
+    whatsappJid: string | null;
+    numberExists: boolean;
+    firstMessageSent: boolean;
+    logs: string[];
+  }> {
+    const logs: string[] = [];
+    const log = (msg: string) => { this.logger.log(msg); logs.push(msg); };
+
+    log(`[OUTBOUND-FLOW] Início — tenantId=${tenantId} authorId=${authorId} phone=${dto.phone ?? 'N/A'} contactId=${dto.contactId ?? 'N/A'}`);
+
+    // ── 1. Encontrar ou criar contato ─────────────────────────────────
+    let contact: any;
+    if (dto.contactId) {
+      contact = await this.customersService.findContactById(tenantId, dto.contactId);
+      if (!contact) throw new BadRequestException('Contato não encontrado');
+      log(`[OUTBOUND-FLOW] Contato localizado por ID: ${contact.id} (${contact.name})`);
+    } else if (dto.phone) {
+      const digits = dto.phone.replace(/\D/g, '');
+      log(`[OUTBOUND-FLOW] Número recebido: "${dto.phone}" → dígitos: ${digits}`);
+      contact = await this.customersService.findContactByWhatsapp(tenantId, digits);
+      if (contact) {
+        log(`[OUTBOUND-FLOW] Contato localizado pelo WhatsApp ${digits}: ${contact.id} (${contact.name})`);
+      } else {
+        log(`[OUTBOUND-FLOW] Contato não encontrado para ${digits}, criando...`);
+        contact = await this.customersService.findOrCreateByWhatsapp(tenantId, digits, undefined, false);
+        if (!contact) throw new BadRequestException('Não foi possível criar o contato para este número');
+        log(`[OUTBOUND-FLOW] Contato criado: ${contact.id}`);
+      }
+    } else {
+      throw new BadRequestException('phone ou contactId é obrigatório');
+    }
+
+    const whatsapp: string = contact.whatsapp || dto.phone?.replace(/\D/g, '') || '';
+    if (!whatsapp) throw new BadRequestException('Contato sem número WhatsApp cadastrado');
+    log(`[OUTBOUND-FLOW] WhatsApp do contato: ${whatsapp}`);
+
+    // ── 2. Validar número no WhatsApp ──────────────────────────────────
+    let resolvedJid: string | null = null;
+    let numberExists = false;
+    if (this.baileysService) {
+      const check = await this.baileysService.checkNumberExists(tenantId, whatsapp);
+      log(`[OUTBOUND-FLOW] Validação WhatsApp: exists=${check.exists} jid=${check.jid ?? 'N/A'} normalized=${check.normalized} candidatos=${check.candidates.join(', ')}`);
+      numberExists = check.exists;
+      resolvedJid = check.jid;
+      if (!check.exists) {
+        log(`[OUTBOUND-FLOW] AVISO: Número "${whatsapp}" não foi encontrado no WhatsApp — envio pode falhar`);
+      }
+    } else {
+      log(`[OUTBOUND-FLOW] Baileys não disponível, pulando validação de número`);
+    }
+
+    // ── 3. Usar instância conectada (tenantId é a sessão) ─────────────
+    log(`[OUTBOUND-FLOW] Instância Baileys: tenantId=${tenantId} (sessão ativa=${!!this.baileysService})`);
+
+    // ── 4. Criar ou localizar conversa ────────────────────────────────
+    const clientId = dto.clientId || contact.clientId || null;
+    log(`[OUTBOUND-FLOW] clientId=${clientId ?? 'N/A'} contactId=${contact.id}`);
+
+    const conversation = await this.conversationsService.startAgentConversation(
+      tenantId, clientId, contact.id, ConversationChannel.WHATSAPP,
+    );
+    log(`[OUTBOUND-FLOW] Conversa: id=${conversation.id} status=${conversation.status} ticketId=${conversation.ticketId ?? 'N/A'} nova=${!conversation.ticketId}`);
+
+    // ── 5. Criar ticket ───────────────────────────────────────────────
+    let ticket: any = null;
+    if (!conversation.ticketId) {
+      try {
+        const result = await this.conversationsService.createTicketForConversationById(
+          tenantId, conversation.id, authorId, authorName,
+          { subject: dto.subject || `WhatsApp - ${contact.name || whatsapp}` },
+        );
+        ticket = result.ticket;
+        log(`[OUTBOUND-FLOW] Ticket criado: ${ticket.id} #${ticket.ticketNumber}`);
+      } catch (e: any) {
+        log(`[OUTBOUND-FLOW] Falha ao criar ticket: ${e?.message}`);
+      }
+    } else {
+      try {
+        ticket = await this.ticketsService.findOne(tenantId, conversation.ticketId);
+        log(`[OUTBOUND-FLOW] Ticket existente: ${ticket.id} #${ticket.ticketNumber}`);
+      } catch {
+        log(`[OUTBOUND-FLOW] Ticket ${conversation.ticketId} não encontrado`);
+      }
+    }
+
+    // ── 6. Enviar primeira mensagem ───────────────────────────────────
+    let firstMessageSent = false;
+    if (dto.firstMessage?.trim()) {
+      log(`[OUTBOUND-FLOW] Enviando primeira mensagem: "${dto.firstMessage.trim().slice(0, 50)}..."`);
+      try {
+        await this.conversationsService.addMessage(
+          tenantId, conversation.id, authorId, authorName, 'user', dto.firstMessage.trim(),
+        );
+        firstMessageSent = true;
+        log(`[OUTBOUND-FLOW] Primeira mensagem enviada com sucesso`);
+      } catch (e: any) {
+        log(`[OUTBOUND-FLOW] Falha ao enviar primeira mensagem: ${e?.message}`);
+      }
+    } else {
+      log(`[OUTBOUND-FLOW] Nenhuma mensagem inicial informada`);
+    }
+
+    log(`[OUTBOUND-FLOW] Concluído — conversaId=${conversation.id} jid=${resolvedJid ?? 'N/A'} msgEnviada=${firstMessageSent}`);
+    return { conversation, contact, ticket, whatsappJid: resolvedJid, numberExists, firstMessageSent, logs };
   }
 
   async getVerifyToken(tenantId: string): Promise<string> {

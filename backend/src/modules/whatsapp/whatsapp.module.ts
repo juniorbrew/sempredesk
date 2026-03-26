@@ -43,13 +43,20 @@ export class WhatsappModule implements OnModuleInit {
     // Registra dispatcher de mensagens outbound (agente → contato via WhatsApp)
     this.conversationsService.setOutboundSender(async (tenantId: string, toWhatsapp: string, text: string) => {
       if (this.baileysService) {
-        const sent = await this.baileysService.sendMessage(tenantId, toWhatsapp, text);
-        if (sent) return true;
+        const result = await this.baileysService.sendMessage(tenantId, toWhatsapp, text);
+        if (result.success) return result;
+        this.logger.warn(`[outboundSender] Baileys falhou (${result.error}), tentando Meta API`);
       }
       // Fallback Meta API
-      try { await this.whatsappService.sendWhatsappMessage(toWhatsapp, text); return true; } catch { return false; }
+      try {
+        const digits = toWhatsapp.replace(/\D/g, '');
+        await this.whatsappService.sendWhatsappMessage(digits, text);
+        return { success: true };
+      } catch (e: any) {
+        return { success: false, error: e?.message };
+      }
     });
-    this.logger.log('Outbound WhatsApp sender registered for conversations');
+    this.logger.log('Outbound WhatsApp sender registrado para conversas');
 
     // 1. Wire Baileys incoming messages → chatbot → WhatsApp message handler
     this.baileysService.setMessageHandler(async (tenantId: string, from: string, text: string, messageId: string, senderName?: string, isLid?: boolean) => {

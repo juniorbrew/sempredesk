@@ -68,6 +68,37 @@ export class WhatsappController {
   }
 
   // ──────────────────────────────────────────────────────────────────────
+  // ── Check number ─────────────────────────────────────────────────────
+  /**
+   * Verifica se um número de telefone está registrado no WhatsApp.
+   * Usa onWhatsApp() do Baileys para obter o JID real e confirmar existência.
+   */
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermission('ticket.view')
+  @Post('check-number')
+  async checkNumber(@TenantId() tenantId: string, @Body() body: { phone: string }) {
+    if (!body.phone?.trim()) return { exists: false, jid: null, error: 'Número não informado' };
+    return this.baileysService.checkNumberExists(tenantId, body.phone.trim());
+  }
+
+  // ── Start outbound conversation ───────────────────────────────────────
+  /**
+   * Fluxo completo de início de conversa outbound:
+   * valida número → cria/localiza contato → cria/localiza conversa → cria ticket → envia 1ª mensagem.
+   */
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermission('ticket.create')
+  @Post('start-outbound')
+  async startOutbound(
+    @Request() req: any,
+    @TenantId() tenantId: string,
+    @Body() body: { phone?: string; contactId?: string; clientId?: string; subject?: string; firstMessage?: string },
+  ) {
+    const authorId = req.user?.id;
+    const authorName = req.user?.name || req.user?.email || 'Equipe';
+    return this.whatsappService.startOutboundConversation(tenantId, authorId, authorName, body);
+  }
+
   // CONNECTION MANAGEMENT ENDPOINTS
   // ──────────────────────────────────────────────────────────────────────
 

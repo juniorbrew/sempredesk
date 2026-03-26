@@ -18,6 +18,20 @@ export interface StatusEvent {
   phoneNumber?: string | null;
 }
 
+export interface SendMessageResult {
+  success: boolean;
+  jid?: string;
+  messageId?: string;
+  error?: string;
+}
+
+export interface CheckNumberResult {
+  exists: boolean;
+  jid: string | null;
+  normalized: string;
+  candidates: string[];
+}
+
 @Injectable()
 export class BaileysService {
   private readonly logger = new Logger(BaileysService.name);
@@ -314,38 +328,133 @@ export class BaileysService {
     setTimeout(() => this.intentionalDisconnects.delete(tenantId), 5000);
   }
 
-  async sendMessage(tenantId: string, to: string, text: string): Promise<boolean> {
+  /**
+   * Verifica se um número de telefone está registrado no WhatsApp.
+   * Retorna o JID real (pode incluir o dígito 9 para celulares brasileiros).
+   */
+  async checkNumberExists(tenantId: string, phone: string): Promise<CheckNumberResult> {
     const sock = this.sessions.get(tenantId);
+    let digits = phone.replace(/\D/g, '');
+    this.logger.log(`[CHECK-NUMBER] tenantId=${tenantId} phone=${phone} digits=${digits}`);
+
     if (!sock) {
-      this.logger.warn(`No active Baileys session for tenant ${tenantId}`);
-      return false;
+      this.logger.warn(`[CHECK-NUMBER] Nenhuma sessão Baileys ativa para tenant ${tenantId}`);
+      return { exists: false, jid: null, normalized: digits, candidates: [] };
+    }
+
+    // LID (14+ dígitos) — identificador interno, assume como existente
+    if (digits.length >= 14) {
+      const jid = `${digits}@lid`;
+      this.logger.log(`[CHECK-NUMBER] LID detectado: ${jid}`);
+      return { exists: true, jid, normalized: digits, candidates: [jid] };
+    }
+
+    // Normaliza para DDI brasileiro se necessário
+    if (digits.length <= 11 && !digits.startsWith('55')) {
+      digits = `55${digits}`;
+    }
+
+    // Gera candidatos: para Brasil, tenta com e sem o dígito 9
+    const candidates: string[] = [];
+    if (digits.startsWith('55') && digits.length === 12) {
+      // 12 dígitos: número antigo sem 9 → tenta com 9 primeiro
+      const ddd = digits.slice(2, 4);
+      const num = digits.slice(4);
+      candidates.push(`55${ddd}9${num}@s.whatsapp.net`);
+      candidates.push(`${digits}@s.whatsapp.net`);
+    } else if (digits.startsWith('55') && digits.length === 13) {
+      // 13 dígitos: padrão atual → tenta sem 9 como fallback
+      const ddd = digits.slice(2, 4);
+      const num9 = digits.slice(4);          // já tem o 9
+      const numSem9 = num9.slice(1);         // remove o 9
+      candidates.push(`${digits}@s.whatsapp.net`);
+      candidates.push(`55${ddd}${numSem9}@s.whatsapp.net`);
+    } else {
+      candidates.push(`${digits}@s.whatsapp.net`);
+    }
+
+    this.logger.log(`[CHECK-NUMBER] Candidatos: ${candidates.join(', ')}`);
+
+    try {
+      // onWhatsApp aceita array de JIDs e retorna [{ exists, jid }]
+      const results: Array<{ exists: boolean; jid: string }> = await sock.onWhatsApp(...candidates);
+      this.logger.log(`[CHECK-NUMBER] Resultado onWhatsApp: ${JSON.stringify(results)}`);
+      const found = results?.find(r => r.exists);
+      if (found) {
+        this.logger.log(`[CHECK-NUMBER] JID encontrado: ${found.jid}`);
+        return { exists: true, jid: found.jid, normalized: digits, candidates };
+      }
+      this.logger.warn(`[CHECK-NUMBER] Número NÃO encontrado no WhatsApp: ${phone}`);
+      return { exists: false, jid: null, normalized: digits, candidates };
+    } catch (error: any) {
+      this.logger.warn(`[CHECK-NUMBER] onWhatsApp falhou para ${phone}: ${error?.message}`);
+      // Retorna melhor palpite sem confirmar existência
+      return { exists: false, jid: candidates[0] ?? null, normalized: digits, candidates };
+    }
+  }
+
+  async sendMessage(tenantId: string, to: string, text: string): Promise<SendMessageResult> {
+    const sock = this.sessions.get(tenantId);
+    this.logger.log(`[OUTBOUND] tenantId=${tenantId} para=${to}`);
+
+    if (!sock) {
+      this.logger.warn(`[OUTBOUND] Nenhuma sessão Baileys ativa para tenant ${tenantId}`);
+      return { success: false, error: 'Nenhuma sessão Baileys ativa' };
     }
     try {
       let digits = to.replace(/\D/g, '');
+      this.logger.log(`[OUTBOUND] Número recebido: "${to}" → dígitos: ${digits}`);
 
       // LID: identificador interno do WhatsApp (14+ dígitos) — usa sufixo @lid
       if (digits.length >= 14) {
         const jid = `${digits}@lid`;
-        this.logger.log(`Sending WhatsApp message to ${jid}`);
-        await sock.sendMessage(jid, { text });
-        return true;
+        this.logger.log(`[OUTBOUND] LID detectado, usando JID: ${jid}`);
+        const result = await sock.sendMessage(jid, { text });
+        const messageId = result?.key?.id ?? null;
+        this.logger.log(`[OUTBOUND] Enviado! JID=${jid} messageId=${messageId}`);
+        return { success: true, jid, messageId };
       }
 
-      // Número real: normaliza para formato internacional brasileiro
-      // 10-11 dígitos sem código do país → adiciona 55 (Brasil)
+      // Normaliza para formato internacional brasileiro
       if (digits.length <= 11 && !digits.startsWith('55')) {
         digits = `55${digits}`;
+        this.logger.log(`[OUTBOUND] DDI 55 adicionado → ${digits}`);
       }
-      // 12 dígitos com 55 + área + 8 dígitos (fixo sem 9) → adiciona 9 após o DDD
-      // Ex: 5573XXXXXXXX (12) → 557391XXXXXXXX não é o caso, deixa como está
-      const jid = `${digits}@s.whatsapp.net`;
-      this.logger.log(`Sending WhatsApp message to ${jid}`);
+
+      // Tenta descobrir o JID real via onWhatsApp (verifica com e sem dígito 9)
+      let jid = `${digits}@s.whatsapp.net`;
+      try {
+        let candidates: string[] = [jid];
+        if (digits.startsWith('55') && digits.length === 12) {
+          const ddd = digits.slice(2, 4);
+          const num = digits.slice(4);
+          candidates = [`55${ddd}9${num}@s.whatsapp.net`, jid];
+        } else if (digits.startsWith('55') && digits.length === 13) {
+          const ddd = digits.slice(2, 4);
+          const numSem9 = digits.slice(5); // remove o 9
+          candidates = [jid, `55${ddd}${numSem9}@s.whatsapp.net`];
+        }
+        this.logger.log(`[OUTBOUND] Verificando JID via onWhatsApp: ${candidates.join(', ')}`);
+        const check: Array<{ exists: boolean; jid: string }> = await sock.onWhatsApp(...candidates);
+        const found = check?.find(r => r.exists);
+        if (found?.jid) {
+          jid = found.jid;
+          this.logger.log(`[OUTBOUND] JID confirmado via onWhatsApp: ${jid}`);
+        } else {
+          this.logger.warn(`[OUTBOUND] Número não encontrado via onWhatsApp, usando JID estimado: ${jid}`);
+        }
+      } catch (checkErr: any) {
+        this.logger.warn(`[OUTBOUND] onWhatsApp falhou (${checkErr?.message}), usando JID estimado: ${jid}`);
+      }
+
+      this.logger.log(`[OUTBOUND] Enviando mensagem para JID: ${jid}`);
       const result = await sock.sendMessage(jid, { text });
-      this.logger.log(`WhatsApp send result: messageId=${result?.key?.id ?? 'none'} status=${result?.status ?? 'unknown'}`);
-      return true;
+      const messageId = result?.key?.id ?? null;
+      this.logger.log(`[OUTBOUND] Enviado! JID=${jid} messageId=${messageId} status=${result?.status ?? 'desconhecido'}`);
+      return { success: true, jid, messageId };
     } catch (error: any) {
-      this.logger.error(`Failed to send message via Baileys for tenant ${tenantId} to ${to}: ${error?.message}`, error?.stack);
-      return false;
+      this.logger.error(`[OUTBOUND] Falha ao enviar para "${to}" (tenant ${tenantId}): ${error?.message}`, error?.stack);
+      return { success: false, error: error?.message };
     }
   }
 

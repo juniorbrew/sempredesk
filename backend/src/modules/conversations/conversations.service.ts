@@ -17,8 +17,8 @@ export class ConversationsService {
   }
 
   /** Dispatcher de envio outbound (WhatsApp/Baileys) — registrado pelo WhatsappModule.onModuleInit */
-  private outboundSender: ((tenantId: string, toWhatsapp: string, text: string) => Promise<boolean>) | null = null;
-  setOutboundSender(fn: (tenantId: string, toWhatsapp: string, text: string) => Promise<boolean>) {
+  private outboundSender: ((tenantId: string, toWhatsapp: string, text: string) => Promise<{ success: boolean; jid?: string | null; messageId?: string | null; error?: string } | boolean>) | null = null;
+  setOutboundSender(fn: (tenantId: string, toWhatsapp: string, text: string) => Promise<{ success: boolean; jid?: string | null; messageId?: string | null; error?: string } | boolean>) {
     this.outboundSender = fn;
   }
 
@@ -178,21 +178,21 @@ export class ConversationsService {
    */
   async startAgentConversation(
     tenantId: string,
-    clientId: string,
+    clientId: string | null,
     contactId: string,
     channel: ConversationChannel,
   ): Promise<Conversation> {
     const contact = await this.customersService.findContactById(tenantId, contactId);
     if (!contact) throw new BadRequestException('Contato não encontrado');
     // Permite contatos vinculados ao cliente informado OU contatos sem cliente (serão vinculados depois)
-    if (contact.clientId && String(contact.clientId) !== String(clientId)) {
+    if (clientId && contact.clientId && String(contact.clientId) !== String(clientId)) {
       throw new BadRequestException('Contato pertence a outro cliente');
     }
     if (channel === ConversationChannel.WHATSAPP && !contact.whatsapp) {
       throw new BadRequestException('Contato não possui WhatsApp cadastrado');
     }
     // Usa o clientId do contato se já vinculado; caso contrário usa o informado
-    const resolvedClientId = contact.clientId ? String(contact.clientId) : clientId;
+    const resolvedClientId = contact.clientId ? String(contact.clientId) : (clientId ?? null);
     const existing = await this.convRepo.findOne({
       where: { tenantId, clientId: resolvedClientId, contactId, channel, status: ConversationStatus.ACTIVE },
     });
@@ -415,10 +415,22 @@ export class ConversationsService {
       try {
         const contact = await this.customersService.findContactById(tenantId, conv.contactId);
         if (contact?.whatsapp) {
-          await this.outboundSender(tenantId, contact.whatsapp, content);
+          const raw = await this.outboundSender(tenantId, contact.whatsapp, content);
+          const sendResult = typeof raw === 'boolean' ? { success: raw } : raw;
+          if (sendResult.success) {
+            const externalId = sendResult.messageId ?? null;
+            await this.msgRepo.update(saved.id, { externalId, whatsappStatus: 'sent' });
+            saved.externalId = externalId;
+            saved.whatsappStatus = 'sent';
+          } else {
+            await this.msgRepo.update(saved.id, { whatsappStatus: 'failed' });
+            saved.whatsappStatus = 'failed';
+            console.warn(`[ConversationsService] Mensagem salva mas envio WhatsApp falhou (conv=${conversationId}): ${sendResult.error ?? 'sem detalhes'}`);
+          }
         }
       } catch (e) {
         // Falha no envio WhatsApp não deve impedir o salvamento da mensagem
+        await this.msgRepo.update(saved.id, { whatsappStatus: 'failed' }).catch(() => {});
         console.error('[ConversationsService] Falha ao enviar mensagem outbound WhatsApp:', e);
       }
     }

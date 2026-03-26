@@ -104,6 +104,7 @@ export default function AtendimentoPage() {
   const [team, setTeam] = useState<any[]>([]);
   const [creatingTicket, setCreatingTicket] = useState(false);
   const [showStartModal, setShowStartModal] = useState(false);
+  const [startMode, setStartMode] = useState<'contact' | 'phone'>('contact');
   const [startClientId, setStartClientId] = useState('');
   const [startClientName, setStartClientName] = useState('');
   const [startContactId, setStartContactId] = useState('');
@@ -111,6 +112,12 @@ export default function AtendimentoPage() {
   const [startContactSearch, setStartContactSearch] = useState('');
   const [startingConv, setStartingConv] = useState(false);
   const [loadingStartContacts, setLoadingStartContacts] = useState(false);
+  // Modo "Por número"
+  const [startPhone, setStartPhone] = useState('');
+  const [startPhoneChecking, setStartPhoneChecking] = useState(false);
+  const [startPhoneResult, setStartPhoneResult] = useState<{ exists: boolean; jid: string | null; normalized: string } | null>(null);
+  // Mensagem inicial (ambos os modos)
+  const [startFirstMessage, setStartFirstMessage] = useState('');
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
   const [networks, setNetworks] = useState<any[]>([]);
   const [createCustomers, setCreateCustomers] = useState<any[]>([]);
@@ -352,7 +359,10 @@ export default function AtendimentoPage() {
 
   // ── start conversation ──
   const openStartModal = () => {
+    setStartMode('contact');
     setStartClientId(''); setStartClientName(''); setStartContactId(''); setStartContacts([]); setStartContactSearch('');
+    setStartPhone(''); setStartPhoneResult(null); setStartPhoneChecking(false);
+    setStartFirstMessage('');
     if (customers.length === 0) api.getCustomers({ perPage: 200 }).then((r: any) => setCustomers(r?.data || r || [])).catch(() => {});
     setShowStartModal(true);
   };
@@ -367,6 +377,33 @@ export default function AtendimentoPage() {
       setStartContacts(list.filter((c: any) => c.whatsapp?.trim() || c.phone?.trim()));
     } catch { setStartContacts([]); }
     setLoadingStartContacts(false);
+  };
+
+  const handleCheckPhone = async () => {
+    if (!startPhone.trim()) return;
+    setStartPhoneChecking(true);
+    setStartPhoneResult(null);
+    try {
+      const r: any = await api.checkWhatsappNumber(startPhone.trim());
+      const d = r?.data ?? r;
+      setStartPhoneResult({ exists: d.exists, jid: d.jid, normalized: d.normalized });
+    } catch { setStartPhoneResult({ exists: false, jid: null, normalized: startPhone }); }
+    setStartPhoneChecking(false);
+  };
+
+  // Após criar conversa (qualquer modo), recarrega lista e seleciona
+  const afterConvCreated = async (conv: any) => {
+    setShowStartModal(false); setFilter('all'); setChannelFilter('all');
+    const [cl, tc] = await Promise.all([
+      api.getConversations({ status: 'active', hasTicket: 'all' }),
+      api.getTicketConversations({ status: 'active', perPage: 50 }).catch(() => []),
+    ]);
+    const ca = Array.isArray(cl) ? cl : (cl as any)?.data ?? [];
+    const ta = Array.isArray(tc) ? tc : (tc as any)?.data ?? [];
+    const merged = [...ca.map((c: any) => ({ ...c, type: c.type || 'conversation' })), ...ta]
+      .sort((a: any, b: any) => new Date(b.lastMessageAt || b.createdAt).getTime() - new Date(a.lastMessageAt || a.createdAt).getTime());
+    setConversations(merged);
+    setSelected(merged.find((c: any) => sameItem(c, conv)) || conv || null);
   };
 
   // ── create ticket ──
@@ -1167,110 +1204,266 @@ export default function AtendimentoPage() {
         </div>
       )}
 
-      {/* ══════════ MODAL: Nova Conversa ══════════ */}
+      {/* ══════════ MODAL: Nova Conversa WhatsApp ══════════ */}
       {showStartModal && (() => {
-        const existingConv = startContactId ? conversations.find((c: any) => c.contactId === startContactId && c.status === 'active') : null;
+        const existingConv = startContactId
+          ? conversations.find((c: any) => c.contactId === startContactId && c.status === 'active')
+          : null;
         const filteredContacts = startContacts.filter((c: any) => {
           if (!startContactSearch.trim()) return true;
           const q = startContactSearch.toLowerCase();
           return c.name?.toLowerCase().includes(q) || c.whatsapp?.includes(q) || c.phone?.includes(q);
         });
+        // Modo "Por contato": só mostra contatos que têm whatsapp (não apenas phone)
+        const contactsWithWa = filteredContacts.filter((c: any) => c.whatsapp?.trim());
+        const contactsPhoneOnly = filteredContacts.filter((c: any) => !c.whatsapp?.trim() && c.phone?.trim());
+
+        const canStartByContact = !!startContactId && !startingConv;
+        const canStartByPhone = startPhoneResult?.exists !== false && startPhone.trim().replace(/\D/g,'').length >= 8 && !startingConv;
+
+        const S_TAB = (active: boolean) => ({
+          flex: 1, padding: '8px 0', fontSize: 13, fontWeight: active ? 700 : 500,
+          background: active ? '#4F46E5' : 'transparent',
+          color: active ? '#fff' : '#64748B',
+          border: 'none', borderRadius: 8, cursor: 'pointer', transition: 'all 0.15s',
+        });
+
         return (
-          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }} onClick={() => setShowStartModal(false)}>
-            <div style={{ background: '#fff', borderRadius: 16, width: 480, maxWidth: 'calc(100vw - 32px)', maxHeight: '88vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }} onClick={e => e.stopPropagation()}>
-              <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid #F1F5F9', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }} onClick={() => setShowStartModal(false)}>
+            <div style={{ background: '#fff', borderRadius: 16, width: 500, maxWidth: 'calc(100vw - 32px)', maxHeight: '92vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 24px 64px rgba(0,0,0,0.22)' }} onClick={e => e.stopPropagation()}>
+
+              {/* Header */}
+              <div style={{ padding: '20px 24px 14px', borderBottom: '1px solid #F1F5F9', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
                 <div>
-                  <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#0F172A' }}>Nova conversa</h3>
-                  <p style={{ margin: '4px 0 0', fontSize: 12, color: '#64748B' }}>Selecione o cliente e o contato para iniciar uma conversa no WhatsApp.</p>
+                  <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#0F172A', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Phone size={17} color="#25D366" /> Nova conversa WhatsApp
+                  </h3>
+                  <p style={{ margin: '3px 0 0', fontSize: 12, color: '#64748B' }}>Inicie uma conversa outbound com um contato</p>
                 </div>
-                <button onClick={() => setShowStartModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94A3B8', padding: 4 }}>
-                  <X size={18} />
-                </button>
+                <button onClick={() => setShowStartModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94A3B8', padding: 4 }}><X size={18} /></button>
               </div>
-              <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
-                <div style={{ marginBottom: 20 }}>
-                  <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#64748B', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6 }}>Cliente</label>
-                  <select value={startClientId} onChange={(e) => { const opt = e.target.options[e.target.selectedIndex]; handleStartClientChange(e.target.value, opt.text); }}
-                    style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1.5px solid #E2E8F0', fontSize: 14, color: '#0F172A', background: '#fff', outline: 'none' }}>
-                    <option value="">Selecione um cliente...</option>
-                    {customers.map((c: any) => <option key={c.id} value={c.id}>{c.tradeName || c.companyName || c.name}</option>)}
-                  </select>
+
+              {/* Tabs */}
+              <div style={{ padding: '12px 24px 0', flexShrink: 0 }}>
+                <div style={{ display: 'flex', gap: 4, background: '#F1F5F9', borderRadius: 10, padding: 4 }}>
+                  <button style={S_TAB(startMode === 'contact')} onClick={() => { setStartMode('contact'); setStartPhoneResult(null); }}>
+                    👤 Por contato existente
+                  </button>
+                  <button style={S_TAB(startMode === 'phone')} onClick={() => { setStartMode('phone'); setStartContactId(''); }}>
+                    📱 Por número direto
+                  </button>
                 </div>
-                {startClientId && (
-                  <div>
-                    <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#64748B', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6 }}>
-                      Contato <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(com WhatsApp ou telefone)</span>
-                    </label>
-                    <div style={{ position: 'relative', marginBottom: 10 }}>
-                      <Search style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', width: 14, height: 14, color: '#94A3B8' }} />
-                      <input value={startContactSearch} onChange={e => setStartContactSearch(e.target.value)} placeholder="Buscar por nome ou telefone..." autoFocus
-                        style={{ width: '100%', padding: '9px 12px 9px 32px', borderRadius: 8, border: '1.5px solid #E2E8F0', fontSize: 13, outline: 'none', boxSizing: 'border-box' as const }} />
+              </div>
+
+              {/* Body */}
+              <div style={{ flex: 1, overflowY: 'auto', padding: '16px 24px' }}>
+
+                {/* ── Modo: Por contato ── */}
+                {startMode === 'contact' && (
+                  <>
+                    <div style={{ marginBottom: 16 }}>
+                      <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#64748B', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6 }}>Cliente</label>
+                      <select value={startClientId} onChange={(e) => { const opt = e.target.options[e.target.selectedIndex]; handleStartClientChange(e.target.value, opt.text); }}
+                        style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1.5px solid #E2E8F0', fontSize: 14, color: '#0F172A', background: '#fff', outline: 'none' }}>
+                        <option value="">Selecione um cliente...</option>
+                        {customers.map((c: any) => <option key={c.id} value={c.id}>{c.tradeName || c.companyName || c.name}</option>)}
+                      </select>
                     </div>
-                    {loadingStartContacts ? (
-                      <div style={{ textAlign: 'center', padding: 24, color: '#94A3B8', fontSize: 13 }}>Carregando contatos...</div>
-                    ) : filteredContacts.length === 0 ? (
-                      <div style={{ textAlign: 'center', padding: 20, color: '#94A3B8', fontSize: 13 }}>
-                        {startContacts.length === 0 ? 'Nenhum contato com WhatsApp cadastrado.' : 'Nenhum contato encontrado.'}
-                      </div>
-                    ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 260, overflowY: 'auto' }}>
-                        {filteredContacts.map((c: any) => {
-                          const isSel = startContactId === c.id;
-                          const phone = c.whatsapp || c.phone || '';
-                          return (
-                            <button key={c.id} onClick={() => setStartContactId(isSel ? '' : c.id)}
-                              style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderRadius: 10, border: `1.5px solid ${isSel ? '#4F46E5' : '#E2E8F0'}`, background: isSel ? '#EEF2FF' : '#fff', cursor: 'pointer', textAlign: 'left', transition: 'all 0.12s' }}>
-                              <div style={{ width: 36, height: 36, borderRadius: '50%', flexShrink: 0, background: isSel ? '#4F46E5' : '#E2E8F0', display: 'flex', alignItems: 'center', justifyContent: 'center', color: isSel ? '#fff' : '#64748B', fontSize: 13, fontWeight: 700 }}>
-                                {c.name?.charAt(0)?.toUpperCase() || '?'}
+                    {startClientId && (
+                      <div style={{ marginBottom: 12 }}>
+                        <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#64748B', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6 }}>
+                          Contato <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: '#94A3B8' }}>(com WhatsApp cadastrado)</span>
+                        </label>
+                        <div style={{ position: 'relative', marginBottom: 8 }}>
+                          <Search style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', width: 14, height: 14, color: '#94A3B8' }} />
+                          <input value={startContactSearch} onChange={e => setStartContactSearch(e.target.value)} placeholder="Buscar por nome ou número..."
+                            style={{ width: '100%', padding: '9px 12px 9px 32px', borderRadius: 8, border: '1.5px solid #E2E8F0', fontSize: 13, outline: 'none', boxSizing: 'border-box' as const }} />
+                        </div>
+                        {loadingStartContacts ? (
+                          <div style={{ textAlign: 'center', padding: 20, color: '#94A3B8', fontSize: 13 }}>Carregando contatos...</div>
+                        ) : contactsWithWa.length === 0 && contactsPhoneOnly.length === 0 ? (
+                          <div style={{ textAlign: 'center', padding: 16, color: '#94A3B8', fontSize: 13, background: '#F8FAFC', borderRadius: 10 }}>
+                            {startContacts.length === 0 ? 'Nenhum contato cadastrado neste cliente.' : 'Nenhum contato encontrado.'}
+                          </div>
+                        ) : (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 5, maxHeight: 220, overflowY: 'auto' }}>
+                            {contactsWithWa.map((c: any) => {
+                              const isSel = startContactId === c.id;
+                              return (
+                                <button key={c.id} onClick={() => setStartContactId(isSel ? '' : c.id)}
+                                  style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 13px', borderRadius: 10, border: `1.5px solid ${isSel ? '#4F46E5' : '#E2E8F0'}`, background: isSel ? '#EEF2FF' : '#fff', cursor: 'pointer', textAlign: 'left' }}>
+                                  <div style={{ width: 34, height: 34, borderRadius: '50%', flexShrink: 0, background: isSel ? '#4F46E5' : '#E2E8F0', display: 'flex', alignItems: 'center', justifyContent: 'center', color: isSel ? '#fff' : '#64748B', fontSize: 12, fontWeight: 700 }}>
+                                    {c.name?.charAt(0)?.toUpperCase() || '?'}
+                                  </div>
+                                  <div style={{ flex: 1, minWidth: 0 }}>
+                                    <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: '#0F172A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</p>
+                                    <p style={{ margin: '2px 0 0', fontSize: 11, color: '#25D366', display: 'flex', alignItems: 'center', gap: 4 }}>
+                                      <Phone size={10} />{formatWhatsApp(c.whatsapp) || c.whatsapp}
+                                    </p>
+                                  </div>
+                                  {isSel && <Check size={16} color="#4F46E5" />}
+                                </button>
+                              );
+                            })}
+                            {contactsPhoneOnly.length > 0 && (
+                              <div style={{ fontSize: 11, color: '#94A3B8', padding: '6px 4px 2px', borderTop: '1px solid #F1F5F9', marginTop: 4 }}>
+                                Contatos abaixo têm apenas telefone (sem WhatsApp cadastrado — use &quot;Por número direto&quot;):
                               </div>
-                              <div style={{ flex: 1, minWidth: 0 }}>
-                                <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: '#0F172A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</p>
-                                {phone && <p style={{ margin: '2px 0 0', fontSize: 11, color: '#64748B', display: 'flex', alignItems: 'center', gap: 4 }}><Phone size={10} />{phone}</p>}
-                              </div>
-                              {isSel && <Check size={18} color="#4F46E5" />}
-                            </button>
-                          );
-                        })}
+                            )}
+                            {contactsPhoneOnly.map((c: any) => (
+                              <button key={c.id} disabled style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 13px', borderRadius: 10, border: '1.5px solid #F1F5F9', background: '#FAFAFA', cursor: 'not-allowed', textAlign: 'left', opacity: 0.6 }}>
+                                <div style={{ width: 34, height: 34, borderRadius: '50%', flexShrink: 0, background: '#E2E8F0', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94A3B8', fontSize: 12, fontWeight: 700 }}>
+                                  {c.name?.charAt(0)?.toUpperCase() || '?'}
+                                </div>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: '#94A3B8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</p>
+                                  <p style={{ margin: '2px 0 0', fontSize: 11, color: '#CBD5E1', display: 'flex', alignItems: 'center', gap: 4 }}><Phone size={10} />{c.phone}</p>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     )}
+                  </>
+                )}
+
+                {/* ── Modo: Por número direto ── */}
+                {startMode === 'phone' && (
+                  <div>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#64748B', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6 }}>
+                      Número do WhatsApp
+                    </label>
+                    <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                      <input
+                        value={startPhone}
+                        onChange={e => { setStartPhone(e.target.value); setStartPhoneResult(null); }}
+                        onKeyDown={e => { if (e.key === 'Enter') handleCheckPhone(); }}
+                        placeholder="Ex: 55 11 99999-9999"
+                        style={{ flex: 1, padding: '10px 12px', borderRadius: 10, border: `1.5px solid ${startPhoneResult ? (startPhoneResult.exists ? '#22C55E' : '#EF4444') : '#E2E8F0'}`, fontSize: 14, outline: 'none' }}
+                      />
+                      <button
+                        onClick={handleCheckPhone}
+                        disabled={!startPhone.trim() || startPhoneChecking}
+                        style={{ padding: '10px 16px', borderRadius: 10, border: 'none', background: !startPhone.trim() ? '#E2E8F0' : '#4F46E5', color: !startPhone.trim() ? '#94A3B8' : '#fff', fontWeight: 700, fontSize: 13, cursor: !startPhone.trim() ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap' }}>
+                        {startPhoneChecking ? '...' : 'Verificar'}
+                      </button>
+                    </div>
+                    <p style={{ margin: '0 0 12px', fontSize: 11, color: '#94A3B8' }}>
+                      Informe com DDI (ex: 55 para Brasil). O sistema verifica se o número está ativo no WhatsApp.
+                    </p>
+                    {startPhoneResult && (
+                      <div style={{ padding: '10px 14px', borderRadius: 10, background: startPhoneResult.exists ? '#F0FDF4' : '#FEF2F2', border: `1px solid ${startPhoneResult.exists ? '#BBF7D0' : '#FECACA'}`, marginBottom: 12, fontSize: 13, display: 'flex', alignItems: 'center', gap: 10 }}>
+                        {startPhoneResult.exists ? (
+                          <>
+                            <CheckCircle2 size={16} color="#16A34A" style={{ flexShrink: 0 }} />
+                            <div>
+                              <span style={{ fontWeight: 700, color: '#15803D' }}>Número encontrado no WhatsApp!</span>
+                              {startPhoneResult.jid && (
+                                <span style={{ color: '#64748B', marginLeft: 6, fontSize: 11 }}>JID: {startPhoneResult.jid}</span>
+                              )}
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <X size={16} color="#DC2626" style={{ flexShrink: 0 }} />
+                            <div>
+                              <span style={{ fontWeight: 700, color: '#DC2626' }}>Número não encontrado no WhatsApp.</span>
+                              <span style={{ color: '#94A3B8', marginLeft: 6, fontSize: 11 }}>Verifique o número e tente novamente, ou prossiga mesmo assim.</span>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
+                    <div style={{ marginBottom: 10 }}>
+                      <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#64748B', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6 }}>Cliente (opcional)</label>
+                      <select value={startClientId} onChange={(e) => setStartClientId(e.target.value)}
+                        style={{ width: '100%', padding: '9px 12px', borderRadius: 10, border: '1.5px solid #E2E8F0', fontSize: 13, color: '#0F172A', background: '#fff', outline: 'none' }}>
+                        <option value="">Sem cliente (vincular depois)</option>
+                        {customers.map((c: any) => <option key={c.id} value={c.id}>{c.tradeName || c.companyName || c.name}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Mensagem inicial (ambos os modos) ── */}
+                {(startMode === 'phone' || (startMode === 'contact' && startContactId)) && (
+                  <div style={{ marginTop: 4 }}>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#64748B', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6 }}>
+                      Mensagem inicial <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: '#94A3B8' }}>(opcional)</span>
+                    </label>
+                    <textarea
+                      value={startFirstMessage}
+                      onChange={e => setStartFirstMessage(e.target.value)}
+                      placeholder="Olá! Entramos em contato para..."
+                      rows={3}
+                      style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1.5px solid #E2E8F0', fontSize: 13, resize: 'vertical', outline: 'none', boxSizing: 'border-box' as const, fontFamily: 'inherit' }}
+                    />
+                    <p style={{ margin: '3px 0 0', fontSize: 11, color: '#94A3B8' }}>Se preenchida, a mensagem será enviada imediatamente ao criar a conversa.</p>
                   </div>
                 )}
               </div>
-              <div style={{ padding: '16px 24px', borderTop: '1px solid #F1F5F9', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
+
+              {/* Footer */}
+              <div style={{ padding: '14px 24px', borderTop: '1px solid #F1F5F9', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
                 <button onClick={() => setShowStartModal(false)} style={{ padding: '10px 18px', borderRadius: 10, border: '1.5px solid #E2E8F0', background: '#fff', color: '#475569', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancelar</button>
-                <button disabled={!startContactId || startingConv}
-                  onClick={async () => {
-                    if (!startClientId || !startContactId) return;
-                    setStartingConv(true);
-                    try {
-                      if (existingConv) {
-                        setShowStartModal(false); setFilter('all'); setChannelFilter('all');
-                        const [cl, tc] = await Promise.all([api.getConversations({ status: 'active', hasTicket: 'all' }), api.getTicketConversations({ status: 'active', perPage: 50 }).catch(() => [])]);
-                        const ca = Array.isArray(cl) ? cl : cl?.data ?? [];
-                        const ta = Array.isArray(tc) ? tc : tc?.data ?? [];
-                        const merged = [...ca.map((c: any) => ({ ...c, type: c.type || 'conversation' })), ...ta].sort((a: any, b: any) => new Date(b.lastMessageAt || b.createdAt).getTime() - new Date(a.lastMessageAt || a.createdAt).getTime());
-                        setConversations(merged);
-                        setSelected(merged.find((c: any) => sameItem(c, existingConv)) || existingConv);
-                        showToast('Conversa aberta!');
-                      } else {
-                        const res: any = await api.startAgentConversation({ clientId: startClientId, contactId: startContactId, channel: 'whatsapp' });
-                        const conv = res?.data ?? res;
-                        setShowStartModal(false); setFilter('all'); setChannelFilter('all');
-                        const [cl, tc] = await Promise.all([api.getConversations({ status: 'active', hasTicket: 'all' }), api.getTicketConversations({ status: 'active', perPage: 50 }).catch(() => [])]);
-                        const ca = Array.isArray(cl) ? cl : cl?.data ?? [];
-                        const ta = Array.isArray(tc) ? tc : tc?.data ?? [];
-                        const merged = [...ca.map((c: any) => ({ ...c, type: c.type || 'conversation' })), ...ta].sort((a: any, b: any) => new Date(b.lastMessageAt || b.createdAt).getTime() - new Date(a.lastMessageAt || a.createdAt).getTime());
-                        setConversations(merged);
-                        setSelected(merged.find((c: any) => sameItem(c, conv)) || conv || null);
-                        showToast('Nova conversa iniciada!');
-                      }
-                    } catch (e: any) { showToast(e?.response?.data?.message || 'Erro ao iniciar conversa', 'error'); }
-                    setStartingConv(false);
-                  }}
-                  style={{ padding: '10px 20px', borderRadius: 10, border: 'none', background: !startContactId ? '#E2E8F0' : existingConv ? '#4F46E5' : 'linear-gradient(135deg,#4F46E5,#6366F1)', color: !startContactId ? '#94A3B8' : '#fff', fontSize: 13, fontWeight: 700, cursor: !startContactId ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <Phone size={14} />
-                  {startingConv ? 'Aguarde...' : existingConv ? 'Abrir conversa' : 'Iniciar conversa'}
-                </button>
+
+                {/* Botão modo "Por contato" */}
+                {startMode === 'contact' && (
+                  <button disabled={!canStartByContact}
+                    onClick={async () => {
+                      if (!startClientId || !startContactId) return;
+                      setStartingConv(true);
+                      try {
+                        if (existingConv && !startFirstMessage.trim()) {
+                          await afterConvCreated(existingConv);
+                          showToast('Conversa aberta!');
+                        } else {
+                          // Usa startOutbound para criar ticket + enviar mensagem inicial automaticamente
+                          const selectedContact = startContacts.find((c: any) => c.id === startContactId);
+                          const res: any = await api.startOutboundConversation({
+                            contactId: startContactId,
+                            clientId: startClientId,
+                            subject: selectedContact?.name ? `WhatsApp - ${selectedContact.name}` : undefined,
+                            firstMessage: startFirstMessage.trim() || undefined,
+                          });
+                          const d = res?.data ?? res;
+                          await afterConvCreated(d.conversation);
+                          showToast(d.firstMessageSent ? 'Conversa iniciada e mensagem enviada!' : 'Nova conversa iniciada!');
+                        }
+                      } catch (e: any) { showToast(e?.response?.data?.message || 'Erro ao iniciar conversa', 'error'); }
+                      setStartingConv(false);
+                    }}
+                    style={{ padding: '10px 20px', borderRadius: 10, border: 'none', background: !canStartByContact ? '#E2E8F0' : existingConv ? '#4F46E5' : 'linear-gradient(135deg,#4F46E5,#6366F1)', color: !canStartByContact ? '#94A3B8' : '#fff', fontSize: 13, fontWeight: 700, cursor: !canStartByContact ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Phone size={14} />
+                    {startingConv ? 'Aguarde...' : existingConv ? 'Abrir conversa' : 'Iniciar conversa'}
+                  </button>
+                )}
+
+                {/* Botão modo "Por número" */}
+                {startMode === 'phone' && (
+                  <button
+                    disabled={!canStartByPhone}
+                    onClick={async () => {
+                      if (!startPhone.trim()) return;
+                      setStartingConv(true);
+                      try {
+                        const res: any = await api.startOutboundConversation({
+                          phone: startPhone.trim(),
+                          clientId: startClientId || undefined,
+                          firstMessage: startFirstMessage.trim() || undefined,
+                        });
+                        const d = res?.data ?? res;
+                        await afterConvCreated(d.conversation);
+                        showToast(d.firstMessageSent ? 'Conversa iniciada e mensagem enviada!' : 'Conversa iniciada!');
+                      } catch (e: any) { showToast(e?.response?.data?.message || 'Erro ao iniciar conversa', 'error'); }
+                      setStartingConv(false);
+                    }}
+                    style={{ padding: '10px 20px', borderRadius: 10, border: 'none', background: !canStartByPhone ? '#E2E8F0' : 'linear-gradient(135deg,#25D366,#16A34A)', color: !canStartByPhone ? '#94A3B8' : '#fff', fontSize: 13, fontWeight: 700, cursor: !canStartByPhone ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Phone size={14} />
+                    {startingConv ? 'Aguarde...' : startPhoneResult?.exists === false ? 'Enviar mesmo assim' : 'Iniciar conversa'}
+                  </button>
+                )}
               </div>
             </div>
           </div>
