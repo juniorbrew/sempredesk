@@ -34,7 +34,7 @@ export class TicketSettingsController {
   }
 
   @Get('departments')
-  @RequirePermission('settings.manage')
+  // Sem RequirePermission: portal do cliente precisa desta lista para abrir chamados no chat
   findDepartments(@TenantId() tenantId: string) {
     return this.service.findDepartmentsList(tenantId).then((list) => ({ departments: list }));
   }

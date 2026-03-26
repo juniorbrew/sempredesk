@@ -53,14 +53,14 @@ export default function PortalDashboardTicketDetailPage() {
     if (!accessToken || !id) return;
     setLoading(true);
     try {
-      const [tRes, mRes, teamRes] = await Promise.all([
+      const [tRes, mRes] = await Promise.all([
         fetch(`${API_BASE}/tickets/${id}`, { headers:{ Authorization:`Bearer ${accessToken}` } }),
         fetch(`${API_BASE}/tickets/${id}/messages?includeInternal=false`, { headers:{ Authorization:`Bearer ${accessToken}` } }),
-        fetch(`${API_BASE}/team`, { headers:{ Authorization:`Bearer ${accessToken}` } }),
       ]);
       const tData = await tRes.json();
       const mData = await mRes.json();
-      const teamData = await teamRes.json();
+      // /team requer permissão que portal não tem — busca silenciosamente
+      const teamData: any[] = [];
       const ticketData = (tRes.ok && (tData?.data || tData)) ? (tData?.data || tData) : null;
       const rawTicketMsgs = (mData?.data || mData || []).filter((m:any) => m.messageType !== 'internal');
       let convMsgs: any[] = [];
