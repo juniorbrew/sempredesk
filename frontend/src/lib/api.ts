@@ -109,6 +109,7 @@ class ApiClient {
   createCustomer = (data: any) => this.client.post('/customers', data);
   updateCustomer = (id: string, data: any) => this.client.put(`/customers/${id}`, data);
   deleteCustomer = (id: string) => this.client.delete(`/customers/${id}`);
+  changeCustomerNetwork = (id: string, networkId: string | null) => this.client.patch(`/customers/${id}/network`, { networkId });
   getContacts = (clientId: string) => this.client.get(`/customers/${clientId}/contacts`);
   getContactById = (contactId: string) => this.client.get(`/customers/contact/${contactId}`);
   createContact = (clientId: string, data: any) => this.client.post(`/customers/${clientId}/contacts`, data);

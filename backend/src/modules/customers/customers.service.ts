@@ -54,6 +54,40 @@ export class CustomersService {
     return contact;
   }
 
+  /** Valida CPF pelo algoritmo dos dígitos verificadores */
+  private validateCpf(cpf: string): boolean {
+    const raw = cpf.replace(/\D/g, '');
+    if (raw.length !== 11) return false;
+    if (/^(\d)\1{10}$/.test(raw)) return false;
+    let sum = 0;
+    for (let i = 0; i < 9; i++) sum += parseInt(raw[i]) * (10 - i);
+    let r = 11 - (sum % 11);
+    if (r >= 10) r = 0;
+    if (r !== parseInt(raw[9])) return false;
+    sum = 0;
+    for (let i = 0; i < 10; i++) sum += parseInt(raw[i]) * (11 - i);
+    r = 11 - (sum % 11);
+    if (r >= 10) r = 0;
+    return r === parseInt(raw[10]);
+  }
+
+  /** Valida CNPJ pelo algoritmo dos dígitos verificadores */
+  private validateCnpj(cnpj: string): boolean {
+    const raw = cnpj.replace(/\D/g, '');
+    if (raw.length !== 14) return false;
+    if (/^(\d)\1{13}$/.test(raw)) return false;
+    const calc = (weights: number[]) => {
+      let sum = 0;
+      for (let i = 0; i < weights.length; i++) sum += parseInt(raw[i]) * weights[i];
+      const mod = sum % 11;
+      return mod < 2 ? 0 : 11 - mod;
+    };
+    const d1 = calc([5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
+    if (d1 !== parseInt(raw[12])) return false;
+    const d2 = calc([6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
+    return d2 === parseInt(raw[13]);
+  }
+
   private async assertNetworkBelongsToTenant(tenantId: string, networkId?: string | null) {
     if (!networkId) return;
 
@@ -127,16 +161,30 @@ export class CustomersService {
   }
 
   async create(tenantId: string, dto: CreateClientDto) {
-    if (dto.cnpj) {
+    const personType = (dto as any).personType || 'juridica';
+
+    if (personType === 'juridica' && dto.cnpj) {
       const raw = dto.cnpj.replace(/\D/g, '');
+      if (raw.length === 14 && !this.validateCnpj(raw)) {
+        throw new BadRequestException('CNPJ inválido');
+      }
       const existing = await this.clients.createQueryBuilder('c')
         .where('c.tenant_id = :tenantId', { tenantId })
         .andWhere("REGEXP_REPLACE(c.cnpj, '[^0-9]', '', 'g') = :raw", { raw })
         .getOne();
+      if (existing) throw new ConflictException('CNPJ já cadastrado para outro cliente');
+    }
 
-      if (existing) {
-        throw new ConflictException('CNPJ já cadastrado para outro cliente');
+    if (personType === 'fisica' && (dto as any).cpf) {
+      const raw = ((dto as any).cpf as string).replace(/\D/g, '');
+      if (raw.length === 11 && !this.validateCpf(raw)) {
+        throw new BadRequestException('CPF inválido');
       }
+      const existing = await this.clients.createQueryBuilder('c')
+        .where('c.tenant_id = :tenantId', { tenantId })
+        .andWhere("REGEXP_REPLACE(c.cpf, '[^0-9]', '', 'g') = :raw", { raw })
+        .getOne();
+      if (existing) throw new ConflictException('CPF já cadastrado para outro cliente');
     }
 
     await this.assertNetworkBelongsToTenant(tenantId, (dto as any).networkId);
@@ -147,6 +195,7 @@ export class CustomersService {
       ...dto,
       tenantId,
       code,
+      personType,
     }));
   }
 
@@ -185,24 +234,46 @@ export class CustomersService {
   }
 
   async update(tenantId: string, id: string, dto: UpdateClientDto) {
+    const current = await this.getClientOrFail(tenantId, id);
+    const personType = (dto as any).personType || current.personType || 'juridica';
+
     if (dto.cnpj) {
       const raw = dto.cnpj.replace(/\D/g, '');
+      if (raw.length === 14 && !this.validateCnpj(raw)) {
+        throw new BadRequestException('CNPJ inválido');
+      }
       const existing = await this.clients.createQueryBuilder('c')
         .where('c.tenant_id = :tenantId', { tenantId })
         .andWhere('c.id != :id', { id })
         .andWhere("REGEXP_REPLACE(c.cnpj, '[^0-9]', '', 'g') = :raw", { raw })
         .getOne();
-
-      if (existing) {
-        throw new ConflictException('CNPJ já cadastrado para outro cliente');
-      }
+      if (existing) throw new ConflictException('CNPJ já cadastrado para outro cliente');
     }
 
-    await this.getClientOrFail(tenantId, id);
+    if ((dto as any).cpf) {
+      const raw = ((dto as any).cpf as string).replace(/\D/g, '');
+      if (raw.length === 11 && !this.validateCpf(raw)) {
+        throw new BadRequestException('CPF inválido');
+      }
+      const existing = await this.clients.createQueryBuilder('c')
+        .where('c.tenant_id = :tenantId', { tenantId })
+        .andWhere('c.id != :id', { id })
+        .andWhere("REGEXP_REPLACE(c.cpf, '[^0-9]', '', 'g') = :raw", { raw })
+        .getOne();
+      if (existing) throw new ConflictException('CPF já cadastrado para outro cliente');
+    }
+
     await this.assertNetworkBelongsToTenant(tenantId, (dto as any).networkId);
 
-    await this.clients.update({ id, tenantId }, dto as any);
+    await this.clients.update({ id, tenantId }, { ...dto, personType } as any);
 
+    return this.getClientOrFail(tenantId, id);
+  }
+
+  async changeNetwork(tenantId: string, id: string, networkId: string | null) {
+    await this.getClientOrFail(tenantId, id);
+    if (networkId) await this.assertNetworkBelongsToTenant(tenantId, networkId);
+    await this.clients.update({ id, tenantId }, { networkId: networkId as any });
     return this.getClientOrFail(tenantId, id);
   }
 

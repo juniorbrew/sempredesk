@@ -9,10 +9,33 @@ const fmtCnpj = (v: string) => {
   return d.replace(/^(\d{2})(\d)/, '$1.$2').replace(/^(\d{2})\.(\d{3})(\d)/, '$1.$2.$3').replace(/\.(\d{3})(\d)/, '.$1/$2').replace(/(\d{4})(\d)/, '$1-$2');
 };
 const rawCnpj = (v: string) => v.replace(/\D/g, '');
+const fmtCpf = (v: string) => {
+  const d = v.replace(/\D/g, '').slice(0, 11);
+  return d.replace(/^(\d{3})(\d)/, '$1.$2').replace(/^(\d{3})\.(\d{3})(\d)/, '$1.$2.$3').replace(/(\d{3})(\d{1,2})$/, '$1-$2');
+};
+const rawCpf = (v: string) => v.replace(/\D/g, '');
+function validateCpfAlgo(cpf: string): boolean {
+  const raw = cpf.replace(/\D/g, '');
+  if (raw.length !== 11 || /^(\d)\1{10}$/.test(raw)) return false;
+  let sum = 0;
+  for (let i = 0; i < 9; i++) sum += parseInt(raw[i]) * (10 - i);
+  let r = 11 - (sum % 11); if (r >= 10) r = 0;
+  if (r !== parseInt(raw[9])) return false;
+  sum = 0;
+  for (let i = 0; i < 10; i++) sum += parseInt(raw[i]) * (11 - i);
+  r = 11 - (sum % 11); if (r >= 10) r = 0;
+  return r === parseInt(raw[10]);
+}
+function validateCnpjAlgo(cnpj: string): boolean {
+  const raw = cnpj.replace(/\D/g, '');
+  if (raw.length !== 14 || /^(\d)\1{13}$/.test(raw)) return false;
+  const calc = (w: number[]) => { let s = 0; for (let i = 0; i < w.length; i++) s += parseInt(raw[i]) * w[i]; const m = s % 11; return m < 2 ? 0 : 11 - m; };
+  return calc([5,4,3,2,9,8,7,6,5,4,3,2]) === parseInt(raw[12]) && calc([6,5,4,3,2,9,8,7,6,5,4,3,2]) === parseInt(raw[13]);
+}
 const PLANS: Record<string, string> = { basic: 'Básico', standard: 'Standard', premium: 'Premium', enterprise: 'Enterprise' };
 const PLAN_COLORS: Record<string, string> = { enterprise: '#a78bfa', premium: '#D97706', standard: '#3B82F6', basic: '#94A3B8' };
 const STATES = ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'];
-const EMPTY_FORM = { companyName: '', tradeName: '', cnpj: '', email: '', phone: '', whatsapp: '', address: '', number: '', complement: '', neighborhood: '', city: '', state: '', zipCode: '', supportPlan: 'basic', status: 'active' };
+const EMPTY_FORM = { personType: 'juridica', companyName: '', tradeName: '', cnpj: '', cpf: '', email: '', phone: '', whatsapp: '', address: '', number: '', complement: '', neighborhood: '', city: '', state: '', zipCode: '', supportPlan: 'basic', status: 'active' };
 const EMPTY_CONTACT = { name: '', role: '', email: '', phone: '', whatsapp: '', notes: '', isPrimary: false };
 
 function todayFormatted() {
@@ -48,6 +71,7 @@ export default function CustomersPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [cnpjStatus, setCnpjStatus] = useState<'idle'|'loading'|'ok'|'error'>('idle');
+  const [cpfStatus, setCpfStatus] = useState<'idle'|'ok'|'error'>('idle');
   const cnpjTimer = useRef<any>(null);
 
   const load = async () => {
@@ -82,7 +106,7 @@ export default function CustomersPage() {
   const openModal = () => {
     setStep(1); setSelectedNetwork(null); setNetworkSearch('');
     setForm({ ...EMPTY_FORM }); setContacts([]); setContactForm({ ...EMPTY_CONTACT }); setEmailFound(false);
-    setError(''); setCnpjStatus('idle'); setShowModal(true);
+    setError(''); setCnpjStatus('idle'); setCpfStatus('idle'); setShowModal(true);
   };
 
   const f = (k: string) => (e: any) => setForm(p => ({ ...p, [k]: e.target.value }));
@@ -108,6 +132,14 @@ export default function CustomersPage() {
     } else setCnpjStatus('idle');
   };
 
+  const handleCpf = (v: string) => {
+    const fmt = fmtCpf(v);
+    setForm(p => ({ ...p, cpf: fmt }));
+    const raw = rawCpf(fmt);
+    if (raw.length === 11) setCpfStatus(validateCpfAlgo(raw) ? 'ok' : 'error');
+    else setCpfStatus('idle');
+  };
+
   const addContact = () => {
     if (!contactForm.name.trim()) return;
     const updated = contactForm.isPrimary ? contacts.map(c => ({ ...c, isPrimary: false })) : [...contacts];
@@ -119,10 +151,18 @@ export default function CustomersPage() {
   const handleSave = async () => {
     if (!selectedNetwork) { setError('Selecione uma rede'); setStep(1); return; }
     if (!form.companyName.trim()) { setError('Razão Social é obrigatória'); setStep(2); return; }
-    if (!form.cnpj.trim()) { setError('CNPJ é obrigatório'); setStep(2); return; }
+    if (form.personType === 'juridica' && form.cnpj && rawCnpj(form.cnpj).length === 14 && !validateCnpjAlgo(rawCnpj(form.cnpj))) {
+      setError('CNPJ inválido'); setStep(2); return;
+    }
+    if (form.personType === 'fisica' && form.cpf && rawCpf(form.cpf).length === 11 && !validateCpfAlgo(rawCpf(form.cpf))) {
+      setError('CPF inválido'); setStep(2); return;
+    }
     setSaving(true); setError('');
+    const payload: any = { ...form, networkId: selectedNetwork.id };
+    if (form.personType === 'juridica') { payload.cnpj = rawCnpj(form.cnpj); delete payload.cpf; }
+    else { payload.cpf = rawCpf(form.cpf); delete payload.cnpj; }
     try {
-      const client: any = await api.createCustomer({ ...form, cnpj: rawCnpj(form.cnpj), networkId: selectedNetwork.id });
+      const client: any = await api.createCustomer(payload);
       await Promise.all(contacts.map(c => {
         const { id, ...rest } = c;
         const clean = Object.fromEntries(Object.entries(rest).filter(([_, v]) => v !== '' && v !== null && v !== undefined));
@@ -433,14 +473,24 @@ export default function CustomersPage() {
               {/* STEP 2 — Dados do Cliente */}
               {step === 2 && (
                 <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', background: '#EEF2FF', border: '1px solid rgba(99,102,241,0.25)', borderRadius: 9, marginBottom: 20 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', background: '#EEF2FF', border: '1px solid rgba(99,102,241,0.25)', borderRadius: 9, marginBottom: 16 }}>
                     <Network style={{ width: 14, height: 14, color: '#4F46E5' }} />
                     <span style={{ color: '#4F46E5', fontSize: 13, fontWeight: 600 }}>{selectedNetwork?.name}</span>
                     <button onClick={() => setStep(1)} style={{ marginLeft: 'auto', background: 'none', border: '1px solid rgba(99,102,241,0.3)', borderRadius: 6, padding: '3px 10px', color: '#4F46E5', fontSize: 11, cursor: 'pointer' }}>Trocar</button>
                   </div>
+                  {/* Tipo de pessoa */}
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+                    {[['juridica','Pessoa Jurídica (CNPJ)'],['fisica','Pessoa Física (CPF)']].map(([v,l]) => (
+                      <button key={v} onClick={() => { setForm(p => ({ ...p, personType: v, cnpj: '', cpf: '' })); setCnpjStatus('idle'); setCpfStatus('idle'); }}
+                        style={{ flex:1, padding: '8px 0', borderRadius: 8, border: `1.5px solid ${form.personType===v?'#4F46E5':'#E2E8F0'}`, background: form.personType===v?'#EEF2FF':'transparent', color: form.personType===v?'#4F46E5':'#64748B', fontSize: 13, cursor: 'pointer', fontWeight: form.personType===v?700:400, transition:'all 0.15s' }}>
+                        {l}
+                      </button>
+                    ))}
+                  </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                    {form.personType === 'juridica' ? (
                     <div style={{ gridColumn: '1/-1' }}>
-                      <label className="label">CNPJ <span style={{ color: '#6366F1' }}>*</span></label>
+                      <label className="label">CNPJ</label>
                       <div style={{ position: 'relative' }}>
                         <input id="f_cnpj" value={form.cnpj} onChange={e => handleCnpj(e.target.value)} onKeyDown={next('f_company')} placeholder="00.000.000/0000-00" className="input" />
                         <div style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)' }}>
@@ -450,7 +500,21 @@ export default function CustomersPage() {
                         </div>
                       </div>
                       {cnpjStatus==='ok' && <p style={{ color: '#16A34A', fontSize: 11, margin: '4px 0 0' }}>✓ Dados preenchidos automaticamente</p>}
+                      {cnpjStatus==='error' && rawCnpj(form.cnpj).length===14 && <p style={{ color: '#DC2626', fontSize: 11, margin: '4px 0 0' }}>CNPJ inválido</p>}
                     </div>
+                    ) : (
+                    <div style={{ gridColumn: '1/-1' }}>
+                      <label className="label">CPF</label>
+                      <div style={{ position: 'relative' }}>
+                        <input id="f_cpf" value={form.cpf} onChange={e => handleCpf(e.target.value)} onKeyDown={next('f_company')} placeholder="000.000.000-00" className="input" />
+                        <div style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)' }}>
+                          {cpfStatus==='ok' && <CheckCircle2 style={{ width: 14, height: 14, color: '#16A34A' }} />}
+                          {cpfStatus==='error' && <AlertCircle style={{ width: 14, height: 14, color: '#DC2626' }} />}
+                        </div>
+                      </div>
+                      {cpfStatus==='error' && <p style={{ color: '#DC2626', fontSize: 11, margin: '4px 0 0' }}>CPF inválido</p>}
+                    </div>
+                    )}
                     <div style={{ gridColumn: '1/-1' }}>
                       <label className="label">Razão Social <span style={{ color: '#6366F1' }}>*</span></label>
                       <input id="f_company" value={form.companyName} onChange={f('companyName')} onKeyDown={next('f_trade')} className="input" />

@@ -1,6 +1,6 @@
 import { TenantId } from '../../common/decorators/tenant-id.decorator';
 import {
-  Controller, Get, Post, Put, Delete,
+  Controller, Get, Post, Put, Patch, Delete,
   Body, Param, Query, UseGuards, Request, HttpCode, HttpStatus,
   BadRequestException,
 } from '@nestjs/common';
@@ -54,6 +54,16 @@ export class CustomersController {
   @RequirePermission('customer.edit')
   update(@TenantId() tenantId: string, @Param('id') id: string, @Body() dto: UpdateClientDto) {
     return this.svc.update(tenantId, id, dto);
+  }
+
+  @Patch(':id/network')
+  @RequirePermission('customer.edit')
+  changeNetwork(
+    @TenantId() tenantId: string,
+    @Param('id') id: string,
+    @Body() body: { networkId: string | null },
+  ) {
+    return this.svc.changeNetwork(tenantId, id, body.networkId ?? null);
   }
 
   @Delete(':id')

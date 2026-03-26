@@ -10,9 +10,12 @@ export class Client {
   @Column({ name: 'tenant_id' }) tenantId: string;
   @Column({ nullable: true, length: 6 }) code: string;
   @Column({ name: 'network_id', nullable: true }) networkId: string;
+  /** 'juridica' = Pessoa Jurídica (CNPJ) | 'fisica' = Pessoa Física (CPF) */
+  @Column({ name: 'person_type', length: 10, default: 'juridica' }) personType: string;
   @Column({ name: 'company_name', length: 200 }) companyName: string;
   @Column({ name: 'trade_name', nullable: true, length: 200 }) tradeName: string;
   @Column({ nullable: true, length: 18 }) cnpj: string;
+  @Column({ nullable: true, length: 14 }) cpf: string;
   @Column({ nullable: true, length: 50 }) ie: string;
   @Column({ nullable: true, length: 300 }) address: string;
   @Column({ nullable: true, length: 20 }) number: string;

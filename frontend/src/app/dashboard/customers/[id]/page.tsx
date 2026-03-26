@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
-import { ArrowLeft, Save, Plus, Trash2, User, MapPin, Building2, CheckCircle2, Network, Lock, Edit2, Phone, Mail, MessageCircle, Star, Eye, EyeOff, KeyRound, ExternalLink } from 'lucide-react';
+import { ArrowLeft, Save, Plus, Trash2, User, MapPin, Building2, CheckCircle2, Network, Lock, Edit2, Phone, Mail, MessageCircle, Star, Eye, EyeOff, KeyRound, ExternalLink, Loader2, AlertCircle, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 // ── Países para seleção de DDI ──────────────────────────────────────────────
@@ -47,6 +47,20 @@ function composePhone(country: string, local: string): string {
   return country.replace('+','') + localDigits;
 }
 
+const fmtCnpj = (v: string) => { const d=(v||'').replace(/\D/g,'').slice(0,14); return d.replace(/^(\d{2})(\d)/,'$1.$2').replace(/^(\d{2})\.(\d{3})(\d)/,'$1.$2.$3').replace(/\.(\d{3})(\d)/,'.$1/$2').replace(/(\d{4})(\d)/,'$1-$2'); };
+const rawCnpj = (v: string) => v.replace(/\D/g,'');
+const fmtCpf = (v: string) => { const d=(v||'').replace(/\D/g,'').slice(0,11); return d.replace(/^(\d{3})(\d)/,'$1.$2').replace(/^(\d{3})\.(\d{3})(\d)/,'$1.$2.$3').replace(/(\d{3})(\d{1,2})$/,'$1-$2'); };
+const rawCpf = (v: string) => v.replace(/\D/g,'');
+function validateCpfAlgo(cpf: string): boolean {
+  const raw=cpf.replace(/\D/g,''); if(raw.length!==11||/^(\d)\1{10}$/.test(raw)) return false;
+  let s=0; for(let i=0;i<9;i++) s+=parseInt(raw[i])*(10-i); let r=11-(s%11); if(r>=10) r=0; if(r!==parseInt(raw[9])) return false;
+  s=0; for(let i=0;i<10;i++) s+=parseInt(raw[i])*(11-i); r=11-(s%11); if(r>=10) r=0; return r===parseInt(raw[10]);
+}
+function validateCnpjAlgo(cnpj: string): boolean {
+  const raw=cnpj.replace(/\D/g,''); if(raw.length!==14||/^(\d)\1{13}$/.test(raw)) return false;
+  const calc=(w: number[])=>{ let s=0; for(let i=0;i<w.length;i++) s+=parseInt(raw[i])*w[i]; const m=s%11; return m<2?0:11-m; };
+  return calc([5,4,3,2,9,8,7,6,5,4,3,2])===parseInt(raw[12])&&calc([6,5,4,3,2,9,8,7,6,5,4,3,2])===parseInt(raw[13]);
+}
 const PLANS = ['enterprise','premium','standard','basic'];
 const PLAN_LABELS: Record<string,string> = { enterprise:'Enterprise', premium:'Premium', standard:'Standard', basic:'Básico' };
 const PLAN_COLORS: Record<string,string> = { enterprise:'#7C3AED', premium:'#D97706', standard:'#2563EB', basic:'#64748B' };
@@ -80,6 +94,13 @@ export default function CustomerDetailPage() {
   const [savingContact, setSavingContact] = useState(false);
   const [showPhoneCountry, setShowPhoneCountry] = useState(false);
   const [showWhatsCountry, setShowWhatsCountry] = useState(false);
+  const [showNetworkModal, setShowNetworkModal] = useState(false);
+  const [allNetworks, setAllNetworks] = useState<any[]>([]);
+  const [networkModalSearch, setNetworkModalSearch] = useState('');
+  const [changingNetwork, setChangingNetwork] = useState(false);
+  const [cnpjStatus, setCnpjStatus] = useState<'idle'|'loading'|'ok'|'error'>('idle');
+  const [cpfStatus, setCpfStatus] = useState<'idle'|'ok'|'error'>('idle');
+  const cnpjTimer = (typeof window !== 'undefined' ? { current: null as any } : { current: null as any });
 
   const load = async () => {
     setLoading(true);
@@ -100,6 +121,52 @@ export default function CustomerDetailPage() {
     }
   }, [id, activeTab]);
 
+  const openNetworkModal = async () => {
+    setNetworkModalSearch('');
+    if (!allNetworks.length) {
+      try { const r: any = await api.getNetworks(); setAllNetworks(r.data || []); } catch {}
+    }
+    setShowNetworkModal(true);
+  };
+
+  const handleChangeNetwork = async (net: any) => {
+    setChangingNetwork(true);
+    try {
+      await api.changeCustomerNetwork(id as string, net.id);
+      setNetwork(net); setForm((p: any) => ({ ...p, networkId: net.id }));
+      setShowNetworkModal(false);
+    } catch (e: any) { toast.error(e?.response?.data?.message || 'Erro ao trocar rede'); }
+    setChangingNetwork(false);
+  };
+
+  const handleCnpjChange = (v: string) => {
+    const fmt = fmtCnpj(v);
+    setForm((p: any) => ({ ...p, cnpj: fmt }));
+    clearTimeout(cnpjTimer.current);
+    const raw = rawCnpj(fmt);
+    if (raw.length === 14) {
+      if (!validateCnpjAlgo(raw)) { setCnpjStatus('error'); return; }
+      setCnpjStatus('loading');
+      cnpjTimer.current = setTimeout(async () => {
+        try {
+          const r: any = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${raw}`).then(x => x.json());
+          if (r.razao_social) {
+            setForm((p: any) => ({ ...p, companyName: r.razao_social||p.companyName, tradeName: r.nome_fantasia||p.tradeName, email: r.email||p.email, phone: r.ddd_telefone_1||p.phone, address: r.logradouro||p.address, number: r.numero||p.number, complement: r.complemento||p.complement, neighborhood: r.bairro||p.neighborhood, city: r.municipio||p.city, state: r.uf||p.state, zipCode: r.cep?.replace(/\D/g,'').replace(/(\d{5})(\d{3})/,'$1-$2')||p.zipCode }));
+            setCnpjStatus('ok');
+          } else setCnpjStatus('error');
+        } catch { setCnpjStatus('error'); }
+      }, 600);
+    } else setCnpjStatus('idle');
+  };
+
+  const handleCpfChange = (v: string) => {
+    const fmt = fmtCpf(v);
+    setForm((p: any) => ({ ...p, cpf: fmt }));
+    const raw = rawCpf(fmt);
+    if (raw.length === 11) setCpfStatus(validateCpfAlgo(raw) ? 'ok' : 'error');
+    else setCpfStatus('idle');
+  };
+
   const f = (k:string) => (e:any) => setForm((p:any) => ({ ...p, [k]: e.target.value }));
   const fc = (k:string) => (e:any) => setContactForm((p:any) => ({ ...p, [k]: e.target.value }));
   const nxt = (nextId?:string) => (e:any) => { if (e.key==='Enter') { e.preventDefault(); if (nextId) document.getElementById(nextId)?.focus(); else handleSave(); }};
@@ -107,9 +174,19 @@ export default function CustomerDetailPage() {
 
   const handleSave = async () => {
     if (!form.companyName?.trim()) { setError('Razão Social é obrigatória'); return; }
+    const personType = form.personType || 'juridica';
+    if (personType === 'juridica' && form.cnpj && rawCnpj(form.cnpj).length === 14 && !validateCnpjAlgo(rawCnpj(form.cnpj))) {
+      setError('CNPJ inválido'); return;
+    }
+    if (personType === 'fisica' && form.cpf && rawCpf(form.cpf).length === 11 && !validateCpfAlgo(rawCpf(form.cpf))) {
+      setError('CPF inválido'); return;
+    }
     setSaving(true); setError(''); setSuccess(false);
     try {
-      const res: any = await api.updateCustomer(id as string, form);
+      const payload: any = { ...form, personType };
+      if (personType === 'juridica') { payload.cnpj = rawCnpj(form.cnpj||''); delete payload.cpf; }
+      else { payload.cpf = rawCpf(form.cpf||''); delete payload.cnpj; }
+      const res: any = await api.updateCustomer(id as string, payload);
       setCustomer(res); setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
     } catch (e:any) { setError(e?.response?.data?.message || 'Erro ao salvar'); }
@@ -223,7 +300,6 @@ export default function CustomerDetailPage() {
             {network && (
               <span className="flex items-center gap-1.5" style={{ background:'#EEF2FF', color:'#4F46E5', padding:'3px 10px', borderRadius:20, fontSize:11, fontWeight:600, border:'1px solid #C7D2FE' }}>
                 <Network className="w-3 h-3" /> {network.name}
-                <Lock className="w-3 h-3 opacity-50" />
               </span>
             )}
           </div>
@@ -259,22 +335,27 @@ export default function CustomerDetailPage() {
           <div className="flex flex-col gap-4">
 
             {/* Rede vinculada */}
-            {network && (
-              <div className="card p-4 flex items-center gap-3" style={{ border:'1px solid #C7D2FE', background:'#EEF2FF' }}>
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
-                  style={{ background:'linear-gradient(135deg,#4F46E5,#6366F1)' }}>
-                  <Network className="w-5 h-5 text-white" />
-                </div>
-                <div className="flex-1">
-                  <div style={{ color:'#6366F1', fontSize:10, fontWeight:700, letterSpacing:'0.08em', textTransform:'uppercase', marginBottom:1 }}>Rede Vinculada</div>
-                  <div style={{ color:'#1E1B4B', fontWeight:700, fontSize:15 }}>{network.name}</div>
-                  <div style={{ color:'#6366F1', fontSize:12, opacity:0.7 }}>#{network.code}{network.responsible ? ` · ${network.responsible}` : ''}</div>
-                </div>
-                <div className="flex items-center gap-1.5 text-xs" style={{ color:'#6366F1', opacity:0.6 }}>
-                  <Lock className="w-3 h-3" /> Não editável
-                </div>
+            <div className="card p-4 flex items-center gap-3" style={{ border:`1px solid ${network?'#C7D2FE':'#E2E8F0'}`, background:network?'#EEF2FF':'#F8FAFC' }}>
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+                style={{ background: network?'linear-gradient(135deg,#4F46E5,#6366F1)':'#E2E8F0' }}>
+                <Network className="w-5 h-5" style={{ color: network?'#fff':'#94A3B8' }} />
               </div>
-            )}
+              <div className="flex-1">
+                <div style={{ color:'#6366F1', fontSize:10, fontWeight:700, letterSpacing:'0.08em', textTransform:'uppercase', marginBottom:1 }}>Rede Vinculada</div>
+                {network ? (
+                  <>
+                    <div style={{ color:'#1E1B4B', fontWeight:700, fontSize:15 }}>{network.name}</div>
+                    <div style={{ color:'#6366F1', fontSize:12, opacity:0.7 }}>#{network.code}{network.responsible ? ` · ${network.responsible}` : ''}</div>
+                  </>
+                ) : (
+                  <div style={{ color:'#94A3B8', fontSize:13 }}>Nenhuma rede vinculada</div>
+                )}
+              </div>
+              <button onClick={openNetworkModal}
+                style={{ display:'flex', alignItems:'center', gap:6, padding:'6px 14px', background:'#fff', border:'1px solid #C7D2FE', borderRadius:8, color:'#4F46E5', fontSize:12, fontWeight:600, cursor:'pointer' }}>
+                <RefreshCw className="w-3.5 h-3.5" /> Trocar Rede
+              </button>
+            </div>
 
             {/* Dados da empresa */}
             <div className="card p-5">
@@ -284,15 +365,49 @@ export default function CustomerDetailPage() {
                 </div>
                 <h2 className="table-header">Dados da Empresa</h2>
               </div>
+              {/* Tipo de pessoa */}
+              <div style={{ display:'flex', gap:8, marginBottom:2 }}>
+                {[['juridica','Pessoa Jurídica (CNPJ)'],['fisica','Pessoa Física (CPF)']].map(([v,l]) => (
+                  <button key={v} onClick={() => { setForm((p: any) => ({ ...p, personType: v, cnpj: '', cpf: '' })); setCnpjStatus('idle'); setCpfStatus('idle'); }}
+                    style={{ flex:1, padding:'7px 0', borderRadius:8, border:`1.5px solid ${(form.personType||'juridica')===v?'#4F46E5':'#E2E8F0'}`, background:(form.personType||'juridica')===v?'#EEF2FF':'transparent', color:(form.personType||'juridica')===v?'#4F46E5':'#64748B', fontSize:12, cursor:'pointer', fontWeight:(form.personType||'juridica')===v?700:400, transition:'all 0.15s' }}>
+                    {l}
+                  </button>
+                ))}
+              </div>
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
                 <div>
                   <label style={lbl}>Código</label>
-                  <input value={form.code||''} onChange={f('code')} onFocus={() => setFocusField('code')} onBlur={() => setFocusField('')} onKeyDown={nxt('ed_cnpj')} style={inp(focusField==='code')} />
+                  <input value={form.code||''} readOnly onFocus={() => setFocusField('code')} onBlur={() => setFocusField('')}
+                    style={{ ...inp(false), background:'#F1F5F9', color:'#94A3B8', cursor:'not-allowed' }}
+                    title="O código do cliente é gerado automaticamente e não pode ser alterado" />
                 </div>
+                {(form.personType||'juridica') === 'juridica' ? (
                 <div>
-                  <label style={lbl}>CNPJ <span style={{ color:'#4F46E5' }}>*</span></label>
-                  <input id="ed_cnpj" value={form.cnpj||''} onChange={f('cnpj')} onFocus={() => setFocusField('cnpj')} onBlur={() => setFocusField('')} onKeyDown={nxt('ed_company')} style={inp(focusField==='cnpj')} />
+                  <label style={lbl}>CNPJ</label>
+                  <div style={{ position:'relative' }}>
+                    <input id="ed_cnpj" value={form.cnpj||''} onChange={e => handleCnpjChange(e.target.value)} onFocus={() => setFocusField('cnpj')} onBlur={() => setFocusField('')} onKeyDown={nxt('ed_company')} style={inp(focusField==='cnpj')} placeholder="00.000.000/0000-00" />
+                    <div style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)' }}>
+                      {cnpjStatus==='loading' && <Loader2 style={{ width:13, height:13, color:'#3B82F6' }} />}
+                      {cnpjStatus==='ok' && <CheckCircle2 style={{ width:13, height:13, color:'#16A34A' }} />}
+                      {cnpjStatus==='error' && <AlertCircle style={{ width:13, height:13, color:'#DC2626' }} />}
+                    </div>
+                  </div>
+                  {cnpjStatus==='ok' && <p style={{ color:'#16A34A', fontSize:10, margin:'3px 0 0' }}>✓ Dados preenchidos</p>}
+                  {cnpjStatus==='error' && rawCnpj(form.cnpj||'').length===14 && <p style={{ color:'#DC2626', fontSize:10, margin:'3px 0 0' }}>CNPJ inválido</p>}
                 </div>
+                ) : (
+                <div>
+                  <label style={lbl}>CPF</label>
+                  <div style={{ position:'relative' }}>
+                    <input id="ed_cpf" value={form.cpf||''} onChange={e => handleCpfChange(e.target.value)} onFocus={() => setFocusField('cpf')} onBlur={() => setFocusField('')} onKeyDown={nxt('ed_company')} style={inp(focusField==='cpf')} placeholder="000.000.000-00" />
+                    <div style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)' }}>
+                      {cpfStatus==='ok' && <CheckCircle2 style={{ width:13, height:13, color:'#16A34A' }} />}
+                      {cpfStatus==='error' && <AlertCircle style={{ width:13, height:13, color:'#DC2626' }} />}
+                    </div>
+                  </div>
+                  {cpfStatus==='error' && <p style={{ color:'#DC2626', fontSize:10, margin:'3px 0 0' }}>CPF inválido</p>}
+                </div>
+                )}
                 <div style={{ gridColumn:'1/-1' }}>
                   <label style={lbl}>Razão Social <span style={{ color:'#4F46E5' }}>*</span></label>
                   <input id="ed_company" value={form.companyName||''} onChange={f('companyName')} onFocus={() => setFocusField('company')} onBlur={() => setFocusField('')} onKeyDown={nxt('ed_trade')} style={inp(focusField==='company')} />
@@ -769,6 +884,51 @@ export default function CustomerDetailPage() {
                 style={{ opacity:!contactForm.name.trim()?0.5:1 }}>
                 {savingContact ? 'Salvando...' : (editingContact ? 'Salvar alterações' : 'Criar contato')}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Trocar Rede */}
+      {showNetworkModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background:'rgba(15,23,42,0.6)', backdropFilter:'blur(4px)' }}>
+          <div className="card w-full" style={{ maxWidth:440, maxHeight:'80vh', display:'flex', flexDirection:'column', padding:0 }}>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'16px 20px', borderBottom:'1px solid #F1F5F9' }}>
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background:'#EEF2FF' }}>
+                  <Network className="w-4 h-4" style={{ color:'#4F46E5' }} />
+                </div>
+                <div>
+                  <h2 style={{ color:'#0F172A', fontSize:15, fontWeight:700, margin:0 }}>Trocar Rede</h2>
+                  <p style={{ color:'#94A3B8', fontSize:11, margin:0 }}>Selecione a nova rede para este cliente</p>
+                </div>
+              </div>
+              <button onClick={() => setShowNetworkModal(false)}
+                style={{ background:'#F1F5F9', border:'none', borderRadius:8, width:32, height:32, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color:'#64748B', fontSize:18 }}>×</button>
+            </div>
+            <div style={{ padding:'12px 16px', borderBottom:'1px solid #F1F5F9' }}>
+              <input autoFocus value={networkModalSearch} onChange={e => setNetworkModalSearch(e.target.value)}
+                placeholder="Buscar rede..." style={{ ...inp(false), border:'1.5px solid #E2E8F0' }} />
+            </div>
+            <div style={{ flex:1, overflowY:'auto', padding:'8px 12px' }}>
+              {allNetworks
+                .filter(n => n.status==='active' && (!networkModalSearch || n.name.toLowerCase().includes(networkModalSearch.toLowerCase())))
+                .map((n: any) => (
+                  <button key={n.id} onClick={() => handleChangeNetwork(n)} disabled={changingNetwork}
+                    style={{ display:'flex', alignItems:'center', gap:12, width:'100%', padding:'10px 12px', marginBottom:4, background:network?.id===n.id?'#EEF2FF':'transparent', border:`1.5px solid ${network?.id===n.id?'#4F46E5':'#E2E8F0'}`, borderRadius:10, cursor:'pointer', textAlign:'left', transition:'all 0.15s', opacity:changingNetwork?0.6:1 }}>
+                    <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background:network?.id===n.id?'#4F46E5':'#F1F5F9' }}>
+                      <Network className="w-4 h-4" style={{ color:network?.id===n.id?'#fff':'#94A3B8' }} />
+                    </div>
+                    <div>
+                      <div style={{ fontWeight:600, fontSize:13, color:'#0F172A' }}>{n.name}</div>
+                      <div style={{ fontSize:11, color:'#94A3B8' }}>#{n.code}{n.responsible?` · ${n.responsible}`:''}</div>
+                    </div>
+                    {network?.id===n.id && <CheckCircle2 className="w-4 h-4 ml-auto" style={{ color:'#4F46E5' }} />}
+                  </button>
+                ))}
+            </div>
+            <div style={{ padding:'12px 16px', borderTop:'1px solid #F1F5F9', display:'flex', justifyContent:'flex-end' }}>
+              <button onClick={() => setShowNetworkModal(false)} className="btn-secondary">Fechar</button>
             </div>
           </div>
         </div>

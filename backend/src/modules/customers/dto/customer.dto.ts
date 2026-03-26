@@ -6,7 +6,9 @@ import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 export class CreateClientDto {
   @ApiProperty() @IsString() companyName: string;
   @ApiPropertyOptional() @IsOptional() @IsString() tradeName?: string;
+  @ApiPropertyOptional({ enum: ['juridica', 'fisica'] }) @IsOptional() @IsIn(['juridica', 'fisica']) personType?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() cnpj?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() cpf?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() networkId?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() address?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() number?: string;
