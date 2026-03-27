@@ -58,5 +58,12 @@ export class Contact {
   @Column({ name: 'portal_password', nullable: true, length: 255 }) portalPassword: string;
   @Column({ nullable: true, type: 'text' }) notes: string;
   @Column({ name: 'is_primary', default: false }) isPrimary: boolean;
+  /**
+   * Campo genérico para dados extras do contato.
+   * Exemplos de uso: { pendingCnpj, pendingCnpjReceivedAt }
+   * ATENÇÃO: migration necessária para adicionar a coluna no banco:
+   *   ALTER TABLE contacts ADD COLUMN IF NOT EXISTS metadata jsonb DEFAULT '{}';
+   */
+  @Column({ type: 'jsonb', default: {}, nullable: true }) metadata: Record<string, any>;
   @CreateDateColumn({ name: 'created_at' }) createdAt: Date;
 }

@@ -4,13 +4,17 @@ import {
 import { IsUUID } from 'class-validator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { TenantId } from '../../common/decorators/tenant-id.decorator';
-import { ContactValidationService } from './contact-validation.service';
+import { ContactValidationService, LinkByCnpjResult } from './contact-validation.service';
 
 // ─── DTOs ─────────────────────────────────────────────────────────────────────
 
 class SelectOrLinkCustomerDto {
   @IsUUID()
   clientId!: string;
+}
+
+class LinkByCnpjDto {
+  cnpj!: string;
 }
 
 // ─── Controller ───────────────────────────────────────────────────────────────
@@ -103,5 +107,23 @@ export class ContactValidationController {
     @Request() req: { user: { id: string } },
   ) {
     return this.validationSvc.skipCustomerLink(tenantId, ticketId, req.user.id);
+  }
+
+  /**
+   * POST /api/v1/attendance/:ticketId/link-by-cnpj
+   * Body: { "cnpj": "XX.XXX.XXX/XXXX-XX" }
+   *
+   * Tenta vincular o contato do ticket ao cliente correspondente ao CNPJ informado.
+   * Retorna status: 'linked' | 'multiple_matches' | 'not_found' | 'invalid_cnpj'
+   */
+  @Post(':ticketId/link-by-cnpj')
+  @HttpCode(HttpStatus.OK)
+  linkByCnpj(
+    @TenantId() tenantId: string,
+    @Param('ticketId') ticketId: string,
+    @Body() body: LinkByCnpjDto,
+    @Request() req: { user: { id: string } },
+  ): Promise<LinkByCnpjResult> {
+    return this.validationSvc.linkContactByCnpj(tenantId, ticketId, body.cnpj, req.user.id);
   }
 }

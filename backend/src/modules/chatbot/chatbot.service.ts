@@ -10,6 +10,7 @@ import { CustomersService } from '../customers/customers.service';
 import { ConversationsService } from '../conversations/conversations.service';
 import { ConversationChannel } from '../conversations/entities/conversation.entity';
 import { v4 as uuidv4 } from 'uuid';
+import { normalizeCnpj, validateCnpj } from '../../common/utils/cnpj.utils';
 
 export interface ProcessResult {
   handled: boolean;
@@ -24,23 +25,7 @@ export interface ProcessResult {
   };
 }
 
-// ── CNPJ helpers ──────────────────────────────────────────────────────────────
-
-function stripNonDigits(v: string): string {
-  return v.replace(/\D/g, '');
-}
-
-function isValidCnpj(cnpj: string): boolean {
-  const d = stripNonDigits(cnpj);
-  if (d.length !== 14) return false;
-  if (/^(\d)\1{13}$/.test(d)) return false;
-  const calc = (s: string, len: number): number => {
-    let sum = 0, pos = len - 7;
-    for (let i = len; i >= 1; i--) { sum += parseInt(s[len - i]) * pos--; if (pos < 2) pos = 9; }
-    return sum % 11 < 2 ? 0 : 11 - (sum % 11);
-  };
-  return calc(d, 12) === parseInt(d[12]) && calc(d, 13) === parseInt(d[13]);
-}
+// ── Constantes do chatbot ─────────────────────────────────────────────────────
 
 const SKIP_KEYWORDS = ['pular', 'pulei', 'skip', 'não sei', 'nao sei', 'nao', 'não', 'sem cnpj', 'p'];
 
@@ -270,7 +255,8 @@ export class ChatbotService {
       // Usuário quer pular
       if (SKIP_KEYWORDS.includes(trimmed)) return goToDesc(null);
 
-      const digits = stripNonDigits(text);
+      // Extrai apenas dígitos do texto para análise de CNPJ
+      const digits = text.replace(/\D/g, '');
 
       // Busca por nome (texto livre, não parece CNPJ)
       if (digits.length !== 14 && digits.length < 8) {
@@ -286,22 +272,27 @@ export class ChatbotService {
         return goToDesc(null, `${config.cnpjNotFoundMessage}\n`);
       }
 
-      // CNPJ com 14 dígitos
-      if (!isValidCnpj(digits)) {
+      // Busca direta com os 14 dígitos — mesma lógica do menu de cliente, que não valida
+      // matematicamente antes de buscar. O importante é encontrar o cliente cadastrado,
+      // independentemente de o CNPJ passar ou não pelo algoritmo de dígitos verificadores.
+      const results = await this.customersService!.searchByNameOrCnpj(tenantId, digits).catch(() => []);
+      const match = results.find(r => normalizeCnpj(r.cnpj ?? '') === digits);
+
+      if (match) {
+        return goToDesc(match.id, `Empresa identificada: *${match.companyName}*.\n`);
+      }
+
+      // Não encontrado — dar feedback contextualizado ao usuário
+      // Se o CNPJ nem é matematicamente válido, provável erro de digitação
+      if (!validateCnpj(digits)) {
         if (attempts < 1) {
           session.metadata = { ...meta, cnpjAttempts: attempts + 1 };
           await this.sessionRepo.save(session);
           return { handled: true, replies: ['CNPJ inválido. Verifique os dígitos e tente novamente ou responda *pular*:'] };
         }
-        return goToDesc(null, `${config.cnpjNotFoundMessage}\n`);
       }
 
-      // CNPJ válido → buscar empresa
-      const results = await this.customersService!.searchByNameOrCnpj(tenantId, digits).catch(() => []);
-      const match = results.find(r => stripNonDigits(r.cnpj ?? '') === digits);
-      return match
-        ? goToDesc(match.id, `Empresa identificada: *${match.companyName}*.\n`)
-        : goToDesc(null, `${config.cnpjNotFoundMessage}\n`);
+      return goToDesc(null, `${config.cnpjNotFoundMessage}\n`);
     }
 
     // ── Aguardando descrição da demanda ───────────────────────────────────────

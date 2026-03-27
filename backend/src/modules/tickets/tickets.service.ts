@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, IsNull } from 'typeorm';
 import { Cron } from '@nestjs/schedule';
@@ -39,6 +39,8 @@ const STATUS_LABELS_PT: Record<string, string> = {
 
 @Injectable()
 export class TicketsService {
+  private readonly logger = new Logger(TicketsService.name);
+
   constructor(
     @InjectRepository(Ticket)
     private readonly ticketRepo: Repository<Ticket>,
@@ -108,14 +110,69 @@ export class TicketsService {
     return map;
   }
 
-  /** Assigns a ticket to the online agent with fewest active tickets (round-robin by load) */
+  /**
+   * Atribui o ticket ao agente online com menos tickets ativos.
+   *
+   * Proteções contra race condition:
+   * - pg_advisory_xact_lock: bloqueia atribuições simultâneas do mesmo tenant
+   *   (garante que a contagem de carga seja lida APÓS atribuições anteriores serem gravadas)
+   * - UPDATE com WHERE assigned_to IS NULL: guard final contra dupla-atribuição
+   *
+   * Tiebreaker: quando dois agentes têm mesma carga, usa ordem alfabética por userId
+   * (resultado estável e previsível — distribui circularmente na prática).
+   */
   async assignToLeastLoadedAgent(tenantId: string, ticketId: string, onlineAgentIds: string[]): Promise<string | null> {
     if (!onlineAgentIds.length) return null;
-    const counts = await this.countActiveByAgents(tenantId, onlineAgentIds);
-    const sorted = [...onlineAgentIds].sort((a, b) => (counts[a] ?? 0) - (counts[b] ?? 0));
-    const agentId = sorted[0];
-    await this.ticketRepo.update({ id: ticketId, tenantId }, { assignedTo: agentId, status: TicketStatus.IN_PROGRESS } as any);
-    return agentId;
+
+    return this.ticketRepo.manager.transaction(async (em) => {
+      // Lock exclusivo por tenant durante toda a transação.
+      // pg_advisory_xact_lock bloqueia (não falha) até que a transação anterior libere —
+      // garantindo serialização da atribuição entre mensagens simultâneas.
+      await em.query(
+        `SELECT pg_advisory_xact_lock(abs(hashtext($1)))`,
+        [`whatsapp_assign:${tenantId}`],
+      );
+
+      // Conta tickets ativos por agente DENTRO da transação (após o lock)
+      const rows: { assigned_to: string; count: string }[] = await em.query(
+        `SELECT assigned_to, COUNT(*)::int AS count
+         FROM tickets
+         WHERE tenant_id = $1
+           AND assigned_to = ANY($2::text[])
+           AND status IN ('open','in_progress','waiting_client')
+         GROUP BY assigned_to`,
+        [tenantId, onlineAgentIds],
+      );
+      const counts: Record<string, number> = {};
+      onlineAgentIds.forEach(id => { counts[id] = 0; });
+      rows.forEach(r => { counts[r.assigned_to] = Number(r.count); });
+
+      // Ordena por carga crescente; tiebreaker: ordem alfabética por userId (estável e justo)
+      const sorted = [...onlineAgentIds].sort((a, b) => {
+        const loadDiff = (counts[a] ?? 0) - (counts[b] ?? 0);
+        return loadDiff !== 0 ? loadDiff : a.localeCompare(b);
+      });
+      const agentId = sorted[0];
+
+      // Guard: só atualiza se o ticket ainda não foi atribuído (evita dupla-atribuição)
+      const result = await em.query<{ id: string }[]>(
+        `UPDATE tickets
+            SET assigned_to = $1, status = $2, updated_at = NOW()
+          WHERE id = $3 AND tenant_id = $4 AND assigned_to IS NULL
+          RETURNING id`,
+        [agentId, TicketStatus.IN_PROGRESS, ticketId, tenantId],
+      );
+
+      if (!result.length) {
+        this.logger.debug(`[assignLeastLoaded] ticket=${ticketId} já atribuído, pulando`);
+        return null;
+      }
+
+      this.logger.log(
+        `[assignLeastLoaded] ticket=${ticketId} → agent=${agentId} (carga=${counts[agentId]})`,
+      );
+      return agentId;
+    });
   }
 
   private async assertClientBelongsToTenant(tenantId: string, clientId?: string | null) {

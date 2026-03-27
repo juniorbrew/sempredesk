@@ -9,6 +9,7 @@ import { BaileysService } from './baileys.service';
 import { ChatbotService } from '../chatbot/chatbot.service';
 import { TicketOrigin } from '../tickets/entities/ticket.entity';
 import { ConversationChannel } from '../conversations/entities/conversation.entity';
+import { detectCnpjInText, normalizeCnpj } from '../../common/utils/cnpj.utils';
 
 export interface NormalizedWhatsappMessage {
   provider: 'generic' | 'meta';
@@ -124,6 +125,30 @@ export class WhatsappService {
         this.logger.log(`Contato ${contact.id} vinculado automaticamente ao cliente ${chatbotClientId} via CNPJ`);
       } catch (e) {
         this.logger.warn(`Falha ao vincular contato ${contact.id} ao cliente ${chatbotClientId} via CNPJ`, e);
+      }
+    }
+
+    // CNPJ auto-detection: só executa se chatbot não identificou cliente e contato não tem cliente
+    if (!chatbotClientId && !contact.clientId) {
+      const cnpjDetectado = detectCnpjInText(text ?? '');
+      if (cnpjDetectado) {
+        this.logger.log(`CNPJ detectado em mensagem do contato ${contact.id}: ${cnpjDetectado}`);
+        try {
+          const matches = await this.customersService.searchByNameOrCnpj(tenantId, cnpjDetectado);
+          const exactMatch = matches.find((m) => normalizeCnpj(m.cnpj ?? '') === cnpjDetectado);
+          if (exactMatch) {
+            this.logger.log(`Cliente ${exactMatch.id} encontrado via CNPJ ${cnpjDetectado} — vinculando contato ${contact.id}`);
+            await this.customersService.linkContactToClient(tenantId, contact.id, exactMatch.id);
+            // Atualizar referência local para uso em getOrCreateForContact
+            contact = { ...contact, clientId: exactMatch.id };
+          } else {
+            this.logger.warn(`CNPJ ${cnpjDetectado} detectado mas nenhum cliente encontrado — salvando como pendente`);
+            await this.customersService.storePendingCnpj(tenantId, contact.id, cnpjDetectado);
+          }
+        } catch (err) {
+          this.logger.warn(`Erro na detecção automática de CNPJ: ${(err as Error).message}`);
+          // Não bloquear o fluxo principal
+        }
       }
     }
 

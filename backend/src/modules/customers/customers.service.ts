@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
@@ -8,9 +8,13 @@ import {
   CreateContactDto, UpdateContactDto, FilterClientsDto,
 } from './dto/customer.dto';
 import { PaginationDto } from '../../common/dto/pagination.dto';
+import { normalizeCnpj, validateCnpj as validateCnpjUtil } from '../../common/utils/cnpj.utils';
+import { normalizeWhatsappNumber } from '../../common/utils/phone.utils';
 
 @Injectable()
 export class CustomersService {
+  private readonly logger = new Logger(CustomersService.name);
+
   constructor(
     @InjectRepository(Client) private readonly clients: Repository<Client>,
     @InjectRepository(Contact) private readonly contacts: Repository<Contact>,
@@ -71,21 +75,9 @@ export class CustomersService {
     return r === parseInt(raw[10]);
   }
 
-  /** Valida CNPJ pelo algoritmo dos dígitos verificadores */
+  /** Valida CNPJ — delega ao utilitário centralizado em common/utils/cnpj.utils */
   private validateCnpj(cnpj: string): boolean {
-    const raw = cnpj.replace(/\D/g, '');
-    if (raw.length !== 14) return false;
-    if (/^(\d)\1{13}$/.test(raw)) return false;
-    const calc = (weights: number[]) => {
-      let sum = 0;
-      for (let i = 0; i < weights.length; i++) sum += parseInt(raw[i]) * weights[i];
-      const mod = sum % 11;
-      return mod < 2 ? 0 : 11 - mod;
-    };
-    const d1 = calc([5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
-    if (d1 !== parseInt(raw[12])) return false;
-    const d2 = calc([6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
-    return d2 === parseInt(raw[13]);
+    return validateCnpjUtil(cnpj);
   }
 
   private async assertNetworkBelongsToTenant(tenantId: string, networkId?: string | null) {
@@ -328,6 +320,11 @@ export class CustomersService {
     const { password, ...contactData } = dto as any;
     const portalPassword = password ? await bcrypt.hash(password, 12) : undefined;
 
+    // Remove caracteres não-numéricos do WhatsApp (sem truncar — truncamento é só para LIDs do webhook)
+    if (contactData.whatsapp) {
+      contactData.whatsapp = contactData.whatsapp.replace(/\D/g, '');
+    }
+
     const contact = this.contacts.create({
       ...contactData,
       tenantId,
@@ -355,6 +352,11 @@ export class CustomersService {
     const updates: any = { ...dto };
     delete updates.password;
 
+    // Remove caracteres não-numéricos do WhatsApp (sem truncar — truncamento é só para LIDs do webhook)
+    if (updates.whatsapp) {
+      updates.whatsapp = updates.whatsapp.replace(/\D/g, '');
+    }
+
     if (dto.password && String(dto.password).trim()) {
       const hashed = await bcrypt.hash(String(dto.password).trim(), 12);
 
@@ -376,8 +378,15 @@ export class CustomersService {
   }
 
   async removeContact(tenantId: string, contactId: string) {
-    await this.getContactOrFail(tenantId, contactId);
+    const contact = await this.getContactOrFail(tenantId, contactId);
     await this.contacts.update({ id: contactId, tenantId }, { status: 'inactive' });
+    // Limpa a sessão do chatbot para que a próxima interação comece do zero
+    if (contact.whatsapp) {
+      await this.contacts.manager.query(
+        `DELETE FROM chatbot_sessions WHERE tenant_id = $1 AND identifier = $2`,
+        [tenantId, contact.whatsapp],
+      );
+    }
   }
 
   findContactById(tenantId: string, contactId: string) {
@@ -388,8 +397,9 @@ export class CustomersService {
   }
 
   findContactByWhatsapp(tenantId: string, whatsapp: string) {
+    const normalized = normalizeWhatsappNumber(whatsapp) || whatsapp;
     return this.contacts.findOne({
-      where: { tenantId, whatsapp },
+      where: { tenantId, whatsapp: normalized, status: 'active' },
       relations: ['client'],
     });
   }
@@ -466,8 +476,14 @@ export class CustomersService {
 
   /**
    * Busca clientes por nome/razão social, nome fantasia ou CNPJ.
-   * Usado na tela de validação de contato durante o atendimento.
+   * Usado na tela de validação de contato durante o atendimento e no chatbot do WhatsApp.
    * Retorna no máximo 20 resultados, excluindo clientes auto-criados via WhatsApp.
+   *
+   * A comparação de CNPJ normaliza ambos os lados (remove não-dígitos), garantindo que
+   * clientes salvos com ou sem máscara sejam encontrados independentemente do formato enviado.
+   * Exemplos que casam com o mesmo cliente:
+   *   - "00.000.000/0001-00"  (com máscara — como o menu de cliente envia)
+   *   - "00000000000100"      (sem máscara — como o chatbot WhatsApp envia após strip de dígitos)
    */
   async searchByNameOrCnpj(
     tenantId: string,
@@ -476,6 +492,8 @@ export class CustomersService {
     if (!q || q.trim().length < 2) return [];
 
     const term = `%${q.trim()}%`;
+    // Versão normalizada (apenas dígitos) para comparar com CNPJs mascarados no banco
+    const cnpjDigits = q.replace(/\D/g, '');
 
     const rows = await this.clients.manager.query<
       Pick<Client, 'id' | 'companyName' | 'tradeName' | 'cnpj' | 'city' | 'state'>[]
@@ -494,19 +512,23 @@ export class CustomersService {
                company_name ILIKE $2
             OR trade_name   ILIKE $2
             OR cnpj         ILIKE $2
+            OR (
+                 $3 <> ''
+                 AND REGEXP_REPLACE(cnpj, '[^0-9]', '', 'g') = $3
+               )
          )
        ORDER BY company_name ASC
        LIMIT 20`,
-      [tenantId, term],
+      [tenantId, term, cnpjDigits],
     );
 
     return rows;
   }
 
   async findOrCreateByWhatsapp(tenantId: string, phone: string, displayName?: string, isLid = false) {
-    // 1. Tenta encontrar contato existente pelo número
+    // 1. Tenta encontrar contato existente pelo número (somente ativos)
     const existing = await this.contacts.findOne({
-      where: { tenantId, whatsapp: phone },
+      where: { tenantId, whatsapp: phone, status: 'active' },
       relations: ['client'],
     });
     if (existing) return existing;
@@ -534,6 +556,7 @@ export class CustomersService {
   /**
    * Vincula um contato a um cliente existente e adiciona ao cadastro de contatos do cliente.
    * Usado quando o contato informa o CNPJ e o sistema identifica automaticamente.
+   * Também insere no pivot contact_customers (vinculação automática, linked_by = null).
    */
   async linkContactToClient(tenantId: string, contactId: string, clientId: string): Promise<void> {
     const contact = await this.contacts.findOne({ where: { id: contactId, tenantId } });
@@ -541,5 +564,76 @@ export class CustomersService {
     // Só vincula se o contato ainda não estiver associado a nenhum cliente
     if (contact.clientId) return;
     await this.contacts.update({ id: contactId, tenantId }, { clientId } as any);
+
+    // Inserir no pivot contact_customers, prevenindo duplicata
+    await this.contacts.manager.query(
+      `INSERT INTO contact_customers (id, tenant_id, contact_id, client_id, linked_by, linked_at)
+       VALUES (gen_random_uuid(), $1, $2, $3, NULL, NOW())
+       ON CONFLICT (contact_id, client_id) DO NOTHING`,
+      [tenantId, contactId, clientId],
+    );
+
+    this.logger.log(`Contato ${contactId} vinculado automaticamente ao cliente ${clientId}`);
+  }
+
+  /**
+   * Salva um CNPJ detectado como pendente no metadata do contato.
+   * Usado quando o CNPJ é detectado em mensagem mas nenhum cliente foi encontrado.
+   */
+  async storePendingCnpj(
+    tenantId: string,
+    contactId: string,
+    cnpj: string, // já normalizado (14 dígitos)
+  ): Promise<void> {
+    const contact = await this.contacts.findOne({ where: { id: contactId, tenantId } });
+    if (!contact) {
+      this.logger.warn(`storePendingCnpj: contato ${contactId} não encontrado no tenant ${tenantId}`);
+      return;
+    }
+
+    // Merge com metadata existente para não sobrescrever outros campos
+    const currentMetadata: Record<string, any> = contact.metadata ?? {};
+    const updatedMetadata: Record<string, any> = {
+      ...currentMetadata,
+      pendingCnpj: cnpj,
+      pendingCnpjReceivedAt: new Date().toISOString(),
+    };
+
+    await this.contacts.update({ id: contactId, tenantId }, { metadata: updatedMetadata } as any);
+    this.logger.log(`CNPJ ${cnpj} salvo como pendente para contato ${contactId}`);
+  }
+
+  /**
+   * Busca clientes ativos do tenant cujo CNPJ começa com os 8 primeiros dígitos fornecidos (raiz CNPJ).
+   * Exclui clientes auto-criados. Limita a 10 resultados ordenados por nome.
+   * Usado para sugerir candidatos quando há múltiplos clientes com mesma raiz CNPJ.
+   */
+  async findClientsByCnpjRoot(
+    tenantId: string,
+    cnpjRoot: string, // 8 primeiros dígitos
+  ): Promise<Array<{ id: string; companyName: string; tradeName: string; cnpj: string }>> {
+    const rows = await this.clients.manager.query<
+      Array<{ id: string; company_name: string; trade_name: string; cnpj: string }>
+    >(
+      `SELECT id,
+              company_name AS company_name,
+              trade_name   AS trade_name,
+              cnpj
+       FROM clients
+       WHERE tenant_id = $1
+         AND status = 'active'
+         AND (metadata->>'autoCreated')::boolean IS NOT TRUE
+         AND REGEXP_REPLACE(cnpj, '[^0-9]', '', 'g') LIKE $2
+       ORDER BY company_name ASC
+       LIMIT 10`,
+      [tenantId, cnpjRoot + '%'],
+    );
+
+    return rows.map((r) => ({
+      id: r.id,
+      companyName: r.company_name,
+      tradeName: r.trade_name,
+      cnpj: r.cnpj,
+    }));
   }
 }

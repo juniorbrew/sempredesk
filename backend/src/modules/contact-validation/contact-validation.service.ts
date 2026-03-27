@@ -1,5 +1,5 @@
 import {
-  Injectable, NotFoundException, BadRequestException,
+  Injectable, Logger, NotFoundException, BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, EntityManager } from 'typeorm';
@@ -7,6 +7,8 @@ import { Ticket } from '../tickets/entities/ticket.entity';
 import { Contact } from '../customers/entities/customer.entity';
 import { Client } from '../customers/entities/customer.entity';
 import { ContactCustomer } from './entities/contact-customer.entity';
+import { CustomersService } from '../customers/customers.service';
+import { normalizeCnpj, validateCnpj } from '../../common/utils/cnpj.utils';
 
 // ─── Response shapes ──────────────────────────────────────────────────────────
 
@@ -40,6 +42,12 @@ export interface ValidationResult {
   candidateClients: CandidateClient[];
 }
 
+export interface LinkByCnpjResult {
+  status: 'linked' | 'multiple_matches' | 'not_found' | 'invalid_cnpj';
+  clientId?: string;
+  candidates?: Array<{ id: string; companyName: string; tradeName: string; cnpj: string }>;
+}
+
 // ─── Internal row types ───────────────────────────────────────────────────────
 
 interface ClientRow {
@@ -55,6 +63,8 @@ interface ClientRow {
 
 @Injectable()
 export class ContactValidationService {
+  private readonly logger = new Logger(ContactValidationService.name);
+
   constructor(
     @InjectRepository(Ticket)
     private readonly tickets: Repository<Ticket>,
@@ -67,6 +77,8 @@ export class ContactValidationService {
 
     @InjectRepository(ContactCustomer)
     private readonly contactCustomers: Repository<ContactCustomer>,
+
+    private readonly customersService: CustomersService,
   ) {}
 
   // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -446,6 +458,87 @@ export class ContactValidationService {
     });
 
     return { ticketId, clientId, contactCustomerId };
+  }
+
+  /**
+   * POST /attendance/:ticketId/link-by-cnpj
+   * Body: { cnpj }
+   *
+   * Tenta vincular um contato ao cliente correspondente ao CNPJ informado.
+   * Fluxo:
+   *  - CNPJ inválido → { status: 'invalid_cnpj' }
+   *  - 1 match exato → vincula via linkContactToCustomer → { status: 'linked', clientId }
+   *  - múltiplos matches exatos → { status: 'multiple_matches', candidates }
+   *  - 0 matches exatos → busca por raiz (8 dígitos):
+   *      - múltiplos por raiz → { status: 'multiple_matches', candidates }
+   *      - nenhum → salva pendente → { status: 'not_found' }
+   */
+  async linkContactByCnpj(
+    tenantId: string,
+    ticketId: string,
+    cnpj: string,
+    agentId: string,
+  ): Promise<LinkByCnpjResult> {
+    // 1. Normalizar e validar o CNPJ
+    const cnpjNormalizado = normalizeCnpj(cnpj);
+    if (!cnpjNormalizado) {
+      this.logger.warn(`linkContactByCnpj: CNPJ inválido (normalização falhou) — ticketId=${ticketId} cnpj="${cnpj}"`);
+      return { status: 'invalid_cnpj' };
+    }
+    if (!validateCnpj(cnpjNormalizado)) {
+      this.logger.warn(`linkContactByCnpj: CNPJ inválido (falha na validação matemática) — ticketId=${ticketId} cnpj=${cnpjNormalizado}`);
+      return { status: 'invalid_cnpj' };
+    }
+
+    // 2. Buscar ticket para obter contactId (verifica pertencimento ao tenant)
+    const ticket = await this.tickets.findOne({ where: { id: ticketId, tenantId } });
+    if (!ticket) throw new NotFoundException('Ticket não encontrado');
+    const contactId = ticket.contactId;
+
+    // 3. Buscar clientes com este CNPJ exato
+    const allMatches = await this.customersService.searchByNameOrCnpj(tenantId, cnpjNormalizado);
+    const exactMatches = allMatches.filter((m) => normalizeCnpj(m.cnpj ?? '') === cnpjNormalizado);
+
+    // 4. Múltiplos matches exatos
+    if (exactMatches.length > 1) {
+      this.logger.warn(`linkContactByCnpj: múltiplos clientes com CNPJ ${cnpjNormalizado} — ticketId=${ticketId}`);
+      return {
+        status: 'multiple_matches',
+        candidates: exactMatches.map((m) => ({
+          id: m.id,
+          companyName: m.companyName,
+          tradeName: m.tradeName ?? '',
+          cnpj: m.cnpj ?? '',
+        })),
+      };
+    }
+
+    // 5. Um match exato → vincular
+    if (exactMatches.length === 1) {
+      const match = exactMatches[0];
+      await this.linkContactToCustomer(tenantId, ticketId, match.id, agentId);
+      this.logger.log(`linkContactByCnpj: contato vinculado ao cliente ${match.id} via CNPJ ${cnpjNormalizado} — ticketId=${ticketId}`);
+      return { status: 'linked', clientId: match.id };
+    }
+
+    // 6. Nenhum match exato → buscar por raiz (8 primeiros dígitos)
+    const cnpjRaiz = cnpjNormalizado.slice(0, 8);
+    const candidatesByRoot = await this.customersService.findClientsByCnpjRoot(tenantId, cnpjRaiz);
+
+    if (candidatesByRoot.length > 0) {
+      this.logger.warn(`linkContactByCnpj: nenhum match exato, mas ${candidatesByRoot.length} candidatos pela raiz ${cnpjRaiz} — ticketId=${ticketId}`);
+      return {
+        status: 'multiple_matches',
+        candidates: candidatesByRoot,
+      };
+    }
+
+    // 7. Nenhum cliente encontrado → salvar como pendente
+    if (contactId) {
+      await this.customersService.storePendingCnpj(tenantId, contactId, cnpjNormalizado);
+    }
+    this.logger.warn(`linkContactByCnpj: nenhum cliente encontrado para CNPJ ${cnpjNormalizado} — salvo como pendente — ticketId=${ticketId}`);
+    return { status: 'not_found' };
   }
 
   /**

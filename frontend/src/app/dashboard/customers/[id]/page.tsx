@@ -33,10 +33,19 @@ const COUNTRIES = [
 /** Dado um número completo armazenado, extrai o DDI e o número local */
 function parsePhone(full: string): { country: string; local: string } {
   const digits = (full || '').replace(/\D/g,'');
-  for (const c of COUNTRIES.sort((a,b) => b.code.length - a.code.length)) {
+  if (!digits) return { country: '+55', local: '' };
+  // IMPORTANTE: usar cópia do array — COUNTRIES.sort() mutaria o array global e quebraria o dropdown
+  for (const c of [...COUNTRIES].sort((a,b) => b.code.length - a.code.length)) {
     const ddi = c.code.replace('+','');
-    if (digits.startsWith(ddi)) return { country: c.code, local: digits.slice(ddi.length) };
+    if (digits.startsWith(ddi)) {
+      const local = digits.slice(ddi.length);
+      // Número local deve ter entre 7 e 13 dígitos (evita DDI+1 "engolir" números longos)
+      if (local.length >= 7 && local.length <= 13) {
+        return { country: c.code, local };
+      }
+    }
   }
+  // Fallback: devolve Brasil e o número completo (sem DDI identificado)
   return { country: '+55', local: digits };
 }
 
