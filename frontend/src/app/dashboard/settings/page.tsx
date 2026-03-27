@@ -74,7 +74,7 @@ function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<Settings>(DEFAULT);
   const [profile, setProfile] = useState({ name:'', email:'', phone:'', currentPassword:'', newPassword:'', confirmPassword:'' });
-  const [tab, setTab] = useState<'company'|'smtp'|'sla'|'visual'|'profile'|'notifications'|'business_hours'|'routing'|'webhooks'|'apikeys'|'inbound_email'|'chatbot'|'perfis'>('company');
+  const [tab, setTab] = useState<'company'|'smtp'|'sla'|'visual'|'profile'|'notifications'|'business_hours'|'routing'|'webhooks'|'apikeys'|'inbound_email'|'chatbot'>('company');
   // Perfis (roles & permissions)
   const [allPerms, setAllPerms] = useState<Record<string, any[]>>({});
   const [roles, setRoles] = useState<any[]>([]);
@@ -262,7 +262,6 @@ export default function SettingsPage() {
     { key:'apikeys', label:'Chaves de API', icon:Key },
     { key:'inbound_email', label:'E-mail Recebido', icon:Inbox },
     { key:'chatbot', label:'Chatbot', icon:Bot },
-    { key:'perfis', label:'Perfis e Permissões', icon:Shield },
     { key:'profile', label:'Meu perfil', icon:User },
   ] as const;
 
@@ -275,7 +274,7 @@ export default function SettingsPage() {
           <h1 className="page-title">Configurações</h1>
           <p className="page-subtitle">Gerencie as configurações do sistema</p>
         </div>
-        {!['profile','routing','webhooks','apikeys','inbound_email','chatbot','perfis'].includes(tab) && (
+        {!['profile','routing','webhooks','apikeys','inbound_email','chatbot'].includes(tab) && (
           <button onClick={handleSave} disabled={saving} className="btn-primary">
             {saving ? <RefreshCw className="w-4 h-4 animate-spin" /> : saved ? <CheckCircle className="w-4 h-4" /> : <Save className="w-4 h-4" />}
             {saved ? 'Salvo!' : 'Salvar alterações'}
@@ -836,102 +835,7 @@ X-Api-Secret: {INBOUND_EMAIL_SECRET}`}</pre>
             </div>
           )}
 
-          {/* Perfis e Permissões */}
-          {tab === 'perfis' && (
-            <div className="space-y-5">
-              <div><h2 style={{ fontSize:16,fontWeight:700,color:'#0F172A' }}>Perfis e Permissões</h2><p style={{ fontSize:13,color:'#94A3B8',marginTop:2 }}>Defina quais ações cada perfil pode realizar no sistema</p></div>
-              {roles.length === 0 && <p style={{ fontSize:13,color:'#94A3B8' }}>Nenhum perfil encontrado.</p>}
-              <div className="space-y-3">
-                {roles.map((role: any) => {
-                  const isEditing = editingRoleId === role.id;
-                  const SYSTEM_ROLES = ['super_admin','admin','manager','technician','viewer'];
-                  const isSystem = SYSTEM_ROLES.includes(role.slug);
-                  const PERM_LABELS: Record<string,string> = {
-                    'dashboard.view':'Ver dashboard','ticket.view':'Ver tickets','ticket.create':'Criar tickets',
-                    'ticket.edit':'Editar tickets','ticket.reply':'Responder tickets','ticket.transfer':'Transferir tickets',
-                    'ticket.close':'Fechar tickets','ticket.reopen':'Reabrir tickets',
-                    'ticket.view_all':'Ver TODOS os tickets (sem filtro de agente)',
-                    'customer.view':'Ver clientes','customer.create':'Criar clientes','customer.edit':'Editar clientes',
-                    'agent.view':'Ver agentes','agent.create':'Criar agentes','agent.edit':'Editar agentes','agent.delete':'Excluir agentes',
-                    'settings.manage':'Gerenciar configurações','reports.view':'Ver relatórios',
-                    'knowledge.view':'Ver base de conhecimento','knowledge.edit':'Editar base de conhecimento',
-                    'contracts.view':'Ver contratos','contracts.edit':'Editar contratos',
-                    'networks.view':'Ver redes','networks.edit':'Editar redes',
-                    'devices.view':'Ver dispositivos','devices.edit':'Editar dispositivos',
-                    'alerts.view':'Ver alertas','alerts.manage':'Gerenciar alertas',
-                    'chat.view':'Ver chat','chat.view_agents':'Ver agentes no chat','chat.view_status':'Ver status no chat',
-                    'attendance.view':'Ver atendimentos','attendance.view_all':'Ver TODOS os atendimentos',
-                  };
-                  const MODULE_LABELS: Record<string,string> = {
-                    ticket:'Tickets',customer:'Clientes',agent:'Agentes',dashboard:'Dashboard',
-                    settings:'Configurações',reports:'Relatórios',knowledge:'Conhecimento',
-                    contracts:'Contratos',networks:'Redes',devices:'Dispositivos',
-                    alerts:'Alertas',chat:'Chat',attendance:'Atendimento',
-                  };
-                  return (
-                    <div key={role.id} style={{ border:'1.5px solid #E2E8F0',borderRadius:14,overflow:'hidden' }}>
-                      <div style={{ display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 16px',background:'#F8FAFC',cursor:'pointer' }}
-                        onClick={() => { if (isEditing) { setEditingRoleId(null); } else { setEditingRoleId(role.id); setRolePermsDraft([...(role.permissions||[])]); } }}>
-                        <div className="flex items-center gap-3">
-                          <Shield className="w-4 h-4" style={{ color:'#6366F1' }} />
-                          <div>
-                            <p style={{ fontSize:14,fontWeight:700,color:'#0F172A' }}>{role.name}</p>
-                            <p style={{ fontSize:11,color:'#94A3B8' }}>{role.slug} · {(role.permissions||[]).length} permissões{isSystem?' · perfil do sistema':''}</p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          {isEditing && (
-                            <button onClick={e => { e.stopPropagation(); setRolesSaving(true); (api as any).setRolePermissions(role.id, rolePermsDraft).then((updated: any) => { setRoles((prev: any[]) => prev.map((r: any) => r.id===role.id ? { ...r, permissions: updated.permissions||rolePermsDraft } : r)); setRolesSaved(true); setTimeout(()=>setRolesSaved(false),2000); setEditingRoleId(null); }).catch(()=>alert('Erro ao salvar')).finally(()=>setRolesSaving(false)); }}
-                              style={{ padding:'6px 14px',background:'#4F46E5',color:'#fff',border:'none',borderRadius:8,fontSize:12,fontWeight:700,cursor:'pointer' }}>
-                              {rolesSaving?'Salvando...':rolesSaved?'Salvo!':'Salvar'}
-                            </button>
-                          )}
-                          <ChevronDown className="w-4 h-4" style={{ color:'#94A3B8',transform:isEditing?'rotate(180deg)':'none',transition:'transform .2s' }} />
-                        </div>
-                      </div>
-                      {isEditing && (
-                        <div style={{ padding:'16px 20px',background:'#fff' }}>
-                          {isSystem && role.slug === 'super_admin' ? (
-                            <p style={{ fontSize:13,color:'#6366F1',fontWeight:600 }}>✓ Super Administrador tem acesso total a todas as permissões automaticamente.</p>
-                          ) : (
-                            <div className="space-y-4">
-                              {Object.entries(allPerms).map(([module, perms]: [string, any[]]) => (
-                                <div key={module}>
-                                  <p style={{ fontSize:11,fontWeight:700,color:'#64748B',textTransform:'uppercase',letterSpacing:1,marginBottom:8 }}>{MODULE_LABELS[module]||module}</p>
-                                  <div style={{ display:'flex',flexWrap:'wrap',gap:8 }}>
-                                    {perms.map((p: any) => {
-                                      const active = rolePermsDraft.includes(p.code);
-                                      const isViewAll = p.code.endsWith('.view_all');
-                                      return (
-                                        <button key={p.code} type="button"
-                                          onClick={() => setRolePermsDraft(prev => active ? prev.filter(c=>c!==p.code) : [...prev, p.code])}
-                                          style={{ padding:'5px 12px',borderRadius:20,border:`1.5px solid ${active?(isViewAll?'#DC2626':'#6366F1'):'#E2E8F0'}`,background:active?(isViewAll?'#FEE2E2':'#EEF2FF'):'#fff',color:active?(isViewAll?'#DC2626':'#4338CA'):'#64748B',fontSize:11,fontWeight:600,cursor:'pointer',transition:'all .15s' }}>
-                                          {PERM_LABELS[p.code]||p.code}
-                                        </button>
-                                      );
-                                    })}
-                                  </div>
-                                </div>
-                              ))}
-                              <div style={{ paddingTop:8,borderTop:'1px solid #F1F5F9',display:'flex',alignItems:'center',gap:8 }}>
-                                <div style={{ width:12,height:12,borderRadius:4,background:'#EEF2FF',border:'1.5px solid #6366F1' }} />
-                                <span style={{ fontSize:11,color:'#64748B' }}>Permissão ativa</span>
-                                <div style={{ width:12,height:12,borderRadius:4,background:'#FEE2E2',border:'1.5px solid #DC2626',marginLeft:12 }} />
-                                <span style={{ fontSize:11,color:'#64748B' }}>Permissão de acesso amplo (atenção)</span>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-              <div style={{ background:'#EEF2FF',borderRadius:12,padding:'12px 16px',border:'1.5px solid #C7D2FE' }}>
-                <p style={{ fontSize:12,color:'#4338CA' }}>💡 Perfis do sistema (admin, agente, etc.) podem ter suas permissões ajustadas. Alterações têm efeito no próximo login do usuário.</p>
-              </div>
-            </div>
-          )}
+          {/* Perfis e Permissões — acessível via menu lateral Configurações → /dashboard/perfis */}
 
           {/* Profile */}
           {tab === 'profile' && (

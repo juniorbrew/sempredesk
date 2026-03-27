@@ -25,19 +25,19 @@ const MAIN_NAV = [
 ];
 
 const CADASTROS_NAV = [
-  { href: '/dashboard/customers',     icon: Users,       label: 'Clientes', perm: 'customer.view' },
-  { href: '/dashboard/networks',      icon: Network,     label: 'Redes', perm: 'networks.view' },
-  { href: '/dashboard/departments',   icon: FolderTree,  label: 'Departamentos', perm: 'settings.manage' },
-  { href: '/dashboard/categories',    icon: Tag,         label: 'Categorias', perm: 'settings.manage' },
-  { href: '/dashboard/subcategories', icon: Layers,      label: 'Sub-Categorias', perm: 'settings.manage' },
-  { href: '/dashboard/team',          icon: Users2,      label: 'Equipe e Usuários', perm: 'agent.view' },
-  { href: '/dashboard/perfis',        icon: ShieldCheck, label: 'Perfis de Acesso', perm: 'settings.manage' },
+  { href: '/dashboard/customers',     icon: Users,      label: 'Clientes', perm: 'customer.view' },
+  { href: '/dashboard/networks',      icon: Network,    label: 'Redes', perm: 'networks.view' },
+  { href: '/dashboard/departments',   icon: FolderTree, label: 'Departamentos', perm: 'settings.manage' },
+  { href: '/dashboard/categories',    icon: Tag,        label: 'Categorias', perm: 'settings.manage' },
+  { href: '/dashboard/subcategories', icon: Layers,     label: 'Sub-Categorias', perm: 'settings.manage' },
+  { href: '/dashboard/team',          icon: Users2,     label: 'Equipe e Usuários', perm: 'agent.view' },
 ];
 
 const BOTTOM_NAV = [
-  { href: '/dashboard/alerts',   icon: Bell,       label: 'Alertas', perm: 'alerts.view' },
-  { href: '/dashboard/whatsapp', icon: Smartphone, label: 'WhatsApp', perm: 'settings.manage' },
-  { href: '/dashboard/settings', icon: Settings,   label: 'Configurações', perm: 'settings.manage' },
+  { href: '/dashboard/alerts',   icon: Bell,        label: 'Alertas', perm: 'alerts.view' },
+  { href: '/dashboard/whatsapp', icon: Smartphone,  label: 'WhatsApp', perm: 'settings.manage' },
+  { href: '/dashboard/perfis',   icon: ShieldCheck, label: 'Perfis e Permissões', perm: 'settings.manage' },
+  { href: '/dashboard/settings', icon: Settings,    label: 'Configurações', perm: 'settings.manage' },
 ];
 
 const CADASTROS_PATHS = CADASTROS_NAV.map(n => n.href);
