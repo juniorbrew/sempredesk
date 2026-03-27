@@ -215,11 +215,11 @@ export class WhatsappService {
     ticket: { ticketNumber: string; assignedTo?: string | null },
   ): Promise<void> {
     // 1. Busca o nome fantasia da empresa atendente (tenant_settings)
-    const settingsRows = await this.dataSource.query<{ company_name: string | null }[]>(
-      `SELECT company_name FROM tenant_settings WHERE tenant_id::text = $1 LIMIT 1`,
+    const settingsRows = await this.dataSource.query<{ companyName: string | null }[]>(
+      `SELECT "companyName" FROM tenant_settings WHERE tenant_id::text = $1 LIMIT 1`,
       [tenantId],
     ).catch(() => []);
-    const companyName = settingsRows[0]?.company_name || 'nosso suporte';
+    const companyName = settingsRows[0]?.companyName || 'nosso suporte';
 
     // 2. Busca o nome do agente atribuído (se houver)
     let agentName: string | null = null;
@@ -251,7 +251,7 @@ export class WhatsappService {
       .replace(/{contato}/g, contactName)
       .replace(/{empresa_atendente}/g, companyName)
       .replace(/{agente}/g, agentName ?? '')
-      .replace(/{numero_ticket}/g, ticket.ticketNumber);
+      .replace(/{numero_ticket}/g, ticket.ticketNumber.replace(/^#/, ''));
 
     // 5. Envia via Baileys ou Meta (mesma lógica de sendReplyFromTicket)
     if (this.baileysService) {
@@ -304,7 +304,8 @@ export class WhatsappService {
 
     if (ticket.conversationId) {
       try {
-        await this.conversationsService.addMessage(tenantId, ticket.conversationId, authorId, authorName, 'user', text);
+        // skipOutbound=true: mensagem já foi enviada acima via Baileys/Meta, não reenviar
+        await this.conversationsService.addMessage(tenantId, ticket.conversationId, authorId, authorName, 'user', text, { skipOutbound: true });
       } catch {
         // Conversation may already be closed; WhatsApp message was still delivered
       }

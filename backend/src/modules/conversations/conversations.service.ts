@@ -404,6 +404,7 @@ export class ConversationsService {
     authorName: string,
     authorType: 'contact' | 'user',
     content: string,
+    opts?: { skipOutbound?: boolean },
   ): Promise<ConversationMessage> {
     const conv = await this.findOne(tenantId, conversationId);
     if (conv.status === ConversationStatus.CLOSED) {
@@ -430,7 +431,8 @@ export class ConversationsService {
     });
 
     // Envia via WhatsApp quando é mensagem do agente em conversa WhatsApp
-    if (authorType === 'user' && conv.channel === ConversationChannel.WHATSAPP && this.outboundSender) {
+    // skipOutbound=true quando o envio já foi feito pelo chamador (ex.: sendReplyFromTicket)
+    if (!opts?.skipOutbound && authorType === 'user' && conv.channel === ConversationChannel.WHATSAPP && this.outboundSender) {
       try {
         const contact = await this.customersService.findContactById(tenantId, conv.contactId);
         if (contact?.whatsapp) {
