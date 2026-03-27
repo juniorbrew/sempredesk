@@ -304,8 +304,14 @@ export class WhatsappService {
 
     if (ticket.conversationId) {
       try {
-        // skipOutbound=true: mensagem já foi enviada acima via Baileys/Meta, não reenviar
-        await this.conversationsService.addMessage(tenantId, ticket.conversationId, authorId, authorName, 'user', text, { skipOutbound: true });
+        // skipOutbound=true: mensagem já foi enviada acima via Baileys/Meta, não reenviar.
+        // initialWhatsappStatus: reflete o resultado real do envio para o frontend exibir
+        // o ícone correto via socket sem necessitar reload.
+        await this.conversationsService.addMessage(
+          tenantId, ticket.conversationId, authorId, authorName, 'user', text,
+          // Se chegamos aqui sem exceção, o envio via Baileys ou Meta API foi bem-sucedido
+          { skipOutbound: true, initialWhatsappStatus: 'sent' },
+        );
       } catch {
         // Conversation may already be closed; WhatsApp message was still delivered
       }

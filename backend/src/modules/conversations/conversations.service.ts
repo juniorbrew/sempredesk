@@ -404,7 +404,7 @@ export class ConversationsService {
     authorName: string,
     authorType: 'contact' | 'user',
     content: string,
-    opts?: { skipOutbound?: boolean },
+    opts?: { skipOutbound?: boolean; initialWhatsappStatus?: string },
   ): Promise<ConversationMessage> {
     const conv = await this.findOne(tenantId, conversationId);
     if (conv.status === ConversationStatus.CLOSED) {
@@ -417,18 +417,27 @@ export class ConversationsService {
       authorName,
       authorType,
       content,
+      // Status inicial fornecido pelo chamador (ex: sendReplyFromTicket já enviou via Baileys)
+      whatsappStatus: opts?.initialWhatsappStatus ?? null,
     });
     const saved = await this.msgRepo.save(msg);
     await this.updateLastMessageAt(tenantId, conversationId);
-    this.realtimeEmitter.emitNewConversationMessage(conversationId, {
-      id: saved.id,
-      conversationId: saved.conversationId,
-      authorId: saved.authorId,
-      authorType: saved.authorType,
-      authorName: saved.authorName,
-      content: saved.content,
-      createdAt: saved.createdAt,
-    });
+
+    // Helper: emite evento de mensagem incluindo campos de status
+    const emitMsg = (statusOverride?: string) =>
+      this.realtimeEmitter.emitNewConversationMessage(conversationId, {
+        id: saved.id,
+        conversationId: saved.conversationId,
+        authorId: saved.authorId,
+        authorType: saved.authorType,
+        authorName: saved.authorName,
+        content: saved.content,
+        createdAt: saved.createdAt,
+        whatsappStatus: statusOverride ?? saved.whatsappStatus,
+        externalId: saved.externalId ?? null,
+      });
+
+    emitMsg(); // emit inicial com o status que foi salvo
 
     // Envia via WhatsApp quando é mensagem do agente em conversa WhatsApp
     // skipOutbound=true quando o envio já foi feito pelo chamador (ex.: sendReplyFromTicket)
@@ -443,15 +452,19 @@ export class ConversationsService {
             await this.msgRepo.update(saved.id, { externalId, whatsappStatus: 'sent' });
             saved.externalId = externalId;
             saved.whatsappStatus = 'sent';
+            // Re-emite com status atualizado para o frontend atualizar o ícone sem reload
+            emitMsg('sent');
           } else {
             await this.msgRepo.update(saved.id, { whatsappStatus: 'failed' });
             saved.whatsappStatus = 'failed';
+            emitMsg('failed');
             console.warn(`[ConversationsService] Mensagem salva mas envio WhatsApp falhou (conv=${conversationId}): ${sendResult.error ?? 'sem detalhes'}`);
           }
         }
       } catch (e) {
         // Falha no envio WhatsApp não deve impedir o salvamento da mensagem
         await this.msgRepo.update(saved.id, { whatsappStatus: 'failed' }).catch(() => {});
+        emitMsg('failed');
         console.error('[ConversationsService] Falha ao enviar mensagem outbound WhatsApp:', e);
       }
     }
