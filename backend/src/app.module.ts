@@ -54,7 +54,7 @@ import { AttendanceService } from './modules/attendance/attendance.service';
         password: cfg.get('DB_PASSWORD', 'suporte123'),
         database: cfg.get('DB_NAME', 'suporte_tecnico'),
         entities: [__dirname + '/**/*.entity{.ts,.js}'],
-        synchronize: true,
+        synchronize: cfg.get('NODE_ENV') !== 'production',
         logging: false,
         ssl: cfg.get('DB_SSL') === 'true' ? { rejectUnauthorized: false } : false,
         extra: { max: 20 },
