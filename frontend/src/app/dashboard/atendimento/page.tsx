@@ -691,14 +691,27 @@ export default function AtendimentoPage() {
       // Tenta substituir a mensagem otimista pela real retornada pela API
       const real = res?.id ? res : (res?.data?.id ? res.data : null);
       if (real?.id) {
+        // API retornou a mensagem criada — substitui o otimista pelo objeto real.
+        // O realtime também vai entregar via socket; o dedup por ID (linha ≈778) cuidará disso.
         setMessages(m => m.map(msg => msg.id === tempId ? { ...real } : msg));
       } else {
-        // API não retornou objeto de mensagem (ex: sendWhatsappFromTicket) — recarrega a lista
+        // API não retornou objeto de mensagem (ex: sendWhatsappFromTicket).
+        // O realtime já substituiu o otimista (via findIndex _optimistic).
+        // Remove o otimista caso o socket não tenha chegado ainda, e recarrega como segurança.
+        setMessages(m => {
+          const stillHasOpt = m.some(x => x.id === tempId);
+          if (!stillHasOpt) return m; // realtime já cuidou — não mexe
+          return m.filter(msg => msg.id !== tempId); // remove otimista órfão
+        });
+        // Reload de segurança: só busca se o otimista não foi substituído pelo realtime
         const fresh = isTicketType && ticketId
           ? (await api.getMessages(ticketId, false).catch(() => null))
           : (await api.getConversationMessages(selected.id).catch(() => null));
-        if (fresh) setMessages(Array.isArray(fresh) ? fresh : (fresh as any)?.data ?? []);
-        else setMessages(m => m.filter(msg => msg.id !== tempId)); // remove otimista se reload falhou
+        if (fresh) {
+          const arr = Array.isArray(fresh) ? fresh : (fresh as any)?.data ?? [];
+          // Só aplica se não há otimista pendente (evita sobrescrever estado já correto)
+          setMessages(m => m.some((x: any) => x._optimistic) ? m : arr);
+        }
       }
     } catch (e: any) {
       // Marca mensagem otimista como erro em vez de removê-la
@@ -774,8 +787,20 @@ export default function AtendimentoPage() {
   useRealtimeConversation(conversationIdForRealtime ?? null, (msg) => {
     if (!msg || !selected) return;
     setMessages((m) => {
+      // 1. Já existe → atualiza em-place (ex: atualização de status)
       const exists = m.some((x: any) => String(x.id) === String(msg.id));
       if (exists) return m.map((x: any) => (String(x.id) === String(msg.id) ? { ...x, ...msg } : x));
+      // 2. Mensagem do agente chegou via socket enquanto otimista ainda está na lista
+      //    → substitui o primeiro otimista em vez de duplicar
+      if (msg.authorType === 'user') {
+        const optIdx = m.findIndex((x: any) => x._optimistic === true);
+        if (optIdx >= 0) {
+          const next = [...m];
+          next[optIdx] = { ...msg };
+          return next;
+        }
+      }
+      // 3. Mensagem nova do contato (ou sem otimista) → adiciona ao final
       return [...m, msg];
     });
   });
@@ -785,6 +810,14 @@ export default function AtendimentoPage() {
     setMessages((m) => {
       const exists = m.some((x: any) => String(x.id) === String(msg.id));
       if (exists) return m.map((x: any) => (String(x.id) === String(msg.id) ? { ...x, ...msg } : x));
+      if (msg.authorType === 'user') {
+        const optIdx = m.findIndex((x: any) => x._optimistic === true);
+        if (optIdx >= 0) {
+          const next = [...m];
+          next[optIdx] = { ...msg };
+          return next;
+        }
+      }
       return [...m, msg];
     });
   });
