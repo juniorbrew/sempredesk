@@ -127,18 +127,20 @@ services:
       - backend
 
   # ─────────────────────────────────────────
-  # Portal do Cliente (React + Vite)
+  # Portal do Cliente (React + Vite) — LEGADO
+  # Desativado: o portal oficial está em frontend/ (Next.js).
+  # Para reativar, remova os '#' abaixo.
   # ─────────────────────────────────────────
-  portal:
-    build:
-      context: ./portal
-      dockerfile: Dockerfile
-    container_name: suporte_portal
-    restart: unless-stopped
-    ports:
-      - "3002:80"
-    depends_on:
-      - backend
+  # portal:
+  #   build:
+  #     context: ./portal
+  #     dockerfile: Dockerfile
+  #   container_name: suporte_portal
+  #   restart: unless-stopped
+  #   ports:
+  #     - "3002:80"
+  #   depends_on:
+  #     - backend
 
   # ─────────────────────────────────────────
   # Nginx (Reverse Proxy)
