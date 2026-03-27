@@ -11,8 +11,26 @@ import { RealtimeEmitterService } from '../realtime/realtime-emitter.service';
 @Injectable()
 export class ConversationsService {
   /** Setter para ChatbotService — injetado via AppModule.onModuleInit (evita circular dep) */
-  private chatbotService: { resetSession(tenantId: string, identifier: string, channel?: string): Promise<void> } | null = null;
-  setChatbotService(svc: { resetSession(tenantId: string, identifier: string, channel?: string): Promise<void> }) {
+  private chatbotService: {
+    resetSession(tenantId: string, identifier: string, channel?: string): Promise<void>;
+    initiateRating(
+      tenantId: string,
+      identifier: string,
+      ticketId: string,
+      channel: string,
+      outboundSend: (text: string) => Promise<void>,
+    ): Promise<void>;
+  } | null = null;
+  setChatbotService(svc: {
+    resetSession(tenantId: string, identifier: string, channel?: string): Promise<void>;
+    initiateRating(
+      tenantId: string,
+      identifier: string,
+      ticketId: string,
+      channel: string,
+      outboundSend: (text: string) => Promise<void>,
+    ): Promise<void>;
+  }) {
     this.chatbotService = svc;
   }
 
@@ -42,7 +60,7 @@ export class ConversationsService {
     contactId: string,
     channel: ConversationChannel,
     opts?: { chatAlert?: boolean; firstMessage?: string; contactName?: string; department?: string },
-  ): Promise<{ conversation: Conversation; ticket: any }> {
+  ): Promise<{ conversation: Conversation; ticket: any; ticketCreated: boolean }> {
     const active = await this.convRepo.findOne({
       where: {
         tenantId,
@@ -54,7 +72,7 @@ export class ConversationsService {
     });
     if (active?.ticketId) {
       const ticket = await this.ticketsService.findOne(tenantId, active.ticketId);
-      return { conversation: active, ticket };
+      return { conversation: active, ticket, ticketCreated: false };
     }
     if (active && !active.ticketId) {
       const contact = await this.customersService.findContactById(tenantId, contactId);
@@ -64,9 +82,10 @@ export class ConversationsService {
       );
       active.ticketId = ticket.id;
       await this.convRepo.save(active);
-      return { conversation: active, ticket };
+      return { conversation: active, ticket, ticketCreated: true };
     }
-    return this.startConversation(tenantId, clientId, contactId, channel, opts as any);
+    const result = await this.startConversation(tenantId, clientId, contactId, channel, opts as any);
+    return { ...result, ticketCreated: true };
   }
 
   /**
@@ -511,14 +530,29 @@ export class ConversationsService {
     conv.status = ConversationStatus.CLOSED;
     await this.convRepo.save(conv);
 
-    // Resetar sessão do chatbot para WhatsApp — próxima msg inicia novo atendimento
+    // WhatsApp: ao encerrar o atendimento formalmente, dispara avaliação ao cliente.
+    // Se o atendimento não foi encerrado (keepTicketOpen), apenas reseta a sessão.
     if (conv.channel === ConversationChannel.WHATSAPP && this.chatbotService) {
       const contact = conv.contactId
         ? await this.customersService.findContactById(tenantId, conv.contactId).catch(() => null)
         : null;
       const identifier = (contact as any)?.whatsapp ?? null;
+
       if (identifier) {
-        this.chatbotService.resetSession(tenantId, identifier, 'whatsapp').catch(() => {});
+        const deveAvaliar = !keepTicketOpen && !!ticketId && !!this.outboundSender;
+        if (deveAvaliar) {
+          const sender = this.outboundSender!;
+          this.chatbotService
+            .initiateRating(tenantId, identifier, ticketId!, 'whatsapp', async (text) => {
+              await sender(tenantId, identifier, text);
+            })
+            .catch(() => {
+              // Fallback: se avaliação falhar, apenas reseta a sessão
+              this.chatbotService!.resetSession(tenantId, identifier, 'whatsapp').catch(() => {});
+            });
+        } else {
+          this.chatbotService.resetSession(tenantId, identifier, 'whatsapp').catch(() => {});
+        }
       }
     }
 

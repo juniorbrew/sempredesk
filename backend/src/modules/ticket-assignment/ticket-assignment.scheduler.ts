@@ -47,15 +47,21 @@ export class TicketAssignmentScheduler {
       const tenantIds = await this.presenceService.getTenantIdsAsync();
 
       for (const tenantId of tenantIds) {
-        const { onlineIds } = await this.presenceService.getOnlineIdsAndStatus(tenantId);
-        const current = new Set(onlineIds);
+        const { statusMap } = await this.presenceService.getOnlineIdsAndStatus(tenantId);
+
+        // Snapshot de agentes DISPONÍVEIS: apenas 'online' (away/busy = indisponíveis)
+        const current = new Set(
+          Object.entries(statusMap)
+            .filter(([, s]) => s === 'online')
+            .map(([uid]) => uid),
+        );
         const prev = this.previousOnline.get(tenantId) ?? new Set<string>();
 
-        // Agentes que ficaram offline
+        // Agentes que ficaram indisponíveis (offline/away/busy) → devolver tickets
         for (const userId of prev) {
           if (!current.has(userId)) {
             this.logger.log(
-              `[redis-diff] offline: userId=${userId} tenant=${tenantId}`,
+              `[redis-diff] indisponível: userId=${userId} tenant=${tenantId} status=${statusMap[userId] ?? 'desconhecido'}`,
             );
             await this.assignmentService
               .redistributeOnAgentOffline(tenantId, userId)
@@ -68,11 +74,11 @@ export class TicketAssignmentScheduler {
           }
         }
 
-        // Agentes que ficaram online
+        // Agentes que ficaram disponíveis (online) → receber tickets
         for (const userId of current) {
           if (!prev.has(userId)) {
             this.logger.log(
-              `[redis-diff] online: userId=${userId} tenant=${tenantId}`,
+              `[redis-diff] disponível: userId=${userId} tenant=${tenantId}`,
             );
             await this.assignmentService
               .rebalanceOnAgentOnline(tenantId, userId)

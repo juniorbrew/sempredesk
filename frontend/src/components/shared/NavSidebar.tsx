@@ -4,7 +4,7 @@ import {
   LayoutDashboard, MessageCircle, MessageSquare, Ticket,
   Users, Users2, FileText, Monitor, BookOpen, BarChart2,
   Settings, Smartphone, LogOut, Headphones, ChevronRight, Bell,
-  Network, FolderTree, Tag, Layers, ShieldCheck, Database,
+  Network, FolderTree, Tag, Layers, Database,
   Activity,
 } from 'lucide-react';
 import { useAuthStore, hasPermission } from '@/store/auth.store';
@@ -35,10 +35,9 @@ const CADASTROS_ITEMS = [
 ];
 
 const BOTTOM_ITEMS = [
-  { href: '/dashboard/alerts',   icon: Bell,        label: 'Alertas',             perm: 'alerts.view' },
-  { href: '/dashboard/whatsapp', icon: Smartphone,  label: 'WhatsApp',            perm: 'settings.manage' },
-  { href: '/dashboard/perfis',   icon: ShieldCheck, label: 'Perfis e Permissões', perm: 'settings.manage' },
-  { href: '/dashboard/settings', icon: Settings,    label: 'Configurações',        perm: 'settings.manage' },
+  { href: '/dashboard/alerts',   icon: Bell,       label: 'Alertas',      perm: 'alerts.view' },
+  { href: '/dashboard/whatsapp', icon: Smartphone, label: 'WhatsApp',     perm: 'settings.manage' },
+  { href: '/dashboard/settings', icon: Settings,   label: 'Configurações', perm: 'settings.manage' },
 ];
 
 const CADASTROS_PATHS = CADASTROS_ITEMS.map(n => n.href);

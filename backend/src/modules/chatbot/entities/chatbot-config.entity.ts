@@ -58,6 +58,48 @@ export class ChatbotConfig {
   @Column({ name: 'description_timeout_minutes', default: 3 })
   descriptionTimeoutMinutes: number;
 
+  /**
+   * Mensagem enviada ao cliente logo após a criação do ticket, quando há agente atribuído.
+   * Variáveis: {contato}, {empresa_atendente}, {agente}, {numero_ticket}
+   */
+  @Column({
+    name: 'post_ticket_message',
+    type: 'text',
+    nullable: true,
+    default: null,
+  })
+  postTicketMessage: string | null;
+
+  /**
+   * Mensagem enviada ao cliente logo após a criação do ticket, quando não há agente atribuído.
+   * Variáveis: {contato}, {empresa_atendente}, {numero_ticket}
+   */
+  @Column({
+    name: 'post_ticket_message_no_agent',
+    type: 'text',
+    nullable: true,
+    default: null,
+  })
+  postTicketMessageNoAgent: string | null;
+
+  /**
+   * Mensagem de solicitação de avaliação enviada ao fechar o atendimento.
+   * Aguarda resposta numérica 1–5.
+   */
+  @Column({ name: 'rating_request_message', type: 'text', nullable: true, default: null })
+  ratingRequestMessage: string | null;
+
+  /**
+   * Mensagem enviada após a nota, solicitando comentário opcional.
+   * Palavras como "pular" / "não" encerram sem comentário.
+   */
+  @Column({ name: 'rating_comment_message', type: 'text', nullable: true, default: null })
+  ratingCommentMessage: string | null;
+
+  /** Mensagem de agradecimento após conclusão da avaliação. */
+  @Column({ name: 'rating_thanks_message', type: 'text', nullable: true, default: null })
+  ratingThanksMessage: string | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

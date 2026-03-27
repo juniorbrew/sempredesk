@@ -121,6 +121,14 @@ export class Ticket {
   @Column({ name: 'satisfaction_at', type: 'timestamptz', nullable: true })
   satisfactionAt: Date | null;
 
+  /** Nota de 1 a 5 enviada pelo cliente via WhatsApp ao final do atendimento */
+  @Column({ name: 'satisfaction_rating', type: 'int', nullable: true })
+  satisfactionRating: number | null;
+
+  /** Comentário opcional vinculado à avaliação numérica */
+  @Column({ name: 'satisfaction_comment', type: 'text', nullable: true })
+  satisfactionComment: string | null;
+
   /** true → agente optou por não vincular o contato a um cliente real */
   @Column({ name: 'unlinked_contact', default: false })
   unlinkedContact: boolean;

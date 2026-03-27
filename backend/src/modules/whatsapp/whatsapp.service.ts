@@ -1,5 +1,7 @@
 import { Injectable, Logger, BadRequestException, Optional } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 import { firstValueFrom } from 'rxjs';
 import { CustomersService } from '../customers/customers.service';
 import { TicketsService } from '../tickets/tickets.service';
@@ -33,6 +35,7 @@ export class WhatsappService {
     @Optional() private readonly presenceService: RealtimePresenceService,
     @Optional() private readonly baileysService: BaileysService,
     @Optional() private readonly chatbotService: ChatbotService,
+    @InjectDataSource() private readonly dataSource: DataSource,
   ) {}
 
   normalizeGenericPayload(body: any): NormalizedWhatsappMessage | null {
@@ -155,7 +158,7 @@ export class WhatsappService {
     // clientId: prioriza o identificado pelo chatbot (CNPJ), depois o já vinculado ao contato
     const resolvedClientId = chatbotClientId ?? contact.clientId ?? null;
 
-    const { conversation, ticket } = await this.conversationsService.getOrCreateForContact(
+    const { conversation, ticket, ticketCreated } = await this.conversationsService.getOrCreateForContact(
       tenantId,
       resolvedClientId,
       contact.id,
@@ -186,25 +189,77 @@ export class WhatsappService {
       }
     }
 
-    // Auto-assign to least-loaded online agent when ticket has no assignee
-    if (ticket && !ticket.assignedTo && this.presenceService) {
-      try {
-        const { statusMap } = await this.presenceService.getOnlineIdsAndStatus(tenantId);
-        const onlineAgentIds = Object.entries(statusMap)
-          .filter(([, status]) => status === 'online')
-          .map(([id]) => id);
-        if (onlineAgentIds.length > 0) {
-          const assignedTo = await this.ticketsService.assignToLeastLoadedAgent(tenantId, ticket.id, onlineAgentIds);
-          if (assignedTo) {
-            this.logger.log(`WhatsApp ticket ${ticket.id} auto-assigned to agent ${assignedTo}`);
-          }
-        }
-      } catch (e) {
-        this.logger.warn('Failed to auto-assign WhatsApp ticket', e);
-      }
+    // A atribuição automática já é feita via round-robin em TicketsService.create()
+    // (assignmentSvc.assignTicket). Não duplicar aqui com least-loaded.
+
+    // Envia mensagem automática ao cliente somente quando um novo ticket foi criado
+    if (ticketCreated && ticket) {
+      this.sendPostTicketMessage(tenantId, wa, contact, ticket).catch((e) =>
+        this.logger.warn(`Falha ao enviar mensagem pós-ticket #${ticket.ticketNumber}`, e),
+      );
     }
 
     return { created: true, ticketId: ticket.id };
+  }
+
+  /**
+   * Monta e envia a mensagem automática ao cliente logo após a criação do ticket.
+   * Usa o template configurado em ChatbotConfig, com fallback para o texto padrão.
+   * Versão com agente: {contato}, {empresa_atendente}, {agente}, {numero_ticket}
+   * Versão sem agente: {contato}, {empresa_atendente}, {numero_ticket}
+   */
+  private async sendPostTicketMessage(
+    tenantId: string,
+    wa: string,
+    contact: { name?: string | null; email?: string | null },
+    ticket: { ticketNumber: string; assignedTo?: string | null },
+  ): Promise<void> {
+    // 1. Busca o nome fantasia da empresa atendente (tenant_settings)
+    const settingsRows = await this.dataSource.query<{ company_name: string | null }[]>(
+      `SELECT company_name FROM tenant_settings WHERE tenant_id::text = $1 LIMIT 1`,
+      [tenantId],
+    ).catch(() => []);
+    const companyName = settingsRows[0]?.company_name || 'nosso suporte';
+
+    // 2. Busca o nome do agente atribuído (se houver)
+    let agentName: string | null = null;
+    if (ticket.assignedTo) {
+      const agentRows = await this.dataSource.query<{ name: string }[]>(
+        `SELECT name FROM users WHERE id::text = $1 AND tenant_id::text = $2 LIMIT 1`,
+        [ticket.assignedTo, tenantId],
+      ).catch(() => []);
+      agentName = agentRows[0]?.name ?? null;
+    }
+
+    // 3. Busca o template configurado no chatbot (ou usa padrão)
+    const DEFAULT_WITH_AGENT =
+      'Olá, {contato}.\n\nBem-vindo(a) ao suporte da {empresa_atendente}.\n\nMeu nome é {agente} e estarei à disposição para ajudar.\n\n📌 O número do seu ticket é #{numero_ticket}.\n\nComo posso te auxiliar?';
+    const DEFAULT_NO_AGENT =
+      'Olá, {contato}.\n\nBem-vindo(a) ao suporte da {empresa_atendente}.\n\nSeu atendimento foi iniciado com sucesso.\n\n📌 O número do seu ticket é #{numero_ticket}.\n\nEm instantes um atendente dará continuidade.';
+
+    const config = this.chatbotService
+      ? await this.chatbotService.getOrCreateConfig(tenantId).catch(() => null)
+      : null;
+
+    const template = agentName
+      ? (config?.postTicketMessage || DEFAULT_WITH_AGENT)
+      : (config?.postTicketMessageNoAgent || DEFAULT_NO_AGENT);
+
+    // 4. Interpola as variáveis
+    const contactName = contact.name || contact.email || 'cliente';
+    const message = template
+      .replace(/{contato}/g, contactName)
+      .replace(/{empresa_atendente}/g, companyName)
+      .replace(/{agente}/g, agentName ?? '')
+      .replace(/{numero_ticket}/g, ticket.ticketNumber);
+
+    // 5. Envia via Baileys ou Meta (mesma lógica de sendReplyFromTicket)
+    if (this.baileysService) {
+      const result = await this.baileysService.sendMessage(tenantId, wa, message).catch(() => ({ success: false }));
+      if (result.success) return;
+      this.logger.warn(`[postTicketMessage] Baileys falhou, tentando Meta API`);
+    }
+    await this.sendWhatsappMessage(wa, message);
   }
 
   /**

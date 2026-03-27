@@ -6,7 +6,7 @@ import {
   Network, LayoutDashboard, Ticket, Users, FileText, Monitor,
   Users2, BookOpen, Bell, Settings, LogOut, Headphones,
   FolderTree, Tag, Layers, ChevronDown, Database, MessageCircle, BarChart2,
-  Sun, Moon, MessageSquare, ShieldCheck, Smartphone,
+  Sun, Moon, MessageSquare, Smartphone,
 } from 'lucide-react';
 import { useAuthStore, hasPermission } from '@/store/auth.store';
 import { useTheme } from '@/components/ThemeProvider';
@@ -34,10 +34,9 @@ const CADASTROS_NAV = [
 ];
 
 const BOTTOM_NAV = [
-  { href: '/dashboard/alerts',   icon: Bell,        label: 'Alertas', perm: 'alerts.view' },
-  { href: '/dashboard/whatsapp', icon: Smartphone,  label: 'WhatsApp', perm: 'settings.manage' },
-  { href: '/dashboard/perfis',   icon: ShieldCheck, label: 'Perfis e Permissões', perm: 'settings.manage' },
-  { href: '/dashboard/settings', icon: Settings,    label: 'Configurações', perm: 'settings.manage' },
+  { href: '/dashboard/alerts',   icon: Bell,       label: 'Alertas', perm: 'alerts.view' },
+  { href: '/dashboard/whatsapp', icon: Smartphone, label: 'WhatsApp', perm: 'settings.manage' },
+  { href: '/dashboard/settings', icon: Settings,   label: 'Configurações', perm: 'settings.manage' },
 ];
 
 const CADASTROS_PATHS = CADASTROS_NAV.map(n => n.href);

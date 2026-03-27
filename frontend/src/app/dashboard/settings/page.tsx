@@ -4,9 +4,10 @@ import { api } from '@/lib/api';
 import {
   Building2, Mail, Clock, Palette, User, Save, RefreshCw, CheckCircle,
   Eye, EyeOff, Send, ChevronRight, Lock, Bell, Key, Plus,
-  Trash2, Edit2, Copy, Shield, Globe, Inbox, Bot,
+  Trash2, Edit2, Copy, Shield, ShieldCheck, Globe, Inbox, Bot,
   ToggleLeft, ToggleRight, ChevronUp, ChevronDown, MessageSquare, Zap, Smartphone, Users,
 } from 'lucide-react';
+import PerfisPage from '../perfis/page';
 
 // ─── Chatbot types ────────────────────────────────────────────────────────────
 interface ChatbotConfig {
@@ -14,6 +15,11 @@ interface ChatbotConfig {
   enabled: boolean; channelWhatsapp: boolean; channelWeb: boolean; channelPortal: boolean;
   transferMessage: string; noAgentMessage: string; invalidOptionMessage: string;
   sessionTimeoutMinutes: number; menuItems?: ChatbotMenuItem[];
+  postTicketMessage?: string | null;
+  postTicketMessageNoAgent?: string | null;
+  ratingRequestMessage?: string | null;
+  ratingCommentMessage?: string | null;
+  ratingThanksMessage?: string | null;
 }
 interface ChatbotMenuItem {
   id?: string; order: number; label: string; action: 'auto_reply' | 'transfer';
@@ -74,7 +80,7 @@ function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<Settings>(DEFAULT);
   const [profile, setProfile] = useState({ name:'', email:'', phone:'', currentPassword:'', newPassword:'', confirmPassword:'' });
-  const [tab, setTab] = useState<'company'|'smtp'|'sla'|'visual'|'profile'|'notifications'|'business_hours'|'routing'|'webhooks'|'apikeys'|'inbound_email'|'chatbot'>('company');
+  const [tab, setTab] = useState<'company'|'smtp'|'sla'|'visual'|'profile'|'perfis'|'notifications'|'business_hours'|'routing'|'webhooks'|'apikeys'|'inbound_email'|'chatbot'>('company');
   // Perfis (roles & permissions)
   const [allPerms, setAllPerms] = useState<Record<string, any[]>>({});
   const [roles, setRoles] = useState<any[]>([]);
@@ -262,6 +268,7 @@ export default function SettingsPage() {
     { key:'apikeys', label:'Chaves de API', icon:Key },
     { key:'inbound_email', label:'E-mail Recebido', icon:Inbox },
     { key:'chatbot', label:'Chatbot', icon:Bot },
+    { key:'perfis', label:'Perfis e Permissões', icon:ShieldCheck },
     { key:'profile', label:'Meu perfil', icon:User },
   ] as const;
 
@@ -274,7 +281,7 @@ export default function SettingsPage() {
           <h1 className="page-title">Configurações</h1>
           <p className="page-subtitle">Gerencie as configurações do sistema</p>
         </div>
-        {!['profile','routing','webhooks','apikeys','inbound_email','chatbot'].includes(tab) && (
+        {!['profile','perfis','routing','webhooks','apikeys','inbound_email','chatbot'].includes(tab) && (
           <button onClick={handleSave} disabled={saving} className="btn-primary">
             {saving ? <RefreshCw className="w-4 h-4 animate-spin" /> : saved ? <CheckCircle className="w-4 h-4" /> : <Save className="w-4 h-4" />}
             {saved ? 'Salvo!' : 'Salvar alterações'}
@@ -741,6 +748,54 @@ X-Api-Secret: {INBOUND_EMAIL_SECRET}`}</pre>
                   <Field label="Sem atendente disponível"><textarea value={botConfig.noAgentMessage} onChange={e=>setBotConfig(c=>({...c,noAgentMessage:e.target.value}))} className="input" rows={2} style={{ resize:'vertical' }} /></Field>
                   <Field label="Opção inválida"><input value={botConfig.invalidOptionMessage} onChange={e=>setBotConfig(c=>({...c,invalidOptionMessage:e.target.value}))} className="input" /></Field>
                   <Field label="Timeout de sessão (min)"><input type="number" min={5} max={240} value={botConfig.sessionTimeoutMinutes} onChange={e=>setBotConfig(c=>({...c,sessionTimeoutMinutes:parseInt(e.target.value)||30}))} className="input" style={{ width:90 }} /></Field>
+                  <Field label="Mensagem após abertura do ticket (com agente)" hint="Variáveis: {contato}, {empresa_atendente}, {agente}, {numero_ticket}">
+                    <textarea
+                      value={botConfig.postTicketMessage ?? ''}
+                      onChange={e=>setBotConfig(c=>({...c,postTicketMessage:e.target.value||null}))}
+                      className="input" rows={5} style={{ resize:'vertical' }}
+                      placeholder={'Olá, {contato}.\n\nBem-vindo(a) ao suporte da {empresa_atendente}.\n\nMeu nome é {agente} e estarei à disposição para ajudar.\n\n📌 O número do seu ticket é #{numero_ticket}.\n\nComo posso te auxiliar?'}
+                    />
+                  </Field>
+                  <Field label="Mensagem após abertura do ticket (sem agente)" hint="Variáveis: {contato}, {empresa_atendente}, {numero_ticket}">
+                    <textarea
+                      value={botConfig.postTicketMessageNoAgent ?? ''}
+                      onChange={e=>setBotConfig(c=>({...c,postTicketMessageNoAgent:e.target.value||null}))}
+                      className="input" rows={5} style={{ resize:'vertical' }}
+                      placeholder={'Olá, {contato}.\n\nBem-vindo(a) ao suporte da {empresa_atendente}.\n\nSeu atendimento foi iniciado com sucesso.\n\n📌 O número do seu ticket é #{numero_ticket}.\n\nEm instantes um atendente dará continuidade.'}
+                    />
+                  </Field>
+                </div>
+              </div>
+
+              {/* Avaliação */}
+              <div style={{ borderTop:'1px solid #F1F5F9', paddingTop:20 }}>
+                <p style={{ fontSize:13,fontWeight:700,color:'#374151',marginBottom:4 }}>Avaliação do atendimento</p>
+                <p style={{ fontSize:12,color:'#94A3B8',marginBottom:14 }}>Mensagens enviadas ao cliente após o encerramento do atendimento via WhatsApp</p>
+                <div className="space-y-4">
+                  <Field label="Solicitação de avaliação (nota 1–5)">
+                    <textarea
+                      value={botConfig.ratingRequestMessage ?? ''}
+                      onChange={e=>setBotConfig(c=>({...c,ratingRequestMessage:e.target.value||null}))}
+                      className="input" rows={6} style={{ resize:'vertical' }}
+                      placeholder={'Seu atendimento foi encerrado! Como você avalia nosso suporte?\n\n1 - ⭐ Muito ruim\n2 - ⭐⭐ Ruim\n3 - ⭐⭐⭐ Regular\n4 - ⭐⭐⭐⭐ Bom\n5 - ⭐⭐⭐⭐⭐ Excelente'}
+                    />
+                  </Field>
+                  <Field label="Pedido de comentário opcional" hint='Palavras como "pular" encerram sem comentário'>
+                    <textarea
+                      value={botConfig.ratingCommentMessage ?? ''}
+                      onChange={e=>setBotConfig(c=>({...c,ratingCommentMessage:e.target.value||null}))}
+                      className="input" rows={3} style={{ resize:'vertical' }}
+                      placeholder={'Obrigado pela nota! 🙏 Gostaria de deixar um comentário? (Responda com o texto ou envie *pular* para finalizar.)'}
+                    />
+                  </Field>
+                  <Field label="Mensagem de agradecimento final">
+                    <textarea
+                      value={botConfig.ratingThanksMessage ?? ''}
+                      onChange={e=>setBotConfig(c=>({...c,ratingThanksMessage:e.target.value||null}))}
+                      className="input" rows={2} style={{ resize:'vertical' }}
+                      placeholder={'Obrigado pela avaliação! 😊 Até a próxima.'}
+                    />
+                  </Field>
                 </div>
               </div>
 
@@ -835,7 +890,8 @@ X-Api-Secret: {INBOUND_EMAIL_SECRET}`}</pre>
             </div>
           )}
 
-          {/* Perfis e Permissões — acessível via menu lateral Configurações → /dashboard/perfis */}
+          {/* Perfis e Permissões */}
+          {tab === 'perfis' && <PerfisPage />}
 
           {/* Profile */}
           {tab === 'profile' && (

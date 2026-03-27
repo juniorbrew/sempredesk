@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, MoreThan, LessThan } from 'typeorm';
+import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { Repository, MoreThan, LessThan, DataSource } from 'typeorm';
 import { ChatbotConfig } from './entities/chatbot-config.entity';
 import { ChatbotMenuItem } from './entities/chatbot-menu-item.entity';
 import { ChatbotSession } from './entities/chatbot-session.entity';
@@ -46,6 +46,7 @@ export class ChatbotService {
     @InjectRepository(ChatbotWidgetMessage) private widgetMsgRepo: Repository<ChatbotWidgetMessage>,
     @Optional() private readonly customersService: CustomersService,
     @Optional() private readonly conversationsService: ConversationsService,
+    @InjectDataSource() private readonly dataSource: DataSource,
   ) {}
 
   // ─── Config ────────────────────────────────────────────────────────────────
@@ -161,6 +162,47 @@ export class ChatbotService {
       return { handled: false, replies: [] };
     }
 
+    // ── Avaliação: aguardando nota 1–5 ────────────────────────────────────────
+    if (session.step === 'awaiting_rating') {
+      const nota = parseInt(text.trim(), 10);
+      if (isNaN(nota) || nota < 1 || nota > 5) {
+        await this.touchSession(session);
+        const aviso = 'Por favor, responda com um número de 1 a 5. 😊';
+        const pedido =
+          config.ratingRequestMessage ||
+          'Como você avalia nosso atendimento?\n\n1 - ⭐ Muito ruim\n2 - ⭐⭐ Ruim\n3 - ⭐⭐⭐ Regular\n4 - ⭐⭐⭐⭐ Bom\n5 - ⭐⭐⭐⭐⭐ Excelente';
+        return { handled: true, replies: [`${aviso}\n\n${pedido}`] };
+      }
+      // Nota válida → guarda na metadata e avança para comentário
+      session.metadata = { ...((session.metadata as Record<string, unknown>) ?? {}), rating: nota };
+      session.step = 'awaiting_rating_comment';
+      session.lastActivity = new Date();
+      await this.sessionRepo.save(session);
+      const msgComentario =
+        config.ratingCommentMessage ||
+        'Obrigado pela nota! 🙏 Gostaria de deixar um comentário? (Responda com o texto ou envie *pular* para finalizar.)';
+      return { handled: true, replies: [msgComentario] };
+    }
+
+    // ── Avaliação: aguardando comentário opcional ─────────────────────────────
+    if (session.step === 'awaiting_rating_comment') {
+      const meta = (session.metadata as Record<string, unknown>) ?? {};
+      const ticketId = meta.ticketId as string | undefined;
+      const rating   = meta.rating   as number | undefined;
+
+      const SKIP = ['pular', 'pulei', 'skip', 'não', 'nao', 'n', '0', '-', 'sem comentário', 'sem comentario'];
+      const comment = SKIP.includes(text.trim().toLowerCase()) ? null : text.trim();
+
+      if (ticketId && rating) {
+        await this.saveWhatsappRating(tenantId, ticketId, rating, comment ?? undefined).catch(() => {});
+      }
+      await this.sessionRepo.delete({ id: session.id });
+
+      const obrigado =
+        config.ratingThanksMessage || 'Obrigado pela avaliação! 😊 Até a próxima.';
+      return { handled: true, replies: [obrigado] };
+    }
+
     // Awaiting menu selection
     if (session.step === 'awaiting_menu') {
       const trimmed = text.trim();
@@ -262,7 +304,7 @@ export class ChatbotService {
       if (digits.length !== 14 && digits.length < 8) {
         if (this.customersService && text.trim().length >= 3) {
           const found = await this.customersService.searchByNameOrCnpj(tenantId, text.trim()).catch(() => []);
-          if (found.length === 1) return goToDesc(found[0].id, `Empresa identificada: *${found[0].companyName}*.\n`);
+          if (found.length === 1) return goToDesc(found[0].id, `Empresa identificada: *${found[0].tradeName || found[0].companyName}*.\n`);
         }
         if (attempts < 1) {
           session.metadata = { ...meta, cnpjAttempts: attempts + 1 };
@@ -279,7 +321,7 @@ export class ChatbotService {
       const match = results.find(r => normalizeCnpj(r.cnpj ?? '') === digits);
 
       if (match) {
-        return goToDesc(match.id, `Empresa identificada: *${match.companyName}*.\n`);
+        return goToDesc(match.id, `Empresa identificada: *${match.tradeName || match.companyName}*.\n`);
       }
 
       // Não encontrado — dar feedback contextualizado ao usuário
@@ -399,6 +441,66 @@ export class ChatbotService {
   /** Reset session so bot engages again (e.g. conversation closed) */
   async resetSession(tenantId: string, identifier: string, channel = 'whatsapp'): Promise<void> {
     await this.sessionRepo.delete({ tenantId, identifier, channel });
+  }
+
+  /**
+   * Inicia o fluxo de avaliação ao encerrar atendimento via WhatsApp.
+   * Define sessão como 'awaiting_rating' e dispara a mensagem de solicitação
+   * via callback outboundSend (fornecido por ConversationsService).
+   * Não reseta a sessão — o fluxo de avaliação tratará o encerramento.
+   */
+  async initiateRating(
+    tenantId: string,
+    identifier: string,
+    ticketId: string,
+    channel: string,
+    outboundSend: (text: string) => Promise<void>,
+  ): Promise<void> {
+    const config = await this.getOrCreateConfig(tenantId).catch(() => null);
+    const DEFAULT_REQUEST =
+      'Seu atendimento foi encerrado! Como você avalia nosso suporte?\n\n' +
+      '1 - ⭐ Muito ruim\n2 - ⭐⭐ Ruim\n3 - ⭐⭐⭐ Regular\n' +
+      '4 - ⭐⭐⭐⭐ Bom\n5 - ⭐⭐⭐⭐⭐ Excelente';
+    const message = config?.ratingRequestMessage || DEFAULT_REQUEST;
+
+    // Upsert session → awaiting_rating
+    let session = await this.sessionRepo.findOne({ where: { tenantId, identifier, channel } });
+    if (!session) {
+      session = this.sessionRepo.create({
+        tenantId, identifier, channel,
+        step: 'awaiting_rating',
+        metadata: { ticketId },
+        lastActivity: new Date(),
+      });
+    } else {
+      session.step = 'awaiting_rating';
+      session.metadata = { ...((session.metadata as Record<string, unknown>) ?? {}), ticketId };
+      session.lastActivity = new Date();
+    }
+    await this.sessionRepo.save(session);
+    await outboundSend(message);
+  }
+
+  /**
+   * Persiste a nota (1–5) e comentário opcional na tabela tickets.
+   * Ignora silenciosamente se o ticket já foi avaliado (prevenção de duplicidade).
+   */
+  private async saveWhatsappRating(
+    tenantId: string,
+    ticketId: string,
+    rating: number,
+    comment?: string,
+  ): Promise<void> {
+    await this.dataSource.query(
+      `UPDATE tickets
+          SET satisfaction_rating  = $1,
+              satisfaction_comment = $2,
+              satisfaction_at      = NOW()
+        WHERE id::text      = $3
+          AND tenant_id::text = $4
+          AND satisfaction_rating IS NULL`,
+      [rating, comment ?? null, ticketId, tenantId],
+    );
   }
 
   private async getActiveSession(

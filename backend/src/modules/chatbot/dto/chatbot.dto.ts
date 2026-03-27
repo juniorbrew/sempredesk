@@ -13,6 +13,11 @@ export class UpdateChatbotConfigDto {
   @IsString() @IsOptional() noAgentMessage?: string;
   @IsString() @IsOptional() invalidOptionMessage?: string;
   @IsNumber() @IsOptional() @Min(5) @Max(240) sessionTimeoutMinutes?: number;
+  @IsString() @IsOptional() postTicketMessage?: string | null;
+  @IsString() @IsOptional() postTicketMessageNoAgent?: string | null;
+  @IsString() @IsOptional() ratingRequestMessage?: string | null;
+  @IsString() @IsOptional() ratingCommentMessage?: string | null;
+  @IsString() @IsOptional() ratingThanksMessage?: string | null;
 }
 
 export class UpsertMenuItemDto {

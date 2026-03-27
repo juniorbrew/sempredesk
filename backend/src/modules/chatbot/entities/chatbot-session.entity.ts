@@ -16,7 +16,7 @@ export class ChatbotSession {
   @Column({ default: 'whatsapp' })
   channel: string;
 
-  /** 'welcome' | 'awaiting_menu' | 'awaiting_cnpj' | 'transferred' */
+  /** 'welcome' | 'awaiting_menu' | 'awaiting_cnpj' | 'awaiting_description' | 'transferred' | 'awaiting_rating' | 'awaiting_rating_comment' */
   @Column({ default: 'welcome' })
   step: string;
 

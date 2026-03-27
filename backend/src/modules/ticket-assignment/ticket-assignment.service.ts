@@ -177,19 +177,20 @@ export class TicketAssignmentService {
       }
 
       // 4a. Presença via Redis (WebSocket — fonte primária)
+      // Apenas agentes com status 'online' recebem tickets; away/busy são ignorados
       const { statusMap } = await this.presenceService.getOnlineIdsAndStatus(tenantId);
       const redisOnlineSet = new Set(
         Object.entries(statusMap)
-          .filter(([, s]) => s !== 'offline')
+          .filter(([, s]) => s === 'online')
           .map(([id]) => id),
       );
 
       // 4b. Presença via DB (heartbeat HTTP — fallback com tolerância de 5 min)
+      // Idem: apenas 'online' (away/busy excluídos)
       const dbRows = await em.query<UserIdRow[]>(
         `SELECT id FROM users
           WHERE tenant_id = $1
-            AND presence_status IS NOT NULL
-            AND presence_status != 'offline'
+            AND presence_status = 'online'
             AND last_seen_at > NOW() - INTERVAL '5 minutes'`,
         [tenantId],
       );
@@ -376,10 +377,18 @@ export class TicketAssignmentService {
 
     this.logger.log(`[presence:status] userId=${userId} ${previous} → ${status}`);
 
-    // Dispara rebalance/redistribute assincronamente
-    if (previous === 'offline' && status !== 'offline') {
+    // Dispara rebalance/redistribute assincronamente.
+    // away e busy são tratados como indisponíveis: seus tickets voltam para a fila.
+    // Ao retornar para 'online' a partir de qualquer status indisponível, recebe tickets novos.
+    const UNAVAILABLE = ['offline', 'away', 'busy'];
+    const wasUnavailable = UNAVAILABLE.includes(previous ?? 'offline');
+    const isNowUnavailable = UNAVAILABLE.includes(status);
+
+    if (wasUnavailable && !isNowUnavailable) {
+      // ficou disponível → rebalancear (receber tickets não atribuídos)
       this.rebalanceOnAgentOnline(tenantId, userId).catch(() => {});
-    } else if (previous !== 'offline' && status === 'offline') {
+    } else if (!wasUnavailable && isNowUnavailable) {
+      // ficou indisponível → devolver tickets à fila
       this.redistributeOnAgentOffline(tenantId, userId).catch(() => {});
     }
 
