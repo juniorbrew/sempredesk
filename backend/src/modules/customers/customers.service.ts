@@ -396,12 +396,34 @@ export class CustomersService {
     });
   }
 
-  findContactByWhatsapp(tenantId: string, whatsapp: string) {
+  async findContactByWhatsapp(tenantId: string, whatsapp: string) {
     const normalized = normalizeWhatsappNumber(whatsapp) || whatsapp;
-    return this.contacts.findOne({
-      where: { tenantId, whatsapp: normalized, status: 'active' },
-      relations: ['client'],
-    });
+
+    // Busca por whatsapp OU pelo LID técnico armazenado em metadata
+    const contact = await this.contacts.createQueryBuilder('ct')
+      .leftJoinAndSelect('ct.client', 'client')
+      .where('ct.tenant_id = :tenantId', { tenantId })
+      .andWhere("ct.status = 'active'")
+      .andWhere(
+        "(ct.whatsapp = :normalized OR ct.metadata->>'whatsappLid' = :normalized)",
+        { normalized },
+      )
+      .getOne();
+
+    if (!contact) return null;
+
+    // Backfill automático: contato antigo com LID no campo whatsapp mas sem metadata.whatsappLid
+    if (
+      normalized.length >= 14 &&
+      contact.whatsapp === normalized &&
+      contact.metadata?.whatsappLid !== normalized
+    ) {
+      const updatedMeta = { ...(contact.metadata ?? {}), whatsappLid: normalized };
+      await this.contacts.update({ id: contact.id, tenantId }, { metadata: updatedMeta } as any);
+      contact.metadata = updatedMeta;
+    }
+
+    return contact;
   }
 
   findContactByEmail(tenantId: string, email: string) {
@@ -526,27 +548,34 @@ export class CustomersService {
   }
 
   async findOrCreateByWhatsapp(tenantId: string, phone: string, displayName?: string, isLid = false) {
-    // 1. Tenta encontrar contato existente pelo número (somente ativos)
-    const existing = await this.contacts.findOne({
-      where: { tenantId, whatsapp: phone, status: 'active' },
-      relations: ['client'],
-    });
-    if (existing) return existing;
+    const normalized = normalizeWhatsappNumber(phone) || phone;
+
+    // 1. Busca por whatsapp OU por metadata.whatsappLid (inclui contatos LID antigos)
+    const existing = await this.findContactByWhatsapp(tenantId, normalized);
+    if (existing) {
+      // Garante que metadata.whatsappLid está presente para contatos LID já existentes
+      if (isLid && existing.metadata?.whatsappLid !== normalized) {
+        const updatedMeta = { ...(existing.metadata ?? {}), whatsappLid: normalized };
+        await this.contacts.update({ id: existing.id, tenantId }, { metadata: updatedMeta } as any);
+        existing.metadata = updatedMeta;
+      }
+      return existing;
+    }
 
     // 2. Cria SOMENTE o contato — sem cliente temporário
-    // Se for LID (@lid JID), NÃO armazena como phone (pois não é número de telefone real).
-    // O campo whatsapp guarda o LID para roteamento de respostas.
-    // O agente vinculará ao cliente real durante o atendimento via ContactValidationBanner
+    // LID: mantém whatsapp preenchido para compatibilidade de roteamento,
+    // mas não salva como phone (não é número real) e registra em metadata.whatsappLid
     const contact = await this.contacts.save(
       this.contacts.create({
         tenantId,
         clientId: null as any,
-        name: displayName || (isLid ? 'WhatsApp' : `+${phone}`),
-        whatsapp: phone,
-        phone: isLid ? (null as any) : phone,
+        name: displayName || (isLid ? 'WhatsApp' : `+${normalized}`),
+        whatsapp: normalized,
+        phone: isLid ? (null as any) : normalized,
         preferredChannel: 'whatsapp',
         canOpenTickets: true,
         status: 'active',
+        metadata: isLid ? { whatsappLid: normalized } : {},
       }),
     );
     contact.client = null as any;

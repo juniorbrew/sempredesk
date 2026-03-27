@@ -76,6 +76,31 @@ const PLAN_COLORS: Record<string,string> = { enterprise:'#7C3AED', premium:'#D97
 const PLAN_BG: Record<string,string> = { enterprise:'#F5F3FF', premium:'#FFFBEB', standard:'#EFF6FF', basic:'#F8FAFC' };
 const STATES = ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'];
 
+// ── Helpers: separação LID técnico vs número visível ─────────────────────────
+/** True se o whatsapp armazenado é um LID técnico (não é número de telefone visível) */
+function isTechnicalWhatsapp(contact: any): boolean {
+  if (!contact?.whatsapp) return false;
+  const digits = (contact.whatsapp as string).replace(/\D/g, '');
+  if (contact.metadata?.whatsappLid === contact.whatsapp) return true;
+  if (digits.length >= 14 && !contact.phone) return true;
+  return false;
+}
+/** Retorna o número visível/negocial — nunca retorna LID */
+function getVisibleWhatsapp(contact: any): string {
+  if (!contact?.whatsapp) return '';
+  return isTechnicalWhatsapp(contact) ? '' : contact.whatsapp;
+}
+/** Retorna o identificador técnico LID do contato */
+function getTechnicalWhatsapp(contact: any): string {
+  if (contact?.metadata?.whatsappLid) return contact.metadata.whatsappLid as string;
+  if (isTechnicalWhatsapp(contact)) return contact.whatsapp ?? '';
+  return '';
+}
+/** True se o contato tem canal WhatsApp (visível ou técnico) */
+function hasWhatsappChannel(contact: any): boolean {
+  return !!getVisibleWhatsapp(contact) || !!getTechnicalWhatsapp(contact);
+}
+
 export default function CustomerDetailPage() {
   const { id } = useParams();
   const router = useRouter();
@@ -96,7 +121,7 @@ export default function CustomerDetailPage() {
   const [contacts, setContacts] = useState<any[]>([]);
   const [showContactModal, setShowContactModal] = useState(false);
   const [editingContact, setEditingContact] = useState<any>(null);
-  const [contactForm, setContactForm] = useState({ name:'', role:'', email:'', phone:'', phoneCountry:'+55', whatsapp:'', whatsappCountry:'+55', notes:'', isPrimary:false, password:'' });
+  const [contactForm, setContactForm] = useState({ name:'', role:'', email:'', phone:'', phoneCountry:'+55', whatsapp:'', whatsappCountry:'+55', notes:'', isPrimary:false, password:'', technicalWhatsapp:'' });
   const [showContactPass, setShowContactPass] = useState(false);
   const [emailSearching, setEmailSearching] = useState(false);
   const [focusCF, setFocusCF] = useState('');
@@ -206,10 +231,12 @@ export default function CustomerDetailPage() {
     setEditingContact(c || null);
     if (c) {
       const ph = parsePhone(c.phone || '');
-      const wa = parsePhone(c.whatsapp || '');
-      setContactForm({ name:c.name, role:c.role||'', email:c.email||'', phone:ph.local, phoneCountry:ph.country, whatsapp:wa.local, whatsappCountry:wa.country, notes:c.notes||'', isPrimary:c.isPrimary||false, password:'' });
+      const visibleWa = getVisibleWhatsapp(c);
+      const wa = parsePhone(visibleWa);
+      const techWa = getTechnicalWhatsapp(c);
+      setContactForm({ name:c.name, role:c.role||'', email:c.email||'', phone:ph.local, phoneCountry:ph.country, whatsapp:wa.local, whatsappCountry:wa.country, notes:c.notes||'', isPrimary:c.isPrimary||false, password:'', technicalWhatsapp:techWa });
     } else {
-      setContactForm({ name:'', role:'', email:'', phone:'', phoneCountry:'+55', whatsapp:'', whatsappCountry:'+55', notes:'', isPrimary:false, password:'' });
+      setContactForm({ name:'', role:'', email:'', phone:'', phoneCountry:'+55', whatsapp:'', whatsappCountry:'+55', notes:'', isPrimary:false, password:'', technicalWhatsapp:'' });
     }
     setShowContactPass(false);
     
@@ -230,11 +257,19 @@ export default function CustomerDetailPage() {
     if (!contactForm.name.trim()) return;
     setSavingContact(true);
     try {
-      const { password, phoneCountry, whatsappCountry, ...rest } = contactForm;
+      const { password, phoneCountry, whatsappCountry, technicalWhatsapp, ...rest } = contactForm;
       // Monta números completos com DDI
       const phoneComplete = composePhone(phoneCountry, rest.phone);
       const whatsComplete = composePhone(whatsappCountry, rest.whatsapp);
       const clean: any = Object.fromEntries(Object.entries({ ...rest, phone: phoneComplete, whatsapp: whatsComplete }).filter(([_, v]) => v !== '' && v !== null));
+      // Preserva LID: se o campo visível ficou vazio mas há identificador técnico, mantém routing
+      if (editingContact && !whatsComplete && technicalWhatsapp) {
+        clean.whatsapp = technicalWhatsapp;
+      }
+      // Persiste o LID em metadata para separação técnica
+      if (editingContact && technicalWhatsapp) {
+        clean.metadata = { ...(editingContact.metadata ?? {}), whatsappLid: technicalWhatsapp };
+      }
       // Inclui senha: ao criar sempre (gerar automaticamente se vazio); ao editar só se preenchido
       if (password) {
         clean.password = password;
@@ -544,7 +579,7 @@ export default function CustomerDetailPage() {
               <h2 className="table-header">Conversas</h2>
             </div>
           </div>
-          {conversations.length === 0 && contacts.filter((c: any) => c.whatsapp).length === 0 ? (
+          {conversations.length === 0 && contacts.filter((c: any) => hasWhatsappChannel(c)).length === 0 ? (
             <div className="text-center py-12">
               <div className="w-14 h-14 rounded-2xl mx-auto mb-3 flex items-center justify-center" style={{ background:'#F1F5F9' }}>
                 <MessageCircle className="w-7 h-7" style={{ color:'#CBD5E1' }} />
@@ -556,13 +591,13 @@ export default function CustomerDetailPage() {
             <div className="py-6">
               <p className="font-medium mb-3" style={{ color:'#475569' }}>Iniciar conversa WhatsApp</p>
               <div className="flex flex-col gap-2">
-                {contacts.filter((c: any) => c.whatsapp).map((c: any) => (
+                {contacts.filter((c: any) => hasWhatsappChannel(c)).map((c: any) => (
                   <div key={c.id} className="flex items-center justify-between p-3 rounded-lg" style={{ background:'#F8FAFC', border:'1px solid #E2E8F0' }}>
                     <div className="flex items-center gap-3">
                       <div className="w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm" style={{ background:'#CCFBF1', color:'#0F766E' }}>{c.name[0]}</div>
                       <div>
                         <p className="font-medium text-sm" style={{ color:'#0F172A' }}>{c.name}</p>
-                        <p className="text-xs" style={{ color:'#64748B' }}>{c.whatsapp}</p>
+                        <p className="text-xs" style={{ color:'#64748B' }}>{getVisibleWhatsapp(c) || <span style={{ fontStyle:'italic', color:'#94A3B8' }}>Identificador técnico do WhatsApp</span>}</p>
                       </div>
                     </div>
                     <button
@@ -615,12 +650,12 @@ export default function CustomerDetailPage() {
                   </div>
                 );
               })}
-              {contacts.filter((c: any) => c.whatsapp && !conversations.some((conv: any) => conv.contactId === c.id && conv.channel === 'whatsapp' && conv.status === 'active')).length > 0 && (
+              {contacts.filter((c: any) => hasWhatsappChannel(c) && !conversations.some((conv: any) => conv.contactId === c.id && conv.channel === 'whatsapp' && conv.status === 'active')).length > 0 && (
                 <div className="mt-6 pt-6" style={{ borderTop:'1px solid #E2E8F0' }}>
                   <p className="font-medium mb-3" style={{ color:'#475569' }}>Iniciar nova conversa</p>
-                  {contacts.filter((c: any) => c.whatsapp && !conversations.some((conv: any) => conv.contactId === c.id && conv.channel === 'whatsapp' && conv.status === 'active')).map((c: any) => (
+                  {contacts.filter((c: any) => hasWhatsappChannel(c) && !conversations.some((conv: any) => conv.contactId === c.id && conv.channel === 'whatsapp' && conv.status === 'active')).map((c: any) => (
                     <div key={c.id} className="flex items-center justify-between p-3 rounded-lg mb-2" style={{ background:'#F8FAFC', border:'1px solid #E2E8F0' }}>
-                      <span className="text-sm">{c.name} · {c.whatsapp}</span>
+                      <span className="text-sm">{c.name}{getVisibleWhatsapp(c) ? ` · ${getVisibleWhatsapp(c)}` : <span style={{ fontStyle:'italic', color:'#94A3B8' }}> · Identificador técnico do WhatsApp</span>}</span>
                       <button onClick={() => handleStartWhatsappConversation(c.id)} disabled={!!startingConv} className="btn-secondary" style={{ padding:'6px 12px', fontSize:12 }}>
                         <Phone className="w-3.5 h-3.5 inline mr-1" /> Iniciar WhatsApp
                       </button>
@@ -681,7 +716,12 @@ export default function CustomerDetailPage() {
                     <div className="flex items-center gap-4 mt-1 flex-wrap">
                       {c.email && <span className="flex items-center gap-1 text-xs" style={{ color:'#64748B' }}><Mail className="w-3 h-3" />{c.email}</span>}
                       {c.phone && <span className="flex items-center gap-1 text-xs" style={{ color:'#64748B' }}><Phone className="w-3 h-3" />{c.phone}</span>}
-                      {c.whatsapp && <span className="flex items-center gap-1 text-xs" style={{ color:'#16A34A' }}><MessageCircle className="w-3 h-3" />{c.whatsapp}</span>}
+                      {hasWhatsappChannel(c) && (
+                        <span className="flex items-center gap-1 text-xs" style={{ color:'#16A34A' }}>
+                          <MessageCircle className="w-3 h-3" />
+                          {getVisibleWhatsapp(c) || <span style={{ color:'#94A3B8', fontStyle:'italic' }}>Identificador técnico do WhatsApp</span>}
+                        </span>
+                      )}
                     </div>
                   </div>
                   <div className="flex gap-2">
@@ -782,7 +822,7 @@ export default function CustomerDetailPage() {
                               }
                             }
                             if (found) {
-                              setContactForm(p => ({ ...p, email: val, name: found.name||p.name, role: found.role||p.role, phone: found.phone||p.phone, whatsapp: found.whatsapp||p.whatsapp, isPrimary: found.isPrimary||p.isPrimary }));
+                              setContactForm(p => ({ ...p, email: val, name: found.name||p.name, role: found.role||p.role, phone: found.phone||p.phone, whatsapp: getVisibleWhatsapp(found)||p.whatsapp, isPrimary: found.isPrimary||p.isPrimary, technicalWhatsapp: getTechnicalWhatsapp(found)||p.technicalWhatsapp }));
                             }
                           } catch {}
                           setEmailSearching(false);

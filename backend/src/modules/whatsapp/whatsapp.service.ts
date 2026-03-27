@@ -282,24 +282,24 @@ export class WhatsappService {
     }
 
     const contact = await this.customersService.findContactById(tenantId, ticket.contactId);
-    if (!contact?.whatsapp) {
+    if (!contact?.whatsapp && !contact?.metadata?.whatsappLid) {
       throw new BadRequestException('Contato não possui número WhatsApp cadastrado');
     }
 
-    const rawWhatsapp = String(contact.whatsapp).trim();
-    const digits = rawWhatsapp.replace(/\D/g, '');
-    if (!digits || digits.length < 10) {
+    // Usa LID técnico (metadata.whatsappLid) se disponível; fallback para whatsapp
+    const destination = this.resolveContactWhatsappTarget(contact);
+    if (!destination.digits || destination.digits.length < 10) {
       throw new BadRequestException('Número WhatsApp do contato inválido');
     }
 
     // Tenta Baileys (QR) primeiro; fallback Meta API
     let sent = false;
     if (this.baileysService) {
-      const result = await this.baileysService.sendMessage(tenantId, rawWhatsapp, text);
+      const result = await this.baileysService.sendMessage(tenantId, destination.raw, text);
       sent = result.success;
     }
     if (!sent) {
-      await this.sendWhatsappMessage(digits, text);
+      await this.sendWhatsappMessage(destination.digits, text);
     }
 
     if (ticket.conversationId) {
@@ -370,7 +370,8 @@ export class WhatsappService {
       throw new BadRequestException('phone ou contactId é obrigatório');
     }
 
-    const whatsapp: string = contact.whatsapp || dto.phone?.replace(/\D/g, '') || '';
+    // Usa LID técnico (metadata.whatsappLid) se disponível; fallback para whatsapp ou phone
+    const { raw: whatsapp } = this.resolveContactWhatsappTarget(contact, dto.phone?.replace(/\D/g, ''));
     if (!whatsapp) throw new BadRequestException('Contato sem número WhatsApp cadastrado');
     log(`[OUTBOUND-FLOW] WhatsApp do contato: ${whatsapp}`);
 
@@ -447,6 +448,24 @@ export class WhatsappService {
   async getVerifyToken(tenantId: string): Promise<string> {
     // Future: look up per-tenant verify token from DB
     return process.env.WHATSAPP_VERIFY_TOKEN || 'suporte-whatsapp-verify';
+  }
+
+  /**
+   * Resolve o destino técnico correto para envio WhatsApp de um contato.
+   * Prioridade: metadata.whatsappLid → contact.whatsapp → fallback
+   * Retorna { raw } para Baileys e { digits } para Meta API.
+   */
+  private resolveContactWhatsappTarget(
+    contact: any,
+    fallback?: string,
+  ): { raw: string; digits: string } {
+    const raw: string =
+      (contact?.metadata?.whatsappLid as string | undefined) ||
+      (contact?.whatsapp as string | undefined) ||
+      fallback ||
+      '';
+    const digits = raw.replace(/\D/g, '');
+    return { raw, digits };
   }
 
   /**
