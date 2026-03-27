@@ -234,19 +234,21 @@ export class ChatbotService {
 
       // Transfer to human — verificar se contato já tem empresa vinculada
       let knownClientId: string | null = null;
+      let knownClientName: string | null = null;
       if (this.customersService) {
         const existingContact = await this.customersService.findContactByWhatsapp(tenantId, identifier).catch(() => null);
         if (existingContact?.clientId) {
           // Verificar se o cliente não é auto-criado
           const clients = await this.customersService.searchByNameOrCnpj(tenantId, existingContact.clientId).catch(() => []);
           // Busca direta pelo id
-          const rows = await this.sessionRepo.manager.query<{ id: string; company_name: string; metadata: any }[]>(
-            `SELECT id, company_name, metadata FROM clients WHERE id::text = $1 AND tenant_id::text = $2 LIMIT 1`,
+          const rows = await this.sessionRepo.manager.query<{ id: string; trade_name: string | null; company_name: string; metadata: any }[]>(
+            `SELECT id, trade_name, company_name, metadata FROM clients WHERE id::text = $1 AND tenant_id::text = $2 LIMIT 1`,
             [existingContact.clientId, tenantId],
           ).catch(() => []);
           const row = rows[0];
           if (row && row.metadata?.autoCreated !== true && row.metadata?.autoCreated !== 'true') {
             knownClientId = row.id;
+            knownClientName = row.trade_name?.trim() || row.company_name?.trim() || null;
           }
           void clients; // suppress unused warning
         }
@@ -254,11 +256,12 @@ export class ChatbotService {
 
       // Se empresa já conhecida → pular CNPJ, ir direto para descrição
       if (knownClientId) {
+        const prefixMsg = knownClientName ? `Empresa identificada: *${knownClientName}*.\n` : undefined;
         return this.goToDescriptionStep(session, config, {
           pendingDepartment: chosen.department ?? null,
           senderName: senderName ?? null,
           pendingClientId: knownClientId,
-        });
+        }, prefixMsg);
       }
 
       // Pedir CNPJ se habilitado
