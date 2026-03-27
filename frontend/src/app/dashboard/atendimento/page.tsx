@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef, memo } from 'react';
 import { api } from '@/lib/api';
 import Link from 'next/link';
 import { useRealtimeConversation, useRealtimeTicket } from '@/lib/realtime';
@@ -73,6 +73,118 @@ function ChannelDot({ channel }: { channel: string }) {
     </span>
   );
 }
+
+// ── MessageStatusIcon ─────────────────────────────────────────────────────────
+/** Ícone de status de mensagem estilo WhatsApp */
+function MessageStatusIcon({ status, isWhatsapp }: { status?: string | null; isWhatsapp?: boolean }) {
+  // Canal não-WhatsApp: check simples
+  if (!isWhatsapp) return <CheckCircle2 size={11} style={{ color: 'rgba(255,255,255,.5)' }} />;
+  // Pendente / enviando (otimista)
+  if (!status || status === 'pending' || status === 'sending' || status === 'queued') {
+    return (
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.45)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+      </svg>
+    );
+  }
+  // Erro
+  if (status === 'failed' || status === 'error') {
+    return (
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#FCA5A5" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+      </svg>
+    );
+  }
+  // Enviado (✓ cinza)
+  if (status === 'sent') {
+    return <Check size={11} style={{ color: 'rgba(255,255,255,.5)' }} />;
+  }
+  // Entregue (✓✓ cinza)
+  if (status === 'delivered') {
+    return (
+      <span style={{ fontSize: 10, color: 'rgba(255,255,255,.5)', letterSpacing: '-2px', lineHeight: 1 }}>✓✓</span>
+    );
+  }
+  // Lido (✓✓ azul)
+  if (status === 'read') {
+    return (
+      <span style={{ fontSize: 10, color: '#93C5FD', letterSpacing: '-2px', lineHeight: 1 }}>✓✓</span>
+    );
+  }
+  return <Check size={11} style={{ color: 'rgba(255,255,255,.5)' }} />;
+}
+
+// ── MessageSkeleton ───────────────────────────────────────────────────────────
+/** Placeholder animado enquanto carrega mensagens pela primeira vez */
+function MessageSkeleton() {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20, padding: '8px 0' }}>
+      {([false, true, false] as boolean[]).map((right, i) => (
+        <div key={i} style={{ display: 'flex', alignItems: 'flex-end', gap: 10, flexDirection: right ? 'row-reverse' : 'row' }}>
+          <div className="animate-pulse" style={{ width: 30, height: 30, borderRadius: '50%', background: '#E2E8F0', flexShrink: 0 }} />
+          <div className="animate-pulse" style={{ width: `${38 + i * 12}%`, height: 56, borderRadius: 12, background: '#E2E8F0' }} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── MessageItem (memoizado) ───────────────────────────────────────────────────
+/** Item individual de mensagem — memoizado para evitar re-render ao digitar */
+const MessageItem = memo(function MessageItem({ m, isWhatsapp }: { m: any; isWhatsapp: boolean }) {
+  const isContact = m.authorType === 'contact';
+  const isSystem  = m.messageType === 'system';
+  const t = new Date(m.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  const col = avatarColor(m.authorName || '?');
+
+  // Constantes de estilo (idênticas ao S da tela pai)
+  const accent = '#4F46E5';
+  const accentLight = '#EEF2FF';
+  const bg = '#FFFFFF';
+  const txt = '#111118';
+  const txt2 = '#6B6B80';
+  const txt3 = '#A8A8BE';
+
+  if (isSystem) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', margin: '4px 0' }}>
+        <div style={{ background: '#EEF2FF', border: '1px solid #C7D2FE', borderRadius: 8, padding: '5px 14px', fontSize: 11, color: '#4338CA', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#4338CA" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v2z"/></svg>
+          {m.content}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: isContact ? 'flex-start' : 'flex-end' }}>
+      <span style={{ fontSize: 11, fontWeight: 500, color: txt2, paddingLeft: isContact ? 40 : 0, paddingRight: isContact ? 0 : 40 }}>
+        {m.authorName}
+      </span>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, flexDirection: isContact ? 'row' : 'row-reverse' }}>
+        <div style={{ width: 30, height: 30, borderRadius: '50%', background: isContact ? col : accentLight, display: 'flex', alignItems: 'center', justifyContent: 'center', color: isContact ? '#fff' : accent, fontSize: 10, fontWeight: 700, flexShrink: 0 }}>
+          {initials(m.authorName || '?')}
+        </div>
+        <div style={{
+          maxWidth: 420, padding: '11px 16px', fontSize: 13, lineHeight: 1.6, position: 'relative',
+          background: isContact ? bg : accent,
+          color: isContact ? txt : '#fff',
+          border: isContact ? '1px solid rgba(0,0,0,.09)' : 'none',
+          borderRadius: isContact ? '18px 18px 18px 4px' : '18px 18px 4px 18px',
+          boxShadow: isContact ? '0 1px 3px rgba(0,0,0,.06)' : '0 2px 8px rgba(79,70,229,.25)',
+          opacity: m._optimistic ? 0.75 : 1,
+          transition: 'opacity 0.2s',
+        }}>
+          <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{m.content}</p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 5 }}>
+            <span style={{ fontSize: 10, color: isContact ? txt3 : 'rgba(255,255,255,.6)' }}>{t}</span>
+            {!isContact && <MessageStatusIcon status={m.whatsappStatus} isWhatsapp={isWhatsapp} />}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+});
 
 // ── main component ────────────────────────────────────────────────────────────
 export default function AtendimentoPage() {
@@ -548,22 +660,51 @@ export default function AtendimentoPage() {
   // ── send message ──
   const sendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim() || !selected?.id) return;
+    const text = input.trim();
+    if (!text || !selected?.id) return;
     const ticketId = isTicketType ? (selected.ticketId || selected.id?.replace?.(/^ticket:/, '')) : selected?.ticketId;
     const channel = selected?.channel || 'whatsapp';
     const isPortalNoTicket = channel === 'portal' && !ticketId && !isTicketType;
-    // Conversa WhatsApp/canal sem ticket ainda → usa addConversationMessage
     const isConvNoTicket = !isTicketType && !ticketId && !!selected?.id;
     if (!isPortalNoTicket && !isConvNoTicket && !ticketId && !isTicketType) return;
+
+    // Mensagem otimista: aparece imediatamente antes da resposta da API
+    const tempId = `_opt_${Date.now()}`;
+    setMessages(m => [...m, {
+      id: tempId,
+      authorType: 'user',
+      authorName: 'Você',
+      content: text,
+      createdAt: new Date().toISOString(),
+      whatsappStatus: channel === 'whatsapp' ? 'sending' : null,
+      _optimistic: true,
+    }]);
+    setInput('');
     setSending(true);
+
     try {
-      if (isTicketType && ticketId) await api.addMessage(ticketId, { content: input, messageType: 'comment' });
-      else if (channel === 'whatsapp' && ticketId) await api.sendWhatsappFromTicket(ticketId, input);
-      else await api.addConversationMessage(selected.id, { content: input });
-      setInput('');
-      await reloadMessages(selected);
-      inputRef.current?.focus();
-    } catch (e: any) { showToast(e?.response?.data?.message || 'Erro ao enviar', 'error'); }
+      let res: any;
+      if (isTicketType && ticketId) res = await api.addMessage(ticketId, { content: text, messageType: 'comment' });
+      else if (channel === 'whatsapp' && ticketId) res = await api.sendWhatsappFromTicket(ticketId, text);
+      else res = await api.addConversationMessage(selected.id, { content: text });
+
+      // Tenta substituir a mensagem otimista pela real retornada pela API
+      const real = res?.id ? res : (res?.data?.id ? res.data : null);
+      if (real?.id) {
+        setMessages(m => m.map(msg => msg.id === tempId ? { ...real } : msg));
+      } else {
+        // API não retornou objeto de mensagem (ex: sendWhatsappFromTicket) — recarrega a lista
+        const fresh = isTicketType && ticketId
+          ? (await api.getMessages(ticketId, false).catch(() => null))
+          : (await api.getConversationMessages(selected.id).catch(() => null));
+        if (fresh) setMessages(Array.isArray(fresh) ? fresh : (fresh as any)?.data ?? []);
+        else setMessages(m => m.filter(msg => msg.id !== tempId)); // remove otimista se reload falhou
+      }
+    } catch (e: any) {
+      // Marca mensagem otimista como erro em vez de removê-la
+      setMessages(m => m.map(msg => msg.id === tempId ? { ...msg, whatsappStatus: 'error', _optimistic: false } : msg));
+      showToast((e as any)?.response?.data?.message || 'Erro ao enviar', 'error');
+    }
     setSending(false);
     inputRef.current?.focus();
   };
@@ -858,14 +999,18 @@ export default function AtendimentoPage() {
               <MessageSquare size={40} strokeWidth={1.2} style={{ opacity: 0.3 }} />
               <p style={{ fontSize: 14, fontWeight: 500, color: S.txt2, margin: 0 }}>Selecione uma conversa</p>
             </div>
-          ) : loadingChat ? (
-            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <div className="animate-spin w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full" />
-            </div>
           ) : (
             <>
               {/* Chat header */}
-              <div style={{ padding: '14px 20px', borderBottom: S.border, background: S.bg, flexShrink: 0 }}>
+              <div style={{ position: 'relative', padding: '14px 20px', borderBottom: S.border, background: S.bg, flexShrink: 0 }}>
+                {/* Barra de progresso discreta ao trocar de conversa */}
+                {loadingChat && (
+                  <div className="animate-pulse" style={{
+                    position: 'absolute', top: 0, left: 0, right: 0, height: 2,
+                    background: `linear-gradient(90deg, ${S.accent} 0%, #818CF8 60%, ${S.accent} 100%)`,
+                    backgroundSize: '200% 100%',
+                  }} />
+                )}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
                   {/* Avatar */}
                   <div style={{ position: 'relative', flexShrink: 0 }}>
@@ -957,56 +1102,21 @@ export default function AtendimentoPage() {
 
               {/* Messages */}
               <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: 16, background: S.bg2 }}>
-                {messages.length === 0 ? (
+                {loadingChat && messages.length === 0 ? (
+                  // Primeira carga: skeleton animado em vez de spinner bloqueante
+                  <MessageSkeleton />
+                ) : messages.length === 0 ? (
                   <div style={{ margin: 'auto', textAlign: 'center', color: S.txt3, fontSize: 13 }}>
                     <MessageSquare size={32} style={{ margin: '0 auto 10px', opacity: 0.25 }} />
                     <p style={{ margin: 0 }}>Nenhuma mensagem ainda</p>
                   </div>
                 ) : (
-                  messages.filter((m: any) => m.messageType !== 'internal').map((m: any) => {
-                    const isContact = m.authorType === 'contact';
-                    const isSystem = m.messageType === 'system';
-                    const t = new Date(m.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-                    const col = avatarColor(m.authorName || '?');
-
-                    if (isSystem) {
-                      return (
-                        <div key={m.id} style={{ display: 'flex', justifyContent: 'center', margin: '4px 0' }}>
-                          <div style={{ background: '#EEF2FF', border: '1px solid #C7D2FE', borderRadius: 8, padding: '5px 14px', fontSize: 11, color: '#4338CA', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#4338CA" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v2z"/></svg>
-                            {m.content}
-                          </div>
-                        </div>
-                      );
-                    }
-
-                    return (
-                      <div key={m.id} style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: isContact ? 'flex-start' : 'flex-end' }}>
-                        <span style={{ fontSize: 11, fontWeight: 500, color: S.txt2, paddingLeft: isContact ? 40 : 0, paddingRight: isContact ? 0 : 40 }}>
-                          {m.authorName}
-                        </span>
-                        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, flexDirection: isContact ? 'row' : 'row-reverse' }}>
-                          <div style={{ width: 30, height: 30, borderRadius: '50%', background: isContact ? col : S.accentLight, display: 'flex', alignItems: 'center', justifyContent: 'center', color: isContact ? '#fff' : S.accent, fontSize: 10, fontWeight: 700, flexShrink: 0 }}>
-                            {initials(m.authorName || '?')}
-                          </div>
-                          <div style={{
-                            maxWidth: 420, padding: '11px 16px', fontSize: 13, lineHeight: 1.6, position: 'relative',
-                            background: isContact ? S.bg : S.accent,
-                            color: isContact ? S.txt : '#fff',
-                            border: isContact ? `1px solid rgba(0,0,0,.09)` : 'none',
-                            borderRadius: isContact ? '18px 18px 18px 4px' : '18px 18px 4px 18px',
-                            boxShadow: isContact ? '0 1px 3px rgba(0,0,0,.06)' : '0 2px 8px rgba(79,70,229,.25)',
-                          }}>
-                            <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{m.content}</p>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 5 }}>
-                              <span style={{ fontSize: 10, color: isContact ? S.txt3 : 'rgba(255,255,255,.6)' }}>{t}</span>
-                              {!isContact && <CheckCircle2 size={11} style={{ color: 'rgba(255,255,255,.6)' }} />}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })
+                  // Mensagens ficam visíveis durante troca; opacidade reduzida enquanto carrega
+                  <div style={{ display: 'contents', opacity: loadingChat ? 0.55 : 1, transition: 'opacity 0.18s' }}>
+                    {messages.filter((m: any) => m.messageType !== 'internal').map((m: any) => (
+                      <MessageItem key={m.id} m={m} isWhatsapp={isWhatsapp} />
+                    ))}
+                  </div>
                 )}
                 <div ref={messagesEndRef} />
               </div>
