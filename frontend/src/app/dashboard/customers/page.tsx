@@ -36,7 +36,38 @@ const PLANS: Record<string, string> = { basic: 'Básico', standard: 'Standard', 
 const PLAN_COLORS: Record<string, string> = { enterprise: '#a78bfa', premium: '#D97706', standard: '#3B82F6', basic: '#94A3B8' };
 const STATES = ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'];
 const EMPTY_FORM = { personType: 'juridica', companyName: '', tradeName: '', cnpj: '', cpf: '', email: '', phone: '', whatsapp: '', address: '', number: '', complement: '', neighborhood: '', city: '', state: '', zipCode: '', supportPlan: 'basic', status: 'active' };
-const EMPTY_CONTACT = { name: '', role: '', email: '', phone: '', whatsapp: '', notes: '', isPrimary: false };
+const EMPTY_CONTACT = { name: '', role: '', email: '', phone: '', whatsapp: '', whatsappCountry: '+55', notes: '', isPrimary: false };
+
+// ── Países / DDI — mesmo array usado no formulário de edição de contato ───────
+const COUNTRIES = [
+  { code:'+55', flag:'🇧🇷', name:'Brasil' },
+  { code:'+1',  flag:'🇺🇸', name:'EUA / Canadá' },
+  { code:'+54', flag:'🇦🇷', name:'Argentina' },
+  { code:'+351',flag:'🇵🇹', name:'Portugal' },
+  { code:'+34', flag:'🇪🇸', name:'Espanha' },
+  { code:'+44', flag:'🇬🇧', name:'Reino Unido' },
+  { code:'+49', flag:'🇩🇪', name:'Alemanha' },
+  { code:'+33', flag:'🇫🇷', name:'França' },
+  { code:'+39', flag:'🇮🇹', name:'Itália' },
+  { code:'+52', flag:'🇲🇽', name:'México' },
+  { code:'+56', flag:'🇨🇱', name:'Chile' },
+  { code:'+57', flag:'🇨🇴', name:'Colômbia' },
+  { code:'+51', flag:'🇵🇪', name:'Peru' },
+  { code:'+58', flag:'🇻🇪', name:'Venezuela' },
+  { code:'+598',flag:'🇺🇾', name:'Uruguai' },
+  { code:'+595',flag:'🇵🇾', name:'Paraguai' },
+  { code:'+591',flag:'🇧🇴', name:'Bolívia' },
+  { code:'+81', flag:'🇯🇵', name:'Japão' },
+  { code:'+86', flag:'🇨🇳', name:'China' },
+  { code:'+91', flag:'🇮🇳', name:'Índia' },
+];
+
+/** Monta número completo: DDI + número local (remove não-dígitos do local) */
+function composePhone(country: string, local: string): string {
+  const localDigits = local.replace(/\D/g, '');
+  if (!localDigits) return '';
+  return country.replace('+', '') + localDigits;
+}
 
 function todayFormatted() {
   return new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
@@ -68,6 +99,7 @@ export default function CustomersPage() {
   const [contactForm, setContactForm] = useState({ ...EMPTY_CONTACT });
   const [emailSearching, setEmailSearching] = useState(false);
   const [emailFound, setEmailFound] = useState(false);
+  const [showWhatsCountry, setShowWhatsCountry] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [cnpjStatus, setCnpjStatus] = useState<'idle'|'loading'|'ok'|'error'>('idle');
@@ -106,7 +138,7 @@ export default function CustomersPage() {
   const openModal = () => {
     setStep(1); setSelectedNetwork(null); setNetworkSearch('');
     setForm({ ...EMPTY_FORM }); setContacts([]); setContactForm({ ...EMPTY_CONTACT }); setEmailFound(false);
-    setError(''); setCnpjStatus('idle'); setCpfStatus('idle'); setShowModal(true);
+    setError(''); setCnpjStatus('idle'); setCpfStatus('idle'); setShowWhatsCountry(false); setShowModal(true);
   };
 
   const f = (k: string) => (e: any) => setForm(p => ({ ...p, [k]: e.target.value }));
@@ -142,10 +174,13 @@ export default function CustomersPage() {
 
   const addContact = () => {
     if (!contactForm.name.trim()) return;
+    // Compõe número completo (DDI + dígitos locais) — mesmo formato do backend/webhook
+    const whatsappFinal = composePhone(contactForm.whatsappCountry, contactForm.whatsapp);
     const updated = contactForm.isPrimary ? contacts.map(c => ({ ...c, isPrimary: false })) : [...contacts];
-    setContacts([...updated, { ...contactForm, id: Date.now().toString() }]);
+    setContacts([...updated, { ...contactForm, whatsapp: whatsappFinal, id: Date.now().toString() }]);
     setContactForm({ ...EMPTY_CONTACT });
-    document.getElementById('fc_name')?.focus();
+    setShowWhatsCountry(false);
+    document.getElementById('fc_cemail')?.focus();
   };
 
   const handleSave = async () => {
@@ -164,7 +199,8 @@ export default function CustomersPage() {
     try {
       const client: any = await api.createCustomer(payload);
       await Promise.all(contacts.map(c => {
-        const { id, ...rest } = c;
+        // Remove campos de controle de UI antes de enviar ao backend
+        const { id, whatsappCountry, phoneCountry, ...rest } = c as any;
         const clean = Object.fromEntries(Object.entries(rest).filter(([_, v]) => v !== '' && v !== null && v !== undefined));
         return api.createContact(client.id, clean);
       }));
@@ -632,18 +668,43 @@ export default function CustomersPage() {
                       </div>
                       <div>
                         <label className="label">WhatsApp {contactForm.isPrimary && <span style={{ color: '#6366F1' }}>*</span>}</label>
-                        <input id="fc_cwhats" value={contactForm.whatsapp} onChange={fc('whatsapp')}
-                          onKeyDown={e => { if (e.key==='Enter') { e.preventDefault(); addContact(); }}}
-                          className="input" />
+                        <div style={{ display:'flex', gap:5 }}>
+                          {/* Seletor de DDI — mesmo padrão do formulário de edição de contato */}
+                          <div style={{ position:'relative' }}>
+                            <button type="button" onClick={() => setShowWhatsCountry(p => !p)}
+                              style={{ height:40, padding:'0 8px', borderRadius:8, border:'1.5px solid #E2E8F0', background:'#fff', cursor:'pointer', display:'flex', alignItems:'center', gap:4, fontSize:13, whiteSpace:'nowrap', minWidth:68 }}>
+                              <span style={{ fontSize:15 }}>{COUNTRIES.find(c => c.code === contactForm.whatsappCountry)?.flag}</span>
+                              <span style={{ color:'#374151', fontWeight:600, fontSize:12 }}>{contactForm.whatsappCountry}</span>
+                              <span style={{ color:'#94A3B8', fontSize:9 }}>▾</span>
+                            </button>
+                            {showWhatsCountry && (
+                              <div style={{ position:'absolute', top:'calc(100% + 4px)', left:0, zIndex:200, background:'#fff', border:'1px solid #E2E8F0', borderRadius:10, boxShadow:'0 8px 24px rgba(0,0,0,.15)', width:210, maxHeight:220, overflowY:'auto' }}>
+                                {COUNTRIES.map(c => (
+                                  <button key={c.code} type="button"
+                                    onClick={() => { setContactForm(p => ({ ...p, whatsappCountry: c.code })); setShowWhatsCountry(false); }}
+                                    style={{ display:'flex', alignItems:'center', gap:8, width:'100%', padding:'7px 12px', background: contactForm.whatsappCountry === c.code ? '#EEF2FF' : 'transparent', border:'none', cursor:'pointer', fontSize:12, textAlign:'left' }}>
+                                    <span style={{ fontSize:15 }}>{c.flag}</span>
+                                    <span style={{ color:'#374151' }}>{c.name}</span>
+                                    <span style={{ marginLeft:'auto', color:'#6366F1', fontWeight:700, fontSize:11 }}>{c.code}</span>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                          <input id="fc_cwhats" value={contactForm.whatsapp} onChange={fc('whatsapp')}
+                            onKeyDown={e => { if (e.key==='Enter') { e.preventDefault(); addContact(); }}}
+                            onClick={() => setShowWhatsCountry(false)}
+                            placeholder="(XX) 9 XXXX" className="input" style={{ flex:1 }} />
+                        </div>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'flex-end' }}>
                         <Toggle value={contactForm.isPrimary} onChange={() => setContactForm(p => ({ ...p, isPrimary: !p.isPrimary }))} />
                       </div>
                       <div style={{ gridColumn: '1/-1' }}>
                         <button onClick={addContact}
-                          disabled={!contactForm.name.trim() || (contactForm.isPrimary && (!contactForm.whatsapp.trim() || !contactForm.email.trim()))}
+                          disabled={!contactForm.name.trim() || (contactForm.isPrimary && (!contactForm.whatsapp.replace(/\D/g,'') || !contactForm.email.trim()))}
                           className="btn-primary" style={{ width: '100%', padding: '10px 0', fontSize: 13 }}>
-                          + Adicionar {contactForm.isPrimary && (!contactForm.whatsapp.trim() || !contactForm.email.trim()) ? '(preencha e-mail e WhatsApp)' : ''}
+                          + Adicionar {contactForm.isPrimary && (!contactForm.whatsapp.replace(/\D/g,'') || !contactForm.email.trim()) ? '(preencha e-mail e WhatsApp)' : ''}
                         </button>
                       </div>
                     </div>
