@@ -144,6 +144,11 @@ export default function AtendimentoPage() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // ── cache de dados estáveis + guard de race condition ──
+  const loadIdRef = useRef(0);          // incrementado a cada loadChat; respostas velhas são descartadas
+  const customersRef = useRef<any[]>([]); // cache de clientes — não rebusca a cada troca de conversa
+  const teamRef = useRef<any[]>([]);      // cache de equipe — idem
+
   // ── helpers ──
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
     setToast({ msg, type });
@@ -213,54 +218,110 @@ export default function AtendimentoPage() {
 
   const loadChat = async (conv: any) => {
     if (!conv) return;
+    const myId = ++loadIdRef.current; // guard de race condition
     setLoadingChat(true);
     setCurrentTicket(null);
+
     try {
       const isTicket = conv.type === 'ticket' || conv.id?.startsWith?.('ticket:');
       const ticketId = isTicket ? (conv.ticketId || conv.id?.replace?.(/^ticket:/, '')) : conv.ticketId;
-      const [customersRes, ticketRes, teamRes] = await Promise.all([
-        api.getCustomers({ perPage: 200 }),
-        (ticketId || conv.ticketId) ? api.getTicket(ticketId || conv.ticketId).catch(() => null) : null,
-        api.getTeam().catch(() => null),
+      const tid = ticketId || conv.ticketId;
+
+      // ── FASE 1: essencial — ticket + mensagens em paralelo ──────────────
+      // Spinner some assim que estes dois chegarem (~150ms vs ~700ms antes)
+      const [ticketRes, msgsRaw] = await Promise.all([
+        tid ? api.getTicket(tid).catch(() => null) : Promise.resolve(null),
+        isTicket && ticketId
+          ? api.getMessages(ticketId, false).catch(() => [])
+          : api.getConversationMessages(conv.id).catch(() => []),
       ]);
-      const customersArr: any[] = customersRes?.data || customersRes || [];
-      // Se o cliente da conversa não está na lista paginada, busca individualmente
-      if (conv.clientId && !customersArr.find((c: any) => c.id === conv.clientId)) {
-        try { const r: any = await api.getCustomer(conv.clientId); if (r) customersArr.push(r?.data ?? r); } catch {}
-      }
-      setCustomers(customersArr);
+
+      if (myId !== loadIdRef.current) return; // conversa já mudou, descarta
+
       if (ticketRes) setCurrentTicket(ticketRes);
-      // Monta lista de agentes e garante que o responsável do ticket esteja nela
-      let teamArr: any[] = teamRes ? (Array.isArray(teamRes) ? teamRes : teamRes?.data ?? []) : [];
-      if (ticketRes?.assignedTo && !teamArr.find((u: any) => String(u.id) === String(ticketRes.assignedTo))) {
+      setMessages(Array.isArray(msgsRaw) ? msgsRaw : (msgsRaw as any)?.data ?? []);
+      setLoadingChat(false); // ← conteúdo visível aqui; fase 2 roda em background
+
+      // ── FASE 2: dados de suporte — sem bloquear a UI ─────────────────────
+      const clientId = conv.clientId;
+      const contactId = conv.contactId || (ticketRes as any)?.contactId;
+      const needCustomers = customersRef.current.length === 0;
+      const needTeam = teamRef.current.length === 0;
+
+      // Customers + team + contacts todos em paralelo
+      const [customersRes, teamRes, contactsRaw] = await Promise.all([
+        needCustomers ? api.getCustomers({ perPage: 200 }).catch(() => null) : Promise.resolve(null),
+        needTeam ? api.getTeam().catch(() => null) : Promise.resolve(null),
+        clientId
+          ? api.getContacts(clientId).catch(() => null)
+          : contactId ? api.getContactById(contactId).catch(() => null) : Promise.resolve(null),
+      ]);
+
+      if (myId !== loadIdRef.current) return;
+
+      // Customers — atualiza cache e estado
+      if (customersRes) {
+        const arr: any[] = customersRes?.data || customersRes || [];
+        // Cliente desta conversa fora da lista paginada → busca individual
+        if (clientId && !arr.find((c: any) => c.id === clientId)) {
+          try { const r: any = await api.getCustomer(clientId); if (r) arr.push(r?.data ?? r); } catch {}
+        }
+        customersRef.current = arr;
+        if (myId === loadIdRef.current) setCustomers(arr);
+      } else if (clientId && !customersRef.current.find((c: any) => c.id === clientId)) {
+        // Cache existente mas sem este cliente específico → busca individual
         try {
-          const m: any = await api.getTeamMember(ticketRes.assignedTo);
-          const member = m?.data ?? m;
-          if (member?.id) teamArr = [...teamArr, member];
+          const r: any = await api.getCustomer(clientId);
+          if (r && myId === loadIdRef.current) {
+            const arr = [...customersRef.current, r?.data ?? r];
+            customersRef.current = arr;
+            setCustomers(arr);
+          }
         } catch {}
       }
-      if (teamArr.length > 0) setTeam(teamArr);
-      const msgs = isTicket && ticketId
-        ? (await api.getMessages(ticketId, false) || [])
-        : (await api.getConversationMessages(conv.id) || []);
-      setMessages(Array.isArray(msgs) ? msgs : msgs?.data ?? []);
-      const contactId = conv.contactId || (ticketRes as any)?.contactId;
-      if (conv.clientId) {
-        try {
-          const ct = await api.getContacts(conv.clientId);
-          const ctArr: any[] = Array.isArray(ct) ? ct : (ct as any)?.data ?? [];
-          // Se o contato específico não está na lista (ex: sem cliente ou cliente diferente), busca individualmente
-          if (contactId && !ctArr.find((c: any) => c.id === contactId)) {
-            try { const ind: any = await api.getContactById(contactId); if (ind) ctArr.push(ind?.data ?? ind); } catch {}
-          }
-          setContacts(ctArr);
-        } catch { setContacts([]); }
-      } else if (contactId) {
-        // Conversa sem cliente: carrega apenas o contato específico
-        try { const ind: any = await api.getContactById(contactId); setContacts(ind ? [ind?.data ?? ind] : []); } catch { setContacts([]); }
+
+      // Team — atualiza cache e estado
+      if (teamRes) {
+        let arr: any[] = Array.isArray(teamRes) ? teamRes : teamRes?.data ?? [];
+        teamRef.current = arr;
+        if (myId === loadIdRef.current) setTeam(arr);
       }
-    } catch (e) { console.error(e); }
-    setLoadingChat(false);
+      // Garante que o agente responsável pelo ticket esteja na lista
+      if (ticketRes?.assignedTo) {
+        const cur = teamRef.current;
+        if (!cur.find((u: any) => String(u.id) === String(ticketRes.assignedTo))) {
+          try {
+            const m: any = await api.getTeamMember(ticketRes.assignedTo);
+            const member = m?.data ?? m;
+            if (member?.id && myId === loadIdRef.current) {
+              const arr = [...teamRef.current, member];
+              teamRef.current = arr;
+              setTeam(arr);
+            }
+          } catch {}
+        }
+      }
+
+      if (myId !== loadIdRef.current) return;
+
+      // Contacts
+      if (clientId && contactsRaw) {
+        const ctArr: any[] = Array.isArray(contactsRaw) ? contactsRaw : (contactsRaw as any)?.data ?? [];
+        if (contactId && !ctArr.find((c: any) => c.id === contactId)) {
+          try { const ind: any = await api.getContactById(contactId); if (ind) ctArr.push(ind?.data ?? ind); } catch {}
+        }
+        if (myId === loadIdRef.current) setContacts(ctArr);
+      } else if (!clientId && contactsRaw) {
+        const ct = (contactsRaw as any)?.data ?? contactsRaw;
+        if (myId === loadIdRef.current) setContacts(ct ? [ct] : []);
+      } else if (!clientId && contactId) {
+        if (myId === loadIdRef.current) setContacts([]);
+      }
+
+    } catch (e) {
+      console.error(e);
+      if (myId === loadIdRef.current) setLoadingChat(false);
+    }
   };
 
   const reloadMessages = async (conv: any) => {
@@ -560,7 +621,11 @@ export default function AtendimentoPage() {
       .then((r: any) => setClientTickets(r?.data ?? r ?? []))
       .catch(() => setClientTickets([]));
   }, [selected?.clientId]);
-  useEffect(() => { api.getCustomers({ perPage: 200 }).then((r: any) => setCustomers(r?.data ?? r ?? [])).catch(() => {}); }, []);
+  useEffect(() => {
+    api.getCustomers({ perPage: 200 })
+      .then((r: any) => { const arr = r?.data ?? r ?? []; customersRef.current = arr; setCustomers(arr); })
+      .catch(() => {});
+  }, []);
   useEffect(() => { if (showLinkModal && (selected?.clientId || selected?.contactId)) searchTicketsForLink(); }, [showLinkModal, selected?.clientId, selected?.contactId, searchTicketsForLink]);
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages.length]);
 
