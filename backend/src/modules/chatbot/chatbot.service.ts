@@ -9,6 +9,7 @@ import { UpdateChatbotConfigDto, UpdateMenuDto, UpsertMenuItemDto, WidgetStartDt
 import { CustomersService } from '../customers/customers.service';
 import { ConversationsService } from '../conversations/conversations.service';
 import { ConversationChannel } from '../conversations/entities/conversation.entity';
+import { TicketSatisfactionService } from '../tickets/ticket-satisfaction.service';
 import { v4 as uuidv4 } from 'uuid';
 import { normalizeCnpj, validateCnpj } from '../../common/utils/cnpj.utils';
 
@@ -46,6 +47,7 @@ export class ChatbotService {
     @InjectRepository(ChatbotWidgetMessage) private widgetMsgRepo: Repository<ChatbotWidgetMessage>,
     @Optional() private readonly customersService: CustomersService,
     @Optional() private readonly conversationsService: ConversationsService,
+    private readonly ticketSatisfactionService: TicketSatisfactionService,
     @InjectDataSource() private readonly dataSource: DataSource,
   ) {}
 
@@ -491,16 +493,7 @@ export class ChatbotService {
     rating: number,
     comment?: string,
   ): Promise<void> {
-    await this.dataSource.query(
-      `UPDATE tickets
-          SET satisfaction_rating  = $1,
-              satisfaction_comment = $2,
-              satisfaction_at      = NOW()
-        WHERE id::text      = $3
-          AND tenant_id::text = $4
-          AND satisfaction_rating IS NULL`,
-      [rating, comment ?? null, ticketId, tenantId],
-    );
+    await this.ticketSatisfactionService.applyWhatsappRating(ticketId, tenantId, rating, comment);
   }
 
   private async getActiveSession(

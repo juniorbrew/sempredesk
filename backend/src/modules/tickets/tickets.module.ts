@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Ticket, TicketMessage } from './entities/ticket.entity';
 import { TicketsService } from './tickets.service';
+import { TicketSatisfactionService } from './ticket-satisfaction.service';
 import { TicketsController } from './tickets.controller';
 import { InboundEmailController } from './inbound-email.controller';
 import { PermissionsModule } from '../permissions/permissions.module';
@@ -33,9 +34,9 @@ import { TicketAssignmentService } from '../ticket-assignment/ticket-assignment.
     RoutingRulesModule,
     TicketAssignmentModule,
   ],
-  providers: [TicketsService],
+  providers: [TicketsService, TicketSatisfactionService],
   controllers: [TicketsController, InboundEmailController],
-  exports: [TicketsService],
+  exports: [TicketsService, TicketSatisfactionService],
 })
 export class TicketsModule {
   constructor(

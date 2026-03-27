@@ -5,6 +5,7 @@ import { Cron } from '@nestjs/schedule';
 import {
   Ticket, TicketMessage, TicketStatus, TicketPriority, TicketOrigin, MessageType,
 } from './entities/ticket.entity';
+import { TicketSatisfactionService } from './ticket-satisfaction.service';
 import {
   CreateTicketDto,
   UpdateTicketDto,
@@ -73,6 +74,10 @@ export class TicketsService {
     } catch {
       return null;
     }
+  }
+
+  private getTicketSatisfactionService(): TicketSatisfactionService {
+    return new TicketSatisfactionService(this.ticketRepo, null as any);
   }
 
   private normalizeText(value?: string | null): string | null {
@@ -1174,37 +1179,16 @@ export class TicketsService {
   }
 
   async submitSatisfaction(tenantId: string, ticketId: string, score: 'approved' | 'rejected'): Promise<Ticket> {
-    const ticket = await this.getTicketOrFail(tenantId, ticketId);
-    if (ticket.status !== TicketStatus.RESOLVED) {
-      throw new BadRequestException('Somente tickets resolvidos podem receber avaliação');
-    }
-    if (ticket.satisfactionScore) {
-      throw new BadRequestException('Avaliação já registrada para este ticket');
-    }
-    ticket.satisfactionScore = score;
-    ticket.satisfactionAt = new Date();
-
-    if (score === 'approved') {
-      // Customer confirmed resolution → close the ticket
-      ticket.status = TicketStatus.CLOSED;
-      ticket.closedAt = new Date();
-      await this.ticketRepo.save(ticket);
-      await this.registerSystemMessage(
-        tenantId, ticketId, '', 'Sistema',
-        'Cliente confirmou a solução. Chamado encerrado automaticamente.',
-      );
-      return ticket;
-    } else {
-      // Customer rejected → reopen to in_progress
-      ticket.status = TicketStatus.IN_PROGRESS;
-      ticket.resolvedAt = null;
-      await this.ticketRepo.save(ticket);
-      await this.registerSystemMessage(
-        tenantId, ticketId, '', 'Sistema',
-        'Cliente indicou que o problema não foi resolvido. Chamado reaberto.',
-      );
-      return ticket;
-    }
+    const ticket = await this.getTicketSatisfactionService().applyPortalSatisfaction(ticketId, score === 'approved');
+    const message =
+      ticket.satisfactionScore === 'approved'
+        ? 'Cliente confirmou a solução. Chamado encerrado automaticamente.'
+        : 'Cliente indicou que o problema não foi resolvido. Chamado reaberto.';
+    await this.registerSystemMessage(
+      tenantId, ticketId, '', 'Sistema',
+      message,
+    );
+    return ticket;
   }
 
   async escalate(tenantId: string, id: string): Promise<Ticket> {

@@ -9,12 +9,14 @@ import { ChatbotController } from './chatbot.controller';
 import { ChatbotScheduler } from './chatbot.scheduler';
 import { CustomersModule } from '../customers/customers.module';
 import { ConversationsModule } from '../conversations/conversations.module';
+import { TicketsModule } from '../tickets/tickets.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([ChatbotConfig, ChatbotMenuItem, ChatbotSession, ChatbotWidgetMessage]),
     CustomersModule,
     ConversationsModule,
+    TicketsModule,
   ],
   providers: [ChatbotService, ChatbotScheduler],
   controllers: [ChatbotController],
