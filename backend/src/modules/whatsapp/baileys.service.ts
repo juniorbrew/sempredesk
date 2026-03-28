@@ -44,6 +44,36 @@ export class BaileysService {
   private reconnectAttempts = new Map<string, number>(); // tenantId -> attempt count
   private readonly sessionsDir = process.env.WHATSAPP_SESSIONS_DIR || '/app/whatsapp-sessions';
 
+  // ── Rate limiting de envio ──────────────────────────────────────────────────
+  // Fila por tenant: serializa envios e impõe delay mínimo entre mensagens
+  // consecutivas para evitar bloqueio do WhatsApp por envio em rajada.
+  private sendQueues = new Map<string, Promise<void>>();
+  private lastSendTime = new Map<string, number>(); // tenantId → timestamp do último envio
+  private readonly SEND_DELAY_MS = parseInt(process.env.WHATSAPP_SEND_DELAY_MS ?? '1200', 10);
+
+  /**
+   * Enfileira uma operação de envio para o tenant.
+   * - Se o último envio foi há mais de SEND_DELAY_MS: executa imediatamente.
+   * - Se foi recente: aguarda o intervalo restante antes de enviar.
+   * Falhas em envios anteriores não bloqueiam a fila.
+   */
+  private enqueueOutbound<T>(tenantId: string, fn: () => Promise<T>): Promise<T> {
+    const prev = this.sendQueues.get(tenantId) ?? Promise.resolve();
+    const current: Promise<T> = prev
+      .catch(() => {}) // falha anterior não bloqueia a fila
+      .then(async () => {
+        const elapsed = Date.now() - (this.lastSendTime.get(tenantId) ?? 0);
+        if (elapsed < this.SEND_DELAY_MS) {
+          await new Promise<void>((r) => setTimeout(r, this.SEND_DELAY_MS - elapsed));
+        }
+        const result = await fn();
+        this.lastSendTime.set(tenantId, Date.now());
+        return result;
+      });
+    this.sendQueues.set(tenantId, current.then(() => {}, () => {}));
+    return current;
+  }
+
   constructor(
     @InjectRepository(WhatsappConnection)
     private readonly connRepo: Repository<WhatsappConnection>,
@@ -453,10 +483,12 @@ export class BaileysService {
       if (digits.length >= 14) {
         const jid = `${digits}@lid`;
         this.logger.log(`[OUTBOUND] LID detectado, usando JID: ${jid}`);
-        const result = await sock.sendMessage(jid, { text });
-        const messageId = result?.key?.id ?? null;
-        this.logger.log(`[OUTBOUND] Enviado! JID=${jid} messageId=${messageId}`);
-        return { success: true, jid, messageId };
+        return await this.enqueueOutbound(tenantId, async () => {
+          const result = await sock.sendMessage(jid, { text });
+          const messageId = result?.key?.id ?? null;
+          this.logger.log(`[OUTBOUND] Enviado! JID=${jid} messageId=${messageId}`);
+          return { success: true as const, jid, messageId };
+        });
       }
 
       // Normaliza para formato internacional brasileiro
@@ -491,11 +523,13 @@ export class BaileysService {
         this.logger.warn(`[OUTBOUND] onWhatsApp falhou (${checkErr?.message}), usando JID estimado: ${jid}`);
       }
 
-      this.logger.log(`[OUTBOUND] Enviando mensagem para JID: ${jid}`);
-      const result = await sock.sendMessage(jid, { text });
-      const messageId = result?.key?.id ?? null;
-      this.logger.log(`[OUTBOUND] Enviado! JID=${jid} messageId=${messageId} status=${result?.status ?? 'desconhecido'}`);
-      return { success: true, jid, messageId };
+      return await this.enqueueOutbound(tenantId, async () => {
+        this.logger.log(`[OUTBOUND] Enviando mensagem para JID: ${jid}`);
+        const result = await sock.sendMessage(jid, { text });
+        const messageId = result?.key?.id ?? null;
+        this.logger.log(`[OUTBOUND] Enviado! JID=${jid} messageId=${messageId} status=${result?.status ?? 'desconhecido'}`);
+        return { success: true as const, jid, messageId };
+      });
     } catch (error: any) {
       this.logger.error(`[OUTBOUND] Falha ao enviar para "${to}" (tenant ${tenantId}): ${error?.message}`, error?.stack);
       return { success: false, error: error?.message };
