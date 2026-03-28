@@ -1,4 +1,5 @@
 import { TicketSettingsModule } from './modules/ticket-settings/ticket-settings.module';
+import { TagsModule } from './modules/tags/tags.module';
 import { MonitoringModule } from './modules/monitoring/monitoring.module';
 import { WhatsappModule } from './modules/whatsapp/whatsapp.module';
 import { ConversationsModule } from './modules/conversations/conversations.module';
@@ -54,7 +55,7 @@ import { AttendanceService } from './modules/attendance/attendance.service';
         password: cfg.get('DB_PASSWORD', 'suporte123'),
         database: cfg.get('DB_NAME', 'suporte_tecnico'),
         entities: [__dirname + '/**/*.entity{.ts,.js}'],
-        synchronize: true,
+        synchronize: cfg.get('DB_SYNCHRONIZE', 'false') === 'true',
         logging: false,
         ssl: cfg.get('DB_SSL') === 'true' ? { rejectUnauthorized: false } : false,
         extra: { max: 20 },
@@ -73,6 +74,7 @@ import { AttendanceService } from './modules/attendance/attendance.service';
     ContractsModule,
     TicketsModule,
     TicketSettingsModule,
+    TagsModule,
     TeamModule,
     KnowledgeModule,
     DevicesModule,

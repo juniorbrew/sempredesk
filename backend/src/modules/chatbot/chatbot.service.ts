@@ -232,21 +232,25 @@ export class ChatbotService {
         };
       }
 
+      const selectedLabel = chosen.label?.trim() || chosen.department?.trim() || null;
+
       // Transfer to human — verificar se contato já tem empresa vinculada
       let knownClientId: string | null = null;
+      let knownClientName: string | null = null;
       if (this.customersService) {
         const existingContact = await this.customersService.findContactByWhatsapp(tenantId, identifier).catch(() => null);
         if (existingContact?.clientId) {
           // Verificar se o cliente não é auto-criado
           const clients = await this.customersService.searchByNameOrCnpj(tenantId, existingContact.clientId).catch(() => []);
           // Busca direta pelo id
-          const rows = await this.sessionRepo.manager.query<{ id: string; company_name: string; metadata: any }[]>(
-            `SELECT id, company_name, metadata FROM clients WHERE id::text = $1 AND tenant_id::text = $2 LIMIT 1`,
+          const rows = await this.sessionRepo.manager.query<{ id: string; company_name: string; trade_name: string | null; metadata: any }[]>(
+            `SELECT id, company_name, trade_name, metadata FROM clients WHERE id::text = $1 AND tenant_id::text = $2 LIMIT 1`,
             [existingContact.clientId, tenantId],
           ).catch(() => []);
           const row = rows[0];
           if (row && row.metadata?.autoCreated !== true && row.metadata?.autoCreated !== 'true') {
             knownClientId = row.id;
+            knownClientName = row.trade_name?.trim() || row.company_name?.trim() || null;
           }
           void clients; // suppress unused warning
         }
@@ -254,11 +258,15 @@ export class ChatbotService {
 
       // Se empresa já conhecida → pular CNPJ, ir direto para descrição
       if (knownClientId) {
+        const prefixMsg = knownClientName
+          ? `Empresa identificada: *${knownClientName}*.\n`
+          : undefined;
         return this.goToDescriptionStep(session, config, {
           pendingDepartment: chosen.department ?? null,
+          pendingMenuLabel: selectedLabel,
           senderName: senderName ?? null,
           pendingClientId: knownClientId,
-        });
+        }, prefixMsg);
       }
 
       // Pedir CNPJ se habilitado
@@ -266,6 +274,7 @@ export class ChatbotService {
         session.step = 'awaiting_cnpj';
         session.metadata = {
           pendingDepartment: chosen.department ?? null,
+          pendingMenuLabel: selectedLabel,
           senderName: senderName ?? null,
           cnpjAttempts: 0,
         };
@@ -276,6 +285,7 @@ export class ChatbotService {
       // collectCnpj desabilitado → pedir descrição
       return this.goToDescriptionStep(session, config, {
         pendingDepartment: chosen.department ?? null,
+        pendingMenuLabel: selectedLabel,
         senderName: senderName ?? null,
         pendingClientId: null,
       });
@@ -285,6 +295,7 @@ export class ChatbotService {
     if (session.step === 'awaiting_cnpj') {
       const meta = (session.metadata ?? {}) as Record<string, unknown>;
       const pendingDepartment = meta.pendingDepartment as string | null;
+      const pendingMenuLabel = meta.pendingMenuLabel as string | null;
       const storedSenderName = (meta.senderName as string | null) ?? senderName;
       const attempts = (meta.cnpjAttempts as number) ?? 0;
       const trimmed = text.trim().toLowerCase();
@@ -292,6 +303,7 @@ export class ChatbotService {
       const goToDesc = (clientId: string | null, prefixMsg?: string) =>
         this.goToDescriptionStep(session, config, {
           pendingDepartment,
+          pendingMenuLabel,
           senderName: storedSenderName,
           pendingClientId: clientId,
         }, prefixMsg);
@@ -369,18 +381,22 @@ export class ChatbotService {
   private async goToDescriptionStep(
     session: ChatbotSession,
     config: ChatbotConfig,
-    meta: { pendingDepartment: string | null; senderName: string | null; pendingClientId: string | null },
+    meta: { pendingDepartment: string | null; pendingMenuLabel: string | null; senderName: string | null; pendingClientId: string | null },
     prefixMsg?: string,
   ): Promise<ProcessResult> {
     session.step = 'awaiting_description';
     session.metadata = {
       pendingDepartment: meta.pendingDepartment,
+      pendingMenuLabel: meta.pendingMenuLabel,
       senderName: meta.senderName,
       pendingClientId: meta.pendingClientId,
       descriptionStartedAt: new Date().toISOString(),
     };
     await this.sessionRepo.save(session);
-    const msg = prefixMsg ? `${prefixMsg}${config.descriptionRequestMessage}` : config.descriptionRequestMessage;
+    const selectionPrefix = meta.pendingMenuLabel
+      ? `Você selecionou: *${meta.pendingMenuLabel}*.\n`
+      : '';
+    const msg = `${prefixMsg ?? ''}${selectionPrefix}${config.descriptionRequestMessage}`;
     return { handled: true, replies: [msg] };
   }
 

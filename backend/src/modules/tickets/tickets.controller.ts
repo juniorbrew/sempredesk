@@ -12,6 +12,7 @@ import { CustomersService } from '../customers/customers.service';
 import {
   CreateTicketDto,
   UpdateTicketDto,
+  UpdateTicketContentDto,
   AddMessageDto,
   FilterTicketsDto,
   ResolveTicketDto,
@@ -124,6 +125,12 @@ export class TicketsController {
   @RequirePermission('ticket.edit')
   update(@Request() req, @Param('id') id: string, @Body() dto: UpdateTicketDto) {
     return this.ticketsService.update(req.tenantId, id, req.user.id, req.user.name, dto);
+  }
+
+  @Put(':id/content')
+  @RequirePermission('ticket.edit_content')
+  updateContent(@Request() req, @Param('id') id: string, @Body() dto: UpdateTicketContentDto) {
+    return this.ticketsService.updateContent(req.tenantId, id, req.user.id, req.user.name, dto);
   }
 
   @Post(':id/assign')

@@ -3,10 +3,12 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useRealtimeTicket } from '@/lib/realtime';
+import { useAuthStore, hasPermission } from '@/store/auth.store';
 import toast from 'react-hot-toast';
-import { ArrowLeft, RotateCw, Tag, Clock, AlertTriangle, Lock, Send, Paperclip, CheckCircle2, XCircle, X, ChevronDown, Save, RefreshCw, User, UserCircle, Headphones, Building2, MessageSquare, PhoneCall, ThumbsUp, ThumbsDown, ChevronUp, Ticket as TicketIcon, CalendarClock, CalendarCheck } from 'lucide-react';
+import { ArrowLeft, RotateCw, Tag, Clock, AlertTriangle, Lock, Send, Paperclip, CheckCircle2, XCircle, X, ChevronDown, Save, RefreshCw, User, UserCircle, Headphones, Building2, MessageSquare, PhoneCall, ThumbsUp, ThumbsDown, ChevronUp, Ticket as TicketIcon, CalendarClock, CalendarCheck, Pencil } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { TagMultiSelect } from '@/components/ui/TagMultiSelect';
 
 const STATUS_CONFIG: Record<string,{ label:string; bg:string; color:string; dot:string }> = {
   open:           { label:'Aberto',             bg:'#EEF2FF', color:'#3730A3', dot:'#4F46E5' },
@@ -34,12 +36,14 @@ const inp = { width:'100%', padding:'8px 12px', background:'#F8FAFC', border:'1.
 export default function TicketDetailsPage() {
   const params = useParams();
   const router = useRouter();
+  const { user } = useAuthStore();
   const id = String(params?.id || '');
 
   const [ticket, setTicket] = useState<any>(null);
   const [messages, setMessages] = useState<any[]>([]);
   const [team, setTeam] = useState<any[]>([]);
   const [tree, setTree] = useState<any>({ departments: [] });
+  const [availableTags, setAvailableTags] = useState<any[]>([]);
   const [customers, setCustomers] = useState<any[]>([]);
   const [contacts, setContacts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -55,16 +59,20 @@ export default function TicketDetailsPage() {
   const [conversationMsgs, setConversationMsgs] = useState<any[]>([]);
   const [showConversation, setShowConversation] = useState(false);
   const [showConvFilter, setShowConvFilter] = useState(true);
-  const [edit, setEdit] = useState<any>({ priority:'medium', assignedTo:'', department:'', category:'', subcategory:'', tags:'' });
+  const [interactionExpanded, setInteractionExpanded] = useState(false);
+  const [edit, setEdit] = useState<any>({ priority:'medium', assignedTo:'', department:'', category:'', subcategory:'', tags:[] as string[] });
   const [showCloseModal, setShowCloseModal] = useState(false);
   const [closeForm, setCloseForm] = useState({ solution:'', rootCause:'', timeSpent:'', internalNote:'', complexity:0 });
+  const [showContentModal, setShowContentModal] = useState(false);
+  const [contentSaving, setContentSaving] = useState(false);
+  const [contentForm, setContentForm] = useState({ subject:'', description:'' });
 
   const load = async () => {
     setLoading(true);
     try {
-      const [ticketRes, messageRes, teamRes, treeRes, customersRes, contractsRes] = await Promise.all([
+      const [ticketRes, messageRes, teamRes, treeRes, customersRes, contractsRes, tagsRes] = await Promise.all([
         api.getTicket(id), api.getMessages(id, true), api.getTeam(),
-        api.getTicketSettingsTree(), api.getCustomers({ perPage:200 }), api.getContracts(),
+        api.getTicketSettingsTree(), api.getCustomers({ perPage:200 }), api.getContracts(), api.getTags({ active: true }),
       ]);
       const t: any = ticketRes;
       const msgs: any = messageRes;
@@ -75,6 +83,7 @@ export default function TicketDetailsPage() {
       setTicket(t); setMessages(filteredMsgs); setTeam((teamRes as any) || []);
       setTree((treeRes as any) || { departments:[] });
       setCustomers((customersRes as any)?.data || (customersRes as any) || []);
+      setAvailableTags(Array.isArray(tagsRes) ? tagsRes : (tagsRes as any)?.data ?? []);
       if (t.clientId) {
         try { const ct = await api.getContacts(t.clientId); setContacts(Array.isArray(ct) ? ct : (ct as any)?.data ?? []); } catch { setContacts([]); }
         try { const hist: any = await api.getTickets({ clientId: t.clientId, perPage: 6, sort: 'createdAt:desc' }); const hList = Array.isArray(hist) ? hist : hist?.data ?? hist?.items ?? []; setClientHistory(hList.filter((x: any) => x.id !== id)); } catch { setClientHistory([]); }
@@ -82,7 +91,8 @@ export default function TicketDetailsPage() {
       if (t.conversationId) {
         try { const cMsgs: any = await api.getConversationMessages(t.conversationId); setConversationMsgs(Array.isArray(cMsgs) ? cMsgs : cMsgs?.data ?? []); } catch { setConversationMsgs([]); }
       }
-      setEdit({ priority:t.priority||'medium', assignedTo:t.assignedTo||'', department:t.department||'', category:t.category||'', subcategory:t.subcategory||'', tags:Array.isArray(t.tags)?t.tags.join(', '):'' });
+      setEdit({ priority:t.priority||'medium', assignedTo:t.assignedTo||'', department:t.department||'', category:t.category||'', subcategory:t.subcategory||'', tags:Array.isArray(t.tags)?t.tags:[] });
+      setContentForm({ subject:t.subject || '', description:t.description || '' });
     } catch(e){ console.error(e); }
     setLoading(false);
   };
@@ -136,7 +146,7 @@ export default function TicketDetailsPage() {
   const saveEdit = async (e:FormEvent) => {
     e.preventDefault(); setSaving(true);
     try {
-      await api.updateTicket(id, { priority:edit.priority, assignedTo:edit.assignedTo||undefined, department:edit.department||undefined, category:edit.category||undefined, subcategory:edit.subcategory||undefined, tags:edit.tags?edit.tags.split(',').map((v:string)=>v.trim()).filter(Boolean):undefined });
+      await api.updateTicket(id, { priority:edit.priority, assignedTo:edit.assignedTo||undefined, department:edit.department||undefined, category:edit.category||undefined, subcategory:edit.subcategory||undefined, tags:edit.tags?.length ? edit.tags : undefined });
       toast.success('Ticket atualizado'); await load(); setShowEditPanel(false);
     } catch(e:any){ toast.error(e?.response?.data?.message||'Erro ao atualizar'); }
     setSaving(false);
@@ -147,7 +157,12 @@ export default function TicketDetailsPage() {
     e.preventDefault(); if (!message.trim()) return; setSending(true);
     try {
       await api.addMessage(id, { content: message, messageType: activeTab === 'note' ? 'internal' : 'comment' });
-      setMessage(''); await load();
+      const refreshedMsgs: any = await api.getMessages(id, true);
+      const filteredMsgs = (Array.isArray(refreshedMsgs) ? refreshedMsgs : []).filter((m: any) =>
+        !ticket?.conversationId || (m.channel !== 'portal' && m.channel !== 'whatsapp')
+      );
+      setMessages(filteredMsgs);
+      setMessage('');
     } catch(e:any){ toast.error(e?.response?.data?.message||'Erro ao enviar'); }
     setSending(false);
   };
@@ -211,6 +226,27 @@ export default function TicketDetailsPage() {
     } catch(e:any){ toast.error(e?.response?.data?.message||'Erro'); }
   };
 
+  const saveTicketContent = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!contentForm.subject.trim()) {
+      toast.error('Informe o assunto do ticket');
+      return;
+    }
+    setContentSaving(true);
+    try {
+      const updated: any = await (api as any).updateTicketContent(id, {
+        subject: contentForm.subject.trim(),
+        description: contentForm.description.trim() || undefined,
+      });
+      setTicket((prev: any) => prev ? { ...prev, subject: updated.subject, description: updated.description } : updated);
+      setShowContentModal(false);
+      toast.success('Assunto e descrição atualizados');
+    } catch (e:any) {
+      toast.error(e?.response?.data?.message || 'Erro ao atualizar conteúdo do ticket');
+    }
+    setContentSaving(false);
+  };
+
   if (loading) return (
     <div className="flex items-center justify-center min-h-96">
       <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
@@ -222,6 +258,7 @@ export default function TicketDetailsPage() {
   const priority = PRIORITY_CONFIG[ticket.priority] || PRIORITY_CONFIG.medium;
   const isFinished = ['resolved','closed','cancelled'].includes(ticket.status);
   const isWhatsapp = ticket.origin === 'whatsapp';
+  const canEditContent = hasPermission(user, 'ticket.edit_content');
 
   const slaInfo = ticket.slaResolveAt && !isFinished ? (() => {
     const diff = new Date(ticket.slaResolveAt).getTime() - Date.now();
@@ -249,7 +286,57 @@ export default function TicketDetailsPage() {
   };
 
   return (
-    <div style={{ display:'flex', flexDirection:'column', margin:0, minHeight:'100%' }}>
+    <div style={{ display:'flex', flexDirection:'column', margin:0, height:'calc(100vh - 44px)', overflow:'hidden', background:S.bg3 }}>
+
+    {showContentModal && (
+      <div style={{ position:'fixed', inset:0, zIndex:9999, background:'rgba(0,0,0,0.5)', display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
+        <div style={{ width:'100%', maxWidth:720, background:'#fff', borderRadius:18, boxShadow:'0 24px 60px rgba(15,23,42,0.28)', overflow:'hidden' }}>
+          <div style={{ padding:'18px 22px', borderBottom:`1px solid ${S.bd}`, display:'flex', alignItems:'flex-start', gap:14 }}>
+            <div style={{ width:40, height:40, borderRadius:12, background:S.accentL, color:S.accent, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+              <Pencil style={{ width:18, height:18 }} />
+            </div>
+            <div>
+              <h2 style={{ margin:0, fontSize:18, fontWeight:700, color:S.txt }}>Editar assunto e descrição</h2>
+              <p style={{ margin:'4px 0 0', fontSize:12, color:S.txt2 }}>Essas informações aparecem na abertura do ticket e ajudam a contextualizar a conversa.</p>
+            </div>
+            <button onClick={() => setShowContentModal(false)} style={{ marginLeft:'auto', border:'none', background:'none', cursor:'pointer', color:S.txt3, padding:4 }}>
+              <X style={{ width:18, height:18 }} />
+            </button>
+          </div>
+          <form onSubmit={saveTicketContent}>
+            <div style={{ padding:'18px 22px', display:'flex', flexDirection:'column', gap:14 }}>
+              <div>
+                <label style={{ fontSize:11, fontWeight:700, color:S.txt3, textTransform:'uppercase' as const, letterSpacing:'0.06em', display:'block', marginBottom:6 }}>Assunto</label>
+                <input
+                  value={contentForm.subject}
+                  onChange={e => setContentForm(f => ({ ...f, subject: e.target.value }))}
+                  style={{ ...inp, background:'#fff' }}
+                  maxLength={160}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize:11, fontWeight:700, color:S.txt3, textTransform:'uppercase' as const, letterSpacing:'0.06em', display:'block', marginBottom:6 }}>Descrição</label>
+                <textarea
+                  value={contentForm.description}
+                  onChange={e => setContentForm(f => ({ ...f, description: e.target.value }))}
+                  rows={6}
+                  style={{ ...inp, background:'#fff', minHeight:140, resize:'vertical' as const, lineHeight:1.6 }}
+                  maxLength={600}
+                />
+              </div>
+            </div>
+            <div style={{ padding:'16px 22px', borderTop:`1px solid ${S.bd}`, display:'flex', justifyContent:'flex-end', gap:10 }}>
+              <button type="button" onClick={() => setShowContentModal(false)} style={{ padding:'9px 14px', borderRadius:10, border:`1px solid ${S.bd2}`, background:'#fff', color:S.txt2, cursor:'pointer', fontWeight:600, fontFamily:'inherit' }}>
+                Cancelar
+              </button>
+              <button type="submit" disabled={contentSaving} style={{ padding:'9px 16px', borderRadius:10, border:'none', background:S.accent, color:'#fff', cursor:'pointer', fontWeight:700, fontFamily:'inherit', display:'inline-flex', alignItems:'center', gap:8 }}>
+                <Save style={{ width:14, height:14 }} /> {contentSaving ? 'Salvando...' : 'Salvar conteúdo'}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    )}
 
     {/* Close/Resolve Modal */}
     {showCloseModal && (
@@ -472,23 +559,41 @@ export default function TicketDetailsPage() {
       </div>
 
       {/* Info card */}
-      <div style={{ background:S.bg, borderBottom:`1px solid ${S.bd}`, padding:'14px 24px', flexShrink:0 }}>
+      {!interactionExpanded && (
+      <div style={{ background:S.bg, borderBottom:`1px solid ${S.bd}`, padding:'14px 24px 18px', flexShrink:0 }}>
         <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10, fontSize:11, color:S.txt2 }}>
           <CalendarClock style={{ width:13, height:13, color:S.txt3 }} />
           Abertura: <strong style={{ color:S.txt, fontWeight:500 }}>{format(new Date(ticket.createdAt), "dd/MM/yyyy 'às' HH:mm", { locale:ptBR })}</strong>
           {ticket.closedAt && <><span style={{ color:S.txt3 }}>·</span><CalendarCheck style={{ width:13, height:13, color:S.txt3 }} />Fechamento: <strong style={{ color:S.txt, fontWeight:500 }}>{format(new Date(ticket.closedAt), "dd/MM/yyyy 'às' HH:mm", { locale:ptBR })}</strong></>}
           {ticket.resolvedAt && !ticket.closedAt && <><span style={{ color:S.txt3 }}>·</span><CalendarCheck style={{ width:13, height:13, color:'#16A34A' }} />Resolução: <strong style={{ color:'#16A34A', fontWeight:500 }}>{format(new Date(ticket.resolvedAt), "dd/MM/yyyy 'às' HH:mm", { locale:ptBR })}</strong></>}
         </div>
-        <p style={{ margin:'0 0 4px', fontSize:16, fontWeight:700, color:S.txt }}>{ticket.subject}</p>
-        {ticket.description && <p style={{ margin:0, fontSize:13, color:S.txt2, lineHeight:1.6 }}>{ticket.description}</p>}
+        <div style={{ display:'grid', gridTemplateColumns:'minmax(0, 0.95fr) minmax(0, 1.35fr)', gap:14 }}>
+          <div style={{ padding:'14px 16px', border:`1px solid ${S.bd}`, borderRadius:16, background:'linear-gradient(180deg,#FFFFFF 0%,#FBFBFE 100%)', boxShadow:'0 10px 24px rgba(15,23,42,0.04)' }}>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:8, marginBottom:8 }}>
+              <div style={{ fontSize:10, fontWeight:700, color:S.txt3, textTransform:'uppercase' as const, letterSpacing:'0.08em' }}>Assunto</div>
+              {canEditContent && (
+                <button onClick={() => setShowContentModal(true)} style={{ border:'none', background:'none', color:S.accent, cursor:'pointer', display:'inline-flex', alignItems:'center', gap:5, fontSize:11, fontWeight:700, fontFamily:'inherit', padding:0 }}>
+                  <Pencil style={{ width:12, height:12 }} /> Editar
+                </button>
+              )}
+            </div>
+            <p style={{ margin:0, fontSize:16, fontWeight:700, color:S.txt, lineHeight:1.4 }}>{ticket.subject}</p>
+          </div>
+          <div style={{ padding:'14px 16px', border:`1px solid ${S.bd}`, borderRadius:16, background:'linear-gradient(180deg,#FFFFFF 0%,#FBFBFE 100%)', boxShadow:'0 10px 24px rgba(15,23,42,0.04)' }}>
+            <div style={{ fontSize:10, fontWeight:700, color:S.txt3, textTransform:'uppercase' as const, letterSpacing:'0.08em', marginBottom:8 }}>Descricao</div>
+            <p style={{ margin:0, fontSize:13, color:S.txt2, lineHeight:1.7 }}>{ticket.description || 'Sem descricao informada.'}</p>
+          </div>
+        </div>
       </div>
+      )}
 
       {/* Body */}
       <div style={{ display:'flex', flex:1, overflow:'hidden' }}>
 
         {/* Messages */}
         <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden', padding:'20px 24px 20px', gap:14, background:S.bg3 }}>
-          <div style={{ padding:'10px 20px', borderBottom:`1px solid ${S.bd}`, background:S.bg, display:'flex', alignItems:'center', gap:6, flexShrink:0, flexWrap:'wrap' as any }}>
+          <div style={{ padding:'10px 20px', borderBottom:`1px solid ${S.bd}`, background:S.bg, display:'flex', alignItems:'center', gap:10, flexShrink:0, justifyContent:'space-between' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' as any }}>
             <span style={{ fontSize:11, fontWeight:600, color:S.txt3, textTransform:'uppercase' as any, letterSpacing:'0.05em', marginRight:4 }}>Visualizar:</span>
             {([
               { key:'client',  active:showClient,  toggle:()=>setShowClient(v=>!v),  icon:User,        label:'Cliente' },
@@ -502,6 +607,14 @@ export default function TicketDetailsPage() {
                 <Icon style={{ width:11, height:11 }} /> {label}
               </button>
             ))}
+            </div>
+            <button
+              onClick={() => setInteractionExpanded(v => !v)}
+              style={{ display:'inline-flex', alignItems:'center', gap:6, padding:'6px 12px', borderRadius:8, border:`1px solid ${interactionExpanded ? S.accentM : S.bd}`, background:interactionExpanded ? S.accentL : '#fff', color:interactionExpanded ? S.accent : S.txt2, cursor:'pointer', fontSize:11, fontWeight:700, fontFamily:'inherit', flexShrink:0 }}
+            >
+              {interactionExpanded ? <ChevronDown style={{ width:12, height:12 }} /> : <ChevronUp style={{ width:12, height:12 }} />}
+              {interactionExpanded ? 'Recolher interação' : 'Expandir interação'}
+            </button>
           </div>
           <div style={{ flex:1, overflowY:'auto', padding:'16px 20px', background:S.bg2 }}>
             {/* Satisfaction banner */}
@@ -525,12 +638,18 @@ export default function TicketDetailsPage() {
               const isClient = (m:any)=>m.authorType==='contact' || m.author_type==='contact';
               const isNote = (m:any)=>m.messageType==='internal';
 
+              const openingContent = (ticket.description || '').trim();
               const allMsgs = messages
                 .filter((m:any)=>{
                   if (isNote(m)) return showNotes;
                   if (isUpdate(m)) return showUpdates;
                   if (isClient(m)) return showClient;
                   return showAgent;
+                })
+                .filter((m:any)=>{
+                  const content = resolveContent(m.content || '').trim();
+                  if (!openingContent || content !== openingContent) return true;
+                  return Boolean(isClient(m));
                 })
                 .sort((a:any,b:any)=>new Date(a.createdAt).getTime()-new Date(b.createdAt).getTime());
 
@@ -562,12 +681,15 @@ export default function TicketDetailsPage() {
                 const iconColor = ev.messageType==='escalation'?'#DC2626':ev.messageType==='sla'?'#F97316':'#6366F1';
                 const evTime = new Date(ev.createdAt).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
                 return (
-                  <div key={ev.id} style={{ display:'flex', alignItems:'center', gap:8, padding:'4px 0 4px 46px', marginBottom:1 }}>
-                    <div style={{ width:20, height:20, borderRadius:'50%', background:iconBg, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                  <div key={ev.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'0 0 0 22px', position:'relative' }}>
+                    <span style={{ position:'absolute', left:3, top:-10, bottom:-10, width:1, background:'rgba(148,163,184,0.18)' }} />
+                    <div style={{ width:24, height:24, borderRadius:'50%', background:iconBg, border:'1px solid rgba(255,255,255,0.85)', boxShadow:'0 6px 16px rgba(15,23,42,0.08)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
                       <Icon style={{ width:10, height:10, color:iconColor }} />
                     </div>
-                    <span style={{ fontSize:11, color:'#64748B', flex:1 }}>{translateStatus(resolveContent(ev.content))}</span>
-                    <span style={{ fontSize:10, color:'#94A3B8', fontWeight:600 }}>{evTime}</span>
+                    <div style={{ flex:1, minWidth:0, display:'flex', alignItems:'center', gap:8, padding:'7px 10px', borderRadius:12, background:'rgba(255,255,255,0.72)', border:'1px solid rgba(148,163,184,0.12)' }}>
+                      <span style={{ fontSize:11, color:'#64748B', flex:1, lineHeight:1.5 }}>{translateStatus(resolveContent(ev.content))}</span>
+                      <span style={{ fontSize:10, color:'#94A3B8', fontWeight:600, fontFamily:"'DM Mono',monospace", flexShrink:0 }}>{evTime}</span>
+                    </div>
                   </div>
                 );
               };
@@ -580,34 +702,43 @@ export default function TicketDetailsPage() {
                 const ini = m.authorName?.split(' ').map((n:string)=>n[0]).join('').slice(0,2).toUpperCase()||'?';
                 const timeStr = new Date(m.createdAt).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
 
-                const avatarBg = isNt ? '#FFFBEB' : isCl ? '#D1FAE5' : S.accentL;
-                const avatarColor = isNt ? '#92400E' : isCl ? '#065F46' : S.accent;
-                const cardBg = isNt ? '#FFFBEB' : S.bg2;
-                const cardBorder = isNt ? '#FDE68A' : S.bd;
+                const avatarBg = isNt ? '#FFF7ED' : isCl ? '#DCFCE7' : '#EEF2FF';
+                const avatarColor = isNt ? '#9A3412' : isCl ? '#166534' : '#4338CA';
+                const cardBg = isNt ? '#FFFDF7' : isCl ? '#FFFFFF' : '#FCFCFF';
+                const cardBorder = isNt ? '#FED7AA' : isCl ? 'rgba(22,163,74,0.16)' : 'rgba(79,70,229,0.12)';
                 const roleLabel = isNt ? 'Nota Interna' : isCl ? 'Cliente' : 'Agente';
-                const roleBg = isNt ? '#FFFBEB' : isCl ? '#D1FAE5' : S.accentL;
-                const roleColor = isNt ? '#92400E' : isCl ? '#065F46' : S.accent;
+                const roleBg = isNt ? '#FFF7ED' : isCl ? '#DCFCE7' : '#EEF2FF';
+                const roleColor = isNt ? '#9A3412' : isCl ? '#166534' : '#4338CA';
+                const shadow = isNt ? '0 14px 30px rgba(251,146,60,0.08)' : isCl ? '0 18px 36px rgba(15,23,42,0.06)' : '0 18px 36px rgba(79,70,229,0.08)';
 
                 return (
-                  <div key={m.id} style={{ display:'flex', gap:12, padding:'12px 0', borderBottom:`1px solid ${S.bd}` }}>
-                    {/* Avatar */}
-                    <div style={{ width:32, height:32, borderRadius:'50%', background:avatarBg, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, color:avatarColor, fontSize:11, fontWeight:600, marginTop:2 }}>
+                  <div key={m.id} style={{ display:'flex', gap:14, padding:'0 0 20px', position:'relative' }}>
+                    <span style={{ position:'absolute', left:17, top:32, bottom:-8, width:1, background:'linear-gradient(180deg, rgba(148,163,184,0.22) 0%, rgba(148,163,184,0.06) 100%)' }} />
+                    <div style={{ width:36, height:36, borderRadius:'50%', background:avatarBg, border:`1px solid ${cardBorder}`, boxShadow:'0 10px 24px rgba(15,23,42,0.08)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, color:avatarColor, fontSize:11, fontWeight:700, marginTop:4, position:'relative', zIndex:1 }}>
                       {isNt ? <Lock style={{width:12,height:12}}/> : ini}
                     </div>
-                    {/* Body */}
                     <div style={{ flex:1, minWidth:0 }}>
-                      <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:5 }}>
-                        <span style={{ fontSize:12, fontWeight:600, color:S.txt }}>{m.authorName}</span>
-                        <span style={{ fontSize:10, fontWeight:500, padding:'2px 7px', borderRadius:4, background:roleBg, color:roleColor }}>{roleLabel}</span>
-                        {isWhatsappMsg && <span style={{ fontSize:10, fontWeight:500, padding:'2px 7px', borderRadius:4, background:'#DCFCE7', color:'#15803D' }}>WhatsApp</span>}
-                        <span style={{ fontSize:11, color:S.txt3, marginLeft:'auto', fontFamily:"'DM Mono',monospace" }}>{timeStr}</span>
+                      <div style={{ display:'flex', alignItems:'flex-start', gap:10, marginBottom:8 }}>
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' as const }}>
+                            <span style={{ fontSize:13, fontWeight:700, color:S.txt }}>{m.authorName}</span>
+                            <span style={{ fontSize:10, fontWeight:700, padding:'4px 8px', borderRadius:999, background:roleBg, color:roleColor, letterSpacing:'0.01em' }}>{roleLabel}</span>
+                            {isWhatsappMsg && <span style={{ fontSize:10, fontWeight:700, padding:'4px 8px', borderRadius:999, background:'#DCFCE7', color:'#15803D', letterSpacing:'0.01em' }}>WhatsApp</span>}
+                          </div>
+                          <div style={{ marginTop:4, display:'flex', alignItems:'center', gap:8, color:S.txt3 }}>
+                            <span style={{ fontSize:11 }}>{isNt ? 'Observacao privada da equipe' : isCl ? 'Mensagem recebida do cliente' : 'Interacao da equipe no ticket'}</span>
+                          </div>
+                        </div>
+                        <div style={{ paddingTop:2, textAlign:'right' as const }}>
+                          <span style={{ display:'block', fontSize:11, color:S.txt3, fontFamily:"'DM Mono',monospace" }}>{timeStr}</span>
+                          <span style={{ display:'block', marginTop:3, fontSize:10, color:'#B4B4C4' }}>#{num}</span>
+                        </div>
                       </div>
-                      <div style={{ fontSize:13, color:S.txt, lineHeight:1.6, background:cardBg, borderRadius:8, padding:'10px 12px', border:`1px solid ${cardBorder}` }}>
+                      <div style={{ fontSize:13, color:S.txt, lineHeight:1.75, background:cardBg, borderRadius:18, padding:'14px 16px', border:`1px solid ${cardBorder}`, boxShadow:shadow }}>
                         <p style={{ margin:0, whiteSpace:'pre-wrap' }}>{resolveContent(m.content)}</p>
                       </div>
-                      {/* System events */}
                       {group.events.length > 0 && showUpdates && (
-                        <div style={{ marginTop:4, display:'flex', flexDirection:'column', gap:2 }}>
+                        <div style={{ marginTop:10, display:'flex', flexDirection:'column', gap:8 }}>
                           {group.events.map(ev => renderEventRow(ev))}
                         </div>
                       )}
@@ -616,56 +747,59 @@ export default function TicketDetailsPage() {
                 );
               };
 
-              // Render groups DESC (newest first) + conversation at bottom (#1)
+              // Render groups ASC (oldest first) + conversation in chronological flow
               return (
-                <>
-                  {[...groups].reverse().map((group, i) => renderGroup(group, totalNum - i))}
+                <div style={{ position:'relative' }}>
+                  <div style={{ position:'absolute', left:17, top:0, bottom:0, width:1, background:'linear-gradient(180deg, rgba(148,163,184,0.16) 0%, rgba(148,163,184,0.04) 100%)', pointerEvents:'none' }} />
+                  {groups.map((group, i) => renderGroup(group, i + 1))}
                   {hasConv && showConvFilter && (
-                    <div style={{ border:'1px solid #99F6E4', borderRadius:10, background:'#F0FDFA', overflow:'hidden', marginBottom:2 }}>
-                      <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', borderBottom:'1px solid #99F6E4' }}>
-                        <div style={{ width:32, height:32, borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, background:'#CCFBF1', color:'#0D9488' }}>
+                    <div style={{ border:'1px solid rgba(45,212,191,0.28)', borderRadius:22, background:'linear-gradient(180deg, #F7FFFD 0%, #EFFCF8 100%)', boxShadow:'0 20px 45px rgba(13,148,136,0.08)', overflow:'hidden', marginBottom:6, marginLeft:50 }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:12, padding:'14px 18px', borderBottom:'1px solid rgba(45,212,191,0.20)' }}>
+                        <div style={{ width:36, height:36, borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, background:'#CCFBF1', color:'#0D9488', boxShadow:'0 10px 24px rgba(13,148,136,0.12)' }}>
                           <MessageSquare style={{ width:15, height:15 }} />
                         </div>
-                        <span style={{ fontSize:13, fontWeight:700, color:'#0F766E' }}>{customerName(ticket.clientId)}</span>
-                        <span style={{ fontSize:10, background:'#CCFBF1', color:'#0F766E', padding:'2px 8px', borderRadius:20, fontWeight:600, display:'inline-flex', alignItems:'center', gap:3 }}>
+                        <div style={{ minWidth:0 }}>
+                          <div style={{ fontSize:13, fontWeight:700, color:'#0F766E' }}>{customerName(ticket.clientId)}</div>
+                          <div style={{ fontSize:11, color:'#0F766E', opacity:0.72, marginTop:2 }}>Transcricao da conversa vinculada ao ticket</div>
+                        </div>
+                        <span style={{ fontSize:10, background:'#CCFBF1', color:'#0F766E', padding:'4px 9px', borderRadius:999, fontWeight:700, display:'inline-flex', alignItems:'center', gap:4 }}>
                           <MessageSquare style={{width:9,height:9}}/> Chat
                         </span>
-                        <span style={{ fontSize:11, color:'#94A3B8', marginLeft:'auto' }}>{new Date(ticket.createdAt).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'})}</span>
+                        <span style={{ fontSize:11, color:'#94A3B8', marginLeft:'auto', fontFamily:"'DM Mono',monospace" }}>{new Date(ticket.createdAt).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'})}</span>
                         <button onClick={() => setShowConversation(v=>!v)}
-                          style={{ display:'flex', alignItems:'center', gap:4, padding:'4px 10px', background:'none', border:'1px solid #5EEAD4', borderRadius:6, color:'#0F766E', fontSize:11, fontWeight:700, cursor:'pointer' }}>
+                          style={{ display:'flex', alignItems:'center', gap:5, padding:'7px 12px', background:'rgba(255,255,255,0.75)', border:'1px solid #5EEAD4', borderRadius:999, color:'#0F766E', fontSize:11, fontWeight:700, cursor:'pointer' }}>
                           {showConversation ? <><ChevronUp style={{width:11,height:11}}/> ESCONDER</> : <><ChevronDown style={{width:11,height:11}}/> CARREGAR MAIS</>}
                         </button>
-                        <span style={{ minWidth:24, height:24, borderRadius:6, background:'#F1F5F9', color:'#64748B', fontSize:12, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', padding:'0 6px', flexShrink:0 }}>1</span>
+                        <span style={{ minWidth:28, height:28, borderRadius:10, background:'#FFFFFF', color:'#64748B', border:'1px solid rgba(148,163,184,0.18)', fontSize:12, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', padding:'0 6px', flexShrink:0 }}>1</span>
                       </div>
                       {showConversation && (
-                        <div style={{ padding:'12px 14px 4px', display:'flex', flexDirection:'column', gap:4 }}>
+                        <div style={{ padding:'16px 18px 10px', display:'flex', flexDirection:'column', gap:10 }}>
                           {conversationMsgs.map((cm:any)=>{
                             const isC = cm.authorType==='contact';
                             const t = new Date(cm.createdAt).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
-                            // Admin view: agent (user) on RIGHT, contact on LEFT
                             return (
-                              <div key={cm.id} style={{ display:'flex', justifyContent:isC?'flex-start':'flex-end', gap:6, alignItems:'flex-end' }}>
+                              <div key={cm.id} style={{ display:'flex', justifyContent:isC?'flex-start':'flex-end', gap:8, alignItems:'flex-end' }}>
                                 {isC && (
-                                  <div style={{ width:24, height:24, borderRadius:'50%', flexShrink:0, background:'#CCFBF1', display:'flex', alignItems:'center', justifyContent:'center', color:'#0D9488', fontSize:9, fontWeight:700 }}>
+                                  <div style={{ width:28, height:28, borderRadius:'50%', flexShrink:0, background:'#CCFBF1', display:'flex', alignItems:'center', justifyContent:'center', color:'#0D9488', fontSize:10, fontWeight:700 }}>
                                     {cm.authorName?.charAt(0)?.toUpperCase()||'?'}
                                   </div>
                                 )}
-                                <div style={{ maxWidth:'72%', padding:'6px 10px', borderRadius:isC?'2px 10px 10px 10px':'10px 2px 10px 10px', background:isC?'#F1F5F9':'#E0E7FF', fontSize:12, color:'#0F172A' }}>
-                                  <p style={{ margin:'0 0 2px', fontWeight:700, fontSize:9, color:isC?'#475569':'#4338CA' }}>{cm.authorName}</p>
+                                <div style={{ maxWidth:'72%', padding:'10px 12px', borderRadius:isC?'6px 18px 18px 18px':'18px 6px 18px 18px', background:isC?'rgba(255,255,255,0.88)':'#E0E7FF', border:`1px solid ${isC?'rgba(148,163,184,0.14)':'rgba(99,102,241,0.18)'}`, boxShadow:'0 10px 24px rgba(15,23,42,0.06)', fontSize:12, color:'#0F172A' }}>
+                                  <p style={{ margin:'0 0 4px', fontWeight:700, fontSize:10, color:isC?'#475569':'#4338CA' }}>{cm.authorName}</p>
                                   <p style={{ margin:0, whiteSpace:'pre-wrap', lineHeight:1.4 }}>{cm.content}</p>
-                                  <span style={{ fontSize:9, opacity:0.45, display:'block', textAlign:isC?'left':'right', marginTop:2 }}>{t}</span>
+                                  <span style={{ fontSize:9, opacity:0.55, display:'block', textAlign:isC?'left':'right', marginTop:6, fontFamily:"'DM Mono',monospace" }}>{t}</span>
                                 </div>
                                 {!isC && (
-                                  <div style={{ width:24, height:24, borderRadius:'50%', flexShrink:0, background:'linear-gradient(135deg,#6366F1,#4F46E5)', display:'flex', alignItems:'center', justifyContent:'center', color:'#fff', fontSize:9, fontWeight:700 }}>
+                                  <div style={{ width:28, height:28, borderRadius:'50%', flexShrink:0, background:'linear-gradient(135deg,#6366F1,#4F46E5)', display:'flex', alignItems:'center', justifyContent:'center', color:'#fff', fontSize:10, fontWeight:700 }}>
                                     {cm.authorName?.split(' ').map((n:string)=>n[0]).join('').slice(0,2).toUpperCase()||'?'}
                                   </div>
                                 )}
                               </div>
                             );
                           })}
-                          <div style={{ textAlign:'center', padding:'8px 0' }}>
+                          <div style={{ textAlign:'center', padding:'6px 0 2px' }}>
                             <button onClick={() => setShowConversation(false)}
-                              style={{ padding:'4px 14px', border:'1px solid #5EEAD4', borderRadius:6, background:'none', color:'#0F766E', fontSize:11, fontWeight:700, cursor:'pointer' }}>
+                              style={{ padding:'6px 14px', border:'1px solid #5EEAD4', borderRadius:999, background:'rgba(255,255,255,0.7)', color:'#0F766E', fontSize:11, fontWeight:700, cursor:'pointer' }}>
                               ESCONDER
                             </button>
                           </div>
@@ -673,7 +807,7 @@ export default function TicketDetailsPage() {
                       )}
                     </div>
                   )}
-                </>
+                </div>
               );
             })()}
           </div>
@@ -687,34 +821,55 @@ export default function TicketDetailsPage() {
             if (isFinished && activeTab === 'comment') {
               setTimeout(() => setActiveTab('note'), 0);
             }
+            const visibleReplyTabs = replyTabs.filter(([tab]) => tab !== 'update');
+            if (activeTab === 'update') {
+              setTimeout(() => setActiveTab(isFinished ? 'note' : 'comment'), 0);
+            }
             return (
-            <div style={{ background:S.bg, border:`1px solid ${S.bd}`, borderRadius:12, flexShrink:0, overflow:'hidden' }}>
-              <div style={{ display:'flex', borderBottom:`1px solid ${S.bd}` }}>
-                {(replyTabs as [string,string][]).map(([tab,label]) => (
+            <div style={{ background:'linear-gradient(180deg, #FFFFFF 0%, #FBFBFE 100%)', border:`1px solid ${S.bd}`, borderRadius:20, flexShrink:0, overflow:'hidden', boxShadow:'0 20px 45px rgba(15,23,42,0.08)' }}>
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, padding:'14px 16px 0' }}>
+                <div>
+                  <div style={{ fontSize:12, fontWeight:700, color:S.txt }}>Responder no ticket</div>
+                  <div style={{ fontSize:11, color:S.txt3, marginTop:4 }}>Mantenha o contexto da conversa e escolha o tipo de interacao abaixo.</div>
+                </div>
+                <div style={{ fontSize:10, fontWeight:700, color:S.txt3, padding:'5px 9px', borderRadius:999, background:S.bg2, border:`1px solid ${S.bd}` }}>
+                  {activeTab === 'note' ? 'Privado' : 'Publico'}
+                </div>
+              </div>
+              <div style={{ display:'flex', gap:8, padding:'14px 16px 0', borderBottom:`1px solid ${S.bd}` }}>
+                {(visibleReplyTabs as [string,string][]).map(([tab,label]) => (
                   <button key={tab} onClick={() => setActiveTab(tab as any)}
-                    style={{ padding:'9px 16px', fontSize:12, fontWeight:500, cursor:'pointer', color:activeTab===tab?(tab==='note'?'#D97706':S.accent):S.txt2, borderTop:'none', borderLeft:'none', borderRight:'none', borderBottom:`2px solid ${activeTab===tab?(tab==='note'?'#D97706':S.accent):'transparent'}`, marginBottom:-1, background:'none', display:'flex', alignItems:'center', gap:5, fontFamily:'inherit', transition:'all .15s' }}>
+                    style={{ padding:'10px 14px', fontSize:12, fontWeight:700, cursor:'pointer', color:activeTab===tab?(tab==='note'?'#B45309':S.accent):S.txt2, border:'1px solid', borderColor:activeTab===tab?(tab==='note'?'#FCD34D':S.accentM):'transparent', borderBottomColor:activeTab===tab?(tab==='note'?'#FCD34D':S.accentM):'transparent', marginBottom:-1, background:activeTab===tab?(tab==='note'?'#FFF7ED':'#EEF2FF'):'transparent', display:'flex', alignItems:'center', gap:6, fontFamily:'inherit', borderTopLeftRadius:12, borderTopRightRadius:12, transition:'all .15s' }}>
                     {tab==='note' && <Lock style={{width:12,height:12}}/>}{label}
                   </button>
                 ))}
               </div>
               <form onSubmit={sendMessage}>
-                <div style={{ padding:'10px 14px' }}>
+                <div style={{ padding:'16px' }}>
                   <textarea value={message} onChange={e => setMessage(e.target.value)} rows={3}
                     placeholder={activeTab==='note'?'Nota interna (visível só para a equipe)...':activeTab==='update'?'Descreva a atualização do ticket...':'Digite sua resposta para o cliente...'}
-                    style={{ width:'100%', background:'none', border:'none', outline:'none', fontSize:13, color:S.txt, fontFamily:'inherit', lineHeight:1.6, resize:'none' as const, boxSizing:'border-box' as const, minHeight:60 }} />
+                    style={{ width:'100%', background:'#FFFFFF', border:`1px solid ${activeTab==='note' ? '#FCD34D' : activeTab==='update' ? '#C7D2FE' : '#E2E8F0'}`, outline:'none', fontSize:13, color:S.txt, fontFamily:'inherit', lineHeight:1.7, resize:'none' as const, boxSizing:'border-box' as const, minHeight:108, borderRadius:18, padding:'14px 16px', boxShadow:activeTab==='note' ? 'inset 0 1px 0 rgba(255,255,255,0.8), 0 10px 24px rgba(251,146,60,0.08)' : activeTab==='update' ? 'inset 0 1px 0 rgba(255,255,255,0.8), 0 10px 24px rgba(99,102,241,0.08)' : 'inset 0 1px 0 rgba(255,255,255,0.8), 0 10px 24px rgba(15,23,42,0.05)' }} />
                 </div>
-                <div style={{ display:'flex', alignItems:'center', gap:6, padding:'8px 14px', borderTop:`1px solid ${S.bd}` }}>
+                <div style={{ display:'flex', alignItems:'center', gap:8, padding:'0 16px 16px' }}>
                   {[
                     <Paperclip key="a" style={{width:14,height:14}}/>,
                     <svg key="b" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18"/></svg>,
                     <svg key="c" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>,
                     <svg key="d" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>,
                   ].map((icon, i) => (
-                    <button key={i} type="button" style={{ width:28, height:28, borderRadius:7, background:'transparent', border:'none', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:S.txt2 }}>{icon}</button>
+                    <button key={i} type="button" style={{ width:34, height:34, borderRadius:10, background:'#FFFFFF', border:`1px solid ${S.bd}`, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:S.txt2, boxShadow:'0 6px 16px rgba(15,23,42,0.04)' }}>{icon}</button>
                   ))}
-                  <div style={{ flex:1 }} />
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontSize:11, color:S.txt3 }}>
+                      {activeTab==='note'
+                        ? 'Visivel apenas para a equipe interna.'
+                        : activeTab==='update'
+                          ? 'Use para registrar uma atualizacao do atendimento.'
+                          : 'Resposta publica registrada no historico do ticket.'}
+                    </div>
+                  </div>
                   <button type="submit" disabled={sending||!message.trim()}
-                    style={{ padding:'7px 18px', background:S.accent, color:'#fff', border:'none', borderRadius:8, fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'inherit', display:'flex', alignItems:'center', gap:6, opacity:!message.trim()?0.5:1, transition:'background .15s' }}>
+                    style={{ padding:'10px 18px', background:activeTab==='note' ? '#F59E0B' : S.accent, color:'#fff', border:'none', borderRadius:12, fontSize:12, fontWeight:700, cursor:'pointer', fontFamily:'inherit', display:'flex', alignItems:'center', gap:7, opacity:!message.trim()?0.5:1, boxShadow:activeTab==='note' ? '0 14px 30px rgba(245,158,11,0.25)' : '0 14px 30px rgba(79,70,229,0.22)', transition:'background .15s' }}>
                     <Send style={{width:13,height:13}}/> {sending?'Enviando...':'Enviar resposta'}
                   </button>
                 </div>
@@ -754,7 +909,7 @@ export default function TicketDetailsPage() {
             return `${m}m`;
           })();
           return (
-        <div style={{ width:280, borderLeft:`1px solid ${S.bd}`, overflowY:'auto', flexShrink:0, background:S.bg, display:'flex', flexDirection:'column' }}>
+        <div style={{ width:interactionExpanded ? 0 : 280, borderLeft:interactionExpanded ? 'none' : `1px solid ${S.bd}`, overflowY:'auto', flexShrink:0, background:S.bg, display:interactionExpanded ? 'none' : 'flex', flexDirection:'column', transition:'width .2s ease' }}>
 
           {/* DETALHES */}
           <div style={{ padding:'14px 16px', borderBottom:`1px solid ${S.bd}` }}>
@@ -896,7 +1051,13 @@ export default function TicketDetailsPage() {
               </div>
               <div>
                 <label style={{ fontSize:10, color:S.txt3, fontWeight:700, letterSpacing:'0.06em', textTransform:'uppercase' as const, display:'block', marginBottom:4 }}>Tags</label>
-                <input style={inp} value={edit.tags} onChange={e => setEdit({...edit,tags:e.target.value})} placeholder="tag1, tag2" />
+                <TagMultiSelect
+                  options={availableTags}
+                  value={edit.tags}
+                  onChange={(tags) => setEdit({ ...edit, tags })}
+                  placeholder="Selecione as tags do ticket"
+                  emptyText="Nenhuma tag cadastrada"
+                />
               </div>
               <button type="submit" disabled={saving}
                 style={{ width:'100%', padding:'10px', background:S.accent, color:'#fff', border:'none', borderRadius:9, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'inherit', display:'flex', alignItems:'center', justifyContent:'center', gap:6 }}>

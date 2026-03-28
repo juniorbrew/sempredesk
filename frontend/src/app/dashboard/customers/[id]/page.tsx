@@ -56,6 +56,28 @@ function composePhone(country: string, local: string): string {
   return country.replace('+','') + localDigits;
 }
 
+function isTechnicalWhatsapp(contact: any): boolean {
+  const whatsapp = String(contact?.whatsapp || '').replace(/\D/g,'');
+  const technical = String(contact?.metadata?.whatsappLid || '').replace(/\D/g,'');
+  if (technical && whatsapp && technical === whatsapp) return true;
+  return !!whatsapp && !contact?.phone && whatsapp.length >= 14;
+}
+
+function getVisibleWhatsapp(contact: any): string {
+  return isTechnicalWhatsapp(contact) ? '' : (contact?.whatsapp || '');
+}
+
+function getTechnicalWhatsapp(contact: any): string {
+  if (!contact) return '';
+  const technical = String(contact?.metadata?.whatsappLid || '').replace(/\D/g,'');
+  if (technical) return technical;
+  return isTechnicalWhatsapp(contact) ? String(contact?.whatsapp || '').replace(/\D/g,'') : '';
+}
+
+function hasWhatsappChannel(contact: any): boolean {
+  return !!(getVisibleWhatsapp(contact) || getTechnicalWhatsapp(contact));
+}
+
 const fmtCnpj = (v: string) => { const d=(v||'').replace(/\D/g,'').slice(0,14); return d.replace(/^(\d{2})(\d)/,'$1.$2').replace(/^(\d{2})\.(\d{3})(\d)/,'$1.$2.$3').replace(/\.(\d{3})(\d)/,'.$1/$2').replace(/(\d{4})(\d)/,'$1-$2'); };
 const rawCnpj = (v: string) => v.replace(/\D/g,'');
 const fmtCpf = (v: string) => { const d=(v||'').replace(/\D/g,'').slice(0,11); return d.replace(/^(\d{3})(\d)/,'$1.$2').replace(/^(\d{3})\.(\d{3})(\d)/,'$1.$2.$3').replace(/(\d{3})(\d{1,2})$/,'$1-$2'); };
@@ -96,7 +118,7 @@ export default function CustomerDetailPage() {
   const [contacts, setContacts] = useState<any[]>([]);
   const [showContactModal, setShowContactModal] = useState(false);
   const [editingContact, setEditingContact] = useState<any>(null);
-  const [contactForm, setContactForm] = useState({ name:'', role:'', email:'', phone:'', phoneCountry:'+55', whatsapp:'', whatsappCountry:'+55', notes:'', isPrimary:false, password:'' });
+  const [contactForm, setContactForm] = useState({ name:'', role:'', email:'', phone:'', phoneCountry:'+55', whatsapp:'', whatsappCountry:'+55', technicalWhatsapp:'', notes:'', isPrimary:false, password:'' });
   const [showContactPass, setShowContactPass] = useState(false);
   const [emailSearching, setEmailSearching] = useState(false);
   const [focusCF, setFocusCF] = useState('');
@@ -206,10 +228,11 @@ export default function CustomerDetailPage() {
     setEditingContact(c || null);
     if (c) {
       const ph = parsePhone(c.phone || '');
-      const wa = parsePhone(c.whatsapp || '');
-      setContactForm({ name:c.name, role:c.role||'', email:c.email||'', phone:ph.local, phoneCountry:ph.country, whatsapp:wa.local, whatsappCountry:wa.country, notes:c.notes||'', isPrimary:c.isPrimary||false, password:'' });
+      const visibleWhatsapp = getVisibleWhatsapp(c);
+      const wa = parsePhone(visibleWhatsapp || '');
+      setContactForm({ name:c.name, role:c.role||'', email:c.email||'', phone:ph.local, phoneCountry:ph.country, whatsapp:wa.local, whatsappCountry:wa.country, technicalWhatsapp:getTechnicalWhatsapp(c), notes:c.notes||'', isPrimary:c.isPrimary||false, password:'' });
     } else {
-      setContactForm({ name:'', role:'', email:'', phone:'', phoneCountry:'+55', whatsapp:'', whatsappCountry:'+55', notes:'', isPrimary:false, password:'' });
+      setContactForm({ name:'', role:'', email:'', phone:'', phoneCountry:'+55', whatsapp:'', whatsappCountry:'+55', technicalWhatsapp:'', notes:'', isPrimary:false, password:'' });
     }
     setShowContactPass(false);
     
@@ -234,7 +257,19 @@ export default function CustomerDetailPage() {
       // Monta números completos com DDI
       const phoneComplete = composePhone(phoneCountry, rest.phone);
       const whatsComplete = composePhone(whatsappCountry, rest.whatsapp);
-      const clean: any = Object.fromEntries(Object.entries({ ...rest, phone: phoneComplete, whatsapp: whatsComplete }).filter(([_, v]) => v !== '' && v !== null));
+      const clean: any = Object.fromEntries(
+        Object.entries({ ...rest, phone: phoneComplete, whatsapp: whatsComplete })
+          .filter(([k, v]) => k !== 'technicalWhatsapp' && v !== '' && v !== null),
+      );
+      if (editingContact && !whatsComplete && rest.technicalWhatsapp) {
+        clean.whatsapp = rest.technicalWhatsapp;
+      }
+      if (editingContact && rest.technicalWhatsapp) {
+        clean.metadata = {
+          ...(editingContact?.metadata || {}),
+          whatsappLid: rest.technicalWhatsapp,
+        };
+      }
       // Inclui senha: ao criar sempre (gerar automaticamente se vazio); ao editar só se preenchido
       if (password) {
         clean.password = password;
@@ -544,7 +579,7 @@ export default function CustomerDetailPage() {
               <h2 className="table-header">Conversas</h2>
             </div>
           </div>
-          {conversations.length === 0 && contacts.filter((c: any) => c.whatsapp).length === 0 ? (
+          {conversations.length === 0 && contacts.filter((c: any) => hasWhatsappChannel(c)).length === 0 ? (
             <div className="text-center py-12">
               <div className="w-14 h-14 rounded-2xl mx-auto mb-3 flex items-center justify-center" style={{ background:'#F1F5F9' }}>
                 <MessageCircle className="w-7 h-7" style={{ color:'#CBD5E1' }} />
@@ -556,13 +591,13 @@ export default function CustomerDetailPage() {
             <div className="py-6">
               <p className="font-medium mb-3" style={{ color:'#475569' }}>Iniciar conversa WhatsApp</p>
               <div className="flex flex-col gap-2">
-                {contacts.filter((c: any) => c.whatsapp).map((c: any) => (
+                {contacts.filter((c: any) => hasWhatsappChannel(c)).map((c: any) => (
                   <div key={c.id} className="flex items-center justify-between p-3 rounded-lg" style={{ background:'#F8FAFC', border:'1px solid #E2E8F0' }}>
                     <div className="flex items-center gap-3">
                       <div className="w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm" style={{ background:'#CCFBF1', color:'#0F766E' }}>{c.name[0]}</div>
                       <div>
                         <p className="font-medium text-sm" style={{ color:'#0F172A' }}>{c.name}</p>
-                        <p className="text-xs" style={{ color:'#64748B' }}>{c.whatsapp}</p>
+                        <p className="text-xs" style={{ color:'#64748B' }}>{getVisibleWhatsapp(c) || 'Identificador técnico do WhatsApp'}</p>
                       </div>
                     </div>
                     <button
@@ -615,12 +650,12 @@ export default function CustomerDetailPage() {
                   </div>
                 );
               })}
-              {contacts.filter((c: any) => c.whatsapp && !conversations.some((conv: any) => conv.contactId === c.id && conv.channel === 'whatsapp' && conv.status === 'active')).length > 0 && (
+              {contacts.filter((c: any) => hasWhatsappChannel(c) && !conversations.some((conv: any) => conv.contactId === c.id && conv.channel === 'whatsapp' && conv.status === 'active')).length > 0 && (
                 <div className="mt-6 pt-6" style={{ borderTop:'1px solid #E2E8F0' }}>
                   <p className="font-medium mb-3" style={{ color:'#475569' }}>Iniciar nova conversa</p>
-                  {contacts.filter((c: any) => c.whatsapp && !conversations.some((conv: any) => conv.contactId === c.id && conv.channel === 'whatsapp' && conv.status === 'active')).map((c: any) => (
+                  {contacts.filter((c: any) => hasWhatsappChannel(c) && !conversations.some((conv: any) => conv.contactId === c.id && conv.channel === 'whatsapp' && conv.status === 'active')).map((c: any) => (
                     <div key={c.id} className="flex items-center justify-between p-3 rounded-lg mb-2" style={{ background:'#F8FAFC', border:'1px solid #E2E8F0' }}>
-                      <span className="text-sm">{c.name} · {c.whatsapp}</span>
+                      <span className="text-sm">{c.name}{getVisibleWhatsapp(c) ? ` · ${getVisibleWhatsapp(c)}` : ''}</span>
                       <button onClick={() => handleStartWhatsappConversation(c.id)} disabled={!!startingConv} className="btn-secondary" style={{ padding:'6px 12px', fontSize:12 }}>
                         <Phone className="w-3.5 h-3.5 inline mr-1" /> Iniciar WhatsApp
                       </button>
@@ -681,7 +716,7 @@ export default function CustomerDetailPage() {
                     <div className="flex items-center gap-4 mt-1 flex-wrap">
                       {c.email && <span className="flex items-center gap-1 text-xs" style={{ color:'#64748B' }}><Mail className="w-3 h-3" />{c.email}</span>}
                       {c.phone && <span className="flex items-center gap-1 text-xs" style={{ color:'#64748B' }}><Phone className="w-3 h-3" />{c.phone}</span>}
-                      {c.whatsapp && <span className="flex items-center gap-1 text-xs" style={{ color:'#16A34A' }}><MessageCircle className="w-3 h-3" />{c.whatsapp}</span>}
+                      {getVisibleWhatsapp(c) && <span className="flex items-center gap-1 text-xs" style={{ color:'#16A34A' }}><MessageCircle className="w-3 h-3" />{getVisibleWhatsapp(c)}</span>}
                     </div>
                   </div>
                   <div className="flex gap-2">
@@ -782,7 +817,7 @@ export default function CustomerDetailPage() {
                               }
                             }
                             if (found) {
-                              setContactForm(p => ({ ...p, email: val, name: found.name||p.name, role: found.role||p.role, phone: found.phone||p.phone, whatsapp: found.whatsapp||p.whatsapp, isPrimary: found.isPrimary||p.isPrimary }));
+                              setContactForm(p => ({ ...p, email: val, name: found.name||p.name, role: found.role||p.role, phone: found.phone||p.phone, whatsapp: getVisibleWhatsapp(found)||p.whatsapp, technicalWhatsapp: getTechnicalWhatsapp(found)||p.technicalWhatsapp, isPrimary: found.isPrimary||p.isPrimary }));
                             }
                           } catch {}
                           setEmailSearching(false);

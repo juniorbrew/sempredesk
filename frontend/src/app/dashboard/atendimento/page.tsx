@@ -3,12 +3,14 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { api } from '@/lib/api';
 import Link from 'next/link';
 import { useRealtimeConversation, useRealtimeTicket } from '@/lib/realtime';
+import { useAuthStore, hasPermission } from '@/store/auth.store';
 import {
   MessageSquare, Send, Phone, RefreshCw, Lock, ExternalLink, Plus, Link2, Globe,
-  Check, Search, X, CheckCircle2, User, Mail, MapPin, Building2, Hash,
+  Check, Search, X, CheckCircle2, User, Mail, MapPin, Building2, Hash, Tag,
 } from 'lucide-react';
 import { EmojiPicker } from '@/components/ui/EmojiPicker';
 import ContactValidationBanner, { type ResolvedData } from '@/components/atendimento/ContactValidationBanner';
+import { TagMultiSelect } from '@/components/ui/TagMultiSelect';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -76,11 +78,15 @@ function ChannelDot({ channel }: { channel: string }) {
 
 // ── main component ────────────────────────────────────────────────────────────
 export default function AtendimentoPage() {
+  const { user } = useAuthStore();
   const [conversations, setConversations] = useState<any[]>([]);
   const [selected, setSelected] = useState<any>(null);
   const [messages, setMessages] = useState<any[]>([]);
   const [customers, setCustomers] = useState<any[]>([]);
   const [contacts, setContacts] = useState<any[]>([]);
+  const [availableTags, setAvailableTags] = useState<any[]>([]);
+  const [conversationTags, setConversationTags] = useState<string[]>([]);
+  const [savingConversationTags, setSavingConversationTags] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadingChat, setLoadingChat] = useState(false);
   const [search, setSearch] = useState('');
@@ -167,6 +173,8 @@ export default function AtendimentoPage() {
     return c?.name || '—';
   };
 
+  const canEditConversationTags = hasPermission(user, 'ticket.edit');
+
   // ── data loading ──
   const loadConversations = useCallback(async (resetSelection = false, silent = false) => {
     if (!silent) setLoading(true);
@@ -215,6 +223,7 @@ export default function AtendimentoPage() {
     if (!conv) return;
     setLoadingChat(true);
     setCurrentTicket(null);
+    setConversationTags(Array.isArray(conv?.tags) ? conv.tags : []);
     try {
       const isTicket = conv.type === 'ticket' || conv.id?.startsWith?.('ticket:');
       const ticketId = isTicket ? (conv.ticketId || conv.id?.replace?.(/^ticket:/, '')) : conv.ticketId;
@@ -554,6 +563,8 @@ export default function AtendimentoPage() {
 
 
   useEffect(() => { if (selected) loadChat(selected); else setMessages([]); }, [selected?.id]);
+  useEffect(() => { api.getTags({ active: true }).then((r: any) => setAvailableTags(r?.data ?? r ?? [])).catch(() => setAvailableTags([])); }, []);
+  useEffect(() => { setConversationTags(Array.isArray(selected?.tags) ? selected.tags : []); }, [selected?.id, selected?.tags]);
   useEffect(() => {
     if (!selected?.clientId) { setClientTickets([]); return; }
     api.getTickets({ clientId: selected.clientId, perPage: 20 })
@@ -582,6 +593,22 @@ export default function AtendimentoPage() {
       return [...m, msg];
     });
   });
+
+  const saveConversationTags = async () => {
+    if (!selected?.id || isTicketType) return;
+    setSavingConversationTags(true);
+    try {
+      const saved = await api.updateConversationTags(selected.id, conversationTags);
+      const nextTags = Array.isArray(saved?.tags) ? saved.tags : conversationTags;
+      setConversationTags(nextTags);
+      setSelected((prev: any) => prev ? { ...prev, tags: nextTags } : prev);
+      setConversations((prev: any[]) => prev.map((conv: any) => sameItem(conv, selected) ? { ...conv, tags: nextTags } : conv));
+      showToast('Tags da conversa atualizadas');
+    } catch (e: any) {
+      showToast(e?.response?.data?.message || 'Erro ao salvar tags da conversa', 'error');
+    }
+    setSavingConversationTags(false);
+  };
 
   // ── styles (shared) ──
   const S = {
@@ -1059,13 +1086,64 @@ export default function AtendimentoPage() {
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 10, padding: '3px 8px', borderRadius: 5, fontWeight: 500, background: '#FEF3C7', color: '#92400E' }}>Premium</span>
+                    {conversationTags.map((tagName) => {
+                      const found = availableTags.find((tag: any) => String(tag.name).toLowerCase() === String(tagName).toLowerCase());
+                      return (
+                        <span
+                          key={tagName}
+                          style={{
+                            fontSize: 10,
+                            padding: '3px 8px',
+                            borderRadius: 5,
+                            fontWeight: 600,
+                            background: found?.color ? `${found.color}18` : '#EEF2FF',
+                            color: found?.color || '#4F46E5',
+                            border: `1px solid ${found?.color ? `${found.color}33` : '#C7D2FE'}`,
+                          }}
+                        >
+                          {tagName}
+                        </span>
+                      );
+                    })}
                     <span style={{ fontSize: 10, padding: '3px 8px', borderRadius: 5, fontWeight: 500, background: isWhatsapp ? '#DCFCE7' : S.accentLight, color: isWhatsapp ? '#15803D' : S.accent }}>
                       {isWhatsapp ? 'WhatsApp' : 'Portal'}
                     </span>
                     <span style={{ fontSize: 10, padding: '3px 8px', borderRadius: 5, fontWeight: 500, background: '#D1FAE5', color: '#065F46' }}>Ativo</span>
                   </div>
                 </div>
+
+                {!isTicketType && (
+                  <div style={{ padding: '14px 16px', borderBottom: S.border }}>
+                    {secTitle('Tags da conversa', canEditConversationTags ? (
+                      <button
+                        type="button"
+                        onClick={saveConversationTags}
+                        disabled={savingConversationTags}
+                        style={{ fontSize: 11, color: S.accent, fontWeight: 700, border: 'none', background: 'transparent', cursor: savingConversationTags ? 'wait' : 'pointer' }}
+                      >
+                        {savingConversationTags ? 'Salvando...' : 'Salvar'}
+                      </button>
+                    ) : undefined)}
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                      <div style={{ width: 28, height: 28, borderRadius: 8, background: '#EEF2FF', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <Tag size={14} color="#4F46E5" />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <TagMultiSelect
+                          options={availableTags}
+                          value={conversationTags}
+                          onChange={setConversationTags}
+                          disabled={!canEditConversationTags || selected?.status === 'closed'}
+                          placeholder="Selecione as tags da conversa"
+                          emptyText="Nenhuma tag cadastrada"
+                        />
+                        <p style={{ margin: '8px 0 0', fontSize: 11, color: S.txt3 }}>
+                          Use tags para organizar chats do cliente e facilitar filtros futuros.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* RESPONSÁVEL */}
                 {currentTicket && (

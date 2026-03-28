@@ -9,6 +9,7 @@ import { TicketSatisfactionService } from './ticket-satisfaction.service';
 import {
   CreateTicketDto,
   UpdateTicketDto,
+  UpdateTicketContentDto,
   AddMessageDto,
   FilterTicketsDto,
   ResolveTicketDto,
@@ -628,7 +629,12 @@ export class TicketsService {
         qb.andWhere('t.status = :status', { status: statusList[0] });
       }
     }
-    if (origin) qb.andWhere('t.origin = :origin', { origin });
+    if (origin) {
+      qb.andWhere('t.origin = :origin', { origin });
+    } else {
+      // Inbox de atendimento mostra apenas canais de contato do cliente.
+      qb.andWhere('t.origin IN (:...inboxOrigins)', { inboxOrigins: ['whatsapp', 'portal'] });
+    }
     if (priority) qb.andWhere('t.priority = :priority', { priority });
     if (assignedTo) qb.andWhere('t.assigned_to = :assignedTo', { assignedTo });
     if (clientId && contactId) {
@@ -714,7 +720,11 @@ export class TicketsService {
       .orderBy('t.updated_at', 'DESC')
       .take(Math.min(perPage, 100));
 
-    if (origin) qb.andWhere('t.origin = :origin', { origin });
+    if (origin) {
+      qb.andWhere('t.origin = :origin', { origin });
+    } else {
+      qb.andWhere('t.origin IN (:...inboxOrigins)', { inboxOrigins: ['whatsapp', 'portal'] });
+    }
     if (status === 'active') {
       qb.andWhere('t.status IN (:...sts)', {
         sts: [TicketStatus.OPEN, TicketStatus.IN_PROGRESS, TicketStatus.WAITING_CLIENT],
@@ -928,6 +938,39 @@ export class TicketsService {
       this.assignmentSvc
     ) {
       this.assignmentSvc.reassignOnDepartmentChange(tenantId, saved.id).catch(() => {});
+    }
+
+    return saved;
+  }
+
+  async updateContent(tenantId: string, id: string, userId: string, userName: string, dto: UpdateTicketContentDto): Promise<Ticket> {
+    const ticket = await this.getTicketOrFail(tenantId, id);
+    const oldSubject = ticket.subject ?? '';
+    const oldDescription = ticket.description ?? '';
+
+    ticket.subject = dto.subject.trim();
+    ticket.description = dto.description?.trim() || '';
+
+    const saved = await this.ticketRepo.save(ticket);
+
+    if (oldSubject !== saved.subject) {
+      await this.registerSystemMessage(
+        tenantId,
+        id,
+        userId,
+        userName,
+        `Assunto do ticket alterado de "${oldSubject}" para "${saved.subject}"`,
+      );
+    }
+
+    if (oldDescription !== saved.description) {
+      await this.registerSystemMessage(
+        tenantId,
+        id,
+        userId,
+        userName,
+        'Descrição do ticket atualizada',
+      );
     }
 
     return saved;

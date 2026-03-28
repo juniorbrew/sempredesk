@@ -80,6 +80,7 @@ class ApiClient {
   getConversation = (id: string) => this.client.get(`/conversations/${id}`);
   getConversationMessages = (id: string) => this.client.get(`/conversations/${id}/messages`);
   addConversationMessage = (id: string, data: { content: string }) => this.client.post(`/conversations/${id}/messages`, data);
+  updateConversationTags = (id: string, tags: string[]) => this.client.put(`/conversations/${id}/tags`, { tags });
   getConversationsByClient = (clientId: string, channel?: string) =>
     this.client.get(`/conversations/by-client/${clientId}`, { params: channel ? { channel } : {} });
   startAgentConversation = (data: { clientId: string; contactId: string; channel: string }) =>
@@ -91,6 +92,7 @@ class ApiClient {
   closeConversation = (id: string, opts?: { keepTicketOpen?: boolean; solution?: string; rootCause?: string; timeSpentMin?: number; internalNote?: string; complexity?: number }) =>
     this.client.post(`/conversations/${id}/close`, opts || {});
   assignTicket = (id: string, techId: string) => this.client.post(`/tickets/${id}/assign`, { techId });
+  updateTicketContent = (id: string, data: { subject: string; description?: string }) => this.client.put(`/tickets/${id}/content`, data);
   getAttendanceQueueStats = () => this.client.get('/attendance/queue-stats');
   resolveTicket = (id: string, data?: any) => this.client.post(`/tickets/${id}/resolve`, data || {});
   closeTicket = (id: string) => this.client.post(`/tickets/${id}/close`);
@@ -103,6 +105,10 @@ class ApiClient {
   createTicketSetting = (data: any) => this.client.post('/ticket-settings', data);
   updateTicketSetting = (id: string, data: any) => this.client.put(`/ticket-settings/${id}`, data);
   deleteTicketSetting = (id: string) => this.client.delete(`/ticket-settings/${id}`);
+  getTags = (params?: any) => this.client.get('/tags', { params });
+  createTag = (data: any) => this.client.post('/tags', data);
+  updateTag = (id: string, data: any) => this.client.put(`/tags/${id}`, data);
+  deleteTag = (id: string) => this.client.delete(`/tags/${id}`);
 
   getCustomers = (params?: any) => this.client.get('/customers', { params });
   getCustomer = (id: string) => this.client.get(`/customers/${id}`);

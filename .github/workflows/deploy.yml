@@ -24,7 +24,7 @@ jobs:
             git pull origin main
 
             echo "🔨 Rebuilding backend, frontend e portal..."
-            docker compose build backend frontend portal
+            docker compose build backend frontend
 
             echo "🛑 Removendo containers conflitantes..."
             docker stop suporte_frontend suporte_backend 2>/dev/null || true

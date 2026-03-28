@@ -263,6 +263,12 @@ export class ConversationsService {
     return conv;
   }
 
+  async updateTags(tenantId: string, conversationId: string, tags: string[]): Promise<Conversation> {
+    const conv = await this.findOne(tenantId, conversationId);
+    conv.tags = Array.from(new Set((tags || []).map((tag) => String(tag).trim()).filter(Boolean)));
+    return this.convRepo.save(conv);
+  }
+
   private async createTicketForConversation(
     tenantId: string,
     conv: Conversation,

@@ -21,8 +21,8 @@ async function bootstrap() {
     ? process.env.ALLOWED_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean)
     : [
         'http://localhost:3000',
-        'https://cliente.financeos.com.br',
-        'https://suporte.financeos.com.br',
+        'https://cliente.sempredesk.com.br',
+        'https://suporte.sempredesk.com.br',
       ];
   app.enableCors({
     origin: allowedOrigins,

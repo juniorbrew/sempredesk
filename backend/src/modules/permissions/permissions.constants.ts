@@ -7,6 +7,7 @@ export const PERMISSIONS = {
   TICKET_VIEW: 'ticket.view',
   TICKET_CREATE: 'ticket.create',
   TICKET_EDIT: 'ticket.edit',
+  TICKET_EDIT_CONTENT: 'ticket.edit_content',
   TICKET_REPLY: 'ticket.reply',
   TICKET_TRANSFER: 'ticket.transfer',
   TICKET_CLOSE: 'ticket.close',

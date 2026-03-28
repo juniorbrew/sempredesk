@@ -1,10 +1,10 @@
-import { Body, Controller, Get, Post, Param, Query, UseGuards, BadRequestException, Request } from '@nestjs/common';
+import { Body, Controller, Get, Post, Param, Query, UseGuards, BadRequestException, Request, Put } from '@nestjs/common';
 import { ConversationsService } from './conversations.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 import { TenantId } from '../../common/decorators/tenant-id.decorator';
-import { StartConversationDto, StartAgentConversationDto, CreateTicketForConversationDto, LinkTicketDto, AddConversationMessageDto, CloseConversationDto } from './dto/conversation.dto';
+import { StartConversationDto, StartAgentConversationDto, CreateTicketForConversationDto, LinkTicketDto, AddConversationMessageDto, CloseConversationDto, UpdateConversationTagsDto } from './dto/conversation.dto';
 import { ConversationChannel } from './entities/conversation.entity';
 
 @Controller('conversations')
@@ -106,6 +106,13 @@ export class ConversationsController {
   @Post(':id/close')
   async close(@Request() req: any, @TenantId() tenantId: string, @Param('id') id: string, @Body() body?: CloseConversationDto) {
     return this.conversationsService.close(tenantId, id, req.user?.id, req.user?.name, body?.keepTicketOpen, body);
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermission('ticket.edit')
+  @Put(':id/tags')
+  async updateTags(@TenantId() tenantId: string, @Param('id') id: string, @Body() dto: UpdateConversationTagsDto) {
+    return this.conversationsService.updateTags(tenantId, id, dto.tags || []);
   }
 
   @UseGuards(JwtAuthGuard)

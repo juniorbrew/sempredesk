@@ -38,6 +38,14 @@ export class WhatsappService {
     @InjectDataSource() private readonly dataSource: DataSource,
   ) {}
 
+  private resolveContactWhatsappTarget(contact: any, fallback?: string): { raw: string; digits: string } {
+    const technicalLid = String(contact?.metadata?.whatsappLid || '').trim();
+    const storedWhatsapp = String(contact?.whatsapp || '').trim();
+    const fallbackDigits = String(fallback || '').replace(/\D/g, '');
+    const raw = technicalLid || storedWhatsapp || fallbackDigits;
+    return { raw, digits: raw.replace(/\D/g, '') };
+  }
+
   normalizeGenericPayload(body: any): NormalizedWhatsappMessage | null {
     if (!body?.from || !body?.text) return null;
     return {
@@ -282,12 +290,13 @@ export class WhatsappService {
     }
 
     const contact = await this.customersService.findContactById(tenantId, ticket.contactId);
-    if (!contact?.whatsapp) {
+    const destination = this.resolveContactWhatsappTarget(contact);
+    if (!destination.raw) {
       throw new BadRequestException('Contato não possui número WhatsApp cadastrado');
     }
 
-    const rawWhatsapp = String(contact.whatsapp).trim();
-    const digits = rawWhatsapp.replace(/\D/g, '');
+    const rawWhatsapp = destination.raw;
+    const digits = destination.digits;
     if (!digits || digits.length < 10) {
       throw new BadRequestException('Número WhatsApp do contato inválido');
     }
@@ -370,7 +379,8 @@ export class WhatsappService {
       throw new BadRequestException('phone ou contactId é obrigatório');
     }
 
-    const whatsapp: string = contact.whatsapp || dto.phone?.replace(/\D/g, '') || '';
+    const destination = this.resolveContactWhatsappTarget(contact, dto.phone);
+    const whatsapp: string = destination.raw;
     if (!whatsapp) throw new BadRequestException('Contato sem número WhatsApp cadastrado');
     log(`[OUTBOUND-FLOW] WhatsApp do contato: ${whatsapp}`);
 

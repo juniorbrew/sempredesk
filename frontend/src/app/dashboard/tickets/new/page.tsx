@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { api } from '@/lib/api';
 import { Search, X, User, Building2, FileText, ChevronDown, AlertCircle, Ticket, Tag, ArrowLeft } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { TagMultiSelect } from '@/components/ui/TagMultiSelect';
 
 const lbl = { display:'block', color:'#64748B', fontSize:11, fontWeight:700 as const, letterSpacing:'0.07em', marginBottom:5, textTransform:'uppercase' as const };
 const inp = (focus?:boolean) => ({ width:'100%', padding:'10px 14px', background:focus?'#fff':'#F8FAFC', border:`1.5px solid ${focus?'#6366F1':'#E2E8F0'}`, borderRadius:10, color:'#0F172A', fontSize:14, outline:'none', boxSizing:'border-box' as const, boxShadow:focus?'0 0 0 3px rgba(99,102,241,0.1)':'none', transition:'all 0.15s' });
@@ -27,6 +28,7 @@ export default function NewTicketPage() {
   const [customers, setCustomers] = useState<any[]>([]);
   const [team, setTeam] = useState<any[]>([]);
   const [tree, setTree] = useState<any>({ departments:[] });
+  const [availableTags, setAvailableTags] = useState<any[]>([]);
   const [contracts, setContracts] = useState<any[]>([]);
   const [contacts, setContacts] = useState<any[]>([]);
   const [loadingContacts, setLoadingContacts] = useState(false);
@@ -36,13 +38,13 @@ export default function NewTicketPage() {
   const [focusField, setFocusField] = useState('');
   const searchRef = useRef<HTMLDivElement>(null);
 
-  const [form, setForm] = useState({ clientId:'', contactId:'', contractId:'', assignedTo:'', origin:'portal', priority:'medium', department:'', category:'', subcategory:'', subject:'', description:'', tags:'' });
+  const [form, setForm] = useState({ clientId:'', contactId:'', contractId:'', assignedTo:'', origin:'internal', priority:'medium', department:'', category:'', subcategory:'', subject:'', description:'', tags:[] as string[] });
 
   useEffect(() => {
     const load = async () => {
       try {
-        const [cr, tr, treeR, conR] = await Promise.all([api.getCustomers({ perPage:500 }), api.getTeam(), api.getTicketSettingsTree(), api.getContracts()]);
-        setCustomers(cr?.data||cr||[]); setTeam(tr||[]); setTree(treeR||{departments:[]}); setContracts(Array.isArray(conR)?conR:conR?.data||[]);
+        const [cr, tr, treeR, conR, tagR] = await Promise.all([api.getCustomers({ perPage:500 }), api.getTeam(), api.getTicketSettingsTree(), api.getContracts(), api.getTags({ active: true })]);
+        setCustomers(cr?.data||cr||[]); setTeam(tr||[]); setTree(treeR||{departments:[]}); setContracts(Array.isArray(conR)?conR:conR?.data||[]); setAvailableTags(Array.isArray(tagR)?tagR:tagR?.data||[]);
       } catch(e){ console.error(e); }
     };
     load();
@@ -84,7 +86,7 @@ export default function NewTicketPage() {
     if (!form.contactId) { toast.error('Selecione um contato da empresa'); return; }
     setSaving(true);
     try {
-      const payload = { ...form, contactId:form.contactId||undefined, contractId:form.contractId||undefined, assignedTo:form.assignedTo||undefined, department:form.department||undefined, category:form.category||undefined, subcategory:form.subcategory||undefined, tags:form.tags?form.tags.split(',').map(v=>v.trim()).filter(Boolean):undefined };
+      const payload = { ...form, contactId:form.contactId||undefined, contractId:form.contractId||undefined, assignedTo:form.assignedTo||undefined, department:form.department||undefined, category:form.category||undefined, subcategory:form.subcategory||undefined, tags:form.tags.length?form.tags:undefined };
       const created = await api.createTicket(payload);
       router.push(`/dashboard/tickets/${created.id}`);
     } catch(e:any){ toast.error(e?.response?.data?.message||'Erro ao criar ticket'); }
@@ -229,11 +231,11 @@ export default function NewTicketPage() {
                 <option value="critical">🔴 Crítica</option>
               </Sel>
               <Sel label="Origem" value={form.origin} onChange={(e:any)=>setForm({...form,origin:e.target.value})}>
+                <option value="internal">Interno</option>
                 <option value="portal">Portal</option>
                 <option value="email">E-mail</option>
                 <option value="whatsapp">WhatsApp</option>
                 <option value="phone">Telefone</option>
-                <option value="internal">Interno</option>
               </Sel>
               <Sel label="Departamento" value={form.department} onChange={(e:any)=>setForm({...form,department:e.target.value,category:'',subcategory:''})}>
                 <option value="">Selecione</option>
@@ -253,10 +255,14 @@ export default function NewTicketPage() {
               </Sel>
             </div>
             <div>
-              <label style={lbl}><Tag style={{width:10,height:10,display:'inline',marginRight:4}} />Tags <span style={{color:'#CBD5E1',fontWeight:400,textTransform:'none',fontSize:11}}>(separadas por vírgula)</span></label>
-              <input value={form.tags} onChange={e=>setForm({...form,tags:e.target.value})}
-                placeholder="ex: urgente, hardware, impressora" onFocus={()=>setFocusField('tags')} onBlur={()=>setFocusField('')}
-                style={inp(focusField==='tags')} />
+              <label style={lbl}><Tag style={{width:10,height:10,display:'inline',marginRight:4}} />Tags</label>
+              <TagMultiSelect
+                options={availableTags}
+                value={form.tags}
+                onChange={(tags) => setForm({ ...form, tags })}
+                placeholder="Selecione as tags do ticket"
+                emptyText="Nenhuma tag cadastrada"
+              />
             </div>
           </div>
         </SECTION>

@@ -106,6 +106,18 @@ export class UpdateTicketDto {
   tags?: string[];
 }
 
+export class UpdateTicketContentDto {
+  @IsString()
+  @MinLength(3, { message: 'Assunto deve ter no mínimo 3 caracteres' })
+  subject: string;
+
+  @IsString()
+  @IsOptional()
+  @MinLength(3, { message: 'Descrição deve ter no mínimo 3 caracteres' })
+  @MaxLength(600, { message: 'Descrição deve ter no máximo 600 caracteres' })
+  description?: string;
+}
+
 export class ResolveTicketDto {
   @IsString()
   @IsOptional()

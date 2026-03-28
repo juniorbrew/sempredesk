@@ -29,6 +29,7 @@ const CADASTROS_ITEMS = [
   { href: '/dashboard/customers',     icon: Users,      label: 'Clientes',          perm: 'customer.view' },
   { href: '/dashboard/networks',      icon: Network,    label: 'Redes',             perm: 'networks.view' },
   { href: '/dashboard/departments',   icon: FolderTree, label: 'Departamentos',     perm: 'settings.manage' },
+  { href: '/dashboard/tags',          icon: Tag,        label: 'Tags',              perm: 'settings.manage' },
   { href: '/dashboard/categories',    icon: Tag,        label: 'Categorias',        perm: 'settings.manage' },
   { href: '/dashboard/subcategories', icon: Layers,     label: 'Sub-Categorias',    perm: 'settings.manage' },
   { href: '/dashboard/team',          icon: Users2,     label: 'Equipe e Usuários', perm: 'agent.view' },

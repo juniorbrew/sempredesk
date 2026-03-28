@@ -63,4 +63,7 @@ export class Conversation {
 
   @Column({ name: 'last_message_at', type: 'timestamptz', nullable: true })
   lastMessageAt: Date;
+
+  @Column({ type: 'simple-array', nullable: true })
+  tags: string[] | null;
 }

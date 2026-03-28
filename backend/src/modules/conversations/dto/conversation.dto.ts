@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsBoolean, IsEnum, IsNumber } from 'class-validator';
+import { IsString, IsOptional, IsBoolean, IsEnum, IsNumber, IsArray } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ConversationChannel } from '../entities/conversation.entity';
 
@@ -94,4 +94,10 @@ export class CloseConversationDto {
   @Type(() => Number)
   @IsNumber()
   complexity?: number;
+}
+
+export class UpdateConversationTagsDto {
+  @IsArray()
+  @IsOptional()
+  tags?: string[];
 }

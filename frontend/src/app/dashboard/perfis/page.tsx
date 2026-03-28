@@ -42,6 +42,7 @@ const PERM_LABELS: Record<string, string> = {
   'dashboard.view': 'Visualizar dashboard',
   'ticket.view': 'Visualizar tickets', 'ticket.create': 'Criar tickets',
   'ticket.edit': 'Editar tickets', 'ticket.reply': 'Responder tickets',
+  'ticket.edit_content': 'Editar assunto e descrição do ticket',
   'ticket.transfer': 'Transferir tickets', 'ticket.close': 'Fechar tickets',
   'ticket.reopen': 'Reabrir tickets',
   'ticket.view_all': 'Ver todos os tickets (não só os próprios)',

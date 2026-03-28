@@ -396,12 +396,28 @@ export class CustomersService {
     });
   }
 
-  findContactByWhatsapp(tenantId: string, whatsapp: string) {
+  async findContactByWhatsapp(tenantId: string, whatsapp: string) {
     const normalized = normalizeWhatsappNumber(whatsapp) || whatsapp;
-    return this.contacts.findOne({
-      where: { tenantId, whatsapp: normalized, status: 'active' },
-      relations: ['client'],
-    });
+    const contact = await this.contacts.createQueryBuilder('ct')
+      .leftJoinAndSelect('ct.client', 'client')
+      .where('ct.tenant_id = :tenantId', { tenantId })
+      .andWhere("ct.status = 'active'")
+      .andWhere("(ct.whatsapp = :normalized OR ct.metadata->>'whatsappLid' = :normalized)", { normalized })
+      .orderBy('ct.created_at', 'DESC')
+      .getOne();
+
+    if (
+      contact
+      && normalized.length >= 14
+      && contact.whatsapp === normalized
+      && contact.metadata?.whatsappLid !== normalized
+    ) {
+      const nextMetadata = { ...(contact.metadata || {}), whatsappLid: normalized };
+      await this.contacts.update({ id: contact.id, tenantId }, { metadata: nextMetadata as any });
+      contact.metadata = nextMetadata;
+    }
+
+    return contact;
   }
 
   findContactByEmail(tenantId: string, email: string) {
@@ -526,24 +542,32 @@ export class CustomersService {
   }
 
   async findOrCreateByWhatsapp(tenantId: string, phone: string, displayName?: string, isLid = false) {
+    const normalized = normalizeWhatsappNumber(phone) || phone;
+
     // 1. Tenta encontrar contato existente pelo número (somente ativos)
-    const existing = await this.contacts.findOne({
-      where: { tenantId, whatsapp: phone, status: 'active' },
-      relations: ['client'],
-    });
-    if (existing) return existing;
+    const existing = await this.findContactByWhatsapp(tenantId, normalized);
+    if (existing) {
+      if (isLid && existing.metadata?.whatsappLid !== normalized) {
+        const nextMetadata = { ...(existing.metadata || {}), whatsappLid: normalized };
+        await this.contacts.update({ id: existing.id, tenantId }, { metadata: nextMetadata as any });
+        existing.metadata = nextMetadata;
+      }
+      return existing;
+    }
 
     // 2. Cria SOMENTE o contato — sem cliente temporário
     // Se for LID (@lid JID), NÃO armazena como phone (pois não é número de telefone real).
-    // O campo whatsapp guarda o LID para roteamento de respostas.
+    // Mantemos whatsapp por compatibilidade no roteamento atual e também salvamos metadata.whatsappLid
+    // para a UI/fluxos conseguirem distinguir identificador técnico de número real.
     // O agente vinculará ao cliente real durante o atendimento via ContactValidationBanner
     const contact = await this.contacts.save(
       this.contacts.create({
         tenantId,
         clientId: null as any,
-        name: displayName || (isLid ? 'WhatsApp' : `+${phone}`),
-        whatsapp: phone,
-        phone: isLid ? (null as any) : phone,
+        name: displayName || (isLid ? 'WhatsApp' : `+${normalized}`),
+        whatsapp: normalized,
+        phone: isLid ? (null as any) : normalized,
+        metadata: isLid ? { whatsappLid: normalized } : {},
         preferredChannel: 'whatsapp',
         canOpenTickets: true,
         status: 'active',
