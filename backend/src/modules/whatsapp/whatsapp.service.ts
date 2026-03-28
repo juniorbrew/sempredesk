@@ -313,9 +313,11 @@ export class WhatsappService {
 
     // Tenta Baileys (QR) primeiro; fallback Meta API
     let sent = false;
+    let baileysMsgId: string | null = null;
     if (this.baileysService) {
       const result = await this.baileysService.sendMessage(tenantId, destination.raw, text);
       sent = result.success;
+      baileysMsgId = result.messageId ?? null; // ID para rastreamento de ACK (delivered/read)
     }
     if (!sent) {
       await this.sendWhatsappMessage(destination.digits, text);
@@ -325,12 +327,11 @@ export class WhatsappService {
     if (ticket.conversationId) {
       try {
         // skipOutbound=true: mensagem já foi enviada acima via Baileys/Meta, não reenviar.
-        // initialWhatsappStatus: reflete o resultado real do envio para o frontend exibir
-        // o ícone correto via socket sem necessitar reload.
+        // initialWhatsappStatus + initialExternalId: permite rastrear ACK (delivered/read)
+        // sem reload — o externalId é o ID do Baileys, usado no messages.update callback.
         savedMessage = await this.conversationsService.addMessage(
           tenantId, ticket.conversationId, authorId, authorName, 'user', text,
-          // Se chegamos aqui sem exceção, o envio via Baileys ou Meta API foi bem-sucedido
-          { skipOutbound: true, initialWhatsappStatus: 'sent' },
+          { skipOutbound: true, initialWhatsappStatus: 'sent', initialExternalId: baileysMsgId },
         );
       } catch {
         // Conversation may already be closed; WhatsApp message was still delivered

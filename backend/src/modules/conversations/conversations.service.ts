@@ -457,7 +457,7 @@ export class ConversationsService {
     authorName: string,
     authorType: 'contact' | 'user',
     content: string,
-    opts?: { skipOutbound?: boolean; initialWhatsappStatus?: string },
+    opts?: { skipOutbound?: boolean; initialWhatsappStatus?: string; initialExternalId?: string | null },
   ): Promise<ConversationMessage> {
     const conv = await this.findOne(tenantId, conversationId);
     if (conv.status === ConversationStatus.CLOSED) {
@@ -470,8 +470,10 @@ export class ConversationsService {
       authorName,
       authorType,
       content,
-      // Status inicial fornecido pelo chamador (ex: sendReplyFromTicket já enviou via Baileys)
+      // Status e externalId iniciais fornecidos pelo chamador
+      // (ex: sendReplyFromTicket já enviou via Baileys e tem o messageId)
       whatsappStatus: opts?.initialWhatsappStatus ?? null,
+      externalId: opts?.initialExternalId ?? null,
     });
     const saved = await this.msgRepo.save(msg);
     await this.updateLastMessageAt(tenantId, conversationId);
