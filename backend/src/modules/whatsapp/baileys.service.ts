@@ -59,6 +59,29 @@ export class BaileysService {
     this.onMessageCallback = cb;
   }
 
+  private onStatusUpdateCallback: ((tenantId: string, externalId: string, status: string) => void) | null = null;
+
+  setStatusUpdateHandler(cb: (tenantId: string, externalId: string, status: string) => void) {
+    this.onStatusUpdateCallback = cb;
+  }
+
+  /**
+   * Envia confirmação de leitura para mensagens do contato via Baileys.
+   * Chamado quando o agente abre uma conversa no dashboard.
+   */
+  async markMessagesRead(tenantId: string, remoteJid: string, messageIds: string[]): Promise<void> {
+    if (!messageIds.length) return;
+    const sock = this.sessions.get(tenantId);
+    if (!sock) return;
+    try {
+      const keys = messageIds.map((id) => ({ remoteJid, id, fromMe: false, participant: undefined }));
+      await sock.readMessages(keys);
+      this.logger.log(`[markRead] tenantId=${tenantId} jid=${remoteJid} count=${messageIds.length}`);
+    } catch (e: any) {
+      this.logger.warn(`[markRead] Falha ao enviar read receipts: ${e?.message}`);
+    }
+  }
+
   getQrObservable(tenantId: string): Observable<MessageEvent> {
     if (!this.qrSubjects.has(tenantId)) {
       this.qrSubjects.set(tenantId, new Subject<MessageEvent>());
@@ -289,6 +312,27 @@ export class BaileysService {
         this.logger.log(`Incoming WhatsApp message from ${from} (JID: ${remoteJid}, lid=${isLid})`);
         this.onMessageCallback?.(tenantId, from, text, msg.key.id, msg.pushName || undefined, isLid);
       });
+
+      // ACK events: map Baileys numeric ACK to whatsappStatus string
+      sock.ev.on('messages.update', (updates: any[]) => {
+        for (const update of updates) {
+          if (!update.key?.fromMe) continue; // only track outbound (our) messages
+          const externalId: string | null = update.key?.id ?? null;
+          if (!externalId) continue;
+          const ack: number | undefined = update.update?.status;
+          if (ack == null) continue;
+          // Baileys ACK levels: 1=PENDING, 2=SERVER_ACK(sent), 3=DELIVERY_ACK(delivered), 4=READ, 5=PLAYED
+          let status: string | null = null;
+          if (ack === 2) status = 'sent';
+          else if (ack === 3) status = 'delivered';
+          else if (ack >= 4) status = 'read';
+          if (status) {
+            this.logger.log(`[ACK] tenantId=${tenantId} externalId=${externalId} ack=${ack} status=${status}`);
+            this.onStatusUpdateCallback?.(tenantId, externalId, status);
+          }
+        }
+      });
+
     } catch (error) {
       this.logger.error(`Failed to start Baileys session for tenant ${tenantId}`, error);
       const freshConn = await this.getOrCreateConnection(tenantId);

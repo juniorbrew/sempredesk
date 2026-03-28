@@ -290,6 +290,7 @@ export class WhatsappService {
     }
 
     const contact = await this.customersService.findContactById(tenantId, ticket.contactId);
+<<<<<<< HEAD
     const destination = this.resolveContactWhatsappTarget(contact);
     if (!destination.raw) {
       throw new BadRequestException('Contato não possui número WhatsApp cadastrado');
@@ -298,29 +299,46 @@ export class WhatsappService {
     const rawWhatsapp = destination.raw;
     const digits = destination.digits;
     if (!digits || digits.length < 10) {
+=======
+    if (!contact?.whatsapp && !contact?.metadata?.whatsappLid) {
+      throw new BadRequestException('Contato não possui número WhatsApp cadastrado');
+    }
+
+    // Usa LID técnico (metadata.whatsappLid) se disponível; fallback para whatsapp
+    const destination = this.resolveContactWhatsappTarget(contact);
+    if (!destination.digits || destination.digits.length < 10) {
+>>>>>>> 792d62962d05bee061315855f7fa63de842d4e39
       throw new BadRequestException('Número WhatsApp do contato inválido');
     }
 
     // Tenta Baileys (QR) primeiro; fallback Meta API
     let sent = false;
     if (this.baileysService) {
-      const result = await this.baileysService.sendMessage(tenantId, rawWhatsapp, text);
+      const result = await this.baileysService.sendMessage(tenantId, destination.raw, text);
       sent = result.success;
     }
     if (!sent) {
-      await this.sendWhatsappMessage(digits, text);
+      await this.sendWhatsappMessage(destination.digits, text);
     }
 
+    let savedMessage: any = null;
     if (ticket.conversationId) {
       try {
-        // skipOutbound=true: mensagem já foi enviada acima via Baileys/Meta, não reenviar
-        await this.conversationsService.addMessage(tenantId, ticket.conversationId, authorId, authorName, 'user', text, { skipOutbound: true });
+        // skipOutbound=true: mensagem já foi enviada acima via Baileys/Meta, não reenviar.
+        // initialWhatsappStatus: reflete o resultado real do envio para o frontend exibir
+        // o ícone correto via socket sem necessitar reload.
+        savedMessage = await this.conversationsService.addMessage(
+          tenantId, ticket.conversationId, authorId, authorName, 'user', text,
+          // Se chegamos aqui sem exceção, o envio via Baileys ou Meta API foi bem-sucedido
+          { skipOutbound: true, initialWhatsappStatus: 'sent' },
+        );
       } catch {
         // Conversation may already be closed; WhatsApp message was still delivered
       }
     }
 
-    return { success: true };
+    // Retorna a mensagem salva para o frontend substituir o otimista sem flash
+    return { success: true, message: savedMessage };
   }
 
   /**
@@ -379,8 +397,13 @@ export class WhatsappService {
       throw new BadRequestException('phone ou contactId é obrigatório');
     }
 
+<<<<<<< HEAD
     const destination = this.resolveContactWhatsappTarget(contact, dto.phone);
     const whatsapp: string = destination.raw;
+=======
+    // Usa LID técnico (metadata.whatsappLid) se disponível; fallback para whatsapp ou phone
+    const { raw: whatsapp } = this.resolveContactWhatsappTarget(contact, dto.phone?.replace(/\D/g, ''));
+>>>>>>> 792d62962d05bee061315855f7fa63de842d4e39
     if (!whatsapp) throw new BadRequestException('Contato sem número WhatsApp cadastrado');
     log(`[OUTBOUND-FLOW] WhatsApp do contato: ${whatsapp}`);
 
@@ -457,6 +480,24 @@ export class WhatsappService {
   async getVerifyToken(tenantId: string): Promise<string> {
     // Future: look up per-tenant verify token from DB
     return process.env.WHATSAPP_VERIFY_TOKEN || 'suporte-whatsapp-verify';
+  }
+
+  /**
+   * Resolve o destino técnico correto para envio WhatsApp de um contato.
+   * Prioridade: metadata.whatsappLid → contact.whatsapp → fallback
+   * Retorna { raw } para Baileys e { digits } para Meta API.
+   */
+  private resolveContactWhatsappTarget(
+    contact: any,
+    fallback?: string,
+  ): { raw: string; digits: string } {
+    const raw: string =
+      (contact?.metadata?.whatsappLid as string | undefined) ||
+      (contact?.whatsapp as string | undefined) ||
+      fallback ||
+      '';
+    const digits = raw.replace(/\D/g, '');
+    return { raw, digits };
   }
 
   /**

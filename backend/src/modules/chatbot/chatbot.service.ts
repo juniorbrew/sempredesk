@@ -243,8 +243,13 @@ export class ChatbotService {
           // Verificar se o cliente não é auto-criado
           const clients = await this.customersService.searchByNameOrCnpj(tenantId, existingContact.clientId).catch(() => []);
           // Busca direta pelo id
+<<<<<<< HEAD
           const rows = await this.sessionRepo.manager.query<{ id: string; company_name: string; trade_name: string | null; metadata: any }[]>(
             `SELECT id, company_name, trade_name, metadata FROM clients WHERE id::text = $1 AND tenant_id::text = $2 LIMIT 1`,
+=======
+          const rows = await this.sessionRepo.manager.query<{ id: string; trade_name: string | null; company_name: string; metadata: any }[]>(
+            `SELECT id, trade_name, company_name, metadata FROM clients WHERE id::text = $1 AND tenant_id::text = $2 LIMIT 1`,
+>>>>>>> 792d62962d05bee061315855f7fa63de842d4e39
             [existingContact.clientId, tenantId],
           ).catch(() => []);
           const row = rows[0];
@@ -258,9 +263,13 @@ export class ChatbotService {
 
       // Se empresa já conhecida → pular CNPJ, ir direto para descrição
       if (knownClientId) {
+<<<<<<< HEAD
         const prefixMsg = knownClientName
           ? `Empresa identificada: *${knownClientName}*.\n`
           : undefined;
+=======
+        const prefixMsg = knownClientName ? `Empresa identificada: *${knownClientName}*.\n` : undefined;
+>>>>>>> 792d62962d05bee061315855f7fa63de842d4e39
         return this.goToDescriptionStep(session, config, {
           pendingDepartment: chosen.department ?? null,
           pendingMenuLabel: selectedLabel,

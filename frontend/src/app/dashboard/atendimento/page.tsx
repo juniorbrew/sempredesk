@@ -1,9 +1,13 @@
 'use client';
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef, memo } from 'react';
 import { api } from '@/lib/api';
 import Link from 'next/link';
+<<<<<<< HEAD
 import { useRealtimeConversation, useRealtimeTicket } from '@/lib/realtime';
 import { useAuthStore, hasPermission } from '@/store/auth.store';
+=======
+import { useRealtimeConversation, useRealtimeTicket, useRealtimeTenantNewMessages } from '@/lib/realtime';
+>>>>>>> 792d62962d05bee061315855f7fa63de842d4e39
 import {
   MessageSquare, Send, Phone, RefreshCw, Lock, ExternalLink, Plus, Link2, Globe,
   Check, Search, X, CheckCircle2, User, Mail, MapPin, Building2, Hash, Tag,
@@ -76,6 +80,118 @@ function ChannelDot({ channel }: { channel: string }) {
   );
 }
 
+// ── MessageStatusIcon ─────────────────────────────────────────────────────────
+/** Ícone de status de mensagem estilo WhatsApp */
+function MessageStatusIcon({ status, isWhatsapp }: { status?: string | null; isWhatsapp?: boolean }) {
+  // Canal não-WhatsApp: check simples
+  if (!isWhatsapp) return <CheckCircle2 size={11} style={{ color: 'rgba(255,255,255,.5)' }} />;
+  // Pendente / enviando (otimista)
+  if (!status || status === 'pending' || status === 'sending' || status === 'queued') {
+    return (
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.45)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+      </svg>
+    );
+  }
+  // Erro
+  if (status === 'failed' || status === 'error') {
+    return (
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#FCA5A5" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+      </svg>
+    );
+  }
+  // Enviado (✓ cinza)
+  if (status === 'sent') {
+    return <Check size={11} style={{ color: 'rgba(255,255,255,.5)' }} />;
+  }
+  // Entregue (✓✓ cinza)
+  if (status === 'delivered') {
+    return (
+      <span style={{ fontSize: 10, color: 'rgba(255,255,255,.5)', letterSpacing: '-2px', lineHeight: 1 }}>✓✓</span>
+    );
+  }
+  // Lido (✓✓ azul)
+  if (status === 'read') {
+    return (
+      <span style={{ fontSize: 10, color: '#93C5FD', letterSpacing: '-2px', lineHeight: 1 }}>✓✓</span>
+    );
+  }
+  return <Check size={11} style={{ color: 'rgba(255,255,255,.5)' }} />;
+}
+
+// ── MessageSkeleton ───────────────────────────────────────────────────────────
+/** Placeholder animado enquanto carrega mensagens pela primeira vez */
+function MessageSkeleton() {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20, padding: '8px 0' }}>
+      {([false, true, false] as boolean[]).map((right, i) => (
+        <div key={i} style={{ display: 'flex', alignItems: 'flex-end', gap: 10, flexDirection: right ? 'row-reverse' : 'row' }}>
+          <div className="animate-pulse" style={{ width: 30, height: 30, borderRadius: '50%', background: '#E2E8F0', flexShrink: 0 }} />
+          <div className="animate-pulse" style={{ width: `${38 + i * 12}%`, height: 56, borderRadius: 12, background: '#E2E8F0' }} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── MessageItem (memoizado) ───────────────────────────────────────────────────
+/** Item individual de mensagem — memoizado para evitar re-render ao digitar */
+const MessageItem = memo(function MessageItem({ m, isWhatsapp }: { m: any; isWhatsapp: boolean }) {
+  const isContact = m.authorType === 'contact';
+  const isSystem  = m.messageType === 'system';
+  const t = new Date(m.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  const col = avatarColor(m.authorName || '?');
+
+  // Constantes de estilo (idênticas ao S da tela pai)
+  const accent = '#4F46E5';
+  const accentLight = '#EEF2FF';
+  const bg = '#FFFFFF';
+  const txt = '#111118';
+  const txt2 = '#6B6B80';
+  const txt3 = '#A8A8BE';
+
+  if (isSystem) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', margin: '4px 0' }}>
+        <div style={{ background: '#EEF2FF', border: '1px solid #C7D2FE', borderRadius: 8, padding: '5px 14px', fontSize: 11, color: '#4338CA', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#4338CA" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v2z"/></svg>
+          {m.content}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: isContact ? 'flex-start' : 'flex-end' }}>
+      <span style={{ fontSize: 11, fontWeight: 500, color: txt2, paddingLeft: isContact ? 40 : 0, paddingRight: isContact ? 0 : 40 }}>
+        {m.authorName}
+      </span>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, flexDirection: isContact ? 'row' : 'row-reverse' }}>
+        <div style={{ width: 30, height: 30, borderRadius: '50%', background: isContact ? col : accentLight, display: 'flex', alignItems: 'center', justifyContent: 'center', color: isContact ? '#fff' : accent, fontSize: 10, fontWeight: 700, flexShrink: 0 }}>
+          {initials(m.authorName || '?')}
+        </div>
+        <div style={{
+          maxWidth: 420, padding: '11px 16px', fontSize: 13, lineHeight: 1.6, position: 'relative',
+          background: isContact ? bg : accent,
+          color: isContact ? txt : '#fff',
+          border: isContact ? '1px solid rgba(0,0,0,.09)' : 'none',
+          borderRadius: isContact ? '18px 18px 18px 4px' : '18px 18px 4px 18px',
+          boxShadow: isContact ? '0 1px 3px rgba(0,0,0,.06)' : '0 2px 8px rgba(79,70,229,.25)',
+          opacity: m._optimistic ? 0.75 : 1,
+          transition: 'opacity 0.2s',
+        }}>
+          <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{m.content}</p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 5 }}>
+            <span style={{ fontSize: 10, color: isContact ? txt3 : 'rgba(255,255,255,.6)' }}>{t}</span>
+            {!isContact && <MessageStatusIcon status={m.whatsappStatus} isWhatsapp={isWhatsapp} />}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+});
+
 // ── main component ────────────────────────────────────────────────────────────
 export default function AtendimentoPage() {
   const { user } = useAuthStore();
@@ -145,16 +261,43 @@ export default function AtendimentoPage() {
   const [transferAgentId, setTransferAgentId] = useState('');
   const [transferLoading, setTransferLoading] = useState(false);
 
+  const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
+
+  const [showScrollBtn, setShowScrollBtn] = useState(false);
+
   const selectedRef = useRef<any>(null);
   selectedRef.current = selected;
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const atBottomRef = useRef(true); // true = usuário está perto do fim da lista
+
+  // ── cache de dados estáveis + guard de race condition ──
+  const loadIdRef = useRef(0);          // incrementado a cada loadChat; respostas velhas são descartadas
+  const customersRef = useRef<any[]>([]); // cache de clientes — não rebusca a cada troca de conversa
+  const teamRef = useRef<any[]>([]);      // cache de equipe — idem
 
   // ── helpers ──
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3500);
   };
+
+  const scrollToBottom = useCallback((smooth = true) => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'instant' });
+    atBottomRef.current = true;
+    setShowScrollBtn(false);
+  }, []);
+
+  const handleScroll = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    atBottomRef.current = nearBottom;
+    if (nearBottom) setShowScrollBtn(false);
+  }, []);
 
   const sameItem = (a: any, b: any) => {
     if (!a || !b) return false;
@@ -221,55 +364,119 @@ export default function AtendimentoPage() {
 
   const loadChat = async (conv: any) => {
     if (!conv) return;
+    const myId = ++loadIdRef.current; // guard de race condition
     setLoadingChat(true);
     setCurrentTicket(null);
+<<<<<<< HEAD
     setConversationTags(Array.isArray(conv?.tags) ? conv.tags : []);
+=======
+
+>>>>>>> 792d62962d05bee061315855f7fa63de842d4e39
     try {
       const isTicket = conv.type === 'ticket' || conv.id?.startsWith?.('ticket:');
       const ticketId = isTicket ? (conv.ticketId || conv.id?.replace?.(/^ticket:/, '')) : conv.ticketId;
-      const [customersRes, ticketRes, teamRes] = await Promise.all([
-        api.getCustomers({ perPage: 200 }),
-        (ticketId || conv.ticketId) ? api.getTicket(ticketId || conv.ticketId).catch(() => null) : null,
-        api.getTeam().catch(() => null),
+      const tid = ticketId || conv.ticketId;
+
+      // ── FASE 1: essencial — ticket + mensagens em paralelo ──────────────
+      // Spinner some assim que estes dois chegarem (~150ms vs ~700ms antes)
+      const [ticketRes, msgsRaw] = await Promise.all([
+        tid ? api.getTicket(tid).catch(() => null) : Promise.resolve(null),
+        isTicket && ticketId
+          ? api.getMessages(ticketId, false).catch(() => [])
+          : api.getConversationMessages(conv.id).catch(() => []),
       ]);
-      const customersArr: any[] = customersRes?.data || customersRes || [];
-      // Se o cliente da conversa não está na lista paginada, busca individualmente
-      if (conv.clientId && !customersArr.find((c: any) => c.id === conv.clientId)) {
-        try { const r: any = await api.getCustomer(conv.clientId); if (r) customersArr.push(r?.data ?? r); } catch {}
-      }
-      setCustomers(customersArr);
+
+      if (myId !== loadIdRef.current) return; // conversa já mudou, descarta
+
       if (ticketRes) setCurrentTicket(ticketRes);
-      // Monta lista de agentes e garante que o responsável do ticket esteja nela
-      let teamArr: any[] = teamRes ? (Array.isArray(teamRes) ? teamRes : teamRes?.data ?? []) : [];
-      if (ticketRes?.assignedTo && !teamArr.find((u: any) => String(u.id) === String(ticketRes.assignedTo))) {
+      setMessages(Array.isArray(msgsRaw) ? msgsRaw : (msgsRaw as any)?.data ?? []);
+      setLoadingChat(false); // ← conteúdo visível aqui; fase 2 roda em background
+
+      // Envia read receipts para mensagens do contato via Baileys (best-effort, não bloqueia)
+      if (!isTicket && conv.channel === 'whatsapp' && conv.id) {
+        api.markConversationRead(conv.id).catch(() => {});
+      }
+
+      // ── FASE 2: dados de suporte — sem bloquear a UI ─────────────────────
+      const clientId = conv.clientId;
+      const contactId = conv.contactId || (ticketRes as any)?.contactId;
+      const needCustomers = customersRef.current.length === 0;
+      const needTeam = teamRef.current.length === 0;
+
+      // Customers + team + contacts todos em paralelo
+      const [customersRes, teamRes, contactsRaw] = await Promise.all([
+        needCustomers ? api.getCustomers({ perPage: 200 }).catch(() => null) : Promise.resolve(null),
+        needTeam ? api.getTeam().catch(() => null) : Promise.resolve(null),
+        clientId
+          ? api.getContacts(clientId).catch(() => null)
+          : contactId ? api.getContactById(contactId).catch(() => null) : Promise.resolve(null),
+      ]);
+
+      if (myId !== loadIdRef.current) return;
+
+      // Customers — atualiza cache e estado
+      if (customersRes) {
+        const arr: any[] = customersRes?.data || customersRes || [];
+        // Cliente desta conversa fora da lista paginada → busca individual
+        if (clientId && !arr.find((c: any) => c.id === clientId)) {
+          try { const r: any = await api.getCustomer(clientId); if (r) arr.push(r?.data ?? r); } catch {}
+        }
+        customersRef.current = arr;
+        if (myId === loadIdRef.current) setCustomers(arr);
+      } else if (clientId && !customersRef.current.find((c: any) => c.id === clientId)) {
+        // Cache existente mas sem este cliente específico → busca individual
         try {
-          const m: any = await api.getTeamMember(ticketRes.assignedTo);
-          const member = m?.data ?? m;
-          if (member?.id) teamArr = [...teamArr, member];
+          const r: any = await api.getCustomer(clientId);
+          if (r && myId === loadIdRef.current) {
+            const arr = [...customersRef.current, r?.data ?? r];
+            customersRef.current = arr;
+            setCustomers(arr);
+          }
         } catch {}
       }
-      if (teamArr.length > 0) setTeam(teamArr);
-      const msgs = isTicket && ticketId
-        ? (await api.getMessages(ticketId, false) || [])
-        : (await api.getConversationMessages(conv.id) || []);
-      setMessages(Array.isArray(msgs) ? msgs : msgs?.data ?? []);
-      const contactId = conv.contactId || (ticketRes as any)?.contactId;
-      if (conv.clientId) {
-        try {
-          const ct = await api.getContacts(conv.clientId);
-          const ctArr: any[] = Array.isArray(ct) ? ct : (ct as any)?.data ?? [];
-          // Se o contato específico não está na lista (ex: sem cliente ou cliente diferente), busca individualmente
-          if (contactId && !ctArr.find((c: any) => c.id === contactId)) {
-            try { const ind: any = await api.getContactById(contactId); if (ind) ctArr.push(ind?.data ?? ind); } catch {}
-          }
-          setContacts(ctArr);
-        } catch { setContacts([]); }
-      } else if (contactId) {
-        // Conversa sem cliente: carrega apenas o contato específico
-        try { const ind: any = await api.getContactById(contactId); setContacts(ind ? [ind?.data ?? ind] : []); } catch { setContacts([]); }
+
+      // Team — atualiza cache e estado
+      if (teamRes) {
+        let arr: any[] = Array.isArray(teamRes) ? teamRes : teamRes?.data ?? [];
+        teamRef.current = arr;
+        if (myId === loadIdRef.current) setTeam(arr);
       }
-    } catch (e) { console.error(e); }
-    setLoadingChat(false);
+      // Garante que o agente responsável pelo ticket esteja na lista
+      if (ticketRes?.assignedTo) {
+        const cur = teamRef.current;
+        if (!cur.find((u: any) => String(u.id) === String(ticketRes.assignedTo))) {
+          try {
+            const m: any = await api.getTeamMember(ticketRes.assignedTo);
+            const member = m?.data ?? m;
+            if (member?.id && myId === loadIdRef.current) {
+              const arr = [...teamRef.current, member];
+              teamRef.current = arr;
+              setTeam(arr);
+            }
+          } catch {}
+        }
+      }
+
+      if (myId !== loadIdRef.current) return;
+
+      // Contacts
+      if (clientId && contactsRaw) {
+        const ctArr: any[] = Array.isArray(contactsRaw) ? contactsRaw : (contactsRaw as any)?.data ?? [];
+        if (contactId && !ctArr.find((c: any) => c.id === contactId)) {
+          try { const ind: any = await api.getContactById(contactId); if (ind) ctArr.push(ind?.data ?? ind); } catch {}
+        }
+        if (myId === loadIdRef.current) setContacts(ctArr);
+      } else if (!clientId && contactsRaw) {
+        const ct = (contactsRaw as any)?.data ?? contactsRaw;
+        if (myId === loadIdRef.current) setContacts(ct ? [ct] : []);
+      } else if (!clientId && contactId) {
+        if (myId === loadIdRef.current) setContacts([]);
+      }
+
+    } catch (e) {
+      console.error(e);
+      if (myId === loadIdRef.current) setLoadingChat(false);
+    }
   };
 
   const reloadMessages = async (conv: any) => {
@@ -496,22 +703,67 @@ export default function AtendimentoPage() {
   // ── send message ──
   const sendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim() || !selected?.id) return;
+    const text = input.trim();
+    if (!text || !selected?.id) return;
     const ticketId = isTicketType ? (selected.ticketId || selected.id?.replace?.(/^ticket:/, '')) : selected?.ticketId;
     const channel = selected?.channel || 'whatsapp';
     const isPortalNoTicket = channel === 'portal' && !ticketId && !isTicketType;
-    // Conversa WhatsApp/canal sem ticket ainda → usa addConversationMessage
     const isConvNoTicket = !isTicketType && !ticketId && !!selected?.id;
     if (!isPortalNoTicket && !isConvNoTicket && !ticketId && !isTicketType) return;
+
+    // Mensagem otimista: aparece imediatamente antes da resposta da API
+    const tempId = `_opt_${Date.now()}`;
+    setMessages(m => [...m, {
+      id: tempId,
+      authorType: 'user',
+      authorName: 'Você',
+      content: text,
+      createdAt: new Date().toISOString(),
+      whatsappStatus: channel === 'whatsapp' ? 'sending' : null,
+      _optimistic: true,
+    }]);
+    setInput('');
     setSending(true);
+
     try {
-      if (isTicketType && ticketId) await api.addMessage(ticketId, { content: input, messageType: 'comment' });
-      else if (channel === 'whatsapp' && ticketId) await api.sendWhatsappFromTicket(ticketId, input);
-      else await api.addConversationMessage(selected.id, { content: input });
-      setInput('');
-      await reloadMessages(selected);
-      inputRef.current?.focus();
-    } catch (e: any) { showToast(e?.response?.data?.message || 'Erro ao enviar', 'error'); }
+      let res: any;
+      if (isTicketType && ticketId) res = await api.addMessage(ticketId, { content: text, messageType: 'comment' });
+      else if (channel === 'whatsapp' && ticketId) res = await api.sendWhatsappFromTicket(ticketId, text);
+      else res = await api.addConversationMessage(selected.id, { content: text });
+
+      // Extrai objeto de mensagem da resposta da API (vários formatos possíveis)
+      // sendWhatsappFromTicket agora retorna { success, message: { id, ... } }
+      const real = res?.message?.id ? res.message
+        : res?.id ? res
+        : res?.data?.id ? res.data
+        : null;
+
+      if (real?.id) {
+        // Substitui otimista pelo objeto real em-place — sem flash, sem reload
+        setMessages(m => m.map(msg => msg.id === tempId ? { ...real } : msg));
+        // Socket também vai entregar via 'message'; dedup por ID cuidará disso sem duplicar
+      } else {
+        // API não retornou objeto (caso raro: ticket sem conversationId ou meta API pura).
+        // Aguarda socket substituir o otimista; reload de segurança após 1.5s.
+        setTimeout(async () => {
+          setMessages(m => {
+            if (!m.some((x: any) => x.id === tempId)) return m; // socket já substituiu
+            return m.filter((x: any) => x.id !== tempId); // remove otimista pendente
+          });
+          const fresh = isTicketType && ticketId
+            ? await api.getMessages(ticketId, false).catch(() => null)
+            : await api.getConversationMessages(selected.id).catch(() => null);
+          if (fresh) {
+            const arr = Array.isArray(fresh) ? fresh : (fresh as any)?.data ?? [];
+            setMessages(m => m.some((x: any) => x._optimistic) ? m : arr);
+          }
+        }, 1500);
+      }
+    } catch (e: any) {
+      // Marca mensagem otimista como erro em vez de removê-la
+      setMessages(m => m.map(msg => msg.id === tempId ? { ...msg, whatsappStatus: 'error', _optimistic: false } : msg));
+      showToast((e as any)?.response?.data?.message || 'Erro ao enviar', 'error');
+    }
     setSending(false);
     inputRef.current?.focus();
   };
@@ -562,25 +814,58 @@ export default function AtendimentoPage() {
   }, [loadConversations]);
 
 
+<<<<<<< HEAD
   useEffect(() => { if (selected) loadChat(selected); else setMessages([]); }, [selected?.id]);
   useEffect(() => { api.getTags({ active: true }).then((r: any) => setAvailableTags(r?.data ?? r ?? [])).catch(() => setAvailableTags([])); }, []);
   useEffect(() => { setConversationTags(Array.isArray(selected?.tags) ? selected.tags : []); }, [selected?.id, selected?.tags]);
+=======
+  useEffect(() => {
+    atBottomRef.current = true; // sempre vai para o fim ao trocar de conversa
+    setShowScrollBtn(false);
+    if (selected) loadChat(selected); else setMessages([]);
+  }, [selected?.id]);
+>>>>>>> 792d62962d05bee061315855f7fa63de842d4e39
   useEffect(() => {
     if (!selected?.clientId) { setClientTickets([]); return; }
     api.getTickets({ clientId: selected.clientId, perPage: 20 })
       .then((r: any) => setClientTickets(r?.data ?? r ?? []))
       .catch(() => setClientTickets([]));
   }, [selected?.clientId]);
-  useEffect(() => { api.getCustomers({ perPage: 200 }).then((r: any) => setCustomers(r?.data ?? r ?? [])).catch(() => {}); }, []);
+  useEffect(() => {
+    api.getCustomers({ perPage: 200 })
+      .then((r: any) => { const arr = r?.data ?? r ?? []; customersRef.current = arr; setCustomers(arr); })
+      .catch(() => {});
+  }, []);
   useEffect(() => { if (showLinkModal && (selected?.clientId || selected?.contactId)) searchTicketsForLink(); }, [showLinkModal, selected?.clientId, selected?.contactId, searchTicketsForLink]);
-  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages.length]);
+  useEffect(() => {
+    if (messages.length === 0) return;
+    if (atBottomRef.current) {
+      scrollToBottom(true);
+    } else {
+      // Usuário está lendo o histórico — mostra botão em vez de pular
+      const last = messages[messages.length - 1];
+      if (last && !last._optimistic) setShowScrollBtn(true);
+    }
+  }, [messages.length, scrollToBottom]);
 
   // ── realtime ──
   useRealtimeConversation(conversationIdForRealtime ?? null, (msg) => {
     if (!msg || !selected) return;
     setMessages((m) => {
+      // 1. Já existe → atualiza em-place (ex: atualização de status)
       const exists = m.some((x: any) => String(x.id) === String(msg.id));
       if (exists) return m.map((x: any) => (String(x.id) === String(msg.id) ? { ...x, ...msg } : x));
+      // 2. Mensagem do agente chegou via socket enquanto otimista ainda está na lista
+      //    → substitui o primeiro otimista em vez de duplicar
+      if (msg.authorType === 'user') {
+        const optIdx = m.findIndex((x: any) => x._optimistic === true);
+        if (optIdx >= 0) {
+          const next = [...m];
+          next[optIdx] = { ...msg };
+          return next;
+        }
+      }
+      // 3. Mensagem nova do contato (ou sem otimista) → adiciona ao final
       return [...m, msg];
     });
   });
@@ -590,10 +875,19 @@ export default function AtendimentoPage() {
     setMessages((m) => {
       const exists = m.some((x: any) => String(x.id) === String(msg.id));
       if (exists) return m.map((x: any) => (String(x.id) === String(msg.id) ? { ...x, ...msg } : x));
+      if (msg.authorType === 'user') {
+        const optIdx = m.findIndex((x: any) => x._optimistic === true);
+        if (optIdx >= 0) {
+          const next = [...m];
+          next[optIdx] = { ...msg };
+          return next;
+        }
+      }
       return [...m, msg];
     });
   });
 
+<<<<<<< HEAD
   const saveConversationTags = async () => {
     if (!selected?.id || isTicketType) return;
     setSavingConversationTags(true);
@@ -609,6 +903,39 @@ export default function AtendimentoPage() {
     }
     setSavingConversationTags(false);
   };
+=======
+  // ── notificações de nova mensagem (conversas não selecionadas) ──
+  useRealtimeTenantNewMessages((msg) => {
+    const currentSelected = selectedRef.current;
+    // Ignora mensagens da conversa atualmente selecionada (já renderizadas em tempo real)
+    if (currentSelected && String(currentSelected.id) === String(msg.conversationId)) return;
+
+    // Incrementa badge
+    setUnreadCounts(p => ({ ...p, [msg.conversationId]: (p[msg.conversationId] || 0) + 1 }));
+
+    // Sobe conversa para o topo da lista e atualiza prévia
+    setConversations(prev => {
+      const idx = prev.findIndex((c: any) => String(c.id) === String(msg.conversationId));
+      if (idx < 0) return prev;
+      const updated = { ...prev[idx], lastMessage: msg.preview, lastMessageAt: new Date().toISOString() };
+      return [updated, ...prev.slice(0, idx), ...prev.slice(idx + 1)];
+    });
+
+    // Som de notificação via Web Audio API (sem arquivos externos)
+    try {
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.frequency.value = 880;
+      gain.gain.setValueAtTime(0.12, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.35);
+    } catch {}
+  });
+>>>>>>> 792d62962d05bee061315855f7fa63de842d4e39
 
   // ── styles (shared) ──
   const S = {
@@ -735,7 +1062,7 @@ export default function AtendimentoPage() {
                 const compName = c.clientName || (c.contactName ? customerName(c.clientId) : null) || (customerName(c.clientId) !== '—' ? customerName(c.clientId) : null);
                 const col = avatarColor(dispName);
                 return (
-                  <button key={c.id} onClick={() => setSelected(c)}
+                  <button key={c.id} onClick={() => { setSelected(c); if (c?.id) setUnreadCounts(p => { const n = { ...p }; delete n[c.id]; return n; }); }}
                     style={{
                       width: '100%', padding: 10, borderRadius: 10, border: 'none',
                       background: isSelected ? S.accentLight : 'transparent',
@@ -776,9 +1103,9 @@ export default function AtendimentoPage() {
                         {noTicket && !isClo && (
                           <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 5, fontWeight: 500, background: '#FEF3C7', color: '#D97706' }}>Sem ticket</span>
                         )}
-                        {c.unreadCount > 0 && (
-                          <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 9, fontWeight: 600, background: S.accent, color: '#fff', minWidth: 18, textAlign: 'center' }}>{c.unreadCount}</span>
-                        )}
+                        {(() => { const badge = (unreadCounts[c.id] || 0) + (c.unreadCount || 0); return badge > 0 ? (
+                          <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 9, fontWeight: 600, background: S.accent, color: '#fff', minWidth: 18, textAlign: 'center', lineHeight: 1.4 }}>{badge > 99 ? '99+' : badge}</span>
+                        ) : null; })()}
                         {!isClo && c.awaitingResponse && (
                           <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 5, fontWeight: 500, background: '#EEF2FF', color: '#4338CA' }}>Aguardando</span>
                         )}
@@ -820,14 +1147,18 @@ export default function AtendimentoPage() {
               <MessageSquare size={40} strokeWidth={1.2} style={{ opacity: 0.3 }} />
               <p style={{ fontSize: 14, fontWeight: 500, color: S.txt2, margin: 0 }}>Selecione uma conversa</p>
             </div>
-          ) : loadingChat ? (
-            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <div className="animate-spin w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full" />
-            </div>
           ) : (
             <>
               {/* Chat header */}
-              <div style={{ padding: '14px 20px', borderBottom: S.border, background: S.bg, flexShrink: 0 }}>
+              <div style={{ position: 'relative', padding: '14px 20px', borderBottom: S.border, background: S.bg, flexShrink: 0 }}>
+                {/* Barra de progresso discreta ao trocar de conversa */}
+                {loadingChat && (
+                  <div className="animate-pulse" style={{
+                    position: 'absolute', top: 0, left: 0, right: 0, height: 2,
+                    background: `linear-gradient(90deg, ${S.accent} 0%, #818CF8 60%, ${S.accent} 100%)`,
+                    backgroundSize: '200% 100%',
+                  }} />
+                )}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
                   {/* Avatar */}
                   <div style={{ position: 'relative', flexShrink: 0 }}>
@@ -917,60 +1248,49 @@ export default function AtendimentoPage() {
                 )}
               </div>
 
-              {/* Messages */}
-              <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: 16, background: S.bg2 }}>
-                {messages.length === 0 ? (
-                  <div style={{ margin: 'auto', textAlign: 'center', color: S.txt3, fontSize: 13 }}>
-                    <MessageSquare size={32} style={{ margin: '0 auto 10px', opacity: 0.25 }} />
-                    <p style={{ margin: 0 }}>Nenhuma mensagem ainda</p>
-                  </div>
-                ) : (
-                  messages.filter((m: any) => m.messageType !== 'internal').map((m: any) => {
-                    const isContact = m.authorType === 'contact';
-                    const isSystem = m.messageType === 'system';
-                    const t = new Date(m.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-                    const col = avatarColor(m.authorName || '?');
+              {/* Messages — wrapper com position:relative para o botão flutuante */}
+              <div style={{ flex: 1, position: 'relative', overflow: 'hidden', background: S.bg2 }}>
+                <div
+                  ref={scrollContainerRef}
+                  onScroll={handleScroll}
+                  style={{ height: '100%', overflowY: 'auto', padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: 16 }}
+                >
+                  {loadingChat && messages.length === 0 ? (
+                    // Primeira carga: skeleton animado em vez de spinner bloqueante
+                    <MessageSkeleton />
+                  ) : messages.length === 0 ? (
+                    <div style={{ margin: 'auto', textAlign: 'center', color: S.txt3, fontSize: 13 }}>
+                      <MessageSquare size={32} style={{ margin: '0 auto 10px', opacity: 0.25 }} />
+                      <p style={{ margin: 0 }}>Nenhuma mensagem ainda</p>
+                    </div>
+                  ) : (
+                    // Mensagens ficam visíveis durante troca; opacidade reduzida enquanto carrega
+                    <div style={{ display: 'contents', opacity: loadingChat ? 0.55 : 1, transition: 'opacity 0.18s' }}>
+                      {messages.filter((m: any) => m.messageType !== 'internal').map((m: any) => (
+                        <MessageItem key={m.id} m={m} isWhatsapp={isWhatsapp} />
+                      ))}
+                    </div>
+                  )}
+                  <div ref={messagesEndRef} />
+                </div>
 
-                    if (isSystem) {
-                      return (
-                        <div key={m.id} style={{ display: 'flex', justifyContent: 'center', margin: '4px 0' }}>
-                          <div style={{ background: '#EEF2FF', border: '1px solid #C7D2FE', borderRadius: 8, padding: '5px 14px', fontSize: 11, color: '#4338CA', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#4338CA" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v2z"/></svg>
-                            {m.content}
-                          </div>
-                        </div>
-                      );
-                    }
-
-                    return (
-                      <div key={m.id} style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: isContact ? 'flex-start' : 'flex-end' }}>
-                        <span style={{ fontSize: 11, fontWeight: 500, color: S.txt2, paddingLeft: isContact ? 40 : 0, paddingRight: isContact ? 0 : 40 }}>
-                          {m.authorName}
-                        </span>
-                        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, flexDirection: isContact ? 'row' : 'row-reverse' }}>
-                          <div style={{ width: 30, height: 30, borderRadius: '50%', background: isContact ? col : S.accentLight, display: 'flex', alignItems: 'center', justifyContent: 'center', color: isContact ? '#fff' : S.accent, fontSize: 10, fontWeight: 700, flexShrink: 0 }}>
-                            {initials(m.authorName || '?')}
-                          </div>
-                          <div style={{
-                            maxWidth: 420, padding: '11px 16px', fontSize: 13, lineHeight: 1.6, position: 'relative',
-                            background: isContact ? S.bg : S.accent,
-                            color: isContact ? S.txt : '#fff',
-                            border: isContact ? `1px solid rgba(0,0,0,.09)` : 'none',
-                            borderRadius: isContact ? '18px 18px 18px 4px' : '18px 18px 4px 18px',
-                            boxShadow: isContact ? '0 1px 3px rgba(0,0,0,.06)' : '0 2px 8px rgba(79,70,229,.25)',
-                          }}>
-                            <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{m.content}</p>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 5 }}>
-                              <span style={{ fontSize: 10, color: isContact ? S.txt3 : 'rgba(255,255,255,.6)' }}>{t}</span>
-                              {!isContact && <CheckCircle2 size={11} style={{ color: 'rgba(255,255,255,.6)' }} />}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })
+                {/* Botão flutuante: nova mensagem enquanto usuário lê histórico */}
+                {showScrollBtn && (
+                  <button
+                    onClick={() => scrollToBottom(true)}
+                    style={{
+                      position: 'absolute', bottom: 14, left: '50%', transform: 'translateX(-50%)',
+                      background: S.accent, color: '#fff', border: 'none', borderRadius: 20,
+                      padding: '7px 18px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap',
+                      boxShadow: '0 4px 14px rgba(79,70,229,.45)', zIndex: 10,
+                      fontFamily: 'inherit', transition: 'opacity .15s',
+                    }}
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
+                    Nova mensagem
+                  </button>
                 )}
-                <div ref={messagesEndRef} />
               </div>
 
               {/* Input */}

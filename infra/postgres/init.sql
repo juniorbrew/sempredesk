@@ -206,7 +206,10 @@ CREATE TABLE conversations (
   chat_alert     BOOLEAN      NOT NULL DEFAULT FALSE,
   initiated_by   conversations_initiated_by_enum NOT NULL DEFAULT 'contact',
   last_message_at TIMESTAMPTZ,
+<<<<<<< HEAD
   tags           TEXT,
+=======
+>>>>>>> 792d62962d05bee061315855f7fa63de842d4e39
   created_at     TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
   updated_at     TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
@@ -294,6 +297,7 @@ CREATE TABLE ticket_settings (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+<<<<<<< HEAD
 -- ── TAGS ──────────────────────────────────────────────────────
 CREATE TABLE tags (
   id         UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -306,6 +310,8 @@ CREATE TABLE tags (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+=======
+>>>>>>> 792d62962d05bee061315855f7fa63de842d4e39
 -- ── DEVICES ───────────────────────────────────────────────────
 CREATE TABLE devices (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -658,7 +664,10 @@ CREATE INDEX idx_device_metrics         ON device_metrics(tenant_id, device_id, 
 -- Conversations
 CREATE INDEX idx_conversations_contact  ON conversations(tenant_id, contact_id, status);
 CREATE INDEX idx_conversations_ticket   ON conversations(ticket_id) WHERE ticket_id IS NOT NULL;
+<<<<<<< HEAD
 CREATE INDEX idx_tags_tenant_active     ON tags(tenant_id, active, sort_order, name);
+=======
+>>>>>>> 792d62962d05bee061315855f7fa63de842d4e39
 CREATE INDEX idx_conv_messages_conv     ON conversation_messages(conversation_id, created_at);
 
 -- Chatbot sessions

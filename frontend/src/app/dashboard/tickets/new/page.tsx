@@ -38,7 +38,11 @@ export default function NewTicketPage() {
   const [focusField, setFocusField] = useState('');
   const searchRef = useRef<HTMLDivElement>(null);
 
+<<<<<<< HEAD
   const [form, setForm] = useState({ clientId:'', contactId:'', contractId:'', assignedTo:'', origin:'internal', priority:'medium', department:'', category:'', subcategory:'', subject:'', description:'', tags:[] as string[] });
+=======
+  const [form, setForm] = useState({ clientId:'', contactId:'', contractId:'', assignedTo:'', origin:'internal', priority:'medium', department:'', category:'', subcategory:'', subject:'', description:'', tags:'' });
+>>>>>>> 792d62962d05bee061315855f7fa63de842d4e39
 
   useEffect(() => {
     const load = async () => {

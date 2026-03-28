@@ -85,6 +85,15 @@ export class ConversationsController {
     return this.conversationsService.findOne(tenantId, id);
   }
 
+  /** Agente abriu a conversa — envia read receipts das mensagens do contato via Baileys */
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermission('ticket.view')
+  @Post(':id/mark-read')
+  async markRead(@TenantId() tenantId: string, @Param('id') id: string) {
+    await this.conversationsService.markConversationRead(tenantId, id);
+    return { ok: true };
+  }
+
   @UseGuards(JwtAuthGuard, PermissionsGuard)
   @RequirePermission('ticket.create')
   @Post(':id/create-ticket')

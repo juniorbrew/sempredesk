@@ -723,6 +723,11 @@ export class TicketsService {
     if (origin) {
       qb.andWhere('t.origin = :origin', { origin });
     } else {
+<<<<<<< HEAD
+=======
+      // Sem filtro explícito: exibe apenas canais de atendimento ao cliente (whatsapp/portal).
+      // Tickets criados internamente (email, phone, internal) NÃO aparecem no inbox de atendimento.
+>>>>>>> 792d62962d05bee061315855f7fa63de842d4e39
       qb.andWhere('t.origin IN (:...inboxOrigins)', { inboxOrigins: ['whatsapp', 'portal'] });
     }
     if (status === 'active') {
