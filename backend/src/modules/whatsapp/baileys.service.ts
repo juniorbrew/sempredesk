@@ -65,6 +65,23 @@ export class BaileysService {
     this.onStatusUpdateCallback = cb;
   }
 
+  /**
+   * Envia confirmação de leitura para mensagens do contato via Baileys.
+   * Chamado quando o agente abre uma conversa no dashboard.
+   */
+  async markMessagesRead(tenantId: string, remoteJid: string, messageIds: string[]): Promise<void> {
+    if (!messageIds.length) return;
+    const sock = this.sessions.get(tenantId);
+    if (!sock) return;
+    try {
+      const keys = messageIds.map((id) => ({ remoteJid, id, fromMe: false, participant: undefined }));
+      await sock.readMessages(keys);
+      this.logger.log(`[markRead] tenantId=${tenantId} jid=${remoteJid} count=${messageIds.length}`);
+    } catch (e: any) {
+      this.logger.warn(`[markRead] Falha ao enviar read receipts: ${e?.message}`);
+    }
+  }
+
   getQrObservable(tenantId: string): Observable<MessageEvent> {
     if (!this.qrSubjects.has(tenantId)) {
       this.qrSubjects.set(tenantId, new Subject<MessageEvent>());

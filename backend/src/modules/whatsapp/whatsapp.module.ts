@@ -59,6 +59,11 @@ export class WhatsappModule implements OnModuleInit {
     this.logger.log('Outbound WhatsApp sender registrado para conversas');
 
     // 1. Wire Baileys incoming messages → chatbot → WhatsApp message handler
+    // Wire read receipts: agente abre conversa no dashboard → Baileys envia readMessages ao contato
+    this.conversationsService.setMarkReadHandler(
+      (tenantId, remoteJid, messageIds) => this.baileysService.markMessagesRead(tenantId, remoteJid, messageIds),
+    );
+
     // Wire ACK status updates: Baileys → ConversationsService → socket → frontend
     this.baileysService.setStatusUpdateHandler(async (tenantId: string, externalId: string, status: string) => {
       try {

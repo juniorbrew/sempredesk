@@ -90,6 +90,7 @@ class ApiClient {
     this.client.post(`/conversations/${conversationId}/link-ticket`, { ticketId });
   closeConversation = (id: string, opts?: { keepTicketOpen?: boolean; solution?: string; rootCause?: string; timeSpentMin?: number; internalNote?: string; complexity?: number }) =>
     this.client.post(`/conversations/${id}/close`, opts || {});
+  markConversationRead = (id: string) => this.client.post(`/conversations/${id}/mark-read`);
   assignTicket = (id: string, techId: string) => this.client.post(`/tickets/${id}/assign`, { techId });
   getAttendanceQueueStats = () => this.client.get('/attendance/queue-stats');
   resolveTicket = (id: string, data?: any) => this.client.post(`/tickets/${id}/resolve`, data || {});

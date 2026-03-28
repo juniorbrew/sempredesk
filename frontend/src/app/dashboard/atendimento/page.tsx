@@ -376,6 +376,11 @@ export default function AtendimentoPage() {
       setMessages(Array.isArray(msgsRaw) ? msgsRaw : (msgsRaw as any)?.data ?? []);
       setLoadingChat(false); // ← conteúdo visível aqui; fase 2 roda em background
 
+      // Envia read receipts para mensagens do contato via Baileys (best-effort, não bloqueia)
+      if (!isTicket && conv.channel === 'whatsapp' && conv.id) {
+        api.markConversationRead(conv.id).catch(() => {});
+      }
+
       // ── FASE 2: dados de suporte — sem bloquear a UI ─────────────────────
       const clientId = conv.clientId;
       const contactId = conv.contactId || (ticketRes as any)?.contactId;

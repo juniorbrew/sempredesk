@@ -40,6 +40,53 @@ export class ConversationsService {
     this.outboundSender = fn;
   }
 
+  /** Dispatcher de read receipts (Baileys) — registrado pelo WhatsappModule.onModuleInit */
+  private markReadFn: ((tenantId: string, remoteJid: string, messageIds: string[]) => Promise<void>) | null = null;
+  setMarkReadHandler(fn: (tenantId: string, remoteJid: string, messageIds: string[]) => Promise<void>) {
+    this.markReadFn = fn;
+  }
+
+  /**
+   * Envia confirmação de leitura para as mensagens do contato nesta conversa.
+   * Chamado quando o agente abre a conversa no dashboard.
+   */
+  async markConversationRead(tenantId: string, conversationId: string): Promise<void> {
+    if (!this.markReadFn) return;
+    try {
+      const conv = await this.convRepo.findOne({ where: { tenantId, id: conversationId } });
+      if (!conv || conv.channel !== 'whatsapp' || !conv.contactId) return;
+
+      // Resolve JID do contato
+      const contact = await this.customersService.findContactById(tenantId, conv.contactId);
+      if (!contact) return;
+      let remoteJid: string;
+      const lid = (contact as any).metadata?.whatsappLid;
+      if (lid) {
+        const lidDigits = String(lid).replace(/\D/g, '');
+        remoteJid = `${lidDigits}@lid`;
+      } else if (contact.whatsapp) {
+        const digits = contact.whatsapp.replace(/\D/g, '');
+        remoteJid = `${digits}@s.whatsapp.net`;
+      } else {
+        return;
+      }
+
+      // Busca mensagens recentes do contato que possuem externalId
+      const msgs = await this.msgRepo.find({
+        where: { tenantId, conversationId, authorType: 'contact' },
+        order: { createdAt: 'DESC' },
+        take: 30,
+      });
+      const ids = msgs.map((m) => m.externalId).filter(Boolean) as string[];
+      if (!ids.length) return;
+
+      await this.markReadFn(tenantId, remoteJid, ids);
+    } catch (e: any) {
+      // Não bloqueia — read receipt é best-effort
+      console.warn('[ConversationsService] markConversationRead falhou:', e?.message);
+    }
+  }
+
   constructor(
     @InjectRepository(Conversation)
     private readonly convRepo: Repository<Conversation>,
