@@ -38,14 +38,6 @@ export class WhatsappService {
     @InjectDataSource() private readonly dataSource: DataSource,
   ) {}
 
-  private resolveContactWhatsappTarget(contact: any, fallback?: string): { raw: string; digits: string } {
-    const technicalLid = String(contact?.metadata?.whatsappLid || '').trim();
-    const storedWhatsapp = String(contact?.whatsapp || '').trim();
-    const fallbackDigits = String(fallback || '').replace(/\D/g, '');
-    const raw = technicalLid || storedWhatsapp || fallbackDigits;
-    return { raw, digits: raw.replace(/\D/g, '') };
-  }
-
   normalizeGenericPayload(body: any): NormalizedWhatsappMessage | null {
     if (!body?.from || !body?.text) return null;
     return {
@@ -290,16 +282,6 @@ export class WhatsappService {
     }
 
     const contact = await this.customersService.findContactById(tenantId, ticket.contactId);
-<<<<<<< HEAD
-    const destination = this.resolveContactWhatsappTarget(contact);
-    if (!destination.raw) {
-      throw new BadRequestException('Contato não possui número WhatsApp cadastrado');
-    }
-
-    const rawWhatsapp = destination.raw;
-    const digits = destination.digits;
-    if (!digits || digits.length < 10) {
-=======
     if (!contact?.whatsapp && !contact?.metadata?.whatsappLid) {
       throw new BadRequestException('Contato não possui número WhatsApp cadastrado');
     }
@@ -307,7 +289,6 @@ export class WhatsappService {
     // Usa LID técnico (metadata.whatsappLid) se disponível; fallback para whatsapp
     const destination = this.resolveContactWhatsappTarget(contact);
     if (!destination.digits || destination.digits.length < 10) {
->>>>>>> 792d62962d05bee061315855f7fa63de842d4e39
       throw new BadRequestException('Número WhatsApp do contato inválido');
     }
 
@@ -398,13 +379,8 @@ export class WhatsappService {
       throw new BadRequestException('phone ou contactId é obrigatório');
     }
 
-<<<<<<< HEAD
-    const destination = this.resolveContactWhatsappTarget(contact, dto.phone);
-    const whatsapp: string = destination.raw;
-=======
     // Usa LID técnico (metadata.whatsappLid) se disponível; fallback para whatsapp ou phone
     const { raw: whatsapp } = this.resolveContactWhatsappTarget(contact, dto.phone?.replace(/\D/g, ''));
->>>>>>> 792d62962d05bee061315855f7fa63de842d4e39
     if (!whatsapp) throw new BadRequestException('Contato sem número WhatsApp cadastrado');
     log(`[OUTBOUND-FLOW] WhatsApp do contato: ${whatsapp}`);
 

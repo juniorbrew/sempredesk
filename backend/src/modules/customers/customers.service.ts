@@ -398,30 +398,12 @@ export class CustomersService {
 
   async findContactByWhatsapp(tenantId: string, whatsapp: string) {
     const normalized = normalizeWhatsappNumber(whatsapp) || whatsapp;
-<<<<<<< HEAD
-=======
 
     // Busca por whatsapp OU pelo LID técnico armazenado em metadata
->>>>>>> 792d62962d05bee061315855f7fa63de842d4e39
     const contact = await this.contacts.createQueryBuilder('ct')
       .leftJoinAndSelect('ct.client', 'client')
       .where('ct.tenant_id = :tenantId', { tenantId })
       .andWhere("ct.status = 'active'")
-<<<<<<< HEAD
-      .andWhere("(ct.whatsapp = :normalized OR ct.metadata->>'whatsappLid' = :normalized)", { normalized })
-      .orderBy('ct.created_at', 'DESC')
-      .getOne();
-
-    if (
-      contact
-      && normalized.length >= 14
-      && contact.whatsapp === normalized
-      && contact.metadata?.whatsappLid !== normalized
-    ) {
-      const nextMetadata = { ...(contact.metadata || {}), whatsappLid: normalized };
-      await this.contacts.update({ id: contact.id, tenantId }, { metadata: nextMetadata as any });
-      contact.metadata = nextMetadata;
-=======
       .andWhere(
         "(ct.whatsapp = :normalized OR ct.metadata->>'whatsappLid' = :normalized)",
         { normalized },
@@ -439,7 +421,6 @@ export class CustomersService {
       const updatedMeta = { ...(contact.metadata ?? {}), whatsappLid: normalized };
       await this.contacts.update({ id: contact.id, tenantId }, { metadata: updatedMeta } as any);
       contact.metadata = updatedMeta;
->>>>>>> 792d62962d05bee061315855f7fa63de842d4e39
     }
 
     return contact;
@@ -569,15 +550,6 @@ export class CustomersService {
   async findOrCreateByWhatsapp(tenantId: string, phone: string, displayName?: string, isLid = false) {
     const normalized = normalizeWhatsappNumber(phone) || phone;
 
-<<<<<<< HEAD
-    // 1. Tenta encontrar contato existente pelo número (somente ativos)
-    const existing = await this.findContactByWhatsapp(tenantId, normalized);
-    if (existing) {
-      if (isLid && existing.metadata?.whatsappLid !== normalized) {
-        const nextMetadata = { ...(existing.metadata || {}), whatsappLid: normalized };
-        await this.contacts.update({ id: existing.id, tenantId }, { metadata: nextMetadata as any });
-        existing.metadata = nextMetadata;
-=======
     // 1. Busca por whatsapp OU por metadata.whatsappLid (inclui contatos LID antigos)
     const existing = await this.findContactByWhatsapp(tenantId, normalized);
     if (existing) {
@@ -586,21 +558,15 @@ export class CustomersService {
         const updatedMeta = { ...(existing.metadata ?? {}), whatsappLid: normalized };
         await this.contacts.update({ id: existing.id, tenantId }, { metadata: updatedMeta } as any);
         existing.metadata = updatedMeta;
->>>>>>> 792d62962d05bee061315855f7fa63de842d4e39
       }
       return existing;
     }
 
     // 2. Cria SOMENTE o contato — sem cliente temporário
-<<<<<<< HEAD
     // Se for LID (@lid JID), NÃO armazena como phone (pois não é número de telefone real).
     // Mantemos whatsapp por compatibilidade no roteamento atual e também salvamos metadata.whatsappLid
     // para a UI/fluxos conseguirem distinguir identificador técnico de número real.
     // O agente vinculará ao cliente real durante o atendimento via ContactValidationBanner
-=======
-    // LID: mantém whatsapp preenchido para compatibilidade de roteamento,
-    // mas não salva como phone (não é número real) e registra em metadata.whatsappLid
->>>>>>> 792d62962d05bee061315855f7fa63de842d4e39
     const contact = await this.contacts.save(
       this.contacts.create({
         tenantId,
@@ -608,10 +574,6 @@ export class CustomersService {
         name: displayName || (isLid ? 'WhatsApp' : `+${normalized}`),
         whatsapp: normalized,
         phone: isLid ? (null as any) : normalized,
-<<<<<<< HEAD
-        metadata: isLid ? { whatsappLid: normalized } : {},
-=======
->>>>>>> 792d62962d05bee061315855f7fa63de842d4e39
         preferredChannel: 'whatsapp',
         canOpenTickets: true,
         status: 'active',

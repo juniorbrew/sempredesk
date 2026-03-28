@@ -2,12 +2,8 @@
 import { useEffect, useLayoutEffect, useState, useCallback, useRef, memo } from 'react';
 import { api } from '@/lib/api';
 import Link from 'next/link';
-<<<<<<< HEAD
-import { useRealtimeConversation, useRealtimeTicket } from '@/lib/realtime';
-import { useAuthStore, hasPermission } from '@/store/auth.store';
-=======
 import { useRealtimeConversation, useRealtimeTicket, useRealtimeTenantNewMessages } from '@/lib/realtime';
->>>>>>> 792d62962d05bee061315855f7fa63de842d4e39
+import { useAuthStore, hasPermission } from '@/store/auth.store';
 import {
   MessageSquare, Send, Phone, RefreshCw, Lock, ExternalLink, Plus, Link2, Globe,
   Check, Search, X, CheckCircle2, User, Mail, MapPin, Building2, Hash, Tag,
@@ -420,11 +416,11 @@ export default function AtendimentoPage() {
     const myId = ++loadIdRef.current; // guard de race condition
     setLoadingChat(true);
     setCurrentTicket(null);
-<<<<<<< HEAD
     setConversationTags(Array.isArray(conv?.tags) ? conv.tags : []);
-=======
-
->>>>>>> 792d62962d05bee061315855f7fa63de842d4e39
+    atBottomRef.current = true; // sempre vai para o fim ao trocar de conversa
+    setShowScrollBtn(false);
+    setHasMoreMsgs(false);
+    oldestMsgIdRef.current = null;
     try {
       const isTicket = conv.type === 'ticket' || conv.id?.startsWith?.('ticket:');
       const ticketId = isTicket ? (conv.ticketId || conv.id?.replace?.(/^ticket:/, '')) : conv.ticketId;
@@ -888,19 +884,9 @@ export default function AtendimentoPage() {
   }, [loadConversations]);
 
 
-<<<<<<< HEAD
   useEffect(() => { if (selected) loadChat(selected); else setMessages([]); }, [selected?.id]);
   useEffect(() => { api.getTags({ active: true }).then((r: any) => setAvailableTags(r?.data ?? r ?? [])).catch(() => setAvailableTags([])); }, []);
   useEffect(() => { setConversationTags(Array.isArray(selected?.tags) ? selected.tags : []); }, [selected?.id, selected?.tags]);
-=======
-  useEffect(() => {
-    atBottomRef.current = true; // sempre vai para o fim ao trocar de conversa
-    setShowScrollBtn(false);
-    setHasMoreMsgs(false);
-    oldestMsgIdRef.current = null;
-    if (selected) loadChat(selected); else setMessages([]);
-  }, [selected?.id]);
->>>>>>> 792d62962d05bee061315855f7fa63de842d4e39
   useEffect(() => {
     if (!selected?.clientId) { setClientTickets([]); return; }
     api.getTickets({ clientId: selected.clientId, perPage: 20 })
@@ -963,7 +949,6 @@ export default function AtendimentoPage() {
     });
   });
 
-<<<<<<< HEAD
   const saveConversationTags = async () => {
     if (!selected?.id || isTicketType) return;
     setSavingConversationTags(true);
@@ -979,7 +964,7 @@ export default function AtendimentoPage() {
     }
     setSavingConversationTags(false);
   };
-=======
+
   // ── notificações de nova mensagem (conversas não selecionadas) ──
   useRealtimeTenantNewMessages((msg) => {
     const currentSelected = selectedRef.current;
@@ -1011,7 +996,6 @@ export default function AtendimentoPage() {
       osc.stop(ctx.currentTime + 0.35);
     } catch {}
   });
->>>>>>> 792d62962d05bee061315855f7fa63de842d4e39
 
   // ── styles (shared) ──
   const S = {
