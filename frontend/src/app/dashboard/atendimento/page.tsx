@@ -208,6 +208,9 @@ export default function AtendimentoPage() {
   const [channelFilter, setChannelFilter] = useState<'all' | 'whatsapp' | 'portal'>(() => {
     try { return (localStorage.getItem('atend_channel') as any) || 'all'; } catch { return 'all'; }
   });
+  const [filterTags, setFilterTags] = useState<string[]>([]);
+  const [showTagDropdown, setShowTagDropdown] = useState(false);
+  const tagDropdownRef = useRef<HTMLDivElement>(null);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [showLinkModal, setShowLinkModal] = useState(false);
@@ -865,6 +868,14 @@ export default function AtendimentoPage() {
   const conversationIdForRealtime = !isTicketType ? selected?.id : null;
 
   const filteredConversations = conversations.filter(c => {
+    // Filtro por tags: conversa precisa ter pelo menos uma das tags selecionadas
+    if (filterTags.length > 0) {
+      const cTags: string[] = Array.isArray(c.tags) ? c.tags : [];
+      const hasTag = filterTags.some(ft =>
+        cTags.some(ct => String(ct).toLowerCase() === String(ft).toLowerCase()),
+      );
+      if (!hasTag) return false;
+    }
     if (!search.trim()) return true;
     const q = search.toLowerCase();
     const name = (c.contactName || customerName(c.clientId) || '').toLowerCase();
@@ -886,6 +897,14 @@ export default function AtendimentoPage() {
 
   useEffect(() => { if (selected) loadChat(selected); else setMessages([]); }, [selected?.id]);
   useEffect(() => { api.getTags({ active: true }).then((r: any) => setAvailableTags(r?.data ?? r ?? [])).catch(() => setAvailableTags([])); }, []);
+  useEffect(() => {
+    if (!showTagDropdown) return;
+    const handler = (e: MouseEvent) => {
+      if (!tagDropdownRef.current?.contains(e.target as Node)) setShowTagDropdown(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showTagDropdown]);
   useEffect(() => { setConversationTags(Array.isArray(selected?.tags) ? selected.tags : []); }, [selected?.id, selected?.tags]);
   useEffect(() => {
     if (!selected?.clientId) { setClientTickets([]); return; }
@@ -1090,7 +1109,7 @@ export default function AtendimentoPage() {
           </div>
 
           {/* Filter chips */}
-          <div style={{ display: 'flex', gap: 6, padding: '10px 12px', borderBottom: S.border, flexShrink: 0 }}>
+          <div style={{ display: 'flex', gap: 6, padding: '10px 12px', borderBottom: availableTags.length > 0 ? 'none' : S.border, flexShrink: 0 }}>
             {([['all','Em aberto'],['closed','Encerradas'],['linked','Vinculadas']] as const).map(([f, label]) => (
               <button key={f} onClick={() => setFilter(f)}
                 style={{
@@ -1104,6 +1123,89 @@ export default function AtendimentoPage() {
               </button>
             ))}
           </div>
+
+          {/* Tag filter (só aparece se há tags cadastradas) */}
+          {availableTags.length > 0 && (
+            <div ref={tagDropdownRef} style={{ padding: '8px 12px 10px', borderBottom: S.border, flexShrink: 0, position: 'relative' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                {/* Botão abre/fecha dropdown */}
+                <button
+                  onClick={() => setShowTagDropdown(v => !v)}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 9px',
+                    borderRadius: 6, fontSize: 11, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit',
+                    background: filterTags.length > 0 ? S.accentLight : 'transparent',
+                    color: filterTags.length > 0 ? S.accent : S.txt2,
+                    border: `1px solid ${filterTags.length > 0 ? S.accentMid : 'rgba(0,0,0,.12)'}`,
+                    transition: 'all .12s',
+                  }}
+                >
+                  <Tag size={11} strokeWidth={1.8} />
+                  {filterTags.length > 0 ? `Tags (${filterTags.length})` : 'Tags'}
+                  <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ transform: showTagDropdown ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }}><path d="M2 3.5l3 3 3-3"/></svg>
+                </button>
+                {/* Chips das tags selecionadas */}
+                {filterTags.map(tagName => {
+                  const t = availableTags.find((x: any) => String(x.name).toLowerCase() === String(tagName).toLowerCase());
+                  return (
+                    <span key={tagName} style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 7px',
+                      borderRadius: 999, fontSize: 10, fontWeight: 700, lineHeight: 1,
+                      background: t?.color ? `${t.color}18` : S.accentLight,
+                      color: t?.color || S.accent,
+                      border: `1px solid ${t?.color ? `${t.color}35` : S.accentMid}`,
+                    }}>
+                      {tagName}
+                      <button onClick={() => setFilterTags(prev => prev.filter(x => x !== tagName))}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', color: 'inherit', opacity: 0.7 }}>
+                        <X size={10} />
+                      </button>
+                    </span>
+                  );
+                })}
+                {filterTags.length > 0 && (
+                  <button onClick={() => setFilterTags([])}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', fontSize: 10, color: S.txt3, fontFamily: 'inherit' }}>
+                    limpar
+                  </button>
+                )}
+              </div>
+
+              {/* Dropdown de seleção de tags */}
+              {showTagDropdown && (
+                <div style={{
+                  position: 'absolute', top: 'calc(100% + 2px)', left: 12, right: 12, zIndex: 50,
+                  background: '#fff', border: S.border2, borderRadius: 10,
+                  boxShadow: '0 8px 24px rgba(0,0,0,.12)', overflow: 'hidden',
+                }}>
+                  <div style={{ maxHeight: 220, overflowY: 'auto', padding: '6px 6px' }}>
+                    {availableTags.map((tag: any) => {
+                      const active = filterTags.some(ft => String(ft).toLowerCase() === String(tag.name).toLowerCase());
+                      return (
+                        <button key={tag.id || tag.name}
+                          onClick={() => {
+                            setFilterTags(prev =>
+                              active ? prev.filter(x => String(x).toLowerCase() !== String(tag.name).toLowerCase()) : [...prev, tag.name],
+                            );
+                          }}
+                          style={{
+                            width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                            padding: '8px 10px', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                            background: active ? S.accentLight : 'transparent', gap: 10, textAlign: 'left',
+                          }}>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ width: 8, height: 8, borderRadius: '50%', background: tag.color || S.accent, flexShrink: 0 }} />
+                            <span style={{ fontSize: 12, fontWeight: 500, color: S.txt }}>{tag.name}</span>
+                          </span>
+                          {active && <Check size={13} color={tag.color || S.accent} />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* List */}
           <div style={{ flex: 1, overflowY: 'auto', padding: '0 8px 8px' }}>
