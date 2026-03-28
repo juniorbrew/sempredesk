@@ -20,24 +20,20 @@ jobs:
             set -e
             cd /opt/suporte-tecnico
 
-            echo "📥 Baixando código atualizado..."
+            echo "Baixando codigo atualizado..."
             git pull origin main
 
-<<<<<<< HEAD
-            echo "🔨 Rebuilding backend, frontend e portal..."
-=======
-            echo "🔨 Rebuilding backend e frontend..."
->>>>>>> 792d62962d05bee061315855f7fa63de842d4e39
+            echo "Rebuilding backend e frontend..."
             docker compose build backend frontend
 
-            echo "🛑 Removendo containers conflitantes..."
+            echo "Removendo containers conflitantes..."
             docker stop suporte_frontend suporte_backend 2>/dev/null || true
             docker rm suporte_frontend suporte_backend 2>/dev/null || true
 
-            echo "🛑 Derrubando todos os containers do compose..."
+            echo "Derrubando todos os containers do compose..."
             docker compose down --remove-orphans
 
-            echo "🚀 Subindo containers..."
+            echo "Subindo containers..."
             docker compose up -d
 
-            echo "✅ Deploy concluído!"
+            echo "Deploy concluido!"
