@@ -639,4 +639,34 @@ export class ConversationsService {
     await this.ticketsService.linkToConversation(tenantId, ticketId, saved.id);
     return { conversation: saved, ticket };
   }
+
+  /**
+   * Atualiza o whatsappStatus de uma mensagem a partir do externalId (WhatsApp message key).
+   * Chamado pelo BaileysService via callback ACK (messages.update).
+   * Só promove o status (sent → delivered → read), nunca rebaixa.
+   */
+  async updateMessageStatusByExternalId(tenantId: string, externalId: string, newStatus: string): Promise<void> {
+    const STATUS_RANK: Record<string, number> = { pending: 0, queued: 0, sent: 1, delivered: 2, read: 3 };
+    const msg = await this.msgRepo.findOne({ where: { tenantId, externalId } });
+    if (!msg) return; // mensagem ainda não persistida ou de outro tenant
+
+    const currentRank = STATUS_RANK[msg.whatsappStatus ?? ''] ?? -1;
+    const newRank = STATUS_RANK[newStatus] ?? -1;
+    if (newRank <= currentRank) return; // não rebaixa
+
+    await this.msgRepo.update(msg.id, { whatsappStatus: newStatus });
+
+    // Emite socket para o frontend atualizar o ícone em tempo real
+    this.realtimeEmitter.emitNewConversationMessage(msg.conversationId, {
+      id: msg.id,
+      conversationId: msg.conversationId,
+      authorId: msg.authorId,
+      authorType: msg.authorType,
+      authorName: msg.authorName,
+      content: msg.content,
+      createdAt: msg.createdAt,
+      whatsappStatus: newStatus,
+      externalId: msg.externalId ?? null,
+    });
+  }
 }
