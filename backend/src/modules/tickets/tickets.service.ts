@@ -1239,6 +1239,41 @@ export class TicketsService {
     return qb.getMany();
   }
 
+  async getMessagesPage(
+    tenantId: string,
+    ticketId: string,
+    opts: { limit?: number; before?: string; includeInternal?: boolean },
+  ): Promise<{ messages: TicketMessage[]; hasMore: boolean }> {
+    await this.getTicketOrFail(tenantId, ticketId);
+    const limit = Math.min(opts.limit ?? 50, 200);
+    const includeInternal = opts.includeInternal ?? true;
+
+    const qb = this.messageRepo.createQueryBuilder('m')
+      .where('m.tenant_id = :tenantId', { tenantId })
+      .andWhere('m.ticket_id = :ticketId', { ticketId })
+      .orderBy('m.created_at', 'DESC')
+      .take(limit + 1);
+
+    if (!includeInternal) {
+      qb.andWhere('m.messageType != :internal', { internal: MessageType.INTERNAL });
+    }
+
+    if (opts.before) {
+      const cursor = await this.messageRepo.findOne({
+        where: { id: opts.before } as any,
+      });
+      if (cursor) {
+        qb.andWhere('m.created_at < :cursorDate', { cursorDate: cursor.createdAt });
+      }
+    }
+
+    const rows = await qb.getMany();
+    const hasMore = rows.length > limit;
+    if (hasMore) rows.pop();
+    rows.reverse();
+    return { messages: rows, hasMore };
+  }
+
   async submitSatisfaction(tenantId: string, ticketId: string, score: 'approved' | 'rejected'): Promise<Ticket> {
     const ticket = await this.getTicketSatisfactionService().applyPortalSatisfaction(ticketId, score === 'approved');
     const message =
