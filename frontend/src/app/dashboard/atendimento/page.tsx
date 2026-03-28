@@ -131,9 +131,26 @@ function MessageSkeleton() {
   );
 }
 
+// ── HighlightText ─────────────────────────────────────────────────────────────
+/** Destaca ocorrências de `query` dentro de `text` com fundo amarelo */
+function escapeRegex(s: string) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+function HighlightText({ text, query }: { text: string; query: string }) {
+  if (!query) return <>{text}</>;
+  const parts = text.split(new RegExp(`(${escapeRegex(query)})`, 'gi'));
+  return (
+    <>
+      {parts.map((part, i) =>
+        part.toLowerCase() === query.toLowerCase()
+          ? <mark key={i} style={{ background: '#FEF08A', color: '#0F172A', borderRadius: 2, padding: '0 2px' }}>{part}</mark>
+          : part,
+      )}
+    </>
+  );
+}
+
 // ── MessageItem (memoizado) ───────────────────────────────────────────────────
 /** Item individual de mensagem — memoizado para evitar re-render ao digitar */
-const MessageItem = memo(function MessageItem({ m, isWhatsapp }: { m: any; isWhatsapp: boolean }) {
+const MessageItem = memo(function MessageItem({ m, isWhatsapp, highlight }: { m: any; isWhatsapp: boolean; highlight?: string }) {
   const isContact = m.authorType === 'contact';
   const isSystem  = m.messageType === 'system';
   const t = new Date(m.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
@@ -152,7 +169,7 @@ const MessageItem = memo(function MessageItem({ m, isWhatsapp }: { m: any; isWha
       <div style={{ display: 'flex', justifyContent: 'center', margin: '4px 0' }}>
         <div style={{ background: '#EEF2FF', border: '1px solid #C7D2FE', borderRadius: 8, padding: '5px 14px', fontSize: 11, color: '#4338CA', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6 }}>
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#4338CA" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v2z"/></svg>
-          {m.content}
+          {highlight ? <HighlightText text={m.content || ''} query={highlight} /> : m.content}
         </div>
       </div>
     );
@@ -177,7 +194,9 @@ const MessageItem = memo(function MessageItem({ m, isWhatsapp }: { m: any; isWha
           opacity: m._optimistic ? 0.75 : 1,
           transition: 'opacity 0.2s',
         }}>
-          <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{m.content}</p>
+          <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>
+            {highlight ? <HighlightText text={m.content || ''} query={highlight} /> : m.content}
+          </p>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 5 }}>
             <span style={{ fontSize: 10, color: isContact ? txt3 : 'rgba(255,255,255,.6)' }}>{t}</span>
             {!isContact && <MessageStatusIcon status={m.whatsappStatus} isWhatsapp={isWhatsapp} />}
@@ -267,6 +286,11 @@ export default function AtendimentoPage() {
   const contactTypingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const agentTypingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const agentIsTypingRef = useRef(false);
+  // ── busca dentro da conversa ──
+  const [msgSearchOpen, setMsgSearchOpen] = useState(false);
+  const [msgSearchQuery, setMsgSearchQuery] = useState('');
+  const [msgSearchIdx, setMsgSearchIdx] = useState(0);
+  const msgSearchInputRef = useRef<HTMLInputElement>(null);
 
   const [showScrollBtn, setShowScrollBtn] = useState(false);
 
@@ -896,6 +920,15 @@ export default function AtendimentoPage() {
   const ticketIdForRealtime = isTicketType ? (selected?.ticketId || selected?.id?.replace?.(/^ticket:/, '')) : null;
   const conversationIdForRealtime = !isTicketType ? selected?.id : null;
 
+  // IDs das mensagens que contêm a query de busca (excluindo internas e de sistema)
+  const msgMatchIds: string[] = (() => {
+    const q = msgSearchQuery.trim().toLowerCase();
+    if (!q) return [];
+    return messages
+      .filter((m: any) => m.messageType !== 'internal' && String(m.content || '').toLowerCase().includes(q))
+      .map((m: any) => m.id);
+  })();
+
   const filteredConversations = conversations.filter(c => {
     // Filtro por tags: conversa precisa ter pelo menos uma das tags selecionadas
     if (filterTags.length > 0) {
@@ -926,6 +959,17 @@ export default function AtendimentoPage() {
 
   useEffect(() => { if (selected) loadChat(selected); else setMessages([]); }, [selected?.id]);
   useEffect(() => { api.getTags({ active: true }).then((r: any) => setAvailableTags(r?.data ?? r ?? [])).catch(() => setAvailableTags([])); }, []);
+  // Foca o input de busca ao abrir
+  useEffect(() => { if (msgSearchOpen) setTimeout(() => msgSearchInputRef.current?.focus(), 50); }, [msgSearchOpen]);
+  // Fecha busca ao trocar de conversa
+  useEffect(() => { setMsgSearchOpen(false); setMsgSearchQuery(''); setMsgSearchIdx(0); }, [selected?.id]);
+  // Scrolla para o resultado atual
+  useEffect(() => {
+    if (!msgMatchIds.length) return;
+    const safeIdx = Math.min(msgSearchIdx, msgMatchIds.length - 1);
+    const el = document.getElementById(`msg-${msgMatchIds[safeIdx]}`);
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [msgSearchIdx, msgMatchIds.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!showTagDropdown) return;
     const handler = (e: MouseEvent) => {
@@ -1434,6 +1478,13 @@ export default function AtendimentoPage() {
                   </div>
                   {/* Actions */}
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
+                    {/* Busca dentro da conversa */}
+                    <button
+                      onClick={() => { setMsgSearchOpen(v => !v); if (msgSearchOpen) { setMsgSearchQuery(''); setMsgSearchIdx(0); } }}
+                      title="Buscar na conversa (Ctrl+F)"
+                      style={{ width: 30, height: 30, borderRadius: 8, border: S.border2, background: msgSearchOpen ? S.accentLight : S.bg2, color: msgSearchOpen ? S.accent : S.txt2, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      <Search size={14} strokeWidth={1.8} />
+                    </button>
                     {hasTicket && (
                       <Link href={`/dashboard/tickets/${selected.ticketId}`} target="_blank"
                         style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 12px', borderRadius: 8, background: S.accentLight, border: `1px solid ${S.accentMid}`, color: S.accent, fontSize: 12, fontWeight: 600, textDecoration: 'none', fontFamily: "'DM Mono', monospace" }}>
@@ -1486,6 +1537,52 @@ export default function AtendimentoPage() {
                 )}
               </div>
 
+              {/* Barra de busca dentro da conversa */}
+              {msgSearchOpen && (
+                <div style={{ padding: '8px 16px', borderBottom: S.border, background: S.bg, display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                  <Search size={13} color={S.txt3} strokeWidth={1.6} style={{ flexShrink: 0 }} />
+                  <input
+                    ref={msgSearchInputRef}
+                    value={msgSearchQuery}
+                    onChange={e => { setMsgSearchQuery(e.target.value); setMsgSearchIdx(0); }}
+                    onKeyDown={e => {
+                      if (e.key === 'Escape') { setMsgSearchOpen(false); setMsgSearchQuery(''); setMsgSearchIdx(0); }
+                      else if (e.key === 'Enter') {
+                        e.preventDefault();
+                        if (msgMatchIds.length > 0) setMsgSearchIdx(i => e.shiftKey ? (i - 1 + msgMatchIds.length) % msgMatchIds.length : (i + 1) % msgMatchIds.length);
+                      }
+                    }}
+                    placeholder="Buscar na conversa..."
+                    style={{ flex: 1, background: 'none', border: 'none', outline: 'none', fontSize: 13, color: S.txt, fontFamily: 'inherit' }}
+                  />
+                  {msgSearchQuery.trim() && (
+                    <span style={{ fontSize: 11, color: S.txt3, flexShrink: 0, whiteSpace: 'nowrap' }}>
+                      {msgMatchIds.length > 0 ? `${Math.min(msgSearchIdx + 1, msgMatchIds.length)} de ${msgMatchIds.length}` : 'Sem resultados'}
+                    </span>
+                  )}
+                  <button
+                    onClick={() => { if (msgMatchIds.length > 0) setMsgSearchIdx(i => (i - 1 + msgMatchIds.length) % msgMatchIds.length); }}
+                    disabled={msgMatchIds.length === 0}
+                    title="Resultado anterior (Shift+Enter)"
+                    style={{ background: 'none', border: S.border2, borderRadius: 6, width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: msgMatchIds.length > 0 ? 'pointer' : 'default', opacity: msgMatchIds.length > 0 ? 1 : 0.35 }}>
+                    <svg width="11" height="11" viewBox="0 0 10 10" fill="none" stroke={S.txt2} strokeWidth="1.6"><path d="M2 6.5l3-3 3 3"/></svg>
+                  </button>
+                  <button
+                    onClick={() => { if (msgMatchIds.length > 0) setMsgSearchIdx(i => (i + 1) % msgMatchIds.length); }}
+                    disabled={msgMatchIds.length === 0}
+                    title="Próximo resultado (Enter)"
+                    style={{ background: 'none', border: S.border2, borderRadius: 6, width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: msgMatchIds.length > 0 ? 'pointer' : 'default', opacity: msgMatchIds.length > 0 ? 1 : 0.35 }}>
+                    <svg width="11" height="11" viewBox="0 0 10 10" fill="none" stroke={S.txt2} strokeWidth="1.6"><path d="M2 3.5l3 3 3-3"/></svg>
+                  </button>
+                  <button
+                    onClick={() => { setMsgSearchOpen(false); setMsgSearchQuery(''); setMsgSearchIdx(0); }}
+                    title="Fechar busca (Esc)"
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: S.txt3, display: 'flex', alignItems: 'center' }}>
+                    <X size={14} />
+                  </button>
+                </div>
+              )}
+
               {/* Messages — wrapper com position:relative para o botão flutuante */}
               <div style={{ flex: 1, position: 'relative', overflow: 'hidden', background: S.bg2 }}>
                 <div
@@ -1520,9 +1617,18 @@ export default function AtendimentoPage() {
                           </button>
                         </div>
                       )}
-                      {messages.filter((m: any) => m.messageType !== 'internal').map((m: any) => (
-                        <MessageItem key={m.id} m={m} isWhatsapp={isWhatsapp} />
-                      ))}
+                      {messages.filter((m: any) => m.messageType !== 'internal').map((m: any, _i: number) => {
+                        const isCurrentMatch = msgSearchQuery.trim() !== '' && msgMatchIds[Math.min(msgSearchIdx, msgMatchIds.length - 1)] === m.id && msgMatchIds.length > 0;
+                        return (
+                          <div
+                            key={m.id}
+                            id={`msg-${m.id}`}
+                            style={isCurrentMatch ? { borderRadius: 14, outline: '2px solid #FDE68A', outlineOffset: 3 } : undefined}
+                          >
+                            <MessageItem m={m} isWhatsapp={isWhatsapp} highlight={msgSearchQuery.trim() || undefined} />
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                   {/* Indicador "contato digitando..." */}
