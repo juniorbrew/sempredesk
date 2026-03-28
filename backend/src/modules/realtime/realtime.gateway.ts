@@ -30,6 +30,10 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayDisconnect {
   private attendanceSvc: any = null;
   setAttendanceService(svc: any) { this.attendanceSvc = svc; }
 
+  /** Injetado via setter em app.module para evitar dependência circular */
+  private baileysSvc: any = null;
+  setBaileysService(svc: any) { this.baileysSvc = svc; }
+
   /** Clock-outs pendentes: "tenantId:userId" → timer (grace period 60s) */
   private readonly pendingClockOuts = new Map<string, ReturnType<typeof setTimeout>>();
 
@@ -173,5 +177,25 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayDisconnect {
     if (await this.presence.setStatusAsync(info.tenantId, info.userId, payload.status)) {
       await this.emitPresenceToTenant(info.tenantId);
     }
+  }
+
+  /** Agente está digitando → envia "composing" para o contato via WhatsApp */
+  @SubscribeMessage('typing:agent')
+  async handleAgentTyping(client: any, payload: { contactPhone: string; tenantId: string; isTyping: boolean }) {
+    const { contactPhone, tenantId, isTyping } = payload || {};
+    if (!contactPhone || !tenantId || !this.baileysSvc) return;
+    try {
+      await this.baileysSvc.sendPresenceUpdate(tenantId, contactPhone, isTyping ? 'composing' : 'paused');
+    } catch {}
+  }
+
+  /** Assina presença de um contato para receber eventos "digitando..." dele */
+  @SubscribeMessage('subscribe:presence')
+  async handleSubscribePresence(client: any, payload: { jid: string; tenantId: string }) {
+    const { jid, tenantId } = payload || {};
+    if (!jid || !tenantId || !this.baileysSvc) return;
+    try {
+      await this.baileysSvc.subscribePresence(tenantId, jid);
+    } catch {}
   }
 }

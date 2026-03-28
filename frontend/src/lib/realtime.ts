@@ -179,6 +179,70 @@ export function useRealtimeTicketAssigned(
   }, []);
 }
 
+// ── Typing presence helpers ────────────────────────────────────────────────────
+/**
+ * Emite evento de "agente digitando" (ou parou) para o contato via WhatsApp.
+ * O backend repassa via sock.sendPresenceUpdate('composing'|'paused', jid).
+ */
+export function emitTypingPresence(contactPhone: string, tenantId: string, isTyping: boolean) {
+  if (_sharedSocket?.connected) {
+    _sharedSocket.emit('typing:agent', { contactPhone, tenantId, isTyping });
+  }
+}
+
+/**
+ * Assina presença de um contato para receber eventos "digitando..." dele.
+ * Deve ser chamado quando o agente abre uma conversa WhatsApp.
+ */
+export function subscribeContactPresence(jid: string, tenantId: string) {
+  if (_sharedSocket?.connected) {
+    _sharedSocket.emit('subscribe:presence', { jid, tenantId });
+  }
+}
+
+// ── useRealtimeContactTyping ───────────────────────────────────────────────────
+/**
+ * Escuta o evento 'contact:typing' emitido pelo backend quando um contato WhatsApp
+ * começa ou para de digitar. Filtra pelo número de telefone do contato ativo.
+ */
+export function useRealtimeContactTyping(
+  contactPhone: string | null,
+  onTyping: (isTyping: boolean) => void,
+) {
+  const onTypingRef = useRef(onTyping);
+  onTypingRef.current = onTyping;
+
+  useEffect(() => {
+    if (!WS_BASE) return;
+
+    let active = true;
+    let handler: ((payload: any) => void) | null = null;
+
+    getSharedSocket().then((socket) => {
+      if (!active || !socket) return;
+      handler = (payload: any) => {
+        if (!payload || !contactPhone) return;
+        // Compara os últimos dígitos (ignora prefixo de país e variações)
+        const fromDigits = String(payload.phone || '').replace(/\D/g, '');
+        const targetDigits = String(contactPhone || '').replace(/\D/g, '');
+        if (!fromDigits || !targetDigits) return;
+        // Aceita correspondência por sufixo (ex: 11999990000 == 5511999990000)
+        const match =
+          fromDigits === targetDigits ||
+          fromDigits.endsWith(targetDigits.slice(-10)) ||
+          targetDigits.endsWith(fromDigits.slice(-10));
+        if (match) onTypingRef.current(payload.isTyping ?? false);
+      };
+      socket.on('contact:typing', handler);
+    });
+
+    return () => {
+      active = false;
+      if (_sharedSocket && handler) _sharedSocket.off('contact:typing', handler);
+    };
+  }, [contactPhone]);
+}
+
 // ── useRealtimeTenantNewMessages ───────────────────────────────────────────────
 /**
  * Escuta o evento 'new-message' emitido para a sala tenant:<tenantId>.

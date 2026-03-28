@@ -95,6 +95,42 @@ export class BaileysService {
     this.onStatusUpdateCallback = cb;
   }
 
+  /** Emitter para repassar eventos de presença do contato ao frontend via WebSocket */
+  private realtimeEmitter: any = null;
+  setRealtimeEmitter(emitter: any) { this.realtimeEmitter = emitter; }
+
+  /**
+   * Envia indicador de "digitando..." ou "parou de digitar" para um contato via WhatsApp.
+   * Chamado pelo RealtimeGateway quando o agente está digitando no chat.
+   */
+  async sendPresenceUpdate(tenantId: string, to: string, presence: 'composing' | 'paused'): Promise<void> {
+    const sock = this.sessions.get(tenantId);
+    if (!sock) return;
+    let jid = to;
+    if (!jid.includes('@')) {
+      const digits = to.replace(/\D/g, '');
+      jid = digits.length >= 14 ? `${digits}@lid` : `${digits}@s.whatsapp.net`;
+    }
+    try {
+      await sock.sendPresenceUpdate(presence, jid);
+    } catch (e: any) {
+      this.logger.warn(`[PRESENCE] sendPresenceUpdate ${presence} para ${jid} falhou: ${e?.message}`);
+    }
+  }
+
+  /**
+   * Assina atualizações de presença de um contato (necessário para receber presence.update).
+   */
+  async subscribePresence(tenantId: string, jid: string): Promise<void> {
+    const sock = this.sessions.get(tenantId);
+    if (!sock) return;
+    try {
+      await sock.subscribePresence(jid);
+    } catch (e: any) {
+      this.logger.warn(`[PRESENCE] subscribePresence para ${jid} falhou: ${e?.message}`);
+    }
+  }
+
   /**
    * Envia confirmação de leitura para mensagens do contato via Baileys.
    * Chamado quando o agente abre uma conversa no dashboard.
@@ -341,6 +377,20 @@ export class BaileysService {
         }
         this.logger.log(`Incoming WhatsApp message from ${from} (JID: ${remoteJid}, lid=${isLid})`);
         this.onMessageCallback?.(tenantId, from, text, msg.key.id, msg.pushName || undefined, isLid);
+      });
+
+      // Presença do contato: repassa "digitando..." ao frontend via WebSocket
+      sock.ev.on('presence.update', ({ id, presences }: any) => {
+        try {
+          const fromJid: string = id || '';
+          const phone = fromJid.replace(/@s\.whatsapp\.net|@lid|@c\.us/g, '').trim();
+          if (!phone) return;
+          const allPresences = Object.values(presences || {});
+          const isTyping = allPresences.some((p: any) => p?.lastKnownPresence === 'composing');
+          if (this.realtimeEmitter) {
+            this.realtimeEmitter.emitToTenant(tenantId, 'contact:typing', { phone, isTyping });
+          }
+        } catch {}
       });
 
       // ACK events: map Baileys numeric ACK to whatsappStatus string

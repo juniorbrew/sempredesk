@@ -2,7 +2,7 @@
 import { useEffect, useLayoutEffect, useState, useCallback, useRef, memo } from 'react';
 import { api } from '@/lib/api';
 import Link from 'next/link';
-import { useRealtimeConversation, useRealtimeTicket, useRealtimeTenantNewMessages, useRealtimeConversationClosed, useRealtimeTicketAssigned } from '@/lib/realtime';
+import { useRealtimeConversation, useRealtimeTicket, useRealtimeTenantNewMessages, useRealtimeConversationClosed, useRealtimeTicketAssigned, useRealtimeContactTyping, emitTypingPresence, subscribeContactPresence } from '@/lib/realtime';
 import { useAuthStore, hasPermission } from '@/store/auth.store';
 import {
   MessageSquare, Send, Phone, RefreshCw, Lock, ExternalLink, Plus, Link2, Globe,
@@ -263,6 +263,10 @@ export default function AtendimentoPage() {
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
   const [hasMoreMsgs, setHasMoreMsgs] = useState(false);
   const [loadingMoreMsgs, setLoadingMoreMsgs] = useState(false);
+  const [isContactTyping, setIsContactTyping] = useState(false);
+  const contactTypingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const agentTypingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const agentIsTypingRef = useRef(false);
 
   const [showScrollBtn, setShowScrollBtn] = useState(false);
 
@@ -424,6 +428,13 @@ export default function AtendimentoPage() {
     setShowScrollBtn(false);
     setHasMoreMsgs(false);
     oldestMsgIdRef.current = null;
+    // Limpa estado de "digitando..." ao trocar de conversa
+    setIsContactTyping(false);
+    if (contactTypingTimeoutRef.current) { clearTimeout(contactTypingTimeoutRef.current); contactTypingTimeoutRef.current = null; }
+    // Cancela "agente digitando" pendente
+    if (agentIsTypingRef.current && conv?.channel === 'whatsapp') {
+      agentIsTypingRef.current = false;
+    }
     try {
       const isTicket = conv.type === 'ticket' || conv.id?.startsWith?.('ticket:');
       const ticketId = isTicket ? (conv.ticketId || conv.id?.replace?.(/^ticket:/, '')) : conv.ticketId;
@@ -529,7 +540,18 @@ export default function AtendimentoPage() {
         if (contactId && !ctArr.find((c: any) => c.id === contactId)) {
           try { const ind: any = await api.getContactById(contactId); if (ind) ctArr.push(ind?.data ?? ind); } catch {}
         }
-        if (myId === loadIdRef.current) setContacts(ctArr);
+        if (myId === loadIdRef.current) {
+          setContacts(ctArr);
+          // Assina presença do contato WhatsApp para receber "digitando..."
+          if (conv.channel === 'whatsapp') {
+            const phone = ctArr.find((c: any) => c.whatsapp)?.whatsapp;
+            if (phone && user?.tenantId) {
+              const digits = phone.replace(/\D/g, '');
+              const jid = digits.length >= 14 ? `${digits}@lid` : `${digits}@s.whatsapp.net`;
+              subscribeContactPresence(jid, user.tenantId);
+            }
+          }
+        }
       } else if (!clientId && contactsRaw) {
         const ct = (contactsRaw as any)?.data ?? contactsRaw;
         if (myId === loadIdRef.current) setContacts(ct ? [ct] : []);
@@ -798,6 +820,13 @@ export default function AtendimentoPage() {
     setInput('');
     setSending(true);
 
+    // Cancela "agente digitando" ao enviar
+    if (agentIsTypingRef.current && contacts[0]?.whatsapp && user?.tenantId) {
+      agentIsTypingRef.current = false;
+      if (agentTypingTimeoutRef.current) { clearTimeout(agentTypingTimeoutRef.current); agentTypingTimeoutRef.current = null; }
+      emitTypingPresence(contacts[0].whatsapp, user.tenantId, false);
+    }
+
     try {
       let res: any;
       if (isTicketType && ticketId) res = await api.addMessage(ticketId, { content: text, messageType: 'comment' });
@@ -928,6 +957,20 @@ export default function AtendimentoPage() {
       if (last && !last._optimistic) setShowScrollBtn(true);
     }
   }, [messages.length, scrollToBottom]);
+
+  // ── realtime: contato digitando ──
+  const contactPhone = contacts[0]?.whatsapp ?? null;
+  useRealtimeContactTyping(
+    selected?.channel === 'whatsapp' ? contactPhone : null,
+    (isTyping) => {
+      setIsContactTyping(isTyping);
+      // Auto-limpa após 6s caso o backend não envie "paused"
+      if (contactTypingTimeoutRef.current) clearTimeout(contactTypingTimeoutRef.current);
+      if (isTyping) {
+        contactTypingTimeoutRef.current = setTimeout(() => setIsContactTyping(false), 6000);
+      }
+    },
+  );
 
   // ── realtime ──
   useRealtimeConversation(conversationIdForRealtime ?? null, (msg) => {
@@ -1482,6 +1525,21 @@ export default function AtendimentoPage() {
                       ))}
                     </div>
                   )}
+                  {/* Indicador "contato digitando..." */}
+                  {isContactTyping && isWhatsapp && (
+                    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, marginTop: 4 }}>
+                      <div style={{ width: 26, height: 26, borderRadius: '50%', background: avatarColor(selected?.contactName || '?'), display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 9, fontWeight: 700, flexShrink: 0 }}>
+                        {initials(selected?.contactName || '?')}
+                      </div>
+                      <div style={{ background: '#FFFFFF', border: '1px solid rgba(0,0,0,.09)', borderRadius: '18px 18px 18px 4px', padding: '10px 16px', boxShadow: '0 1px 3px rgba(0,0,0,.06)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <span style={{ display: 'inline-flex', gap: 3, alignItems: 'center' }}>
+                          {[0,1,2].map(i => (
+                            <span key={i} style={{ width: 7, height: 7, borderRadius: '50%', background: '#A8A8BE', display: 'inline-block', animation: `typingDot 1.2s ${i * 0.2}s infinite ease-in-out` }} />
+                          ))}
+                        </span>
+                      </div>
+                    </div>
+                  )}
                   <div ref={messagesEndRef} />
                 </div>
 
@@ -1529,7 +1587,24 @@ export default function AtendimentoPage() {
                       <textarea
                         ref={inputRef}
                         value={input}
-                        onChange={(e) => { setInput(e.target.value); e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'; }}
+                        onChange={(e) => {
+                          setInput(e.target.value);
+                          e.target.style.height = 'auto';
+                          e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
+                          // Indicador "agente digitando" para conversas WhatsApp
+                          if (isWhatsapp && contacts[0]?.whatsapp && user?.tenantId) {
+                            if (!agentIsTypingRef.current) {
+                              agentIsTypingRef.current = true;
+                              emitTypingPresence(contacts[0].whatsapp, user.tenantId, true);
+                            }
+                            // Auto-stop após 4s sem digitar
+                            if (agentTypingTimeoutRef.current) clearTimeout(agentTypingTimeoutRef.current);
+                            agentTypingTimeoutRef.current = setTimeout(() => {
+                              agentIsTypingRef.current = false;
+                              emitTypingPresence(contacts[0].whatsapp, user.tenantId, false);
+                            }, 4000);
+                          }
+                        }}
                         onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(e as any); } }}
                         placeholder={canSend ? (isWhatsapp ? 'Mensagem WhatsApp... (Enter para enviar)' : 'Digite sua mensagem...') : 'Vincule um ticket para enviar mensagens...'}
                         disabled={!canSend}
