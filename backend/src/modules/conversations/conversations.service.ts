@@ -448,6 +448,39 @@ export class ConversationsService {
   }
 
   /**
+   * Retorna mensagens paginadas (cursor-based). Usado pelo dashboard para carga incremental.
+   * @param opts.limit  quantas mensagens retornar (padrão 50)
+   * @param opts.before ID de mensagem — retorna apenas mensagens mais antigas que esta
+   */
+  async getMessagesPage(
+    tenantId: string,
+    conversationId: string,
+    opts: { limit: number; before?: string },
+  ): Promise<{ messages: ConversationMessage[]; hasMore: boolean }> {
+    const conv = await this.findOne(tenantId, conversationId);
+    const limit = Math.min(opts.limit, 200);
+
+    const qb = this.msgRepo
+      .createQueryBuilder('m')
+      .where('m.conversationId = :convId', { convId: conv.id })
+      .andWhere('m.tenantId = :tenantId', { tenantId })
+      .orderBy('m.createdAt', 'DESC')
+      .take(limit + 1); // busca um a mais para saber se há próxima página
+
+    if (opts.before) {
+      const ref = await this.msgRepo.findOne({ where: { id: opts.before, tenantId } });
+      if (ref) {
+        qb.andWhere('m.createdAt < :refDate', { refDate: ref.createdAt });
+      }
+    }
+
+    const rows = await qb.getMany();
+    const hasMore = rows.length > limit;
+    const messages = rows.slice(0, limit).reverse(); // ordena ASC para exibição
+    return { messages, hasMore };
+  }
+
+  /**
    * Adiciona mensagem à conversa (cliente ou agente). Usado no chat do portal.
    */
   async addMessage(

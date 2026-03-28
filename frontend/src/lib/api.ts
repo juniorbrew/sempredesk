@@ -78,7 +78,8 @@ class ApiClient {
     this.client.get('/conversations', { params });
   getConversationsActiveCount = () => this.client.get('/conversations/active-count');
   getConversation = (id: string) => this.client.get(`/conversations/${id}`);
-  getConversationMessages = (id: string) => this.client.get(`/conversations/${id}/messages`);
+  getConversationMessages = (id: string, params?: { limit?: number; before?: string }) =>
+    this.client.get(`/conversations/${id}/messages`, { params });
   addConversationMessage = (id: string, data: { content: string }) => this.client.post(`/conversations/${id}/messages`, data);
   updateConversationTags = (id: string, tags: string[]) => this.client.put(`/conversations/${id}/tags`, { tags });
   getConversationsByClient = (clientId: string, channel?: string) =>

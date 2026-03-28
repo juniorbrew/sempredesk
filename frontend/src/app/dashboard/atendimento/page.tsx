@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState, useCallback, useRef, memo } from 'react';
+import { useEffect, useLayoutEffect, useState, useCallback, useRef, memo } from 'react';
 import { api } from '@/lib/api';
 import Link from 'next/link';
 <<<<<<< HEAD
@@ -262,6 +262,8 @@ export default function AtendimentoPage() {
   const [transferLoading, setTransferLoading] = useState(false);
 
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
+  const [hasMoreMsgs, setHasMoreMsgs] = useState(false);
+  const [loadingMoreMsgs, setLoadingMoreMsgs] = useState(false);
 
   const [showScrollBtn, setShowScrollBtn] = useState(false);
 
@@ -271,6 +273,15 @@ export default function AtendimentoPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true); // true = usuário está perto do fim da lista
+
+  // ── paginação de mensagens ──
+  const hasMoreMsgsRef = useRef(false);      // espelho de hasMoreMsgs para uso em callbacks
+  const loadingMoreMsgsRef = useRef(false);  // espelho de loadingMoreMsgs para uso em callbacks
+  const oldestMsgIdRef = useRef<string | null>(null); // cursor: ID da mensagem mais antiga carregada
+  const prevScrollHeightRef = useRef(0);     // scrollHeight antes de prepend (para restaurar posição)
+  const shouldRestoreScrollRef = useRef(false);
+  hasMoreMsgsRef.current = hasMoreMsgs;
+  loadingMoreMsgsRef.current = loadingMoreMsgs;
 
   // ── cache de dados estáveis + guard de race condition ──
   const loadIdRef = useRef(0);          // incrementado a cada loadChat; respostas velhas são descartadas
@@ -297,7 +308,49 @@ export default function AtendimentoPage() {
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
     atBottomRef.current = nearBottom;
     if (nearBottom) setShowScrollBtn(false);
+    // Próximo do topo → carrega mensagens mais antigas
+    if (el.scrollTop < 80 && hasMoreMsgsRef.current && !loadingMoreMsgsRef.current) {
+      loadMoreMsgsRef.current();
+    }
   }, []);
+
+  // Carrega mensagens mais antigas (scroll para cima). Preserva posição de scroll via useLayoutEffect.
+  const loadMoreMsgsRef = useRef<() => void>(() => {});
+  const loadMoreMessages = useCallback(async () => {
+    const conv = selectedRef.current;
+    if (!conv || !oldestMsgIdRef.current || loadingMoreMsgsRef.current || !hasMoreMsgsRef.current) return;
+    const isTicket = conv.type === 'ticket' || conv.id?.startsWith?.('ticket:');
+    if (isTicket) return; // tickets carregam tudo de uma vez
+    setLoadingMoreMsgs(true);
+    loadingMoreMsgsRef.current = true;
+    try {
+      const paged: any = await api.getConversationMessages(conv.id, {
+        limit: 50,
+        before: oldestMsgIdRef.current,
+      });
+      const older: any[] = paged?.messages ?? [];
+      if (older.length > 0) {
+        const el = scrollContainerRef.current;
+        if (el) prevScrollHeightRef.current = el.scrollHeight;
+        shouldRestoreScrollRef.current = true;
+        oldestMsgIdRef.current = older[0]?.id ?? oldestMsgIdRef.current;
+        setMessages((m) => [...older, ...m]);
+      }
+      setHasMoreMsgs(paged?.hasMore === true);
+    } catch {}
+    setLoadingMoreMsgs(false);
+    loadingMoreMsgsRef.current = false;
+  }, []);
+  loadMoreMsgsRef.current = loadMoreMessages;
+
+  // Restaura posição de scroll após prepend de mensagens antigas (sem pular)
+  useLayoutEffect(() => {
+    if (shouldRestoreScrollRef.current && scrollContainerRef.current) {
+      const el = scrollContainerRef.current;
+      el.scrollTop = el.scrollTop + (el.scrollHeight - prevScrollHeightRef.current);
+      shouldRestoreScrollRef.current = false;
+    }
+  });
 
   const sameItem = (a: any, b: any) => {
     if (!a || !b) return false;
@@ -383,13 +436,25 @@ export default function AtendimentoPage() {
         tid ? api.getTicket(tid).catch(() => null) : Promise.resolve(null),
         isTicket && ticketId
           ? api.getMessages(ticketId, false).catch(() => [])
-          : api.getConversationMessages(conv.id).catch(() => []),
+          : api.getConversationMessages(conv.id, { limit: 50 }).catch(() => ({ messages: [], hasMore: false })),
       ]);
 
       if (myId !== loadIdRef.current) return; // conversa já mudou, descarta
 
       if (ticketRes) setCurrentTicket(ticketRes);
-      setMessages(Array.isArray(msgsRaw) ? msgsRaw : (msgsRaw as any)?.data ?? []);
+      // Conversa: resposta paginada { messages, hasMore }; ticket: array direto
+      if (isTicket) {
+        const arr = Array.isArray(msgsRaw) ? msgsRaw : (msgsRaw as any)?.data ?? [];
+        setMessages(arr);
+        setHasMoreMsgs(false);
+        oldestMsgIdRef.current = arr[0]?.id ?? null;
+      } else {
+        const paged = msgsRaw as any;
+        const arr: any[] = paged?.messages ?? (Array.isArray(paged) ? paged : []);
+        setMessages(arr);
+        setHasMoreMsgs(paged?.hasMore === true);
+        oldestMsgIdRef.current = arr[0]?.id ?? null;
+      }
       setLoadingChat(false); // ← conteúdo visível aqui; fase 2 roda em background
 
       // Envia read receipts para mensagens do contato via Baileys (best-effort, não bloqueia)
@@ -484,10 +549,19 @@ export default function AtendimentoPage() {
     try {
       const isTicket = conv.type === 'ticket' || conv.id?.startsWith?.('ticket:');
       const ticketId = isTicket ? (conv.ticketId || conv.id?.replace?.(/^ticket:/, '')) : conv.ticketId;
-      const msgs = isTicket && ticketId
-        ? (await api.getMessages(ticketId, false) || [])
-        : (await api.getConversationMessages(conv.id) || []);
-      setMessages(Array.isArray(msgs) ? msgs : msgs?.data ?? []);
+      if (isTicket && ticketId) {
+        const msgs = await api.getMessages(ticketId, false).catch(() => []);
+        const arr = Array.isArray(msgs) ? msgs : (msgs as any)?.data ?? [];
+        setMessages(arr);
+        setHasMoreMsgs(false);
+        oldestMsgIdRef.current = arr[0]?.id ?? null;
+      } else {
+        const paged: any = await api.getConversationMessages(conv.id, { limit: 50 }).catch(() => ({ messages: [], hasMore: false }));
+        const arr: any[] = paged?.messages ?? (Array.isArray(paged) ? paged : []);
+        setMessages(arr);
+        setHasMoreMsgs(paged?.hasMore === true);
+        oldestMsgIdRef.current = arr[0]?.id ?? null;
+      }
     } catch {}
   };
 
@@ -822,6 +896,8 @@ export default function AtendimentoPage() {
   useEffect(() => {
     atBottomRef.current = true; // sempre vai para o fim ao trocar de conversa
     setShowScrollBtn(false);
+    setHasMoreMsgs(false);
+    oldestMsgIdRef.current = null;
     if (selected) loadChat(selected); else setMessages([]);
   }, [selected?.id]);
 >>>>>>> 792d62962d05bee061315855f7fa63de842d4e39
@@ -1266,6 +1342,22 @@ export default function AtendimentoPage() {
                   ) : (
                     // Mensagens ficam visíveis durante troca; opacidade reduzida enquanto carrega
                     <div style={{ display: 'contents', opacity: loadingChat ? 0.55 : 1, transition: 'opacity 0.18s' }}>
+                      {/* Indicador de histórico no topo */}
+                      {loadingMoreMsgs && (
+                        <div style={{ textAlign: 'center', padding: '8px 0', color: S.txt3, fontSize: 12 }}>
+                          Carregando histórico...
+                        </div>
+                      )}
+                      {!loadingMoreMsgs && hasMoreMsgs && (
+                        <div style={{ textAlign: 'center', padding: '4px 0' }}>
+                          <button
+                            onClick={loadMoreMessages}
+                            style={{ background: 'none', border: S.border2, borderRadius: 12, padding: '4px 14px', fontSize: 12, color: S.txt3, cursor: 'pointer', fontFamily: 'inherit' }}
+                          >
+                            Carregar mensagens anteriores
+                          </button>
+                        </div>
+                      )}
                       {messages.filter((m: any) => m.messageType !== 'internal').map((m: any) => (
                         <MessageItem key={m.id} m={m} isWhatsapp={isWhatsapp} />
                       ))}

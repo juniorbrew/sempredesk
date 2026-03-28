@@ -126,7 +126,18 @@ export class ConversationsController {
 
   @UseGuards(JwtAuthGuard)
   @Get(':id/messages')
-  async getMessages(@TenantId() tenantId: string, @Param('id') id: string) {
+  async getMessages(
+    @TenantId() tenantId: string,
+    @Param('id') id: string,
+    @Query('limit') limitStr?: string,
+    @Query('before') before?: string,
+  ) {
+    if (limitStr) {
+      const limit = parseInt(limitStr, 10);
+      if (!isNaN(limit) && limit > 0) {
+        return this.conversationsService.getMessagesPage(tenantId, id, { limit, before });
+      }
+    }
     return this.conversationsService.getMessages(tenantId, id);
   }
 
