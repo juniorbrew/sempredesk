@@ -2,7 +2,7 @@
 import { useEffect, useLayoutEffect, useState, useCallback, useRef, memo } from 'react';
 import { api } from '@/lib/api';
 import Link from 'next/link';
-import { useRealtimeConversation, useRealtimeTicket, useRealtimeTenantNewMessages, useRealtimeConversationClosed } from '@/lib/realtime';
+import { useRealtimeConversation, useRealtimeTicket, useRealtimeTenantNewMessages, useRealtimeConversationClosed, useRealtimeTicketAssigned } from '@/lib/realtime';
 import { useAuthStore, hasPermission } from '@/store/auth.store';
 import {
   MessageSquare, Send, Phone, RefreshCw, Lock, ExternalLink, Plus, Link2, Globe,
@@ -1014,6 +1014,25 @@ export default function AtendimentoPage() {
       osc.start(ctx.currentTime);
       osc.stop(ctx.currentTime + 0.35);
     } catch {}
+  });
+
+  // ── ticket transferido em tempo real ──────────────────────────────────────────
+  useRealtimeTicketAssigned((payload) => {
+    const myId = user?.id;
+    if (!myId) return;
+
+    // 1. Ticket foi atribuído a MIM → toast + reload silencioso para aparecer no inbox
+    if (String(payload.assignedTo) === String(myId) && String(payload.assignedBy) !== String(myId)) {
+      const label = payload.ticketNumber ? `#${payload.ticketNumber}` : 'ticket';
+      const byName = payload.assignedByName || 'outro agente';
+      showToast(`🎯 ${label} transferido para você por ${byName}`, 'success');
+      loadConversations(false, true);
+    }
+
+    // 2. Ticket foi tirado de mim (transferido para outro) → atualiza silenciosamente
+    if (String(payload.prevAssignedTo) === String(myId) && String(payload.assignedTo) !== String(myId)) {
+      loadConversations(false, true);
+    }
   });
 
   // ── conversa fechada remotamente (ticket resolvido/encerrado por outro agente ou pela própria ação) ──

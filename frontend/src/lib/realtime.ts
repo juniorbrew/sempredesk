@@ -134,6 +134,51 @@ export function useRealtimeConversationClosed(
   }, []);
 }
 
+// ── useRealtimeTicketAssigned ──────────────────────────────────────────────────
+/**
+ * Escuta o evento 'ticket:assigned' emitido para a sala tenant:<tenantId>.
+ * Disparado quando um ticket é atribuído/transferido para um agente.
+ * O frontend usa para: mostrar toast ao agente que recebeu, recarregar inbox,
+ * e remover do inbox do agente anterior (se for o caso).
+ */
+export function useRealtimeTicketAssigned(
+  onAssigned: (payload: {
+    ticketId: string;
+    ticketNumber: string | null;
+    subject: string | null;
+    assignedTo: string;
+    assignedToName: string;
+    prevAssignedTo: string | null;
+    assignedBy: string;
+    assignedByName: string;
+  }) => void,
+) {
+  const onAssignedRef = useRef(onAssigned);
+  onAssignedRef.current = onAssigned;
+
+  useEffect(() => {
+    if (!WS_BASE) return;
+
+    let active = true;
+    let handler: ((payload: any) => void) | null = null;
+
+    getSharedSocket().then((socket) => {
+      if (!active || !socket) return;
+      handler = (payload: any) => {
+        if (payload) onAssignedRef.current(payload);
+      };
+      socket.on('ticket:assigned', handler);
+    });
+
+    return () => {
+      active = false;
+      if (_sharedSocket && handler) {
+        _sharedSocket.off('ticket:assigned', handler);
+      }
+    };
+  }, []);
+}
+
 // ── useRealtimeTenantNewMessages ───────────────────────────────────────────────
 /**
  * Escuta o evento 'new-message' emitido para a sala tenant:<tenantId>.

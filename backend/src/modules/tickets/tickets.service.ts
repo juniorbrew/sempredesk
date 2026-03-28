@@ -991,6 +991,7 @@ export class TicketsService {
       const available = await this.attendanceSvc.isAvailable(tenantId, techId);
       if (available === false) throw new BadRequestException("Agente em pausa — não é possível atribuir tickets no momento");
     }
+    const prevAssignedTo: string | null = (ticket as any).assignedTo ?? null;
     ticket.assignedTo = techId;
     if (ticket.status === TicketStatus.OPEN) ticket.status = TicketStatus.IN_PROGRESS;
     const saved = await this.ticketRepo.save(ticket);
@@ -1003,11 +1004,23 @@ export class TicketsService {
       MessageType.SYSTEM,
     );
 
-    // Notifica supervisor e demais agentes em tempo real sobre a transferência
+    // Notifica todos os agentes do tenant: atualização geral da fila
     this.realtimeEmitter.emitToTenant(tenantId, 'queue:updated', {
       ticketId: id,
       assignedTo: techId,
       assignedToName: techName ?? techId,
+    });
+
+    // Notificação detalhada de transferência — o frontend usa para toasts e refresh de inbox
+    this.realtimeEmitter.emitToTenant(tenantId, 'ticket:assigned', {
+      ticketId: id,
+      ticketNumber: (saved as any).ticketNumber ?? null,
+      subject: (saved as any).subject ?? null,
+      assignedTo: techId,
+      assignedToName: techName ?? techId,
+      prevAssignedTo,
+      assignedBy: assignedByUserId ?? techId,
+      assignedByName: assignedByUserName ?? techName ?? 'Sistema',
     });
 
     return saved;
