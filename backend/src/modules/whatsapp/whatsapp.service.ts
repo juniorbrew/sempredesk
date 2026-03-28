@@ -302,12 +302,13 @@ export class WhatsappService {
       await this.sendWhatsappMessage(destination.digits, text);
     }
 
+    let savedMessage: any = null;
     if (ticket.conversationId) {
       try {
         // skipOutbound=true: mensagem já foi enviada acima via Baileys/Meta, não reenviar.
         // initialWhatsappStatus: reflete o resultado real do envio para o frontend exibir
         // o ícone correto via socket sem necessitar reload.
-        await this.conversationsService.addMessage(
+        savedMessage = await this.conversationsService.addMessage(
           tenantId, ticket.conversationId, authorId, authorName, 'user', text,
           // Se chegamos aqui sem exceção, o envio via Baileys ou Meta API foi bem-sucedido
           { skipOutbound: true, initialWhatsappStatus: 'sent' },
@@ -317,7 +318,8 @@ export class WhatsappService {
       }
     }
 
-    return { success: true };
+    // Retorna a mensagem salva para o frontend substituir o otimista sem flash
+    return { success: true, message: savedMessage };
   }
 
   /**

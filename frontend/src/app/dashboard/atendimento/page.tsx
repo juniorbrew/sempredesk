@@ -710,30 +710,33 @@ export default function AtendimentoPage() {
       else if (channel === 'whatsapp' && ticketId) res = await api.sendWhatsappFromTicket(ticketId, text);
       else res = await api.addConversationMessage(selected.id, { content: text });
 
-      // Tenta substituir a mensagem otimista pela real retornada pela API
-      const real = res?.id ? res : (res?.data?.id ? res.data : null);
+      // Extrai objeto de mensagem da resposta da API (vários formatos possíveis)
+      // sendWhatsappFromTicket agora retorna { success, message: { id, ... } }
+      const real = res?.message?.id ? res.message
+        : res?.id ? res
+        : res?.data?.id ? res.data
+        : null;
+
       if (real?.id) {
-        // API retornou a mensagem criada — substitui o otimista pelo objeto real.
-        // O realtime também vai entregar via socket; o dedup por ID (linha ≈778) cuidará disso.
+        // Substitui otimista pelo objeto real em-place — sem flash, sem reload
         setMessages(m => m.map(msg => msg.id === tempId ? { ...real } : msg));
+        // Socket também vai entregar via 'message'; dedup por ID cuidará disso sem duplicar
       } else {
-        // API não retornou objeto de mensagem (ex: sendWhatsappFromTicket).
-        // O realtime já substituiu o otimista (via findIndex _optimistic).
-        // Remove o otimista caso o socket não tenha chegado ainda, e recarrega como segurança.
-        setMessages(m => {
-          const stillHasOpt = m.some(x => x.id === tempId);
-          if (!stillHasOpt) return m; // realtime já cuidou — não mexe
-          return m.filter(msg => msg.id !== tempId); // remove otimista órfão
-        });
-        // Reload de segurança: só busca se o otimista não foi substituído pelo realtime
-        const fresh = isTicketType && ticketId
-          ? (await api.getMessages(ticketId, false).catch(() => null))
-          : (await api.getConversationMessages(selected.id).catch(() => null));
-        if (fresh) {
-          const arr = Array.isArray(fresh) ? fresh : (fresh as any)?.data ?? [];
-          // Só aplica se não há otimista pendente (evita sobrescrever estado já correto)
-          setMessages(m => m.some((x: any) => x._optimistic) ? m : arr);
-        }
+        // API não retornou objeto (caso raro: ticket sem conversationId ou meta API pura).
+        // Aguarda socket substituir o otimista; reload de segurança após 1.5s.
+        setTimeout(async () => {
+          setMessages(m => {
+            if (!m.some((x: any) => x.id === tempId)) return m; // socket já substituiu
+            return m.filter((x: any) => x.id !== tempId); // remove otimista pendente
+          });
+          const fresh = isTicketType && ticketId
+            ? await api.getMessages(ticketId, false).catch(() => null)
+            : await api.getConversationMessages(selected.id).catch(() => null);
+          if (fresh) {
+            const arr = Array.isArray(fresh) ? fresh : (fresh as any)?.data ?? [];
+            setMessages(m => m.some((x: any) => x._optimistic) ? m : arr);
+          }
+        }, 1500);
       }
     } catch (e: any) {
       // Marca mensagem otimista como erro em vez de removê-la
