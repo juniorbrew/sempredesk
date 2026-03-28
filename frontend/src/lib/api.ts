@@ -65,7 +65,7 @@ class ApiClient {
   createTicket = (data: any) => this.client.post('/tickets', data);
   updateTicket = (id: string, data: any) => this.client.put(`/tickets/${id}`, data);
   ticketStats = () => this.client.get('/tickets/stats');
-  getMessages = (id: string, internal = true) => this.client.get(`/tickets/${id}/messages`, { params: { internal } });
+  getMessages = (id: string, includeInternal = true) => this.client.get(`/tickets/${id}/messages`, { params: { includeInternal } });
   addMessage = (id: string, data: any) => this.client.post(`/tickets/${id}/messages`, data);
   sendWhatsappFromTicket = (ticketId: string, text: string) =>
     this.client.post('/webhooks/whatsapp/send-from-ticket', { ticketId, text });

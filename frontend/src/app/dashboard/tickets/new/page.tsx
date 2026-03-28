@@ -36,7 +36,7 @@ export default function NewTicketPage() {
   const [focusField, setFocusField] = useState('');
   const searchRef = useRef<HTMLDivElement>(null);
 
-  const [form, setForm] = useState({ clientId:'', contactId:'', contractId:'', assignedTo:'', origin:'portal', priority:'medium', department:'', category:'', subcategory:'', subject:'', description:'', tags:'' });
+  const [form, setForm] = useState({ clientId:'', contactId:'', contractId:'', assignedTo:'', origin:'internal', priority:'medium', department:'', category:'', subcategory:'', subject:'', description:'', tags:'' });
 
   useEffect(() => {
     const load = async () => {
