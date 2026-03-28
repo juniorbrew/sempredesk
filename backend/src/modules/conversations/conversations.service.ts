@@ -643,6 +643,10 @@ export class ConversationsService {
     conv.status = ConversationStatus.CLOSED;
     await this.convRepo.save(conv);
 
+    // Notifica todos os agentes do tenant que esta conversa foi encerrada
+    // O frontend remove do inbox ativo sem precisar de polling
+    this.realtimeEmitter.emitToTenant(tenantId, 'conversation:closed', { conversationId: conv.id });
+
     // WhatsApp: ao encerrar o atendimento formalmente, dispara avaliação ao cliente.
     // Se o atendimento não foi encerrado (keepTicketOpen), apenas reseta a sessão.
     if (conv.channel === ConversationChannel.WHATSAPP && this.chatbotService) {

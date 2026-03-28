@@ -99,6 +99,41 @@ export function subscribeToMessageUpdates(
   return () => {};
 }
 
+// ── useRealtimeConversationClosed ─────────────────────────────────────────────
+/**
+ * Escuta o evento 'conversation:closed' emitido para a sala tenant:<tenantId>.
+ * Disparado quando um ticket vinculado é resolvido/encerrado, fechando a conversa.
+ * O frontend usa para remover automaticamente a conversa do inbox ativo.
+ */
+export function useRealtimeConversationClosed(
+  onClosed: (conversationId: string) => void,
+) {
+  const onClosedRef = useRef(onClosed);
+  onClosedRef.current = onClosed;
+
+  useEffect(() => {
+    if (!WS_BASE) return;
+
+    let active = true;
+    let handler: ((payload: any) => void) | null = null;
+
+    getSharedSocket().then((socket) => {
+      if (!active || !socket) return;
+      handler = (payload: any) => {
+        if (payload?.conversationId) onClosedRef.current(payload.conversationId);
+      };
+      socket.on('conversation:closed', handler);
+    });
+
+    return () => {
+      active = false;
+      if (_sharedSocket && handler) {
+        _sharedSocket.off('conversation:closed', handler);
+      }
+    };
+  }, []);
+}
+
 // ── useRealtimeTenantNewMessages ───────────────────────────────────────────────
 /**
  * Escuta o evento 'new-message' emitido para a sala tenant:<tenantId>.

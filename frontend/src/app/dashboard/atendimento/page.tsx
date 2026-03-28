@@ -2,7 +2,7 @@
 import { useEffect, useLayoutEffect, useState, useCallback, useRef, memo } from 'react';
 import { api } from '@/lib/api';
 import Link from 'next/link';
-import { useRealtimeConversation, useRealtimeTicket, useRealtimeTenantNewMessages } from '@/lib/realtime';
+import { useRealtimeConversation, useRealtimeTicket, useRealtimeTenantNewMessages, useRealtimeConversationClosed } from '@/lib/realtime';
 import { useAuthStore, hasPermission } from '@/store/auth.store';
 import {
   MessageSquare, Send, Phone, RefreshCw, Lock, ExternalLink, Plus, Link2, Globe,
@@ -995,6 +995,20 @@ export default function AtendimentoPage() {
       osc.start(ctx.currentTime);
       osc.stop(ctx.currentTime + 0.35);
     } catch {}
+  });
+
+  // ── conversa fechada remotamente (ticket resolvido/encerrado por outro agente ou pela própria ação) ──
+  useRealtimeConversationClosed((conversationId) => {
+    const currentSelected = selectedRef.current;
+    // Remove da lista de conversas ativas
+    setConversations(prev => prev.filter((c: any) => String(c.id) !== String(conversationId)));
+    // Se era a conversa selecionada, limpa a seleção
+    if (currentSelected && String(currentSelected.id) === String(conversationId)) {
+      setSelected(null);
+      setMessages([]);
+    }
+    // Remove badge de não lidas
+    setUnreadCounts(p => { const next = { ...p }; delete next[conversationId]; return next; });
   });
 
   // ── styles (shared) ──

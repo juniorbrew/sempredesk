@@ -64,6 +64,12 @@ export class TicketsService {
   private assignmentSvc: any = null;
   setAssignmentService(svc: any) { this.assignmentSvc = svc; }
 
+  /** Fecha a conversa vinculada quando o ticket é resolvido/encerrado — registrado pelo AppModule */
+  private closeConversationFn: ((tenantId: string, conversationId: string, userId: string, userName: string) => Promise<void>) | null = null;
+  setCloseConversationHandler(fn: (tenantId: string, conversationId: string, userId: string, userName: string) => Promise<void>) {
+    this.closeConversationFn = fn;
+  }
+
   private async getUserName(tenantId: string, userId?: string | null): Promise<string | null> {
     if (!userId) return null;
     try {
@@ -1097,6 +1103,11 @@ export class TicketsService {
       } catch {}
     }
 
+    // Fecha conversa vinculada automaticamente (best-effort)
+    if (saved.conversationId && this.closeConversationFn) {
+      this.closeConversationFn(tenantId, saved.conversationId, userId, userName).catch(() => {});
+    }
+
     return saved;
   }
 
@@ -1123,6 +1134,11 @@ export class TicketsService {
       userName,
       'Chamado finalizado/fechado',
     );
+
+    // Fecha conversa vinculada automaticamente (best-effort)
+    if (saved.conversationId && this.closeConversationFn) {
+      this.closeConversationFn(tenantId, saved.conversationId, userId, userName).catch(() => {});
+    }
 
     return saved;
   }
