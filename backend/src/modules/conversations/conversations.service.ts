@@ -439,6 +439,16 @@ export class ConversationsService {
 
     emitMsg(); // emit inicial com o status que foi salvo
 
+    // Notifica todos os agentes do tenant sobre nova mensagem do contato (badges em tempo real)
+    if (authorType === 'contact') {
+      this.realtimeEmitter.emitToTenant(tenantId, 'new-message', {
+        conversationId: conv.id,
+        channel: conv.channel,
+        contactName: authorName,
+        preview: content.length > 80 ? content.slice(0, 77) + '…' : content,
+      });
+    }
+
     // Envia via WhatsApp quando é mensagem do agente em conversa WhatsApp
     // skipOutbound=true quando o envio já foi feito pelo chamador (ex.: sendReplyFromTicket)
     if (!opts?.skipOutbound && authorType === 'user' && conv.channel === ConversationChannel.WHATSAPP && this.outboundSender) {

@@ -2,7 +2,7 @@
 import { useEffect, useState, useCallback, useRef, memo } from 'react';
 import { api } from '@/lib/api';
 import Link from 'next/link';
-import { useRealtimeConversation, useRealtimeTicket } from '@/lib/realtime';
+import { useRealtimeConversation, useRealtimeTicket, useRealtimeTenantNewMessages } from '@/lib/realtime';
 import {
   MessageSquare, Send, Phone, RefreshCw, Lock, ExternalLink, Plus, Link2, Globe,
   Check, Search, X, CheckCircle2, User, Mail, MapPin, Building2, Hash,
@@ -250,6 +250,8 @@ export default function AtendimentoPage() {
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [transferAgentId, setTransferAgentId] = useState('');
   const [transferLoading, setTransferLoading] = useState(false);
+
+  const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
 
   const selectedRef = useRef<any>(null);
   selectedRef.current = selected;
@@ -822,6 +824,38 @@ export default function AtendimentoPage() {
     });
   });
 
+  // ── notificações de nova mensagem (conversas não selecionadas) ──
+  useRealtimeTenantNewMessages((msg) => {
+    const currentSelected = selectedRef.current;
+    // Ignora mensagens da conversa atualmente selecionada (já renderizadas em tempo real)
+    if (currentSelected && String(currentSelected.id) === String(msg.conversationId)) return;
+
+    // Incrementa badge
+    setUnreadCounts(p => ({ ...p, [msg.conversationId]: (p[msg.conversationId] || 0) + 1 }));
+
+    // Sobe conversa para o topo da lista e atualiza prévia
+    setConversations(prev => {
+      const idx = prev.findIndex((c: any) => String(c.id) === String(msg.conversationId));
+      if (idx < 0) return prev;
+      const updated = { ...prev[idx], lastMessage: msg.preview, lastMessageAt: new Date().toISOString() };
+      return [updated, ...prev.slice(0, idx), ...prev.slice(idx + 1)];
+    });
+
+    // Som de notificação via Web Audio API (sem arquivos externos)
+    try {
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.frequency.value = 880;
+      gain.gain.setValueAtTime(0.12, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.35);
+    } catch {}
+  });
+
   // ── styles (shared) ──
   const S = {
     border: '1px solid rgba(0,0,0,.07)',
@@ -947,7 +981,7 @@ export default function AtendimentoPage() {
                 const compName = c.clientName || (c.contactName ? customerName(c.clientId) : null) || (customerName(c.clientId) !== '—' ? customerName(c.clientId) : null);
                 const col = avatarColor(dispName);
                 return (
-                  <button key={c.id} onClick={() => setSelected(c)}
+                  <button key={c.id} onClick={() => { setSelected(c); if (c?.id) setUnreadCounts(p => { const n = { ...p }; delete n[c.id]; return n; }); }}
                     style={{
                       width: '100%', padding: 10, borderRadius: 10, border: 'none',
                       background: isSelected ? S.accentLight : 'transparent',
@@ -988,9 +1022,9 @@ export default function AtendimentoPage() {
                         {noTicket && !isClo && (
                           <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 5, fontWeight: 500, background: '#FEF3C7', color: '#D97706' }}>Sem ticket</span>
                         )}
-                        {c.unreadCount > 0 && (
-                          <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 9, fontWeight: 600, background: S.accent, color: '#fff', minWidth: 18, textAlign: 'center' }}>{c.unreadCount}</span>
-                        )}
+                        {(() => { const badge = (unreadCounts[c.id] || 0) + (c.unreadCount || 0); return badge > 0 ? (
+                          <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 9, fontWeight: 600, background: S.accent, color: '#fff', minWidth: 18, textAlign: 'center', lineHeight: 1.4 }}>{badge > 99 ? '99+' : badge}</span>
+                        ) : null; })()}
                         {!isClo && c.awaitingResponse && (
                           <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 5, fontWeight: 500, background: '#EEF2FF', color: '#4338CA' }}>Aguardando</span>
                         )}

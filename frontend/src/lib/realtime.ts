@@ -98,3 +98,36 @@ export function subscribeToMessageUpdates(
 ): () => void {
   return () => {};
 }
+
+// ── useRealtimeTenantNewMessages ───────────────────────────────────────────────
+/**
+ * Escuta o evento 'new-message' emitido para a sala tenant:<tenantId>.
+ * O agente já está na sala do tenant via PresenceProvider (join-tenant).
+ * Usado para badges e sons de novas mensagens em conversas não selecionadas.
+ */
+export function useRealtimeTenantNewMessages(
+  onMessage: (msg: { conversationId: string; contactName: string; preview: string; channel: string }) => void,
+) {
+  const onMessageRef = useRef(onMessage);
+  onMessageRef.current = onMessage;
+
+  useEffect(() => {
+    if (!WS_BASE) return;
+
+    let active = true;
+    let handler: ((msg: any) => void) | null = null;
+
+    getSharedSocket().then((socket) => {
+      if (!active || !socket) return;
+      handler = (msg: any) => { if (msg) onMessageRef.current(msg); };
+      socket.on('new-message', handler);
+    });
+
+    return () => {
+      active = false;
+      if (_sharedSocket && handler) {
+        _sharedSocket.off('new-message', handler);
+      }
+    };
+  }, []);
+}
