@@ -253,10 +253,14 @@ export default function AtendimentoPage() {
 
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
 
+  const [showScrollBtn, setShowScrollBtn] = useState(false);
+
   const selectedRef = useRef<any>(null);
   selectedRef.current = selected;
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const atBottomRef = useRef(true); // true = usuário está perto do fim da lista
 
   // ── cache de dados estáveis + guard de race condition ──
   const loadIdRef = useRef(0);          // incrementado a cada loadChat; respostas velhas são descartadas
@@ -268,6 +272,22 @@ export default function AtendimentoPage() {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3500);
   };
+
+  const scrollToBottom = useCallback((smooth = true) => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'instant' });
+    atBottomRef.current = true;
+    setShowScrollBtn(false);
+  }, []);
+
+  const handleScroll = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    atBottomRef.current = nearBottom;
+    if (nearBottom) setShowScrollBtn(false);
+  }, []);
 
   const sameItem = (a: any, b: any) => {
     if (!a || !b) return false;
@@ -770,7 +790,11 @@ export default function AtendimentoPage() {
   }, [loadConversations]);
 
 
-  useEffect(() => { if (selected) loadChat(selected); else setMessages([]); }, [selected?.id]);
+  useEffect(() => {
+    atBottomRef.current = true; // sempre vai para o fim ao trocar de conversa
+    setShowScrollBtn(false);
+    if (selected) loadChat(selected); else setMessages([]);
+  }, [selected?.id]);
   useEffect(() => {
     if (!selected?.clientId) { setClientTickets([]); return; }
     api.getTickets({ clientId: selected.clientId, perPage: 20 })
@@ -783,7 +807,16 @@ export default function AtendimentoPage() {
       .catch(() => {});
   }, []);
   useEffect(() => { if (showLinkModal && (selected?.clientId || selected?.contactId)) searchTicketsForLink(); }, [showLinkModal, selected?.clientId, selected?.contactId, searchTicketsForLink]);
-  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages.length]);
+  useEffect(() => {
+    if (messages.length === 0) return;
+    if (atBottomRef.current) {
+      scrollToBottom(true);
+    } else {
+      // Usuário está lendo o histórico — mostra botão em vez de pular
+      const last = messages[messages.length - 1];
+      if (last && !last._optimistic) setShowScrollBtn(true);
+    }
+  }, [messages.length, scrollToBottom]);
 
   // ── realtime ──
   useRealtimeConversation(conversationIdForRealtime ?? null, (msg) => {
@@ -1167,25 +1200,49 @@ export default function AtendimentoPage() {
                 )}
               </div>
 
-              {/* Messages */}
-              <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: 16, background: S.bg2 }}>
-                {loadingChat && messages.length === 0 ? (
-                  // Primeira carga: skeleton animado em vez de spinner bloqueante
-                  <MessageSkeleton />
-                ) : messages.length === 0 ? (
-                  <div style={{ margin: 'auto', textAlign: 'center', color: S.txt3, fontSize: 13 }}>
-                    <MessageSquare size={32} style={{ margin: '0 auto 10px', opacity: 0.25 }} />
-                    <p style={{ margin: 0 }}>Nenhuma mensagem ainda</p>
-                  </div>
-                ) : (
-                  // Mensagens ficam visíveis durante troca; opacidade reduzida enquanto carrega
-                  <div style={{ display: 'contents', opacity: loadingChat ? 0.55 : 1, transition: 'opacity 0.18s' }}>
-                    {messages.filter((m: any) => m.messageType !== 'internal').map((m: any) => (
-                      <MessageItem key={m.id} m={m} isWhatsapp={isWhatsapp} />
-                    ))}
-                  </div>
+              {/* Messages — wrapper com position:relative para o botão flutuante */}
+              <div style={{ flex: 1, position: 'relative', overflow: 'hidden', background: S.bg2 }}>
+                <div
+                  ref={scrollContainerRef}
+                  onScroll={handleScroll}
+                  style={{ height: '100%', overflowY: 'auto', padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: 16 }}
+                >
+                  {loadingChat && messages.length === 0 ? (
+                    // Primeira carga: skeleton animado em vez de spinner bloqueante
+                    <MessageSkeleton />
+                  ) : messages.length === 0 ? (
+                    <div style={{ margin: 'auto', textAlign: 'center', color: S.txt3, fontSize: 13 }}>
+                      <MessageSquare size={32} style={{ margin: '0 auto 10px', opacity: 0.25 }} />
+                      <p style={{ margin: 0 }}>Nenhuma mensagem ainda</p>
+                    </div>
+                  ) : (
+                    // Mensagens ficam visíveis durante troca; opacidade reduzida enquanto carrega
+                    <div style={{ display: 'contents', opacity: loadingChat ? 0.55 : 1, transition: 'opacity 0.18s' }}>
+                      {messages.filter((m: any) => m.messageType !== 'internal').map((m: any) => (
+                        <MessageItem key={m.id} m={m} isWhatsapp={isWhatsapp} />
+                      ))}
+                    </div>
+                  )}
+                  <div ref={messagesEndRef} />
+                </div>
+
+                {/* Botão flutuante: nova mensagem enquanto usuário lê histórico */}
+                {showScrollBtn && (
+                  <button
+                    onClick={() => scrollToBottom(true)}
+                    style={{
+                      position: 'absolute', bottom: 14, left: '50%', transform: 'translateX(-50%)',
+                      background: S.accent, color: '#fff', border: 'none', borderRadius: 20,
+                      padding: '7px 18px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap',
+                      boxShadow: '0 4px 14px rgba(79,70,229,.45)', zIndex: 10,
+                      fontFamily: 'inherit', transition: 'opacity .15s',
+                    }}
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
+                    Nova mensagem
+                  </button>
                 )}
-                <div ref={messagesEndRef} />
               </div>
 
               {/* Input */}
