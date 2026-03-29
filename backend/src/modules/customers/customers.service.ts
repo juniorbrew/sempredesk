@@ -444,6 +444,14 @@ export class CustomersService {
     });
     if (!contact) return false;
     if (contact.clientId === clientId) return true;
+    const linked = await this.contacts.manager.query(
+      `SELECT 1
+       FROM contact_customers
+       WHERE tenant_id = $1 AND contact_id = $2 AND client_id = $3
+       LIMIT 1`,
+      [tenantId, contactId, clientId],
+    );
+    if (linked.length) return true;
     if (contact.isPrimary && contact.client?.networkId) {
       const targetClient = await this.clients.findOne({
         where: { id: clientId, tenantId, status: 'active' },
@@ -451,6 +459,50 @@ export class CustomersService {
       if (targetClient?.networkId === contact.client.networkId) return true;
     }
     return false;
+  }
+
+  /**
+   * Resolve qual contato do portal deve representar o usuário para uma empresa.
+   * Isso cobre:
+   * - contato primário direto (contacts.client_id)
+   * - vínculos N:N em contact_customers
+   * - múltiplos contatos ativos com o mesmo e-mail
+   * - empresas da mesma rede quando o contato é primary
+   */
+  async findPortalContactForClient(
+    tenantId: string,
+    email: string,
+    clientId: string,
+  ): Promise<Contact | null> {
+    const normalized = email?.trim().toLowerCase();
+    if (!normalized) return null;
+
+    const contacts = await this.contacts.createQueryBuilder('c')
+      .leftJoinAndSelect('c.client', 'cl')
+      .where('c.tenant_id = :tenantId', { tenantId })
+      .andWhere("LOWER(TRIM(c.email)) = :email", { email: normalized })
+      .andWhere("c.status = 'active'")
+      .andWhere('c.portal_password IS NOT NULL')
+      .orderBy('c.is_primary', 'DESC')
+      .addOrderBy('c.created_at', 'ASC')
+      .getMany();
+
+    for (const contact of contacts) {
+      if (await this.canContactAccessClient(tenantId, contact.id, clientId)) {
+        return contact;
+      }
+    }
+
+    return null;
+  }
+
+  async canPortalEmailAccessClient(
+    tenantId: string,
+    email: string,
+    clientId: string,
+  ): Promise<boolean> {
+    const contact = await this.findPortalContactForClient(tenantId, email, clientId);
+    return !!contact;
   }
 
   /** Contato principal: pode ver ticket se tiver acesso ao cliente. Contato normal: só se o ticket for dele (ou mesmo email). */
@@ -461,7 +513,13 @@ export class CustomersService {
     ticketContactId: string | null,
     isPrimary: boolean,
   ): Promise<boolean> {
-    const canAccessClient = await this.canContactAccessClient(tenantId, contactId, ticketClientId);
+    let canAccessClient = await this.canContactAccessClient(tenantId, contactId, ticketClientId);
+    if (!canAccessClient) {
+      const currentContact = await this.contacts.findOne({ where: { id: contactId, tenantId } });
+      if (currentContact?.email) {
+        canAccessClient = await this.canPortalEmailAccessClient(tenantId, currentContact.email, ticketClientId);
+      }
+    }
     if (!canAccessClient) return false;
     if (isPrimary) return true;
     if (!ticketContactId) return false;

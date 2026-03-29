@@ -18,7 +18,7 @@ const PRIORITY_LABELS: Record<string,string> = { low:'Baixa', medium:'Média', h
 
 export default function PortalDashboardTicketDetailPage() {
   const { id } = useParams();
-  const { accessToken, contact } = usePortalStore();
+  const { accessToken, client } = usePortalStore();
   const [ticket, setTicket] = useState<any>(null);
   const [messages, setMessages] = useState<any[]>([]);
   const [team, setTeam] = useState<any[]>([]);
@@ -33,6 +33,9 @@ export default function PortalDashboardTicketDetailPage() {
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const routeTicketRef = decodeURIComponent(Array.isArray(id) ? id[0] : String(id || ''));
+  const isUuidTicketRef = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(routeTicketRef);
+  const apiTicketId = ticket?.id || routeTicketRef;
 
   const STATUS_PT: Record<string,string> = { open:'Aberto', in_progress:'Em Andamento', waiting_client:'Aguardando Cliente', resolved:'Resolvido', closed:'Fechado', cancelled:'Cancelado', low:'Baixa', medium:'Média', high:'Alta', critical:'Crítico' };
 
@@ -62,17 +65,25 @@ export default function PortalDashboardTicketDetailPage() {
   };
 
   const load = async () => {
-    if (!accessToken || !id) return;
+    if (!accessToken || !routeTicketRef) return;
     setLoading(true);
     try {
-      const [tRes, mRes] = await Promise.all([
-        fetch(`${API_BASE}/tickets/${id}`, { headers:{ Authorization:`Bearer ${accessToken}` } }),
-        fetch(`${API_BASE}/tickets/${id}/messages?includeInternal=false&limit=${PAGE_LIMIT}`, { headers:{ Authorization:`Bearer ${accessToken}` } }),
-      ]);
+      const ticketUrl = !isUuidTicketRef && client?.id
+        ? `${API_BASE}/tickets/by-number/${encodeURIComponent(routeTicketRef)}?clientId=${client.id}`
+        : `${API_BASE}/tickets/${routeTicketRef}`;
+      const tRes = await fetch(ticketUrl, { headers:{ Authorization:`Bearer ${accessToken}` } });
       const tData = await tRes.json();
-      const mData = await mRes.json();
       const teamData: any[] = [];
       const ticketData = (tRes.ok && (tData?.data || tData)) ? (tData?.data || tData) : null;
+      if (!ticketData?.id) {
+        setTicket(null);
+        setMessages([]);
+        setHasMore(false);
+        setLoading(false);
+        return;
+      }
+      const mRes = await fetch(`${API_BASE}/tickets/${ticketData.id}/messages?includeInternal=false&limit=${PAGE_LIMIT}`, { headers:{ Authorization:`Bearer ${accessToken}` } });
+      const mData = await mRes.json();
       // Suporte a resposta paginada ({ messages, hasMore }) e array simples
       const rawTicketMsgs = (mData?.messages ?? mData?.data ?? mData ?? []).filter((m:any) => m.messageType !== 'internal');
       setHasMore(mData?.hasMore ?? false);
@@ -94,7 +105,7 @@ export default function PortalDashboardTicketDetailPage() {
   };
 
   const loadMore = async () => {
-    if (!accessToken || !id || loadingMore || !hasMore) return;
+    if (!accessToken || !apiTicketId || loadingMore || !hasMore) return;
     const container = messagesContainerRef.current;
     const prevScrollHeight = container?.scrollHeight ?? 0;
     setLoadingMore(true);
@@ -102,7 +113,7 @@ export default function PortalDashboardTicketDetailPage() {
       // O cursor é a mensagem mais antiga que temos
       const oldest = messages.find((m:any) => m.messageType !== 'internal' && !['system','status_change','assignment','escalation'].includes(m.messageType));
       const cursorId = oldest?.id;
-      const url = `${API_BASE}/tickets/${id}/messages?includeInternal=false&limit=${PAGE_LIMIT}${cursorId ? `&before=${cursorId}` : ''}`;
+      const url = `${API_BASE}/tickets/${apiTicketId}/messages?includeInternal=false&limit=${PAGE_LIMIT}${cursorId ? `&before=${cursorId}` : ''}`;
       const res = await fetch(url, { headers:{ Authorization:`Bearer ${accessToken}` } });
       const data = await res.json();
       const older = (data?.messages ?? data?.data ?? data ?? []).filter((m:any) => m.messageType !== 'internal');
@@ -120,10 +131,10 @@ export default function PortalDashboardTicketDetailPage() {
     setLoadingMore(false);
   };
 
-  useEffect(() => { load(); }, [id, accessToken]);
+  useEffect(() => { load(); }, [routeTicketRef, accessToken, client?.id]);
 
   // ── realtime: append new messages without full reload ──
-  useRealtimeTicket(id as string || null, (msg: any) => {
+  useRealtimeTicket(ticket?.id || null, (msg: any) => {
     if (!msg) return;
     setMessages(prev => {
       const exists = prev.some((x: any) => String(x.id) === String(msg.id));
@@ -134,10 +145,10 @@ export default function PortalDashboardTicketDetailPage() {
 
   const sendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!message.trim()) return;
+    if (!message.trim() || !apiTicketId) return;
     setSending(true);
     try {
-      await fetch(`${API_BASE}/tickets/${id}/messages`, {
+      await fetch(`${API_BASE}/tickets/${apiTicketId}/messages`, {
         method:'POST',
         headers:{ 'Content-Type':'application/json', Authorization:`Bearer ${accessToken}` },
         body: JSON.stringify({ content:message, messageType:'comment', channel:'portal' }),
@@ -148,10 +159,10 @@ export default function PortalDashboardTicketDetailPage() {
   };
 
   const submitSatisfaction = async (score: 'approved' | 'rejected') => {
-    if (satisfying) return;
+    if (satisfying || !apiTicketId) return;
     setSatisfying(true);
     try {
-      await fetch(`${API_BASE}/tickets/${id}/satisfaction`, {
+      await fetch(`${API_BASE}/tickets/${apiTicketId}/satisfaction`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
         body: JSON.stringify({ score }),

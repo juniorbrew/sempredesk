@@ -726,13 +726,9 @@ export class TicketsService {
       .orderBy('t.updated_at', 'DESC')
       .take(Math.min(perPage, 100));
 
-    if (origin) {
-      qb.andWhere('t.origin = :origin', { origin });
-    } else {
-      // Sem filtro explícito: exibe apenas canais de atendimento ao cliente (whatsapp/portal).
-      // Tickets criados internamente (email, phone, internal) NÃO aparecem no inbox de atendimento.
-      qb.andWhere('t.origin IN (:...inboxOrigins)', { inboxOrigins: ['whatsapp', 'portal'] });
-    }
+    if (origin === 'portal') return [];
+    if (origin) qb.andWhere('t.origin = :origin', { origin });
+    else qb.andWhere('t.origin = :origin', { origin: TicketOrigin.WHATSAPP });
     if (status === 'active') {
       qb.andWhere('t.status IN (:...sts)', {
         sts: [TicketStatus.OPEN, TicketStatus.IN_PROGRESS, TicketStatus.WAITING_CLIENT],
@@ -794,6 +790,7 @@ export class TicketsService {
     return this.ticketRepo.count({
       where: {
         tenantId,
+        origin: TicketOrigin.WHATSAPP,
         conversationId: IsNull(),
         status: In([TicketStatus.OPEN, TicketStatus.IN_PROGRESS, TicketStatus.WAITING_CLIENT]),
       },
@@ -1472,3 +1469,4 @@ export class TicketsService {
     }
   }
 }
+

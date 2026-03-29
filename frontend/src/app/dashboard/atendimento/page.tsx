@@ -225,8 +225,11 @@ export default function AtendimentoPage() {
   const [filter, setFilter] = useState<'all' | 'no_ticket' | 'linked' | 'closed'>(() => {
     try { return (localStorage.getItem('atend_filter') as any) || 'all'; } catch { return 'all'; }
   });
-  const [channelFilter, setChannelFilter] = useState<'all' | 'whatsapp' | 'portal'>(() => {
-    try { return (localStorage.getItem('atend_channel') as any) || 'all'; } catch { return 'all'; }
+  const [channelFilter, setChannelFilter] = useState<'all' | 'whatsapp'>(() => {
+    try {
+      const saved = localStorage.getItem('atend_channel');
+      return saved === 'whatsapp' ? 'whatsapp' : 'all';
+    } catch { return 'all'; }
   });
   const [filterTags, setFilterTags] = useState<string[]>([]);
   const [showTagDropdown, setShowTagDropdown] = useState(false);
@@ -411,11 +414,11 @@ export default function AtendimentoPage() {
       else { params.status = 'active'; params.hasTicket = 'all'; }
       const [convList, ticketConvList] = await Promise.all([
         api.getConversations(params),
-        (channelFilter === 'portal' || channelFilter === 'all')
-          ? api.getTicketConversations({ origin: channelFilter === 'portal' ? 'portal' : undefined, status: filter === 'closed' ? 'closed' : 'active', perPage: 50 }).catch(() => [] as any)
+        (channelFilter === 'whatsapp' || channelFilter === 'all')
+          ? api.getTicketConversations({ origin: 'whatsapp', status: filter === 'closed' ? 'closed' : 'active', perPage: 50 }).catch(() => [] as any)
           : Promise.resolve([]),
       ]);
-      const convArr = Array.isArray(convList) ? convList : convList?.data ?? [];
+      const convArr = (Array.isArray(convList) ? convList : convList?.data ?? []).filter((c: any) => c?.channel !== 'portal');
       const ticketArr = Array.isArray(ticketConvList) ? ticketConvList : ticketConvList?.data ?? [];
       const sorted = [...convArr.map((c: any) => ({ ...c, type: c.type || 'conversation' })), ...ticketArr]
         .sort((a: any, b: any) => new Date(b.lastMessageAt || b.createdAt).getTime() - new Date(a.lastMessageAt || a.createdAt).getTime());
@@ -1196,7 +1199,7 @@ export default function AtendimentoPage() {
 
           {/* Channel tabs */}
           <div style={{ display: 'flex', gap: 0, padding: '10px 12px 0', borderBottom: S.border, flexShrink: 0 }}>
-            {([['all','Todos'],['whatsapp','WhatsApp'],['portal','Portal']] as const).map(([ch, label]) => (
+            {([['all','Todos'],['whatsapp','WhatsApp']] as const).map(([ch, label]) => (
               <button key={ch} onClick={() => { setChannelFilter(ch); if (filter === 'no_ticket') setFilter('all'); }}
                 style={{
                   padding: '6px 12px 8px', borderRadius: 0, fontSize: 12, fontWeight: 500, cursor: 'pointer',

@@ -124,7 +124,7 @@ export default function PortalTicketsPage() {
               const p = PRIORITY_STYLE[t.priority]||{ bg:'#F1F5F9', color:'#64748B' };
               const awaitingConfirmation = t.status === 'resolved' && !t.satisfactionScore;
               return (
-                <Link key={t.id} href={`/portal/dashboard/tickets/${t.id}`} style={{ textDecoration:'none' }}>
+                <Link key={t.id} href={`/portal/dashboard/tickets/${encodeURIComponent(t.ticketNumber || t.id)}`} style={{ textDecoration:'none' }}>
                   <div style={{ display:'flex', alignItems:'center', gap:14, padding:'16px 20px', borderBottom: i<tickets.length-1?'1px solid #F8FAFC':'none', transition:'background 0.1s', cursor:'pointer', background: awaitingConfirmation ? '#FFFBEB' : 'transparent' }}
                     onMouseEnter={e=>e.currentTarget.style.background= awaitingConfirmation ? '#FEF3C7' : '#FAFBFC'}
                     onMouseLeave={e=>e.currentTarget.style.background= awaitingConfirmation ? '#FFFBEB' : 'transparent'}>
