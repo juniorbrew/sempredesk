@@ -318,6 +318,13 @@ export default function AtendimentoPage() {
   const loadIdRef = useRef(0);          // incrementado a cada loadChat; respostas velhas são descartadas
   const customersRef = useRef<any[]>([]); // cache de clientes — não rebusca a cada troca de conversa
   const teamRef = useRef<any[]>([]);      // cache de equipe — idem
+  const customersCachedAtRef = useRef<number>(0);      // timestamp do último fetch completo de customers
+  const teamCachedAtRef = useRef<number>(0);           // timestamp do último fetch completo de team
+  // cache de contatos por clientId → evita refetch a cada troca de contato
+  const contactsCacheRef = useRef<Record<string, { data: any[]; ts: number }>>({});
+  // cache de contato individual por contactId (convs sem clientId)
+  const singleContactCacheRef = useRef<Record<string, { data: any; ts: number }>>({});
+  const PHASE2_CACHE_TTL = 2 * 60 * 1000; // 2 minutos
 
   // ── helpers ──
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
@@ -503,16 +510,29 @@ export default function AtendimentoPage() {
       // ── FASE 2: dados de suporte — sem bloquear a UI ─────────────────────
       const clientId = conv.clientId;
       const contactId = conv.contactId || (ticketRes as any)?.contactId;
-      const needCustomers = customersRef.current.length === 0;
-      const needTeam = teamRef.current.length === 0;
+      const now = Date.now();
 
-      // Customers + team + contacts todos em paralelo
+      const needCustomers = customersRef.current.length === 0 || (now - customersCachedAtRef.current) > PHASE2_CACHE_TTL;
+      const needTeam = teamRef.current.length === 0 || (now - teamCachedAtRef.current) > PHASE2_CACHE_TTL;
+
+      // Verifica cache de contatos — evita refetch a cada troca de contato
+      const cachedClientContacts = clientId ? contactsCacheRef.current[clientId] : null;
+      const cachedSingleContact = (!clientId && contactId) ? singleContactCacheRef.current[contactId] : null;
+      const needContacts = clientId
+        ? !cachedClientContacts || (now - cachedClientContacts.ts) > PHASE2_CACHE_TTL
+        : (!clientId && contactId)
+          ? !cachedSingleContact || (now - cachedSingleContact.ts) > PHASE2_CACHE_TTL
+          : false;
+
+      // Customers + team + contacts todos em paralelo (somente o que não está cacheado)
       const [customersRes, teamRes, contactsRaw] = await Promise.all([
         needCustomers ? api.getCustomers({ perPage: 200 }).catch(() => null) : Promise.resolve(null),
         needTeam ? api.getTeam().catch(() => null) : Promise.resolve(null),
-        clientId
-          ? api.getContacts(clientId).catch(() => null)
-          : contactId ? api.getContactById(contactId).catch(() => null) : Promise.resolve(null),
+        needContacts
+          ? (clientId
+              ? api.getContacts(clientId).catch(() => null)
+              : contactId ? api.getContactById(contactId).catch(() => null) : Promise.resolve(null))
+          : Promise.resolve(null),
       ]);
 
       if (myId !== loadIdRef.current) return;
@@ -525,6 +545,7 @@ export default function AtendimentoPage() {
           try { const r: any = await api.getCustomer(clientId); if (r) arr.push(r?.data ?? r); } catch {}
         }
         customersRef.current = arr;
+        customersCachedAtRef.current = now;
         if (myId === loadIdRef.current) setCustomers(arr);
       } else if (clientId && !customersRef.current.find((c: any) => c.id === clientId)) {
         // Cache existente mas sem este cliente específico → busca individual
@@ -542,6 +563,7 @@ export default function AtendimentoPage() {
       if (teamRes) {
         let arr: any[] = Array.isArray(teamRes) ? teamRes : teamRes?.data ?? [];
         teamRef.current = arr;
+        teamCachedAtRef.current = now;
         if (myId === loadIdRef.current) setTeam(arr);
       }
       // Garante que o agente responsável pelo ticket esteja na lista
@@ -554,6 +576,7 @@ export default function AtendimentoPage() {
             if (member?.id && myId === loadIdRef.current) {
               const arr = [...teamRef.current, member];
               teamRef.current = arr;
+              teamCachedAtRef.current = now;
               setTeam(arr);
             }
           } catch {}
@@ -562,11 +585,32 @@ export default function AtendimentoPage() {
 
       if (myId !== loadIdRef.current) return;
 
-      // Contacts
-      if (clientId && contactsRaw) {
-        const ctArr: any[] = Array.isArray(contactsRaw) ? contactsRaw : (contactsRaw as any)?.data ?? [];
-        if (contactId && !ctArr.find((c: any) => c.id === contactId)) {
-          try { const ind: any = await api.getContactById(contactId); if (ind) ctArr.push(ind?.data ?? ind); } catch {}
+      // Contacts — usa cache quando disponível, evita refetch a cada troca
+      if (clientId) {
+        let ctArr: any[];
+        if (contactsRaw) {
+          // Dados frescos da API — popula cache
+          ctArr = Array.isArray(contactsRaw) ? contactsRaw : (contactsRaw as any)?.data ?? [];
+          // Contato específico fora da lista do cliente → busca individual (com cache)
+          if (contactId && !ctArr.find((c: any) => c.id === contactId)) {
+            const cachedInd = singleContactCacheRef.current[contactId];
+            if (cachedInd && (now - cachedInd.ts) < PHASE2_CACHE_TTL) {
+              ctArr = [...ctArr, cachedInd.data];
+            } else {
+              try {
+                const ind: any = await api.getContactById(contactId);
+                if (ind) {
+                  const ct = ind?.data ?? ind;
+                  singleContactCacheRef.current[contactId] = { data: ct, ts: now };
+                  ctArr = [...ctArr, ct];
+                }
+              } catch {}
+            }
+          }
+          contactsCacheRef.current[clientId] = { data: ctArr, ts: now };
+        } else {
+          // Cache válido — reutiliza sem nenhuma requisição
+          ctArr = cachedClientContacts?.data ?? [];
         }
         if (myId === loadIdRef.current) {
           setContacts(ctArr);
@@ -580,11 +624,19 @@ export default function AtendimentoPage() {
             }
           }
         }
-      } else if (!clientId && contactsRaw) {
-        const ct = (contactsRaw as any)?.data ?? contactsRaw;
-        if (myId === loadIdRef.current) setContacts(ct ? [ct] : []);
       } else if (!clientId && contactId) {
-        if (myId === loadIdRef.current) setContacts([]);
+        let ct: any;
+        if (contactsRaw) {
+          // Dados frescos da API — popula cache
+          ct = (contactsRaw as any)?.data ?? contactsRaw;
+          if (ct) singleContactCacheRef.current[contactId] = { data: ct, ts: now };
+        } else if (cachedSingleContact) {
+          // Cache válido — reutiliza
+          ct = cachedSingleContact.data;
+        } else {
+          ct = null;
+        }
+        if (myId === loadIdRef.current) setContacts(ct ? [ct] : []);
       }
 
     } catch (e) {
@@ -918,9 +970,10 @@ export default function AtendimentoPage() {
   const isClosed = selected?.status === 'closed';
   const isWhatsapp = selected?.channel === 'whatsapp';
   const isPortalNoTicket = selected?.channel === 'portal' && !hasTicket && selected?.status !== 'closed';
-  // Conversa WhatsApp/canal sem ticket — iniciada pelo agente ou pelo contato, ainda sem ticket vinculado
+  // Conversa WhatsApp/canal sem ticket — ainda sem ticket vinculado (usado para exibição de estado)
   const isConvNoTicket = !isTicketType && !hasTicket && !!selected?.id && selected?.status !== 'closed';
-  const canSend = hasTicket || isPortalNoTicket || isConvNoTicket;
+  // Só permite enviar se houver ticket vinculado; portal é exceção (atendimento direto sem ticket)
+  const canSend = hasTicket || isPortalNoTicket;
   const ticketIdForRealtime = isTicketType ? (selected?.ticketId || selected?.id?.replace?.(/^ticket:/, '')) : null;
   const conversationIdForRealtime = !isTicketType ? selected?.id : null;
 
@@ -2218,7 +2271,7 @@ export default function AtendimentoPage() {
                           await afterConvCreated(existingConv);
                           showToast('Conversa aberta!');
                         } else {
-                          // Usa startOutbound para criar ticket + enviar mensagem inicial automaticamente
+                          // Usa startOutbound para criar conversa + enviar mensagem inicial (sem ticket — atendente vincula depois)
                           const selectedContact = startContacts.find((c: any) => c.id === startContactId);
                           const res: any = await api.startOutboundConversation({
                             contactId: startContactId,

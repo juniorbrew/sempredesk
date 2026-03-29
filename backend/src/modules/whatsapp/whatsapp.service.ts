@@ -327,10 +327,9 @@ export class WhatsappService {
    * Inicia uma conversa WhatsApp outbound completa:
    * 1. Normaliza e valida o número
    * 2. Cria ou localiza o contato
-   * 3. Cria ou localiza a conversa
-   * 4. Cria ticket vinculado
-   * 5. Envia a primeira mensagem
-   * 6. Retorna logs detalhados de cada etapa
+   * 3. Cria ou localiza a conversa (sem ticket — o atendente vincula/cria depois)
+   * 4. Envia a primeira mensagem (opcional)
+   * 5. Retorna logs detalhados de cada etapa
    */
   async startOutboundConversation(
     tenantId: string,
@@ -411,29 +410,11 @@ export class WhatsappService {
     );
     log(`[OUTBOUND-FLOW] Conversa: id=${conversation.id} status=${conversation.status} ticketId=${conversation.ticketId ?? 'N/A'} nova=${!conversation.ticketId}`);
 
-    // ── 5. Criar ticket ───────────────────────────────────────────────
-    let ticket: any = null;
-    if (!conversation.ticketId) {
-      try {
-        const result = await this.conversationsService.createTicketForConversationById(
-          tenantId, conversation.id, authorId, authorName,
-          { subject: dto.subject || `WhatsApp - ${contact.name || whatsapp}` },
-        );
-        ticket = result.ticket;
-        log(`[OUTBOUND-FLOW] Ticket criado: ${ticket.id} #${ticket.ticketNumber}`);
-      } catch (e: any) {
-        log(`[OUTBOUND-FLOW] Falha ao criar ticket: ${e?.message}`);
-      }
-    } else {
-      try {
-        ticket = await this.ticketsService.findOne(tenantId, conversation.ticketId);
-        log(`[OUTBOUND-FLOW] Ticket existente: ${ticket.id} #${ticket.ticketNumber}`);
-      } catch {
-        log(`[OUTBOUND-FLOW] Ticket ${conversation.ticketId} não encontrado`);
-      }
-    }
+    // Ticket NÃO é criado automaticamente — o atendente deve vincular ou criar após iniciar a conversa
+    const ticket: any = null;
+    log(`[OUTBOUND-FLOW] Conversa criada sem ticket — atendente vinculará manualmente`);
 
-    // ── 6. Enviar primeira mensagem ───────────────────────────────────
+    // ── 5. Enviar primeira mensagem ───────────────────────────────────
     let firstMessageSent = false;
     if (dto.firstMessage?.trim()) {
       log(`[OUTBOUND-FLOW] Enviando primeira mensagem: "${dto.firstMessage.trim().slice(0, 50)}..."`);
