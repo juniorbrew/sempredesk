@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsString, IsEnum, IsOptional, IsArray, IsNumber, Min, MaxLength, MinLength } from 'class-validator';
+import { IsString, IsEnum, IsOptional, IsArray, IsNumber, Min, Max, MaxLength, MinLength } from 'class-validator';
 import { TicketStatus, TicketPriority, TicketOrigin, MessageType } from '../entities/ticket.entity';
 
 export class CreateTicketDto {
@@ -128,6 +128,17 @@ export class ResolveTicketDto {
   @Min(0)
   @IsOptional()
   timeSpentMin?: number;
+
+  @IsString()
+  @IsOptional()
+  rootCause?: string;
+
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  @Max(5)
+  @IsOptional()
+  complexity?: number;
 }
 
 export class CancelTicketDto {

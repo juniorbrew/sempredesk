@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+﻿import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, IsNull } from 'typeorm';
 import { Cron } from '@nestjs/schedule';
@@ -94,11 +94,11 @@ export class TicketsService {
 
   private async getTicketOrFail(tenantId: string, id: string): Promise<Ticket> {
     const ticket = await this.ticketRepo.findOne({ where: { id, tenantId } });
-    if (!ticket) throw new NotFoundException('Ticket não encontrado');
+    if (!ticket) throw new NotFoundException('Ticket nÃ£o encontrado');
     return ticket;
   }
 
-  /** Returns a map of agentId → active ticket count for the given agent IDs */
+  /** Returns a map of agentId â†’ active ticket count for the given agent IDs */
   async countActiveByAgents(tenantId: string, agentIds: string[]): Promise<Record<string, number>> {
     if (!agentIds.length) return {};
     const rows: { assigned_to: string; count: string }[] = await this.ticketRepo.manager.query(
@@ -119,27 +119,27 @@ export class TicketsService {
   /**
    * Atribui o ticket ao agente online com menos tickets ativos.
    *
-   * Proteções contra race condition:
-   * - pg_advisory_xact_lock: bloqueia atribuições simultâneas do mesmo tenant
-   *   (garante que a contagem de carga seja lida APÓS atribuições anteriores serem gravadas)
-   * - UPDATE com WHERE assigned_to IS NULL: guard final contra dupla-atribuição
+   * ProteÃ§Ãµes contra race condition:
+   * - pg_advisory_xact_lock: bloqueia atribuiÃ§Ãµes simultÃ¢neas do mesmo tenant
+   *   (garante que a contagem de carga seja lida APÃ“S atribuiÃ§Ãµes anteriores serem gravadas)
+   * - UPDATE com WHERE assigned_to IS NULL: guard final contra dupla-atribuiÃ§Ã£o
    *
-   * Tiebreaker: quando dois agentes têm mesma carga, usa ordem alfabética por userId
-   * (resultado estável e previsível — distribui circularmente na prática).
+   * Tiebreaker: quando dois agentes tÃªm mesma carga, usa ordem alfabÃ©tica por userId
+   * (resultado estÃ¡vel e previsÃ­vel â€” distribui circularmente na prÃ¡tica).
    */
   async assignToLeastLoadedAgent(tenantId: string, ticketId: string, onlineAgentIds: string[]): Promise<string | null> {
     if (!onlineAgentIds.length) return null;
 
     return this.ticketRepo.manager.transaction(async (em) => {
-      // Lock exclusivo por tenant durante toda a transação.
-      // pg_advisory_xact_lock bloqueia (não falha) até que a transação anterior libere —
-      // garantindo serialização da atribuição entre mensagens simultâneas.
+      // Lock exclusivo por tenant durante toda a transaÃ§Ã£o.
+      // pg_advisory_xact_lock bloqueia (nÃ£o falha) atÃ© que a transaÃ§Ã£o anterior libere â€”
+      // garantindo serializaÃ§Ã£o da atribuiÃ§Ã£o entre mensagens simultÃ¢neas.
       await em.query(
         `SELECT pg_advisory_xact_lock(abs(hashtext($1)))`,
         [`whatsapp_assign:${tenantId}`],
       );
 
-      // Conta tickets ativos por agente DENTRO da transação (após o lock)
+      // Conta tickets ativos por agente DENTRO da transaÃ§Ã£o (apÃ³s o lock)
       const rows: { assigned_to: string; count: string }[] = await em.query(
         `SELECT assigned_to, COUNT(*)::int AS count
          FROM tickets
@@ -153,14 +153,14 @@ export class TicketsService {
       onlineAgentIds.forEach(id => { counts[id] = 0; });
       rows.forEach(r => { counts[r.assigned_to] = Number(r.count); });
 
-      // Ordena por carga crescente; tiebreaker: ordem alfabética por userId (estável e justo)
+      // Ordena por carga crescente; tiebreaker: ordem alfabÃ©tica por userId (estÃ¡vel e justo)
       const sorted = [...onlineAgentIds].sort((a, b) => {
         const loadDiff = (counts[a] ?? 0) - (counts[b] ?? 0);
         return loadDiff !== 0 ? loadDiff : a.localeCompare(b);
       });
       const agentId = sorted[0];
 
-      // Guard: só atualiza se o ticket ainda não foi atribuído (evita dupla-atribuição)
+      // Guard: sÃ³ atualiza se o ticket ainda nÃ£o foi atribuÃ­do (evita dupla-atribuiÃ§Ã£o)
       const result = await em.query<{ id: string }[]>(
         `UPDATE tickets
             SET assigned_to = $1, status = $2, updated_at = NOW()
@@ -170,12 +170,12 @@ export class TicketsService {
       );
 
       if (!result.length) {
-        this.logger.debug(`[assignLeastLoaded] ticket=${ticketId} já atribuído, pulando`);
+        this.logger.debug(`[assignLeastLoaded] ticket=${ticketId} jÃ¡ atribuÃ­do, pulando`);
         return null;
       }
 
       this.logger.log(
-        `[assignLeastLoaded] ticket=${ticketId} → agent=${agentId} (carga=${counts[agentId]})`,
+        `[assignLeastLoaded] ticket=${ticketId} â†’ agent=${agentId} (carga=${counts[agentId]})`,
       );
       return agentId;
     });
@@ -190,7 +190,7 @@ export class TicketsService {
     );
 
     if (!rows.length) {
-      throw new BadRequestException('Cliente inválido para este tenant');
+      throw new BadRequestException('Cliente invÃ¡lido para este tenant');
     }
   }
 
@@ -205,7 +205,7 @@ export class TicketsService {
         'SELECT id FROM contacts WHERE tenant_id = $1 AND id = $2 LIMIT 1',
         [tenantId, contactId],
       );
-      if (!rows.length) throw new BadRequestException('Contato inválido para este tenant');
+      if (!rows.length) throw new BadRequestException('Contato invÃ¡lido para este tenant');
       return;
     }
 
@@ -219,7 +219,7 @@ export class TicketsService {
       [tenantId, contactId, clientId],
     );
 
-    if (!rows.length) throw new BadRequestException('Contato inválido para este tenant');
+    if (!rows.length) throw new BadRequestException('Contato invÃ¡lido para este tenant');
 
     const r = rows[0];
     if (r.contact_client_id === clientId) return;
@@ -228,7 +228,7 @@ export class TicketsService {
       return;
     }
 
-    throw new BadRequestException('Contato inválido para este cliente. O contato deve pertencer ao cliente ou a outra empresa da mesma rede.');
+    throw new BadRequestException('Contato invÃ¡lido para este cliente. O contato deve pertencer ao cliente ou a outra empresa da mesma rede.');
   }
 
   private async assertUserBelongsToTenant(tenantId: string, userId?: string | null) {
@@ -247,7 +247,7 @@ export class TicketsService {
       } catch {}
     }
 
-    throw new BadRequestException('Usuário responsável inválido para este tenant');
+    throw new BadRequestException('UsuÃ¡rio responsÃ¡vel invÃ¡lido para este tenant');
   }
 
   private async assertContractBelongsToTenant(tenantId: string, contractId?: string | null) {
@@ -293,7 +293,7 @@ export class TicketsService {
     const categoryRow = await this.getTicketSettingByName(tenantId, 'category', normalizedCategory);
     const subcategoryRow = await this.getTicketSettingByName(tenantId, 'subcategory', normalizedSubcategory);
 
-    // Valores não cadastrados em ticket_settings são permitidos (ex.: tickets de automação)
+    // Valores nÃ£o cadastrados em ticket_settings sÃ£o permitidos (ex.: tickets de automaÃ§Ã£o)
     if (normalizedDepartment && !departmentRow) {
       return {
         department: normalizedDepartment,
@@ -325,11 +325,11 @@ export class TicketsService {
     }
 
     if (departmentRow && categoryRow && categoryRow.parent_id !== departmentRow.id) {
-      throw new BadRequestException('Categoria não pertence ao departamento informado');
+      throw new BadRequestException('Categoria nÃ£o pertence ao departamento informado');
     }
 
     if (categoryRow && subcategoryRow && subcategoryRow.parent_id !== categoryRow.id) {
-      throw new BadRequestException('Subcategoria não pertence à categoria informada');
+      throw new BadRequestException('Subcategoria nÃ£o pertence Ã  categoria informada');
     }
 
     return {
@@ -375,7 +375,7 @@ export class TicketsService {
 
     const subject = `PDV offline: ${device.name}`;
     const description = [
-      `Detecção automática: equipamento ficou offline (sem heartbeat há > 5min).`,
+      `DetecÃ§Ã£o automÃ¡tica: equipamento ficou offline (sem heartbeat hÃ¡ > 5min).`,
       `Device: ${device.name} (${device.id})`,
       device.ipAddress ? `IP: ${device.ipAddress}` : null,
     ].filter(Boolean).join('\n');
@@ -491,7 +491,7 @@ export class TicketsService {
       } catch {}
     }
 
-    // Auto-atribuição por round-robin se ainda sem agente após routing rules
+    // Auto-atribuiÃ§Ã£o por round-robin se ainda sem agente apÃ³s routing rules
     if (!ticketSaved.assignedTo && this.assignmentSvc) {
       try {
         const autoAgentId = await this.assignmentSvc.assignTicket(tenantId, ticketSaved.id);
@@ -501,12 +501,12 @@ export class TicketsService {
           ticketSaved.status = TicketStatus.IN_PROGRESS;
         }
       } catch (err) {
-        // não-crítico: ticket fica em aberto sem agente
+        // nÃ£o-crÃ­tico: ticket fica em aberto sem agente
         console.warn(`[tickets] auto-assignment falhou ticket=${ticketSaved.id}`, err);
       }
     }
 
-    // Registrar no histórico: atribuição, classificação (dept/cat/subcat) — para tickets criados no atendimento
+    // Registrar no histÃ³rico: atribuiÃ§Ã£o, classificaÃ§Ã£o (dept/cat/subcat) â€” para tickets criados no atendimento
     if (ticketSaved.assignedTo) {
       const techName = await this.getUserName(tenantId, ticketSaved.assignedTo);
       await this.registerSystemMessage(
@@ -514,7 +514,7 @@ export class TicketsService {
         ticketSaved.id,
         userId,
         userName,
-        `Chamado atribuído ao técnico: ${techName ?? ticketSaved.assignedTo}`,
+        `Chamado atribuÃ­do ao tÃ©cnico: ${techName ?? ticketSaved.assignedTo}`,
         MessageType.SYSTEM,
       );
     }
@@ -528,13 +528,13 @@ export class TicketsService {
         ticketSaved.id,
         userId,
         userName,
-        `Classificação: ${parts.join(' › ')}`,
+        `ClassificaÃ§Ã£o: ${parts.join(' â€º ')}`,
         MessageType.SYSTEM,
       );
     }
 
     // For chat/whatsapp tickets the description is already visible in the ticket header;
-    // the full conversation transcript is stored in conversation_messages — no need to duplicate as a comment.
+    // the full conversation transcript is stored in conversation_messages â€” no need to duplicate as a comment.
     if (!dto.conversationId && dto.description) {
       await this.messageRepo.save(this.messageRepo.create({
         tenantId,
@@ -638,7 +638,7 @@ export class TicketsService {
     if (priority) qb.andWhere('t.priority = :priority', { priority });
     if (assignedTo) qb.andWhere('t.assigned_to = :assignedTo', { assignedTo });
     if (clientId && contactId) {
-      // Contato normal: apenas tickets da empresa selecionada vinculados ao usuário (ou contatos com mesmo email)
+      // Contato normal: apenas tickets da empresa selecionada vinculados ao usuÃ¡rio (ou contatos com mesmo email)
       qb.andWhere(
         `t.client_id = :clientId AND t.contact_id IN (
           SELECT id::text FROM contacts WHERE tenant_id = :tenantId AND email = (
@@ -706,7 +706,7 @@ export class TicketsService {
 
   /**
    * Retorna tickets em formato de conversa para o inbox (portal/whatsapp sem conversation).
-   * Inclui lastMessageAt e lastMessagePreview da última mensagem em ticket_messages.
+   * Inclui lastMessageAt e lastMessagePreview da Ãºltima mensagem em ticket_messages.
    */
   async getConversationsAsInbox(
     tenantId: string,
@@ -723,11 +723,8 @@ export class TicketsService {
     if (origin) {
       qb.andWhere('t.origin = :origin', { origin });
     } else {
-<<<<<<< HEAD
-=======
-      // Sem filtro explícito: exibe apenas canais de atendimento ao cliente (whatsapp/portal).
-      // Tickets criados internamente (email, phone, internal) NÃO aparecem no inbox de atendimento.
->>>>>>> 792d62962d05bee061315855f7fa63de842d4e39
+      // Sem filtro explÃ­cito: exibe apenas canais de atendimento ao cliente (whatsapp/portal).
+      // Tickets criados internamente (email, phone, internal) NÃƒO aparecem no inbox de atendimento.
       qb.andWhere('t.origin IN (:...inboxOrigins)', { inboxOrigins: ['whatsapp', 'portal'] });
     }
     if (status === 'active') {
@@ -786,7 +783,7 @@ export class TicketsService {
     });
   }
 
-  /** Conta tickets ativos para inbox (sem conversation) — usado no badge. */
+  /** Conta tickets ativos para inbox (sem conversation) â€” usado no badge. */
   async getActiveInboxTicketCount(tenantId: string): Promise<number> {
     return this.ticketRepo.count({
       where: {
@@ -799,7 +796,7 @@ export class TicketsService {
 
   async findOne(tenantId: string, id: string): Promise<any> {
     const ticket = await this.getTicketOrFail(tenantId, id);
-    // Inclui dados do responsável para evitar chamada extra ao endpoint /team
+    // Inclui dados do responsÃ¡vel para evitar chamada extra ao endpoint /team
     if ((ticket as any).assignedTo) {
       try {
         const rows = await this.ticketRepo.manager.query(
@@ -818,7 +815,7 @@ export class TicketsService {
     await this.ticketRepo.save(ticket);
   }
 
-  /** Normaliza número do ticket para formato #000001. Aceita "1", "000001", "#000001". */
+  /** Normaliza nÃºmero do ticket para formato #000001. Aceita "1", "000001", "#000001". */
   private normalizeTicketNumber(number: string): string {
     const digits = number.replace(/\D/g, '');
     return digits ? `#${digits.padStart(6, '0')}` : '';
@@ -826,29 +823,29 @@ export class TicketsService {
 
   async findByNumber(tenantId: string, number: string): Promise<Ticket> {
     const normalized = this.normalizeTicketNumber(number);
-    if (!normalized) throw new NotFoundException('Informe o número do ticket');
+    if (!normalized) throw new NotFoundException('Informe o nÃºmero do ticket');
     let ticket = await this.ticketRepo.findOne({ where: { ticketNumber: normalized, tenantId } });
     if (!ticket) ticket = await this.ticketRepo.findOne({ where: { ticketNumber: number, tenantId } });
-    if (!ticket) throw new NotFoundException('Ticket não encontrado');
+    if (!ticket) throw new NotFoundException('Ticket nÃ£o encontrado');
     return ticket;
   }
 
   /**
-   * Busca ticket por número (apenas dígitos ou #000001), validando se pertence ao cliente (para portal).
+   * Busca ticket por nÃºmero (apenas dÃ­gitos ou #000001), validando se pertence ao cliente (para portal).
    * Aceita "1", "000001", "#000001".
    */
   async findByNumberForClient(tenantId: string, number: string, clientId?: string): Promise<Ticket> {
     const normalized = this.normalizeTicketNumber(number);
-    if (!normalized) throw new NotFoundException('Informe o número do ticket');
+    if (!normalized) throw new NotFoundException('Informe o nÃºmero do ticket');
     let ticket = await this.ticketRepo.findOne({ where: { ticketNumber: normalized, tenantId } });
     if (!ticket) {
       const digits = number.replace(/\D/g, '');
       const alt = digits.padStart(6, '0');
       ticket = await this.ticketRepo.findOne({ where: { ticketNumber: alt, tenantId } });
     }
-    if (!ticket) throw new NotFoundException('Ticket não encontrado');
+    if (!ticket) throw new NotFoundException('Ticket nÃ£o encontrado');
     if (clientId && ticket.clientId !== clientId) {
-      throw new NotFoundException('Ticket não encontrado ou não pertence a este cliente');
+      throw new NotFoundException('Ticket nÃ£o encontrado ou nÃ£o pertence a este cliente');
     }
     return ticket;
   }
@@ -916,7 +913,7 @@ export class TicketsService {
         id,
         userId,
         userName,
-        `Chamado atribuído ao técnico: ${techName ?? dto.assignedTo}`,
+        `Chamado atribuÃ­do ao tÃ©cnico: ${techName ?? dto.assignedTo}`,
         MessageType.SYSTEM,
       );
     }
@@ -939,7 +936,7 @@ export class TicketsService {
     if (
       userChangedClassification &&
       newDepartment !== oldDepartment &&
-      !dto.assignedTo &&          // atribuição manual tem precedência
+      !dto.assignedTo &&          // atribuiÃ§Ã£o manual tem precedÃªncia
       this.assignmentSvc
     ) {
       this.assignmentSvc.reassignOnDepartmentChange(tenantId, saved.id).catch(() => {});
@@ -974,7 +971,7 @@ export class TicketsService {
         id,
         userId,
         userName,
-        'Descrição do ticket atualizada',
+        'DescriÃ§Ã£o do ticket atualizada',
       );
     }
 
@@ -986,7 +983,7 @@ export class TicketsService {
     await this.assertUserBelongsToTenant(tenantId, techId);
     if (this.attendanceSvc) {
       const available = await this.attendanceSvc.isAvailable(tenantId, techId);
-      if (available === false) throw new BadRequestException("Agente em pausa — não é possível atribuir tickets no momento");
+      if (available === false) throw new BadRequestException("Agente em pausa â€” nÃ£o Ã© possÃ­vel atribuir tickets no momento");
     }
     ticket.assignedTo = techId;
     if (ticket.status === TicketStatus.OPEN) ticket.status = TicketStatus.IN_PROGRESS;
@@ -996,11 +993,11 @@ export class TicketsService {
       tenantId, id,
       assignedByUserId || techId,
       assignedByUserName || techName || 'Sistema',
-      `Chamado atribuído ao técnico: ${techName ?? techId}`,
+      `Chamado atribuÃ­do ao tÃ©cnico: ${techName ?? techId}`,
       MessageType.SYSTEM,
     );
 
-    // Notifica supervisor e demais agentes em tempo real sobre a transferência
+    // Notifica supervisor e demais agentes em tempo real sobre a transferÃªncia
     this.realtimeEmitter.emitToTenant(tenantId, 'queue:updated', {
       ticketId: id,
       assignedTo: techId,
@@ -1043,7 +1040,7 @@ export class TicketsService {
     const ticket = await this.getTicketOrFail(tenantId, id);
 
     if (ticket.status === TicketStatus.CANCELLED) {
-      throw new BadRequestException('Chamado cancelado não pode ser resolvido');
+      throw new BadRequestException('Chamado cancelado nÃ£o pode ser resolvido');
     }
 
     if (dto.timeSpentMin !== undefined) {
@@ -1052,6 +1049,14 @@ export class TicketsService {
 
     if (dto.resolutionSummary !== undefined) {
       ticket.resolutionSummary = dto.resolutionSummary;
+    }
+
+    if (dto.rootCause !== undefined) {
+      ticket.rootCause = dto.rootCause?.trim() || null;
+    }
+
+    if (dto.complexity !== undefined) {
+      ticket.complexity = dto.complexity || null;
     }
 
     ticket.status = TicketStatus.RESOLVED;
@@ -1107,7 +1112,7 @@ export class TicketsService {
     const ticket = await this.getTicketOrFail(tenantId, id);
 
     if (ticket.status === TicketStatus.CANCELLED) {
-      throw new BadRequestException('Chamado cancelado não pode ser fechado');
+      throw new BadRequestException('Chamado cancelado nÃ£o pode ser fechado');
     }
 
     if (!ticket.resolvedAt) {
@@ -1140,7 +1145,7 @@ export class TicketsService {
     const ticket = await this.getTicketOrFail(tenantId, id);
 
     if (ticket.status === TicketStatus.CLOSED) {
-      throw new BadRequestException('Chamado já fechado não pode ser cancelado');
+      throw new BadRequestException('Chamado jÃ¡ fechado nÃ£o pode ser cancelado');
     }
 
     ticket.status = TicketStatus.CANCELLED;
@@ -1230,8 +1235,8 @@ export class TicketsService {
     const ticket = await this.getTicketSatisfactionService().applyPortalSatisfaction(ticketId, score === 'approved');
     const message =
       ticket.satisfactionScore === 'approved'
-        ? 'Cliente confirmou a solução. Chamado encerrado automaticamente.'
-        : 'Cliente indicou que o problema não foi resolvido. Chamado reaberto.';
+        ? 'Cliente confirmou a soluÃ§Ã£o. Chamado encerrado automaticamente.'
+        : 'Cliente indicou que o problema nÃ£o foi resolvido. Chamado reaberto.';
     await this.registerSystemMessage(
       tenantId, ticketId, '', 'Sistema',
       message,
@@ -1270,8 +1275,8 @@ export class TicketsService {
   }
 
   /**
-   * Job de SLA: alerta de 80% do prazo de resolução.
-   * Roda a cada 5 minutos e não altera status, apenas registra
+   * Job de SLA: alerta de 80% do prazo de resoluÃ§Ã£o.
+   * Roda a cada 5 minutos e nÃ£o altera status, apenas registra
    * uma mensagem de sistema no ticket.
    */
   @Cron('*/5 * * * *')
@@ -1305,7 +1310,7 @@ export class TicketsService {
           t.id,
           '',
           'SLA Engine',
-          'SLA: ticket atingiu 80% do prazo de resolução.',
+          'SLA: ticket atingiu 80% do prazo de resoluÃ§Ã£o.',
           MessageType.SYSTEM,
         );
         try {
@@ -1348,7 +1353,7 @@ export class TicketsService {
             t.id,
             '',
             'SLA Engine',
-            'SLA: prazo de resolução violado. Ticket escalonado automaticamente para prioridade crítica.',
+            'SLA: prazo de resoluÃ§Ã£o violado. Ticket escalonado automaticamente para prioridade crÃ­tica.',
             MessageType.SYSTEM,
           );
           try {

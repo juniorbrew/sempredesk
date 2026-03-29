@@ -1,4 +1,4 @@
--- ================================================================
+﻿-- ================================================================
 -- SempreDesk — Schema Canônico v2.0
 -- Gerado em 2026-03-27 a partir do schema real do banco de produção.
 -- Substitui o init.sql v1.0 que havia ficado desatualizado em relação
@@ -206,10 +206,7 @@ CREATE TABLE conversations (
   chat_alert     BOOLEAN      NOT NULL DEFAULT FALSE,
   initiated_by   conversations_initiated_by_enum NOT NULL DEFAULT 'contact',
   last_message_at TIMESTAMPTZ,
-<<<<<<< HEAD
   tags           TEXT,
-=======
->>>>>>> 792d62962d05bee061315855f7fa63de842d4e39
   created_at     TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
   updated_at     TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
@@ -254,6 +251,8 @@ CREATE TABLE tickets (
   resolved_at           TIMESTAMPTZ,
   closed_at             TIMESTAMPTZ,
   time_spent_min        INT          NOT NULL DEFAULT 0,
+  root_cause            TEXT,
+  complexity            INT,
   escalated             BOOLEAN      NOT NULL DEFAULT FALSE,
   tags                  TEXT,
   metadata              JSONB,
@@ -297,7 +296,6 @@ CREATE TABLE ticket_settings (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-<<<<<<< HEAD
 -- ── TAGS ──────────────────────────────────────────────────────
 CREATE TABLE tags (
   id         UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -310,8 +308,15 @@ CREATE TABLE tags (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-=======
->>>>>>> 792d62962d05bee061315855f7fa63de842d4e39
+CREATE TABLE root_causes (
+  id         UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  tenant_id  VARCHAR      NOT NULL,
+  name       VARCHAR(120) NOT NULL,
+  active     BOOLEAN      NOT NULL DEFAULT TRUE,
+  sort_order INT          NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
 -- ── DEVICES ───────────────────────────────────────────────────
 CREATE TABLE devices (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -664,10 +669,8 @@ CREATE INDEX idx_device_metrics         ON device_metrics(tenant_id, device_id, 
 -- Conversations
 CREATE INDEX idx_conversations_contact  ON conversations(tenant_id, contact_id, status);
 CREATE INDEX idx_conversations_ticket   ON conversations(ticket_id) WHERE ticket_id IS NOT NULL;
-<<<<<<< HEAD
 CREATE INDEX idx_tags_tenant_active     ON tags(tenant_id, active, sort_order, name);
-=======
->>>>>>> 792d62962d05bee061315855f7fa63de842d4e39
+CREATE INDEX idx_root_causes_tenant_active ON root_causes(tenant_id, active, sort_order, name);
 CREATE INDEX idx_conv_messages_conv     ON conversation_messages(conversation_id, created_at);
 
 -- Chatbot sessions
@@ -756,3 +759,4 @@ INSERT INTO clients (tenant_id, company_name, trade_name, cnpj, city, state, ema
    '45.678.901/0001-23', 'São Paulo', 'SP', 'financeiro@saborarte.com.br', '(11) 7777-3333');
 
 SELECT 'SempreDesk schema v2.0 criado com sucesso!' AS status;
+

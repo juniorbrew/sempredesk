@@ -103,6 +103,12 @@ export class Ticket {
   @Column({ name: 'time_spent_min', type: 'int', default: 0 })
   timeSpentMin: number;
 
+  @Column({ name: 'root_cause', type: 'text', nullable: true })
+  rootCause: string | null;
+
+  @Column({ type: 'int', nullable: true })
+  complexity: number | null;
+
   @Column({ default: false })
   escalated: boolean;
 
