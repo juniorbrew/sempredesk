@@ -28,7 +28,8 @@ export class TicketSettingsController {
   }
 
   @Get('tree')
-  @RequirePermission('settings.manage')
+  // Sem RequirePermission: portal do cliente precisa da árvore ativa
+  // para abrir chamados com departamento/categoria/subcategoria.
   findTree(@TenantId() tenantId: string) {
     return this.service.findTree(tenantId);
   }
