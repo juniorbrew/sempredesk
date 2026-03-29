@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
+﻿import { Injectable, Logger, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
@@ -38,7 +38,7 @@ export class CustomersService {
     });
 
     if (!client) {
-      throw new NotFoundException('Cliente não encontrado');
+      throw new NotFoundException('Cliente nÃ£o encontrado');
     }
 
     client.contacts = (client.contacts || []).filter((ct) => ct.status !== 'inactive');
@@ -52,13 +52,13 @@ export class CustomersService {
     });
 
     if (!contact) {
-      throw new NotFoundException('Contato não encontrado');
+      throw new NotFoundException('Contato nÃ£o encontrado');
     }
 
     return contact;
   }
 
-  /** Valida CPF pelo algoritmo dos dígitos verificadores */
+  /** Valida CPF pelo algoritmo dos dÃ­gitos verificadores */
   private validateCpf(cpf: string): boolean {
     const raw = cpf.replace(/\D/g, '');
     if (raw.length !== 11) return false;
@@ -75,7 +75,7 @@ export class CustomersService {
     return r === parseInt(raw[10]);
   }
 
-  /** Valida CNPJ — delega ao utilitário centralizado em common/utils/cnpj.utils */
+  /** Valida CNPJ â€” delega ao utilitÃ¡rio centralizado em common/utils/cnpj.utils */
   private validateCnpj(cnpj: string): boolean {
     return validateCnpjUtil(cnpj);
   }
@@ -89,7 +89,7 @@ export class CustomersService {
     );
 
     if (!result.length) {
-      throw new BadRequestException('Rede informada não pertence ao tenant atual');
+      throw new BadRequestException('Rede informada nÃ£o pertence ao tenant atual');
     }
   }
 
@@ -127,12 +127,12 @@ export class CustomersService {
     return null;
   }
 
-  /** Retorna ou cria o cliente fallback para e-mails de remetentes não identificados */
+  /** Retorna ou cria o cliente fallback para e-mails de remetentes nÃ£o identificados */
   async getOrCreateInboundEmailFallbackClient(tenantId: string): Promise<string> {
     const existing = await this.clients.findOne({
       where: {
         tenantId,
-        companyName: 'E-mail não identificado',
+        companyName: 'E-mail nÃ£o identificado',
         status: 'active',
       },
     });
@@ -143,7 +143,7 @@ export class CustomersService {
       this.clients.create({
         tenantId,
         code,
-        companyName: 'E-mail não identificado',
+        companyName: 'E-mail nÃ£o identificado',
         tradeName: 'Remetentes de e-mail sem cadastro',
         status: 'active',
         metadata: { inbound_email_fallback: true },
@@ -158,25 +158,25 @@ export class CustomersService {
     if (personType === 'juridica' && dto.cnpj) {
       const raw = dto.cnpj.replace(/\D/g, '');
       if (raw.length === 14 && !this.validateCnpj(raw)) {
-        throw new BadRequestException('CNPJ inválido');
+        throw new BadRequestException('CNPJ invÃ¡lido');
       }
       const existing = await this.clients.createQueryBuilder('c')
         .where('c.tenant_id = :tenantId', { tenantId })
         .andWhere("REGEXP_REPLACE(c.cnpj, '[^0-9]', '', 'g') = :raw", { raw })
         .getOne();
-      if (existing) throw new ConflictException('CNPJ já cadastrado para outro cliente');
+      if (existing) throw new ConflictException('CNPJ jÃ¡ cadastrado para outro cliente');
     }
 
     if (personType === 'fisica' && (dto as any).cpf) {
       const raw = ((dto as any).cpf as string).replace(/\D/g, '');
       if (raw.length === 11 && !this.validateCpf(raw)) {
-        throw new BadRequestException('CPF inválido');
+        throw new BadRequestException('CPF invÃ¡lido');
       }
       const existing = await this.clients.createQueryBuilder('c')
         .where('c.tenant_id = :tenantId', { tenantId })
         .andWhere("REGEXP_REPLACE(c.cpf, '[^0-9]', '', 'g') = :raw", { raw })
         .getOne();
-      if (existing) throw new ConflictException('CPF já cadastrado para outro cliente');
+      if (existing) throw new ConflictException('CPF jÃ¡ cadastrado para outro cliente');
     }
 
     await this.assertNetworkBelongsToTenant(tenantId, (dto as any).networkId);
@@ -232,27 +232,27 @@ export class CustomersService {
     if (dto.cnpj) {
       const raw = dto.cnpj.replace(/\D/g, '');
       if (raw.length === 14 && !this.validateCnpj(raw)) {
-        throw new BadRequestException('CNPJ inválido');
+        throw new BadRequestException('CNPJ invÃ¡lido');
       }
       const existing = await this.clients.createQueryBuilder('c')
         .where('c.tenant_id = :tenantId', { tenantId })
         .andWhere('c.id != :id', { id })
         .andWhere("REGEXP_REPLACE(c.cnpj, '[^0-9]', '', 'g') = :raw", { raw })
         .getOne();
-      if (existing) throw new ConflictException('CNPJ já cadastrado para outro cliente');
+      if (existing) throw new ConflictException('CNPJ jÃ¡ cadastrado para outro cliente');
     }
 
     if ((dto as any).cpf) {
       const raw = ((dto as any).cpf as string).replace(/\D/g, '');
       if (raw.length === 11 && !this.validateCpf(raw)) {
-        throw new BadRequestException('CPF inválido');
+        throw new BadRequestException('CPF invÃ¡lido');
       }
       const existing = await this.clients.createQueryBuilder('c')
         .where('c.tenant_id = :tenantId', { tenantId })
         .andWhere('c.id != :id', { id })
         .andWhere("REGEXP_REPLACE(c.cpf, '[^0-9]', '', 'g') = :raw", { raw })
         .getOne();
-      if (existing) throw new ConflictException('CPF já cadastrado para outro cliente');
+      if (existing) throw new ConflictException('CPF jÃ¡ cadastrado para outro cliente');
     }
 
     await this.assertNetworkBelongsToTenant(tenantId, (dto as any).networkId);
@@ -302,7 +302,7 @@ export class CustomersService {
       await this.clients.update({ id, tenantId }, { status: 'inactive' });
       return {
         action: 'inactivated',
-        message: 'Cliente possui vínculos e foi inativado.',
+        message: 'Cliente possui vÃ­nculos e foi inativado.',
       };
     }
 
@@ -310,7 +310,7 @@ export class CustomersService {
 
     return {
       action: 'deleted',
-      message: 'Cliente excluído permanentemente.',
+      message: 'Cliente excluÃ­do permanentemente.',
     };
   }
 
@@ -320,7 +320,7 @@ export class CustomersService {
     const { password, ...contactData } = dto as any;
     const portalPassword = password ? await bcrypt.hash(password, 12) : undefined;
 
-    // Remove caracteres não-numéricos do WhatsApp (sem truncar — truncamento é só para LIDs do webhook)
+    // Remove caracteres nÃ£o-numÃ©ricos do WhatsApp (sem truncar â€” truncamento Ã© sÃ³ para LIDs do webhook)
     if (contactData.whatsapp) {
       contactData.whatsapp = contactData.whatsapp.replace(/\D/g, '');
     }
@@ -352,7 +352,7 @@ export class CustomersService {
     const updates: any = { ...dto };
     delete updates.password;
 
-    // Remove caracteres não-numéricos do WhatsApp (sem truncar — truncamento é só para LIDs do webhook)
+    // Remove caracteres nÃ£o-numÃ©ricos do WhatsApp (sem truncar â€” truncamento Ã© sÃ³ para LIDs do webhook)
     if (updates.whatsapp) {
       updates.whatsapp = updates.whatsapp.replace(/\D/g, '');
     }
@@ -380,7 +380,7 @@ export class CustomersService {
   async removeContact(tenantId: string, contactId: string) {
     const contact = await this.getContactOrFail(tenantId, contactId);
     await this.contacts.update({ id: contactId, tenantId }, { status: 'inactive' });
-    // Limpa a sessão do chatbot para que a próxima interação comece do zero
+    // Limpa a sessÃ£o do chatbot para que a prÃ³xima interaÃ§Ã£o comece do zero
     if (contact.whatsapp) {
       await this.contacts.manager.query(
         `DELETE FROM chatbot_sessions WHERE tenant_id = $1 AND identifier = $2`,
@@ -398,30 +398,12 @@ export class CustomersService {
 
   async findContactByWhatsapp(tenantId: string, whatsapp: string) {
     const normalized = normalizeWhatsappNumber(whatsapp) || whatsapp;
-<<<<<<< HEAD
-=======
 
-    // Busca por whatsapp OU pelo LID técnico armazenado em metadata
->>>>>>> 792d62962d05bee061315855f7fa63de842d4e39
+    // Busca por whatsapp OU pelo LID tÃ©cnico armazenado em metadata
     const contact = await this.contacts.createQueryBuilder('ct')
       .leftJoinAndSelect('ct.client', 'client')
       .where('ct.tenant_id = :tenantId', { tenantId })
       .andWhere("ct.status = 'active'")
-<<<<<<< HEAD
-      .andWhere("(ct.whatsapp = :normalized OR ct.metadata->>'whatsappLid' = :normalized)", { normalized })
-      .orderBy('ct.created_at', 'DESC')
-      .getOne();
-
-    if (
-      contact
-      && normalized.length >= 14
-      && contact.whatsapp === normalized
-      && contact.metadata?.whatsappLid !== normalized
-    ) {
-      const nextMetadata = { ...(contact.metadata || {}), whatsappLid: normalized };
-      await this.contacts.update({ id: contact.id, tenantId }, { metadata: nextMetadata as any });
-      contact.metadata = nextMetadata;
-=======
       .andWhere(
         "(ct.whatsapp = :normalized OR ct.metadata->>'whatsappLid' = :normalized)",
         { normalized },
@@ -430,7 +412,7 @@ export class CustomersService {
 
     if (!contact) return null;
 
-    // Backfill automático: contato antigo com LID no campo whatsapp mas sem metadata.whatsappLid
+    // Backfill automÃ¡tico: contato antigo com LID no campo whatsapp mas sem metadata.whatsappLid
     if (
       normalized.length >= 14 &&
       contact.whatsapp === normalized &&
@@ -439,7 +421,6 @@ export class CustomersService {
       const updatedMeta = { ...(contact.metadata ?? {}), whatsappLid: normalized };
       await this.contacts.update({ id: contact.id, tenantId }, { metadata: updatedMeta } as any);
       contact.metadata = updatedMeta;
->>>>>>> 792d62962d05bee061315855f7fa63de842d4e39
     }
 
     return contact;
@@ -454,7 +435,7 @@ export class CustomersService {
 
   /**
    * Verifica se um contato pode acessar um cliente (portal).
-   * Contato pode acessar: clientes aos quais está vinculado + clientes da mesma rede (se for primary).
+   * Contato pode acessar: clientes aos quais estÃ¡ vinculado + clientes da mesma rede (se for primary).
    */
   async canContactAccessClient(tenantId: string, contactId: string, clientId: string): Promise<boolean> {
     const contact = await this.contacts.findOne({
@@ -472,7 +453,7 @@ export class CustomersService {
     return false;
   }
 
-  /** Contato principal: pode ver ticket se tiver acesso ao cliente. Contato normal: só se o ticket for dele (ou mesmo email). */
+  /** Contato principal: pode ver ticket se tiver acesso ao cliente. Contato normal: sÃ³ se o ticket for dele (ou mesmo email). */
   async canContactAccessTicket(
     tenantId: string,
     contactId: string,
@@ -491,7 +472,7 @@ export class CustomersService {
     return contact.email.toLowerCase() === ticketContact.email.toLowerCase();
   }
 
-  /** Encontra ou cria contato para chat (pré-chat do portal) */
+  /** Encontra ou cria contato para chat (prÃ©-chat do portal) */
   async findOrCreateContactForChat(
     tenantId: string,
     clientId: string,
@@ -516,15 +497,15 @@ export class CustomersService {
   }
 
   /**
-   * Busca clientes por nome/razão social, nome fantasia ou CNPJ.
-   * Usado na tela de validação de contato durante o atendimento e no chatbot do WhatsApp.
-   * Retorna no máximo 20 resultados, excluindo clientes auto-criados via WhatsApp.
+   * Busca clientes por nome/razÃ£o social, nome fantasia ou CNPJ.
+   * Usado na tela de validaÃ§Ã£o de contato durante o atendimento e no chatbot do WhatsApp.
+   * Retorna no mÃ¡ximo 20 resultados, excluindo clientes auto-criados via WhatsApp.
    *
-   * A comparação de CNPJ normaliza ambos os lados (remove não-dígitos), garantindo que
-   * clientes salvos com ou sem máscara sejam encontrados independentemente do formato enviado.
+   * A comparaÃ§Ã£o de CNPJ normaliza ambos os lados (remove nÃ£o-dÃ­gitos), garantindo que
+   * clientes salvos com ou sem mÃ¡scara sejam encontrados independentemente do formato enviado.
    * Exemplos que casam com o mesmo cliente:
-   *   - "00.000.000/0001-00"  (com máscara — como o menu de cliente envia)
-   *   - "00000000000100"      (sem máscara — como o chatbot WhatsApp envia após strip de dígitos)
+   *   - "00.000.000/0001-00"  (com mÃ¡scara â€” como o menu de cliente envia)
+   *   - "00000000000100"      (sem mÃ¡scara â€” como o chatbot WhatsApp envia apÃ³s strip de dÃ­gitos)
    */
   async searchByNameOrCnpj(
     tenantId: string,
@@ -533,7 +514,7 @@ export class CustomersService {
     if (!q || q.trim().length < 2) return [];
 
     const term = `%${q.trim()}%`;
-    // Versão normalizada (apenas dígitos) para comparar com CNPJs mascarados no banco
+    // VersÃ£o normalizada (apenas dÃ­gitos) para comparar com CNPJs mascarados no banco
     const cnpjDigits = q.replace(/\D/g, '');
 
     const rows = await this.clients.manager.query<
@@ -569,38 +550,21 @@ export class CustomersService {
   async findOrCreateByWhatsapp(tenantId: string, phone: string, displayName?: string, isLid = false) {
     const normalized = normalizeWhatsappNumber(phone) || phone;
 
-<<<<<<< HEAD
-    // 1. Tenta encontrar contato existente pelo número (somente ativos)
-    const existing = await this.findContactByWhatsapp(tenantId, normalized);
-    if (existing) {
-      if (isLid && existing.metadata?.whatsappLid !== normalized) {
-        const nextMetadata = { ...(existing.metadata || {}), whatsappLid: normalized };
-        await this.contacts.update({ id: existing.id, tenantId }, { metadata: nextMetadata as any });
-        existing.metadata = nextMetadata;
-=======
     // 1. Busca por whatsapp OU por metadata.whatsappLid (inclui contatos LID antigos)
     const existing = await this.findContactByWhatsapp(tenantId, normalized);
     if (existing) {
-      // Garante que metadata.whatsappLid está presente para contatos LID já existentes
+      // Garante que metadata.whatsappLid estÃ¡ presente para contatos LID jÃ¡ existentes
       if (isLid && existing.metadata?.whatsappLid !== normalized) {
         const updatedMeta = { ...(existing.metadata ?? {}), whatsappLid: normalized };
         await this.contacts.update({ id: existing.id, tenantId }, { metadata: updatedMeta } as any);
         existing.metadata = updatedMeta;
->>>>>>> 792d62962d05bee061315855f7fa63de842d4e39
       }
       return existing;
     }
 
-    // 2. Cria SOMENTE o contato — sem cliente temporário
-<<<<<<< HEAD
-    // Se for LID (@lid JID), NÃO armazena como phone (pois não é número de telefone real).
-    // Mantemos whatsapp por compatibilidade no roteamento atual e também salvamos metadata.whatsappLid
-    // para a UI/fluxos conseguirem distinguir identificador técnico de número real.
-    // O agente vinculará ao cliente real durante o atendimento via ContactValidationBanner
-=======
-    // LID: mantém whatsapp preenchido para compatibilidade de roteamento,
-    // mas não salva como phone (não é número real) e registra em metadata.whatsappLid
->>>>>>> 792d62962d05bee061315855f7fa63de842d4e39
+    // 2. Cria SOMENTE o contato â€” sem cliente temporÃ¡rio
+    // LID: mantÃ©m whatsapp preenchido para compatibilidade de roteamento,
+    // mas nÃ£o salva como phone (nÃ£o Ã© nÃºmero real) e registra em metadata.whatsappLid
     const contact = await this.contacts.save(
       this.contacts.create({
         tenantId,
@@ -608,10 +572,6 @@ export class CustomersService {
         name: displayName || (isLid ? 'WhatsApp' : `+${normalized}`),
         whatsapp: normalized,
         phone: isLid ? (null as any) : normalized,
-<<<<<<< HEAD
-        metadata: isLid ? { whatsappLid: normalized } : {},
-=======
->>>>>>> 792d62962d05bee061315855f7fa63de842d4e39
         preferredChannel: 'whatsapp',
         canOpenTickets: true,
         status: 'active',
@@ -625,12 +585,12 @@ export class CustomersService {
   /**
    * Vincula um contato a um cliente existente e adiciona ao cadastro de contatos do cliente.
    * Usado quando o contato informa o CNPJ e o sistema identifica automaticamente.
-   * Também insere no pivot contact_customers (vinculação automática, linked_by = null).
+   * TambÃ©m insere no pivot contact_customers (vinculaÃ§Ã£o automÃ¡tica, linked_by = null).
    */
   async linkContactToClient(tenantId: string, contactId: string, clientId: string): Promise<void> {
     const contact = await this.contacts.findOne({ where: { id: contactId, tenantId } });
     if (!contact) return;
-    // Só vincula se o contato ainda não estiver associado a nenhum cliente
+    // SÃ³ vincula se o contato ainda nÃ£o estiver associado a nenhum cliente
     if (contact.clientId) return;
     await this.contacts.update({ id: contactId, tenantId }, { clientId } as any);
 
@@ -647,20 +607,20 @@ export class CustomersService {
 
   /**
    * Salva um CNPJ detectado como pendente no metadata do contato.
-   * Usado quando o CNPJ é detectado em mensagem mas nenhum cliente foi encontrado.
+   * Usado quando o CNPJ Ã© detectado em mensagem mas nenhum cliente foi encontrado.
    */
   async storePendingCnpj(
     tenantId: string,
     contactId: string,
-    cnpj: string, // já normalizado (14 dígitos)
+    cnpj: string, // jÃ¡ normalizado (14 dÃ­gitos)
   ): Promise<void> {
     const contact = await this.contacts.findOne({ where: { id: contactId, tenantId } });
     if (!contact) {
-      this.logger.warn(`storePendingCnpj: contato ${contactId} não encontrado no tenant ${tenantId}`);
+      this.logger.warn(`storePendingCnpj: contato ${contactId} nÃ£o encontrado no tenant ${tenantId}`);
       return;
     }
 
-    // Merge com metadata existente para não sobrescrever outros campos
+    // Merge com metadata existente para nÃ£o sobrescrever outros campos
     const currentMetadata: Record<string, any> = contact.metadata ?? {};
     const updatedMetadata: Record<string, any> = {
       ...currentMetadata,
@@ -673,13 +633,13 @@ export class CustomersService {
   }
 
   /**
-   * Busca clientes ativos do tenant cujo CNPJ começa com os 8 primeiros dígitos fornecidos (raiz CNPJ).
+   * Busca clientes ativos do tenant cujo CNPJ comeÃ§a com os 8 primeiros dÃ­gitos fornecidos (raiz CNPJ).
    * Exclui clientes auto-criados. Limita a 10 resultados ordenados por nome.
-   * Usado para sugerir candidatos quando há múltiplos clientes com mesma raiz CNPJ.
+   * Usado para sugerir candidatos quando hÃ¡ mÃºltiplos clientes com mesma raiz CNPJ.
    */
   async findClientsByCnpjRoot(
     tenantId: string,
-    cnpjRoot: string, // 8 primeiros dígitos
+    cnpjRoot: string, // 8 primeiros dÃ­gitos
   ): Promise<Array<{ id: string; companyName: string; tradeName: string; cnpj: string }>> {
     const rows = await this.clients.manager.query<
       Array<{ id: string; company_name: string; trade_name: string; cnpj: string }>

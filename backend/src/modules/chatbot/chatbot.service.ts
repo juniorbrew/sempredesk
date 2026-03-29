@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
+﻿import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, MoreThan, LessThan, DataSource } from 'typeorm';
 import { ChatbotConfig } from './entities/chatbot-config.entity';
@@ -15,26 +15,26 @@ import { normalizeCnpj, validateCnpj } from '../../common/utils/cnpj.utils';
 
 export interface ProcessResult {
   handled: boolean;
-  /** reply text(s) to send back — only meaningful when handled=true */
+  /** reply text(s) to send back â€” only meaningful when handled=true */
   replies: string[];
   /** when bot hands off to human */
   transfer?: {
     department?: string;
     senderName?: string;
-    /** clientId detectado via CNPJ — para auto-vincular ao ticket */
+    /** clientId detectado via CNPJ â€” para auto-vincular ao ticket */
     clientId?: string;
   };
 }
 
-// ── Constantes do chatbot ─────────────────────────────────────────────────────
+// â”€â”€ Constantes do chatbot â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-const SKIP_KEYWORDS = ['pular', 'pulei', 'skip', 'não sei', 'nao sei', 'nao', 'não', 'sem cnpj', 'p'];
+const SKIP_KEYWORDS = ['pular', 'pulei', 'skip', 'nÃ£o sei', 'nao sei', 'nao', 'nÃ£o', 'sem cnpj', 'p'];
 
 @Injectable()
 export class ChatbotService {
   private readonly logger = new Logger(ChatbotService.name);
 
-  /** Setter para BaileysService — injetado via AppModule.onModuleInit (evita circular dep) */
+  /** Setter para BaileysService â€” injetado via AppModule.onModuleInit (evita circular dep) */
   private baileysService: { sendMessage(tenantId: string, to: string, text: string): Promise<void> } | null = null;
   setBaileysService(svc: { sendMessage(tenantId: string, to: string, text: string): Promise<void> }) {
     this.baileysService = svc;
@@ -51,7 +51,7 @@ export class ChatbotService {
     @InjectDataSource() private readonly dataSource: DataSource,
   ) {}
 
-  // ─── Config ────────────────────────────────────────────────────────────────
+  // â”€â”€â”€ Config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   async getOrCreateConfig(tenantId: string): Promise<ChatbotConfig> {
     let config = await this.configRepo.findOne({ where: { tenantId }, relations: ['menuItems'] });
@@ -104,18 +104,18 @@ export class ChatbotService {
 
   private async createDefaultMenu(tenantId: string, chatbotId: string): Promise<void> {
     const defaults = [
-      { order: 1, label: '💰 Financeiro', action: 'transfer', department: 'Financeiro' },
-      { order: 2, label: '🔧 Suporte Técnico', action: 'transfer', department: 'Suporte' },
-      { order: 3, label: '🛒 Comercial / Vendas', action: 'transfer', department: 'Comercial' },
-      { order: 4, label: '👤 Falar com atendente', action: 'transfer', department: null },
-      { order: 5, label: '📋 Outros assuntos', action: 'transfer', department: null },
+      { order: 1, label: 'ðŸ’° Financeiro', action: 'transfer', department: 'Financeiro' },
+      { order: 2, label: 'ðŸ”§ Suporte TÃ©cnico', action: 'transfer', department: 'Suporte' },
+      { order: 3, label: 'ðŸ›’ Comercial / Vendas', action: 'transfer', department: 'Comercial' },
+      { order: 4, label: 'ðŸ‘¤ Falar com atendente', action: 'transfer', department: null },
+      { order: 5, label: 'ðŸ“‹ Outros assuntos', action: 'transfer', department: null },
     ];
     for (const d of defaults) {
       await this.menuRepo.save(this.menuRepo.create({ ...d, tenantId, chatbotId, enabled: true }));
     }
   }
 
-  // ─── Message Processing ────────────────────────────────────────────────────
+  // â”€â”€â”€ Message Processing â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   /**
    * Main entry point called by WhatsApp / web widget handlers.
@@ -137,7 +137,7 @@ export class ChatbotService {
 
     let session = await this.getActiveSession(tenantId, identifier, channel, config.sessionTimeoutMinutes);
 
-    // New session or expired → send welcome + menu
+    // New session or expired â†’ send welcome + menu
     if (!session || session.step === 'welcome') {
       if (!session) {
         session = await this.sessionRepo.save(this.sessionRepo.create({
@@ -158,41 +158,41 @@ export class ChatbotService {
       };
     }
 
-    // Already transferred to human — don't intercept
+    // Already transferred to human â€” don't intercept
     if (session.step === 'transferred') {
       await this.touchSession(session);
       return { handled: false, replies: [] };
     }
 
-    // ── Avaliação: aguardando nota 1–5 ────────────────────────────────────────
+    // â”€â”€ AvaliaÃ§Ã£o: aguardando nota 1â€“5 â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if (session.step === 'awaiting_rating') {
       const nota = parseInt(text.trim(), 10);
       if (isNaN(nota) || nota < 1 || nota > 5) {
         await this.touchSession(session);
-        const aviso = 'Por favor, responda com um número de 1 a 5. 😊';
+        const aviso = 'Por favor, responda com um nÃºmero de 1 a 5. ðŸ˜Š';
         const pedido =
           config.ratingRequestMessage ||
-          'Como você avalia nosso atendimento?\n\n1 - ⭐ Muito ruim\n2 - ⭐⭐ Ruim\n3 - ⭐⭐⭐ Regular\n4 - ⭐⭐⭐⭐ Bom\n5 - ⭐⭐⭐⭐⭐ Excelente';
+          'Como vocÃª avalia nosso atendimento?\n\n1 - â­ Muito ruim\n2 - â­â­ Ruim\n3 - â­â­â­ Regular\n4 - â­â­â­â­ Bom\n5 - â­â­â­â­â­ Excelente';
         return { handled: true, replies: [`${aviso}\n\n${pedido}`] };
       }
-      // Nota válida → guarda na metadata e avança para comentário
+      // Nota vÃ¡lida â†’ guarda na metadata e avanÃ§a para comentÃ¡rio
       session.metadata = { ...((session.metadata as Record<string, unknown>) ?? {}), rating: nota };
       session.step = 'awaiting_rating_comment';
       session.lastActivity = new Date();
       await this.sessionRepo.save(session);
       const msgComentario =
         config.ratingCommentMessage ||
-        'Obrigado pela nota! 🙏 Gostaria de deixar um comentário? (Responda com o texto ou envie *pular* para finalizar.)';
+        'Obrigado pela nota! ðŸ™ Gostaria de deixar um comentÃ¡rio? (Responda com o texto ou envie *pular* para finalizar.)';
       return { handled: true, replies: [msgComentario] };
     }
 
-    // ── Avaliação: aguardando comentário opcional ─────────────────────────────
+    // â”€â”€ AvaliaÃ§Ã£o: aguardando comentÃ¡rio opcional â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if (session.step === 'awaiting_rating_comment') {
       const meta = (session.metadata as Record<string, unknown>) ?? {};
       const ticketId = meta.ticketId as string | undefined;
       const rating   = meta.rating   as number | undefined;
 
-      const SKIP = ['pular', 'pulei', 'skip', 'não', 'nao', 'n', '0', '-', 'sem comentário', 'sem comentario'];
+      const SKIP = ['pular', 'pulei', 'skip', 'nÃ£o', 'nao', 'n', '0', '-', 'sem comentÃ¡rio', 'sem comentario'];
       const comment = SKIP.includes(text.trim().toLowerCase()) ? null : text.trim();
 
       if (ticketId && rating) {
@@ -201,7 +201,7 @@ export class ChatbotService {
       await this.sessionRepo.delete({ id: session.id });
 
       const obrigado =
-        config.ratingThanksMessage || 'Obrigado pela avaliação! 😊 Até a próxima.';
+        config.ratingThanksMessage || 'Obrigado pela avaliaÃ§Ã£o! ðŸ˜Š AtÃ© a prÃ³xima.';
       return { handled: true, replies: [obrigado] };
     }
 
@@ -234,22 +234,17 @@ export class ChatbotService {
 
       const selectedLabel = chosen.label?.trim() || chosen.department?.trim() || null;
 
-      // Transfer to human — verificar se contato já tem empresa vinculada
+      // Transfer to human â€” verificar se contato jÃ¡ tem empresa vinculada
       let knownClientId: string | null = null;
       let knownClientName: string | null = null;
       if (this.customersService) {
         const existingContact = await this.customersService.findContactByWhatsapp(tenantId, identifier).catch(() => null);
         if (existingContact?.clientId) {
-          // Verificar se o cliente não é auto-criado
+          // Verificar se o cliente nÃ£o Ã© auto-criado
           const clients = await this.customersService.searchByNameOrCnpj(tenantId, existingContact.clientId).catch(() => []);
           // Busca direta pelo id
-<<<<<<< HEAD
-          const rows = await this.sessionRepo.manager.query<{ id: string; company_name: string; trade_name: string | null; metadata: any }[]>(
-            `SELECT id, company_name, trade_name, metadata FROM clients WHERE id::text = $1 AND tenant_id::text = $2 LIMIT 1`,
-=======
           const rows = await this.sessionRepo.manager.query<{ id: string; trade_name: string | null; company_name: string; metadata: any }[]>(
             `SELECT id, trade_name, company_name, metadata FROM clients WHERE id::text = $1 AND tenant_id::text = $2 LIMIT 1`,
->>>>>>> 792d62962d05bee061315855f7fa63de842d4e39
             [existingContact.clientId, tenantId],
           ).catch(() => []);
           const row = rows[0];
@@ -261,15 +256,9 @@ export class ChatbotService {
         }
       }
 
-      // Se empresa já conhecida → pular CNPJ, ir direto para descrição
+      // Se empresa jÃ¡ conhecida â†’ pular CNPJ, ir direto para descriÃ§Ã£o
       if (knownClientId) {
-<<<<<<< HEAD
-        const prefixMsg = knownClientName
-          ? `Empresa identificada: *${knownClientName}*.\n`
-          : undefined;
-=======
         const prefixMsg = knownClientName ? `Empresa identificada: *${knownClientName}*.\n` : undefined;
->>>>>>> 792d62962d05bee061315855f7fa63de842d4e39
         return this.goToDescriptionStep(session, config, {
           pendingDepartment: chosen.department ?? null,
           pendingMenuLabel: selectedLabel,
@@ -291,7 +280,7 @@ export class ChatbotService {
         return { handled: true, replies: [config.cnpjRequestMessage] };
       }
 
-      // collectCnpj desabilitado → pedir descrição
+      // collectCnpj desabilitado â†’ pedir descriÃ§Ã£o
       return this.goToDescriptionStep(session, config, {
         pendingDepartment: chosen.department ?? null,
         pendingMenuLabel: selectedLabel,
@@ -300,7 +289,7 @@ export class ChatbotService {
       });
     }
 
-    // ── Aguardando CNPJ ──────────────────────────────────────────────────────
+    // â”€â”€ Aguardando CNPJ â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if (session.step === 'awaiting_cnpj') {
       const meta = (session.metadata ?? {}) as Record<string, unknown>;
       const pendingDepartment = meta.pendingDepartment as string | null;
@@ -317,13 +306,13 @@ export class ChatbotService {
           pendingClientId: clientId,
         }, prefixMsg);
 
-      // Usuário quer pular
+      // UsuÃ¡rio quer pular
       if (SKIP_KEYWORDS.includes(trimmed)) return goToDesc(null);
 
-      // Extrai apenas dígitos do texto para análise de CNPJ
+      // Extrai apenas dÃ­gitos do texto para anÃ¡lise de CNPJ
       const digits = text.replace(/\D/g, '');
 
-      // Busca por nome (texto livre, não parece CNPJ)
+      // Busca por nome (texto livre, nÃ£o parece CNPJ)
       if (digits.length !== 14 && digits.length < 8) {
         if (this.customersService && text.trim().length >= 3) {
           const found = await this.customersService.searchByNameOrCnpj(tenantId, text.trim()).catch(() => []);
@@ -332,14 +321,14 @@ export class ChatbotService {
         if (attempts < 1) {
           session.metadata = { ...meta, cnpjAttempts: attempts + 1 };
           await this.sessionRepo.save(session);
-          return { handled: true, replies: ['CNPJ inválido. Informe 14 dígitos ou responda *pular*:'] };
+          return { handled: true, replies: ['CNPJ invÃ¡lido. Informe 14 dÃ­gitos ou responda *pular*:'] };
         }
         return goToDesc(null, `${config.cnpjNotFoundMessage}\n`);
       }
 
-      // Busca direta com os 14 dígitos — mesma lógica do menu de cliente, que não valida
-      // matematicamente antes de buscar. O importante é encontrar o cliente cadastrado,
-      // independentemente de o CNPJ passar ou não pelo algoritmo de dígitos verificadores.
+      // Busca direta com os 14 dÃ­gitos â€” mesma lÃ³gica do menu de cliente, que nÃ£o valida
+      // matematicamente antes de buscar. O importante Ã© encontrar o cliente cadastrado,
+      // independentemente de o CNPJ passar ou nÃ£o pelo algoritmo de dÃ­gitos verificadores.
       const results = await this.customersService!.searchByNameOrCnpj(tenantId, digits).catch(() => []);
       const match = results.find(r => normalizeCnpj(r.cnpj ?? '') === digits);
 
@@ -347,20 +336,20 @@ export class ChatbotService {
         return goToDesc(match.id, `Empresa identificada: *${match.tradeName || match.companyName}*.\n`);
       }
 
-      // Não encontrado — dar feedback contextualizado ao usuário
-      // Se o CNPJ nem é matematicamente válido, provável erro de digitação
+      // NÃ£o encontrado â€” dar feedback contextualizado ao usuÃ¡rio
+      // Se o CNPJ nem Ã© matematicamente vÃ¡lido, provÃ¡vel erro de digitaÃ§Ã£o
       if (!validateCnpj(digits)) {
         if (attempts < 1) {
           session.metadata = { ...meta, cnpjAttempts: attempts + 1 };
           await this.sessionRepo.save(session);
-          return { handled: true, replies: ['CNPJ inválido. Verifique os dígitos e tente novamente ou responda *pular*:'] };
+          return { handled: true, replies: ['CNPJ invÃ¡lido. Verifique os dÃ­gitos e tente novamente ou responda *pular*:'] };
         }
       }
 
       return goToDesc(null, `${config.cnpjNotFoundMessage}\n`);
     }
 
-    // ── Aguardando descrição da demanda ───────────────────────────────────────
+    // â”€â”€ Aguardando descriÃ§Ã£o da demanda â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if (session.step === 'awaiting_description') {
       const meta = (session.metadata ?? {}) as Record<string, unknown>;
       const pendingDepartment = meta.pendingDepartment as string | null;
@@ -371,7 +360,7 @@ export class ChatbotService {
       session.metadata = null;
       await this.sessionRepo.save(session);
 
-      // A própria mensagem do usuário vira o firstMessage/assunto do ticket
+      // A prÃ³pria mensagem do usuÃ¡rio vira o firstMessage/assunto do ticket
       return {
         handled: true,
         replies: [config.transferMessage],
@@ -386,7 +375,7 @@ export class ChatbotService {
     return { handled: false, replies: [] };
   }
 
-  /** Transiciona sessão para awaiting_description e retorna resposta do bot */
+  /** Transiciona sessÃ£o para awaiting_description e retorna resposta do bot */
   private async goToDescriptionStep(
     session: ChatbotSession,
     config: ChatbotConfig,
@@ -403,27 +392,27 @@ export class ChatbotService {
     };
     await this.sessionRepo.save(session);
     const selectionPrefix = meta.pendingMenuLabel
-      ? `Você selecionou: *${meta.pendingMenuLabel}*.\n`
+      ? `VocÃª selecionou: *${meta.pendingMenuLabel}*.\n`
       : '';
     const msg = `${prefixMsg ?? ''}${selectionPrefix}${config.descriptionRequestMessage}`;
     return { handled: true, replies: [msg] };
   }
 
   /**
-   * Cron: auto-transfere sessões que ficaram em awaiting_description por mais de X minutos sem resposta.
+   * Cron: auto-transfere sessÃµes que ficaram em awaiting_description por mais de X minutos sem resposta.
    * Chamado pelo ChatbotScheduler a cada minuto.
    */
   async runDescriptionTimeoutCron(): Promise<void> {
     if (!this.customersService || !this.conversationsService) return;
 
-    // Busca todos os tenants com sessões travadas
-    const cutoff = new Date(Date.now() - 3 * 60 * 1000); // 3 min atrás
+    // Busca todos os tenants com sessÃµes travadas
+    const cutoff = new Date(Date.now() - 3 * 60 * 1000); // 3 min atrÃ¡s
     const staleSessions = await this.sessionRepo.find({
       where: { step: 'awaiting_description', lastActivity: LessThan(cutoff) },
     });
 
     if (!staleSessions.length) return;
-    this.logger.log(`ChatbotScheduler: ${staleSessions.length} sessões em timeout de descrição`);
+    this.logger.log(`ChatbotScheduler: ${staleSessions.length} sessÃµes em timeout de descriÃ§Ã£o`);
 
     for (const session of staleSessions) {
       try {
@@ -437,7 +426,7 @@ export class ChatbotService {
         session.metadata = null;
         await this.sessionRepo.save(session);
 
-        // Enviar mensagem de timeout via WhatsApp (se BaileysService disponível)
+        // Enviar mensagem de timeout via WhatsApp (se BaileysService disponÃ­vel)
         if (this.baileysService) {
           const config = await this.getOrCreateConfig(tenantId).catch(() => null);
           const msg = config?.transferMessage ?? 'Transferindo para um atendente...';
@@ -453,7 +442,7 @@ export class ChatbotService {
             contact.id,
             ConversationChannel.WHATSAPP,
             {
-              firstMessage: 'Atendimento solicitado (sem descrição informada)',
+              firstMessage: 'Atendimento solicitado (sem descriÃ§Ã£o informada)',
               contactName: contact.name || session.identifier,
               department: pendingDepartment ?? undefined,
             } as any,
@@ -471,10 +460,10 @@ export class ChatbotService {
   }
 
   /**
-   * Inicia o fluxo de avaliação ao encerrar atendimento via WhatsApp.
-   * Define sessão como 'awaiting_rating' e dispara a mensagem de solicitação
+   * Inicia o fluxo de avaliaÃ§Ã£o ao encerrar atendimento via WhatsApp.
+   * Define sessÃ£o como 'awaiting_rating' e dispara a mensagem de solicitaÃ§Ã£o
    * via callback outboundSend (fornecido por ConversationsService).
-   * Não reseta a sessão — o fluxo de avaliação tratará o encerramento.
+   * NÃ£o reseta a sessÃ£o â€” o fluxo de avaliaÃ§Ã£o tratarÃ¡ o encerramento.
    */
   async initiateRating(
     tenantId: string,
@@ -485,12 +474,12 @@ export class ChatbotService {
   ): Promise<void> {
     const config = await this.getOrCreateConfig(tenantId).catch(() => null);
     const DEFAULT_REQUEST =
-      'Seu atendimento foi encerrado! Como você avalia nosso suporte?\n\n' +
-      '1 - ⭐ Muito ruim\n2 - ⭐⭐ Ruim\n3 - ⭐⭐⭐ Regular\n' +
-      '4 - ⭐⭐⭐⭐ Bom\n5 - ⭐⭐⭐⭐⭐ Excelente';
+      'Seu atendimento foi encerrado! Como vocÃª avalia nosso suporte?\n\n' +
+      '1 - â­ Muito ruim\n2 - â­â­ Ruim\n3 - â­â­â­ Regular\n' +
+      '4 - â­â­â­â­ Bom\n5 - â­â­â­â­â­ Excelente';
     const message = config?.ratingRequestMessage || DEFAULT_REQUEST;
 
-    // Upsert session → awaiting_rating
+    // Upsert session â†’ awaiting_rating
     let session = await this.sessionRepo.findOne({ where: { tenantId, identifier, channel } });
     if (!session) {
       session = this.sessionRepo.create({
@@ -509,8 +498,8 @@ export class ChatbotService {
   }
 
   /**
-   * Persiste a nota (1–5) e comentário opcional na tabela tickets.
-   * Ignora silenciosamente se o ticket já foi avaliado (prevenção de duplicidade).
+   * Persiste a nota (1â€“5) e comentÃ¡rio opcional na tabela tickets.
+   * Ignora silenciosamente se o ticket jÃ¡ foi avaliado (prevenÃ§Ã£o de duplicidade).
    */
   private async saveWhatsappRating(
     tenantId: string,
@@ -548,7 +537,7 @@ export class ChatbotService {
     return items.map(i => `${i.order}. ${i.label}`).join('\n');
   }
 
-  // ─── Web Widget ─────────────────────────────────────────────────────────────
+  // â”€â”€â”€ Web Widget â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   async widgetStart(tenantId: string, dto: WidgetStartDto): Promise<{ sessionId: string; messages: ChatbotWidgetMessage[] }> {
     const sessionId = uuidv4();
@@ -586,7 +575,7 @@ export class ChatbotService {
         await this.saveWidgetMessage(tenantId, sessionId, 'bot', reply);
       }
     } else {
-      // Transferred or no bot — agent reply will be stored by conversation service
+      // Transferred or no bot â€” agent reply will be stored by conversation service
       if (!result.transfer) {
         await this.saveWidgetMessage(tenantId, sessionId, 'bot', 'Conectando com um atendente...');
       }
@@ -624,7 +613,7 @@ export class ChatbotService {
     };
   }
 
-  // ─── Stats ─────────────────────────────────────────────────────────────────
+  // â”€â”€â”€ Stats â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   async getStats(tenantId: string): Promise<{ totalSessions: number; activeSessions: number; transferred: number }> {
     const totalSessions = await this.sessionRepo.count({ where: { tenantId } });
