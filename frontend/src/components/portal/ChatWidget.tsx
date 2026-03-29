@@ -61,6 +61,8 @@ export default function ChatWidget() {
 
   // Messages
   const [messages, setMessages] = useState<any[]>([]);
+  const [hasMoreMessages, setHasMoreMessages] = useState(false);
+  const [loadingMoreMessages, setLoadingMoreMessages] = useState(false);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
 
@@ -74,6 +76,7 @@ export default function ChatWidget() {
 
   const lastSendRef = useRef<number>(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatBodyRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
 
@@ -233,21 +236,24 @@ export default function ChatWidget() {
     setLoading(false);
   };
 
+  const CHAT_PAGE_LIMIT = 50;
+
   const loadMessages = async (convId: string, preservePending = false) => {
     if (!accessToken) return;
     try {
-      const res = await fetch(`${API_BASE}/conversations/${convId}/messages`, {
+      const res = await fetch(`${API_BASE}/conversations/${convId}/messages?limit=${CHAT_PAGE_LIMIT}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
         credentials: 'include',
       });
       const data = await res.json();
-      const list = data?.data ?? (Array.isArray(data) ? data : data?.items) ?? [];
+      // Suporte a resposta paginada { messages, hasMore } e array/{ data }
+      const list = data?.messages ?? data?.data ?? (Array.isArray(data) ? data : data?.items) ?? [];
       const serverList = Array.isArray(list) ? list : [];
+      setHasMoreMessages(data?.hasMore ?? false);
       setMessages((prev) => {
         if (!preservePending) return serverList;
         const pending = prev.filter((m: any) => String(m.id).startsWith('temp-'));
         if (pending.length === 0) return serverList;
-        // Deduplicate: drop temp messages whose content is already in server list
         const serverKeys = new Set(serverList.map((m: any) => `${m.authorType}||${m.content}`));
         const toKeep = pending.filter((m: any) => !serverKeys.has(`${m.authorType}||${m.content}`));
         if (toKeep.length === 0) return serverList;
@@ -256,6 +262,34 @@ export default function ChatWidget() {
         return merged;
       });
     } catch {}
+  };
+
+  const loadMoreMessages = async () => {
+    if (!conversationId || !accessToken || loadingMoreMessages || !hasMoreMessages) return;
+    const body = chatBodyRef.current;
+    const prevScrollHeight = body?.scrollHeight ?? 0;
+    setLoadingMoreMessages(true);
+    try {
+      const oldest = messages[0];
+      const url = `${API_BASE}/conversations/${conversationId}/messages?limit=${CHAT_PAGE_LIMIT}${oldest?.id ? `&before=${oldest.id}` : ''}`;
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` }, credentials: 'include' });
+      const data = await res.json();
+      const older = data?.messages ?? data?.data ?? (Array.isArray(data) ? data : []);
+      setHasMoreMessages(data?.hasMore ?? false);
+      if (Array.isArray(older) && older.length > 0) {
+        setMessages(prev => {
+          const existingIds = new Set(prev.map((m: any) => m.id));
+          const newOnes = older.filter((m: any) => !existingIds.has(m.id));
+          const merged = [...newOnes, ...prev];
+          merged.sort((a: any, b: any) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime());
+          return merged;
+        });
+        requestAnimationFrame(() => {
+          if (body) body.scrollTop = body.scrollHeight - prevScrollHeight;
+        });
+      }
+    } catch {}
+    setLoadingMoreMessages(false);
   };
 
   const checkTicketStatus = async (id: string) => {
@@ -986,6 +1020,7 @@ export default function ChatWidget() {
 
               {/* Messages */}
               <div
+                ref={chatBodyRef}
                 style={{
                   flex: 1,
                   overflowY: 'auto',
@@ -996,6 +1031,23 @@ export default function ChatWidget() {
                   minHeight: 0,
                 }}
               >
+                {/* Botão "Carregar mensagens anteriores" */}
+                {hasMoreMessages && (
+                  <div style={{ textAlign: 'center', paddingBottom: 8 }}>
+                    <button
+                      onClick={loadMoreMessages}
+                      disabled={loadingMoreMessages}
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 5,
+                        padding: '5px 14px', background: '#F1F5F9', border: '1px solid #E2E8F0',
+                        borderRadius: 20, color: '#475569', fontSize: 11, fontWeight: 600,
+                        cursor: loadingMoreMessages ? 'wait' : 'pointer', opacity: loadingMoreMessages ? 0.6 : 1,
+                      }}
+                    >
+                      {loadingMoreMessages ? 'Carregando...' : '↑ Mensagens anteriores'}
+                    </button>
+                  </div>
+                )}
                 {messages.length === 0 ? (
                   <div style={{ textAlign: 'center', color: '#94A3B8', fontSize: 13, padding: 32, margin: 'auto' }}>
                     Nenhuma mensagem ainda.

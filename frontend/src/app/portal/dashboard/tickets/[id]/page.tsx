@@ -1,10 +1,10 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { usePortalStore } from '@/store/portal.store';
 import { useRealtimeTicket } from '@/lib/realtime';
-import { ArrowLeft, Send, User, Headphones, RefreshCw, AlertTriangle, UserCircle, MessageSquare, PhoneCall, ThumbsUp, ThumbsDown, CheckCircle, XCircle } from 'lucide-react';
+import { ArrowLeft, Send, User, Headphones, RefreshCw, AlertTriangle, UserCircle, MessageSquare, PhoneCall, ThumbsUp, ThumbsDown, CheckCircle, XCircle, ChevronUp } from 'lucide-react';
 
 const API_BASE = '/api/v1';
 
@@ -30,6 +30,9 @@ export default function PortalDashboardTicketDetailPage() {
   const [showAgent, setShowAgent] = useState(true);
   const [showUpdates, setShowUpdates] = useState(true);
   const [satisfying, setSatisfying] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
 
   const STATUS_PT: Record<string,string> = { open:'Aberto', in_progress:'Em Andamento', waiting_client:'Aguardando Cliente', resolved:'Resolvido', closed:'Fechado', cancelled:'Cancelado', low:'Baixa', medium:'Média', high:'Alta', critical:'Crítico' };
 
@@ -49,41 +52,72 @@ export default function PortalDashboardTicketDetailPage() {
     return t;
   };
 
+  const PAGE_LIMIT = 50;
+
+  const mergeMessages = (ticketMsgs: any[], convMsgs: any[]): any[] => {
+    const seen = new Set<string>();
+    return [...ticketMsgs, ...convMsgs]
+      .filter((m:any) => { const k = m.id || `${m.content}-${m.createdAt}`; if (seen.has(k)) return false; seen.add(k); return true; })
+      .sort((a:any,b:any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  };
+
   const load = async () => {
     if (!accessToken || !id) return;
     setLoading(true);
     try {
       const [tRes, mRes] = await Promise.all([
         fetch(`${API_BASE}/tickets/${id}`, { headers:{ Authorization:`Bearer ${accessToken}` } }),
-        fetch(`${API_BASE}/tickets/${id}/messages?includeInternal=false`, { headers:{ Authorization:`Bearer ${accessToken}` } }),
+        fetch(`${API_BASE}/tickets/${id}/messages?includeInternal=false&limit=${PAGE_LIMIT}`, { headers:{ Authorization:`Bearer ${accessToken}` } }),
       ]);
       const tData = await tRes.json();
       const mData = await mRes.json();
-      // /team requer permissão que portal não tem — busca silenciosamente
       const teamData: any[] = [];
       const ticketData = (tRes.ok && (tData?.data || tData)) ? (tData?.data || tData) : null;
-      const rawTicketMsgs = (mData?.data || mData || []).filter((m:any) => m.messageType !== 'internal');
+      // Suporte a resposta paginada ({ messages, hasMore }) e array simples
+      const rawTicketMsgs = (mData?.messages ?? mData?.data ?? mData ?? []).filter((m:any) => m.messageType !== 'internal');
+      setHasMore(mData?.hasMore ?? false);
       let convMsgs: any[] = [];
 
       if (ticketData?.conversationId) {
         try {
-          const cRes = await fetch(`${API_BASE}/conversations/${ticketData.conversationId}/messages`, { headers:{ Authorization:`Bearer ${accessToken}` } });
+          const cRes = await fetch(`${API_BASE}/conversations/${ticketData.conversationId}/messages?limit=${PAGE_LIMIT}`, { headers:{ Authorization:`Bearer ${accessToken}` } });
           const cData = await cRes.json();
-          convMsgs = Array.isArray(cData?.data) ? cData.data : Array.isArray(cData) ? cData : [];
+          convMsgs = Array.isArray(cData?.messages) ? cData.messages : Array.isArray(cData?.data) ? cData.data : Array.isArray(cData) ? cData : [];
         } catch {}
       }
 
-      // Unificar: ticket messages + conversation messages, ordenados por data (evitar duplicatas por id)
-      const seen = new Set<string>();
-      const merged = [...rawTicketMsgs, ...convMsgs]
-        .filter((m:any) => { const k = m.id || `${m.content}-${m.createdAt}`; if (seen.has(k)) return false; seen.add(k); return true; })
-        .sort((a:any,b:any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-
       setTicket(ticketData);
       setTeam(teamData?.data || teamData || []);
-      setMessages(merged);
+      setMessages(mergeMessages(rawTicketMsgs, convMsgs));
     } catch {}
     setLoading(false);
+  };
+
+  const loadMore = async () => {
+    if (!accessToken || !id || loadingMore || !hasMore) return;
+    const container = messagesContainerRef.current;
+    const prevScrollHeight = container?.scrollHeight ?? 0;
+    setLoadingMore(true);
+    try {
+      // O cursor é a mensagem mais antiga que temos
+      const oldest = messages.find((m:any) => m.messageType !== 'internal' && !['system','status_change','assignment','escalation'].includes(m.messageType));
+      const cursorId = oldest?.id;
+      const url = `${API_BASE}/tickets/${id}/messages?includeInternal=false&limit=${PAGE_LIMIT}${cursorId ? `&before=${cursorId}` : ''}`;
+      const res = await fetch(url, { headers:{ Authorization:`Bearer ${accessToken}` } });
+      const data = await res.json();
+      const older = (data?.messages ?? data?.data ?? data ?? []).filter((m:any) => m.messageType !== 'internal');
+      setHasMore(data?.hasMore ?? false);
+      if (older.length > 0) {
+        setMessages(prev => mergeMessages(older, prev));
+        // Restaurar posição de scroll para não pular para o topo
+        requestAnimationFrame(() => {
+          if (container) {
+            container.scrollTop = container.scrollHeight - prevScrollHeight;
+          }
+        });
+      }
+    } catch {}
+    setLoadingMore(false);
   };
 
   useEffect(() => { load(); }, [id, accessToken]);
@@ -242,7 +276,20 @@ export default function PortalDashboardTicketDetailPage() {
             <RefreshCw style={{ width:14, height:14, color:'#64748B' }} /> Atualizações
           </label>
         </div>
-        <div style={{ padding:'16px 20px', display:'flex', flexDirection:'column', gap:12 }}>
+        <div ref={messagesContainerRef} style={{ padding:'16px 20px', display:'flex', flexDirection:'column', gap:12, maxHeight:520, overflowY:'auto' }}>
+          {/* Botão "Carregar mensagens anteriores" */}
+          {hasMore && (
+            <div style={{ textAlign:'center', paddingBottom:8 }}>
+              <button
+                onClick={loadMore}
+                disabled={loadingMore}
+                style={{ display:'inline-flex', alignItems:'center', gap:6, padding:'6px 16px', background:'#F1F5F9', border:'1px solid #E2E8F0', borderRadius:20, color:'#475569', fontSize:12, fontWeight:600, cursor:loadingMore?'wait':'pointer', opacity:loadingMore?0.6:1 }}
+              >
+                <ChevronUp style={{ width:13, height:13 }} />
+                {loadingMore ? 'Carregando...' : 'Carregar mensagens anteriores'}
+              </button>
+            </div>
+          )}
           {messages.length===0 ? (
             <div style={{ textAlign:'center', padding:'32px 0', color:'#94A3B8', fontSize:13 }}>
               <MessageSquare style={{ width:28, height:28, margin:'0 auto 8px', opacity:0.5, display:'block' }} />

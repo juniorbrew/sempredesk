@@ -1,4 +1,4 @@
-﻿import { Injectable, Logger, BadRequestException, Optional } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, Optional } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
@@ -37,14 +37,6 @@ export class WhatsappService {
     @Optional() private readonly chatbotService: ChatbotService,
     @InjectDataSource() private readonly dataSource: DataSource,
   ) {}
-
-  private resolveContactWhatsappTarget(contact: any, fallback?: string): { raw: string; digits: string } {
-    const technicalLid = String(contact?.metadata?.whatsappLid || '').trim();
-    const storedWhatsapp = String(contact?.whatsapp || '').trim();
-    const fallbackDigits = String(fallback || '').replace(/\D/g, '');
-    const raw = technicalLid || storedWhatsapp || fallbackDigits;
-    return { raw, digits: raw.replace(/\D/g, '') };
-  }
 
   normalizeGenericPayload(body: any): NormalizedWhatsappMessage | null {
     if (!body?.from || !body?.text) return null;
@@ -87,7 +79,7 @@ export class WhatsappService {
 
   async handleIncomingMessage(tenantId: string, msg: NormalizedWhatsappMessage, department?: string, chatbotClientId?: string) {
     let wa = msg.from.replace(/\D/g, '');
-    // Don't truncate LID-format numbers (from @lid JIDs) â€” keep full identifier
+    // Don't truncate LID-format numbers (from @lid JIDs) — keep full identifier
     // Only truncate if it looks like a real phone number (starts with country code)
     if (wa.length > 15) wa = wa.slice(-13);
 
@@ -114,13 +106,13 @@ export class WhatsappService {
       }
     }
 
-    // Detecta se Ã© um identificador LID (nÃ£o Ã© nÃºmero de telefone real)
-    // LIDs sÃ£o identificadores internos do WhatsApp â€” 14+ dÃ­gitos ou flag explÃ­cita do Baileys
+    // Detecta se é um identificador LID (não é número de telefone real)
+    // LIDs são identificadores internos do WhatsApp — 14+ dígitos ou flag explícita do Baileys
     const isLid = (msg as any).isLid === true || wa.length >= 14;
 
     let contact = await this.customersService.findContactByWhatsapp(tenantId, wa);
     if (!contact) {
-      // Cria apenas o contato (sem cliente temporÃ¡rio)
+      // Cria apenas o contato (sem cliente temporário)
       this.logger.log(`Criando contato para WhatsApp desconhecido: ${wa} isLid=${isLid} (${msg.senderName || 'sem nome'})`);
       contact = await this.customersService.findOrCreateByWhatsapp(tenantId, wa, msg.senderName, isLid);
     }
@@ -139,7 +131,7 @@ export class WhatsappService {
       }
     }
 
-    // CNPJ auto-detection: sÃ³ executa se chatbot nÃ£o identificou cliente e contato nÃ£o tem cliente
+    // CNPJ auto-detection: só executa se chatbot não identificou cliente e contato não tem cliente
     if (!chatbotClientId && !contact.clientId) {
       const cnpjDetectado = detectCnpjInText(text ?? '');
       if (cnpjDetectado) {
@@ -148,22 +140,22 @@ export class WhatsappService {
           const matches = await this.customersService.searchByNameOrCnpj(tenantId, cnpjDetectado);
           const exactMatch = matches.find((m) => normalizeCnpj(m.cnpj ?? '') === cnpjDetectado);
           if (exactMatch) {
-            this.logger.log(`Cliente ${exactMatch.id} encontrado via CNPJ ${cnpjDetectado} â€” vinculando contato ${contact.id}`);
+            this.logger.log(`Cliente ${exactMatch.id} encontrado via CNPJ ${cnpjDetectado} — vinculando contato ${contact.id}`);
             await this.customersService.linkContactToClient(tenantId, contact.id, exactMatch.id);
-            // Atualizar referÃªncia local para uso em getOrCreateForContact
+            // Atualizar referência local para uso em getOrCreateForContact
             contact = { ...contact, clientId: exactMatch.id };
           } else {
-            this.logger.warn(`CNPJ ${cnpjDetectado} detectado mas nenhum cliente encontrado â€” salvando como pendente`);
+            this.logger.warn(`CNPJ ${cnpjDetectado} detectado mas nenhum cliente encontrado — salvando como pendente`);
             await this.customersService.storePendingCnpj(tenantId, contact.id, cnpjDetectado);
           }
         } catch (err) {
-          this.logger.warn(`Erro na detecÃ§Ã£o automÃ¡tica de CNPJ: ${(err as Error).message}`);
-          // NÃ£o bloquear o fluxo principal
+          this.logger.warn(`Erro na detecção automática de CNPJ: ${(err as Error).message}`);
+          // Não bloquear o fluxo principal
         }
       }
     }
 
-    // clientId: prioriza o identificado pelo chatbot (CNPJ), depois o jÃ¡ vinculado ao contato
+    // clientId: prioriza o identificado pelo chatbot (CNPJ), depois o já vinculado ao contato
     const resolvedClientId = chatbotClientId ?? contact.clientId ?? null;
 
     const { conversation, ticket, ticketCreated } = await this.conversationsService.getOrCreateForContact(
@@ -197,13 +189,13 @@ export class WhatsappService {
       }
     }
 
-    // A atribuiÃ§Ã£o automÃ¡tica jÃ¡ Ã© feita via round-robin em TicketsService.create()
-    // (assignmentSvc.assignTicket). NÃ£o duplicar aqui com least-loaded.
+    // A atribuição automática já é feita via round-robin em TicketsService.create()
+    // (assignmentSvc.assignTicket). Não duplicar aqui com least-loaded.
 
-    // Envia mensagem automÃ¡tica ao cliente somente quando um novo ticket foi criado
+    // Envia mensagem automática ao cliente somente quando um novo ticket foi criado
     if (ticketCreated && ticket) {
       this.sendPostTicketMessage(tenantId, wa, contact, ticket).catch((e) =>
-        this.logger.warn(`Falha ao enviar mensagem pÃ³s-ticket #${ticket.ticketNumber}`, e),
+        this.logger.warn(`Falha ao enviar mensagem pós-ticket #${ticket.ticketNumber}`, e),
       );
     }
 
@@ -211,10 +203,10 @@ export class WhatsappService {
   }
 
   /**
-   * Monta e envia a mensagem automÃ¡tica ao cliente logo apÃ³s a criaÃ§Ã£o do ticket.
-   * Usa o template configurado em ChatbotConfig, com fallback para o texto padrÃ£o.
-   * VersÃ£o com agente: {contato}, {empresa_atendente}, {agente}, {numero_ticket}
-   * VersÃ£o sem agente: {contato}, {empresa_atendente}, {numero_ticket}
+   * Monta e envia a mensagem automática ao cliente logo após a criação do ticket.
+   * Usa o template configurado em ChatbotConfig, com fallback para o texto padrão.
+   * Versão com agente: {contato}, {empresa_atendente}, {agente}, {numero_ticket}
+   * Versão sem agente: {contato}, {empresa_atendente}, {numero_ticket}
    */
   private async sendPostTicketMessage(
     tenantId: string,
@@ -229,7 +221,7 @@ export class WhatsappService {
     ).catch(() => []);
     const companyName = settingsRows[0]?.companyName || 'nosso suporte';
 
-    // 2. Busca o nome do agente atribuÃ­do (se houver)
+    // 2. Busca o nome do agente atribuído (se houver)
     let agentName: string | null = null;
     if (ticket.assignedTo) {
       const agentRows = await this.dataSource.query<{ name: string }[]>(
@@ -239,11 +231,11 @@ export class WhatsappService {
       agentName = agentRows[0]?.name ?? null;
     }
 
-    // 3. Busca o template configurado no chatbot (ou usa padrÃ£o)
+    // 3. Busca o template configurado no chatbot (ou usa padrão)
     const DEFAULT_WITH_AGENT =
-      'OlÃ¡, {contato}.\n\nBem-vindo(a) ao suporte da {empresa_atendente}.\n\nMeu nome Ã© {agente} e estarei Ã  disposiÃ§Ã£o para ajudar.\n\nðŸ“Œ O nÃºmero do seu ticket Ã© #{numero_ticket}.\n\nComo posso te auxiliar?';
+      'Olá, {contato}.\n\nBem-vindo(a) ao suporte da {empresa_atendente}.\n\nMeu nome é {agente} e estarei à disposição para ajudar.\n\n📌 O número do seu ticket é #{numero_ticket}.\n\nComo posso te auxiliar?';
     const DEFAULT_NO_AGENT =
-      'OlÃ¡, {contato}.\n\nBem-vindo(a) ao suporte da {empresa_atendente}.\n\nSeu atendimento foi iniciado com sucesso.\n\nðŸ“Œ O nÃºmero do seu ticket Ã© #{numero_ticket}.\n\nEm instantes um atendente darÃ¡ continuidade.';
+      'Olá, {contato}.\n\nBem-vindo(a) ao suporte da {empresa_atendente}.\n\nSeu atendimento foi iniciado com sucesso.\n\n📌 O número do seu ticket é #{numero_ticket}.\n\nEm instantes um atendente dará continuidade.';
 
     const config = this.chatbotService
       ? await this.chatbotService.getOrCreateConfig(tenantId).catch(() => null)
@@ -253,7 +245,7 @@ export class WhatsappService {
       ? (config?.postTicketMessage || DEFAULT_WITH_AGENT)
       : (config?.postTicketMessageNoAgent || DEFAULT_NO_AGENT);
 
-    // 4. Interpola as variÃ¡veis
+    // 4. Interpola as variáveis
     const contactName = contact.name || contact.email || 'cliente';
     const message = template
       .replace(/{contato}/g, contactName)
@@ -261,7 +253,7 @@ export class WhatsappService {
       .replace(/{agente}/g, agentName ?? '')
       .replace(/{numero_ticket}/g, ticket.ticketNumber.replace(/^#/, ''));
 
-    // 5. Envia via Baileys ou Meta (mesma lÃ³gica de sendReplyFromTicket)
+    // 5. Envia via Baileys ou Meta (mesma lógica de sendReplyFromTicket)
     if (this.baileysService) {
       const result = await this.baileysService.sendMessage(tenantId, wa, message).catch(() => ({ success: false }));
       if (result.success) return;
@@ -283,7 +275,7 @@ export class WhatsappService {
   ) {
     const ticket = await this.ticketsService.findOne(tenantId, ticketId);
     if (ticket.origin !== TicketOrigin.WHATSAPP) {
-      throw new BadRequestException('Este ticket nÃ£o Ã© originado via WhatsApp');
+      throw new BadRequestException('Este ticket não é originado via WhatsApp');
     }
     if (!ticket.contactId) {
       throw new BadRequestException('Ticket sem contato associado');
@@ -291,20 +283,22 @@ export class WhatsappService {
 
     const contact = await this.customersService.findContactById(tenantId, ticket.contactId);
     if (!contact?.whatsapp && !contact?.metadata?.whatsappLid) {
-      throw new BadRequestException('Contato nÃ£o possui nÃºmero WhatsApp cadastrado');
+      throw new BadRequestException('Contato não possui número WhatsApp cadastrado');
     }
 
-    // Usa LID tÃ©cnico (metadata.whatsappLid) se disponÃ­vel; fallback para whatsapp
+    // Usa LID técnico (metadata.whatsappLid) se disponível; fallback para whatsapp
     const destination = this.resolveContactWhatsappTarget(contact);
     if (!destination.digits || destination.digits.length < 10) {
-      throw new BadRequestException('NÃºmero WhatsApp do contato invÃ¡lido');
+      throw new BadRequestException('Número WhatsApp do contato inválido');
     }
 
     // Tenta Baileys (QR) primeiro; fallback Meta API
     let sent = false;
+    let baileysMsgId: string | null = null;
     if (this.baileysService) {
       const result = await this.baileysService.sendMessage(tenantId, destination.raw, text);
       sent = result.success;
+      baileysMsgId = result.messageId ?? null; // ID para rastreamento de ACK (delivered/read)
     }
     if (!sent) {
       await this.sendWhatsappMessage(destination.digits, text);
@@ -313,13 +307,12 @@ export class WhatsappService {
     let savedMessage: any = null;
     if (ticket.conversationId) {
       try {
-        // skipOutbound=true: mensagem jÃ¡ foi enviada acima via Baileys/Meta, nÃ£o reenviar.
-        // initialWhatsappStatus: reflete o resultado real do envio para o frontend exibir
-        // o Ã­cone correto via socket sem necessitar reload.
+        // skipOutbound=true: mensagem já foi enviada acima via Baileys/Meta, não reenviar.
+        // initialWhatsappStatus + initialExternalId: permite rastrear ACK (delivered/read)
+        // sem reload — o externalId é o ID do Baileys, usado no messages.update callback.
         savedMessage = await this.conversationsService.addMessage(
           tenantId, ticket.conversationId, authorId, authorName, 'user', text,
-          // Se chegamos aqui sem exceÃ§Ã£o, o envio via Baileys ou Meta API foi bem-sucedido
-          { skipOutbound: true, initialWhatsappStatus: 'sent' },
+          { skipOutbound: true, initialWhatsappStatus: 'sent', initialExternalId: baileysMsgId },
         );
       } catch {
         // Conversation may already be closed; WhatsApp message was still delivered
@@ -332,7 +325,7 @@ export class WhatsappService {
 
   /**
    * Inicia uma conversa WhatsApp outbound completa:
-   * 1. Normaliza e valida o nÃºmero
+   * 1. Normaliza e valida o número
    * 2. Cria ou localiza o contato
    * 3. Cria ou localiza a conversa
    * 4. Cria ticket vinculado
@@ -362,54 +355,54 @@ export class WhatsappService {
     const logs: string[] = [];
     const log = (msg: string) => { this.logger.log(msg); logs.push(msg); };
 
-    log(`[OUTBOUND-FLOW] InÃ­cio â€” tenantId=${tenantId} authorId=${authorId} phone=${dto.phone ?? 'N/A'} contactId=${dto.contactId ?? 'N/A'}`);
+    log(`[OUTBOUND-FLOW] Início — tenantId=${tenantId} authorId=${authorId} phone=${dto.phone ?? 'N/A'} contactId=${dto.contactId ?? 'N/A'}`);
 
-    // â”€â”€ 1. Encontrar ou criar contato â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── 1. Encontrar ou criar contato ─────────────────────────────────
     let contact: any;
     if (dto.contactId) {
       contact = await this.customersService.findContactById(tenantId, dto.contactId);
-      if (!contact) throw new BadRequestException('Contato nÃ£o encontrado');
+      if (!contact) throw new BadRequestException('Contato não encontrado');
       log(`[OUTBOUND-FLOW] Contato localizado por ID: ${contact.id} (${contact.name})`);
     } else if (dto.phone) {
       const digits = dto.phone.replace(/\D/g, '');
-      log(`[OUTBOUND-FLOW] NÃºmero recebido: "${dto.phone}" â†’ dÃ­gitos: ${digits}`);
+      log(`[OUTBOUND-FLOW] Número recebido: "${dto.phone}" → dígitos: ${digits}`);
       contact = await this.customersService.findContactByWhatsapp(tenantId, digits);
       if (contact) {
         log(`[OUTBOUND-FLOW] Contato localizado pelo WhatsApp ${digits}: ${contact.id} (${contact.name})`);
       } else {
-        log(`[OUTBOUND-FLOW] Contato nÃ£o encontrado para ${digits}, criando...`);
+        log(`[OUTBOUND-FLOW] Contato não encontrado para ${digits}, criando...`);
         contact = await this.customersService.findOrCreateByWhatsapp(tenantId, digits, undefined, false);
-        if (!contact) throw new BadRequestException('NÃ£o foi possÃ­vel criar o contato para este nÃºmero');
+        if (!contact) throw new BadRequestException('Não foi possível criar o contato para este número');
         log(`[OUTBOUND-FLOW] Contato criado: ${contact.id}`);
       }
     } else {
-      throw new BadRequestException('phone ou contactId Ã© obrigatÃ³rio');
+      throw new BadRequestException('phone ou contactId é obrigatório');
     }
 
-    // Usa LID tÃ©cnico (metadata.whatsappLid) se disponÃ­vel; fallback para whatsapp ou phone
+    // Usa LID técnico (metadata.whatsappLid) se disponível; fallback para whatsapp ou phone
     const { raw: whatsapp } = this.resolveContactWhatsappTarget(contact, dto.phone?.replace(/\D/g, ''));
-    if (!whatsapp) throw new BadRequestException('Contato sem nÃºmero WhatsApp cadastrado');
+    if (!whatsapp) throw new BadRequestException('Contato sem número WhatsApp cadastrado');
     log(`[OUTBOUND-FLOW] WhatsApp do contato: ${whatsapp}`);
 
-    // â”€â”€ 2. Validar nÃºmero no WhatsApp â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── 2. Validar número no WhatsApp ──────────────────────────────────
     let resolvedJid: string | null = null;
     let numberExists = false;
     if (this.baileysService) {
       const check = await this.baileysService.checkNumberExists(tenantId, whatsapp);
-      log(`[OUTBOUND-FLOW] ValidaÃ§Ã£o WhatsApp: exists=${check.exists} jid=${check.jid ?? 'N/A'} normalized=${check.normalized} candidatos=${check.candidates.join(', ')}`);
+      log(`[OUTBOUND-FLOW] Validação WhatsApp: exists=${check.exists} jid=${check.jid ?? 'N/A'} normalized=${check.normalized} candidatos=${check.candidates.join(', ')}`);
       numberExists = check.exists;
       resolvedJid = check.jid;
       if (!check.exists) {
-        log(`[OUTBOUND-FLOW] AVISO: NÃºmero "${whatsapp}" nÃ£o foi encontrado no WhatsApp â€” envio pode falhar`);
+        log(`[OUTBOUND-FLOW] AVISO: Número "${whatsapp}" não foi encontrado no WhatsApp — envio pode falhar`);
       }
     } else {
-      log(`[OUTBOUND-FLOW] Baileys nÃ£o disponÃ­vel, pulando validaÃ§Ã£o de nÃºmero`);
+      log(`[OUTBOUND-FLOW] Baileys não disponível, pulando validação de número`);
     }
 
-    // â”€â”€ 3. Usar instÃ¢ncia conectada (tenantId Ã© a sessÃ£o) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    log(`[OUTBOUND-FLOW] InstÃ¢ncia Baileys: tenantId=${tenantId} (sessÃ£o ativa=${!!this.baileysService})`);
+    // ── 3. Usar instância conectada (tenantId é a sessão) ─────────────
+    log(`[OUTBOUND-FLOW] Instância Baileys: tenantId=${tenantId} (sessão ativa=${!!this.baileysService})`);
 
-    // â”€â”€ 4. Criar ou localizar conversa â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── 4. Criar ou localizar conversa ────────────────────────────────
     const clientId = dto.clientId || contact.clientId || null;
     log(`[OUTBOUND-FLOW] clientId=${clientId ?? 'N/A'} contactId=${contact.id}`);
 
@@ -418,7 +411,7 @@ export class WhatsappService {
     );
     log(`[OUTBOUND-FLOW] Conversa: id=${conversation.id} status=${conversation.status} ticketId=${conversation.ticketId ?? 'N/A'} nova=${!conversation.ticketId}`);
 
-    // â”€â”€ 5. Criar ticket â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── 5. Criar ticket ───────────────────────────────────────────────
     let ticket: any = null;
     if (!conversation.ticketId) {
       try {
@@ -436,11 +429,11 @@ export class WhatsappService {
         ticket = await this.ticketsService.findOne(tenantId, conversation.ticketId);
         log(`[OUTBOUND-FLOW] Ticket existente: ${ticket.id} #${ticket.ticketNumber}`);
       } catch {
-        log(`[OUTBOUND-FLOW] Ticket ${conversation.ticketId} nÃ£o encontrado`);
+        log(`[OUTBOUND-FLOW] Ticket ${conversation.ticketId} não encontrado`);
       }
     }
 
-    // â”€â”€ 6. Enviar primeira mensagem â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── 6. Enviar primeira mensagem ───────────────────────────────────
     let firstMessageSent = false;
     if (dto.firstMessage?.trim()) {
       log(`[OUTBOUND-FLOW] Enviando primeira mensagem: "${dto.firstMessage.trim().slice(0, 50)}..."`);
@@ -457,7 +450,7 @@ export class WhatsappService {
       log(`[OUTBOUND-FLOW] Nenhuma mensagem inicial informada`);
     }
 
-    log(`[OUTBOUND-FLOW] ConcluÃ­do â€” conversaId=${conversation.id} jid=${resolvedJid ?? 'N/A'} msgEnviada=${firstMessageSent}`);
+    log(`[OUTBOUND-FLOW] Concluído — conversaId=${conversation.id} jid=${resolvedJid ?? 'N/A'} msgEnviada=${firstMessageSent}`);
     return { conversation, contact, ticket, whatsappJid: resolvedJid, numberExists, firstMessageSent, logs };
   }
 
@@ -467,8 +460,26 @@ export class WhatsappService {
   }
 
   /**
+   * Resolve o destino técnico correto para envio WhatsApp de um contato.
+   * Prioridade: metadata.whatsappLid → contact.whatsapp → fallback
+   * Retorna { raw } para Baileys e { digits } para Meta API.
+   */
+  private resolveContactWhatsappTarget(
+    contact: any,
+    fallback?: string,
+  ): { raw: string; digits: string } {
+    const raw: string =
+      (contact?.metadata?.whatsappLid as string | undefined) ||
+      (contact?.whatsapp as string | undefined) ||
+      fallback ||
+      '';
+    const digits = raw.replace(/\D/g, '');
+    return { raw, digits };
+  }
+
+  /**
    * Envio de mensagem via Meta (Graph API).
-   * Requer as variÃ¡veis:
+   * Requer as variáveis:
    * - WHATSAPP_PHONE_NUMBER_ID
    * - WHATSAPP_TOKEN
    */
@@ -477,7 +488,7 @@ export class WhatsappService {
     const token = process.env.WHATSAPP_TOKEN;
 
     if (!phoneNumberId || !token) {
-      this.logger.warn('WHATSAPP_PHONE_NUMBER_ID ou WHATSAPP_TOKEN nÃ£o configurados');
+      this.logger.warn('WHATSAPP_PHONE_NUMBER_ID ou WHATSAPP_TOKEN não configurados');
       return;
     }
 

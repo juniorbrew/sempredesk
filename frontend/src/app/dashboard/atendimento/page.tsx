@@ -1,8 +1,8 @@
 ﻿'use client';
-import { useEffect, useState, useCallback, useRef, memo } from 'react';
+import { useEffect, useLayoutEffect, useState, useCallback, useRef, memo } from 'react';
 import { api } from '@/lib/api';
 import Link from 'next/link';
-import { useRealtimeConversation, useRealtimeTicket, useRealtimeTenantNewMessages } from '@/lib/realtime';
+import { useRealtimeConversation, useRealtimeTicket, useRealtimeTenantNewMessages, useRealtimeConversationClosed, useRealtimeTicketAssigned, useRealtimeContactTyping, emitTypingPresence, subscribeContactPresence } from '@/lib/realtime';
 import { useAuthStore, hasPermission } from '@/store/auth.store';
 import {
   MessageSquare, Send, Phone, RefreshCw, Lock, ExternalLink, Plus, Link2, Globe,
@@ -131,9 +131,26 @@ function MessageSkeleton() {
   );
 }
 
+// â”€â”€ HighlightText â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+/** Destaca ocorrÃªncias de `query` dentro de `text` com fundo amarelo */
+function escapeRegex(s: string) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+function HighlightText({ text, query }: { text: string; query: string }) {
+  if (!query) return <>{text}</>;
+  const parts = text.split(new RegExp(`(${escapeRegex(query)})`, 'gi'));
+  return (
+    <>
+      {parts.map((part, i) =>
+        part.toLowerCase() === query.toLowerCase()
+          ? <mark key={i} style={{ background: '#FEF08A', color: '#0F172A', borderRadius: 2, padding: '0 2px' }}>{part}</mark>
+          : part,
+      )}
+    </>
+  );
+}
+
 // â”€â”€ MessageItem (memoizado) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 /** Item individual de mensagem â€” memoizado para evitar re-render ao digitar */
-const MessageItem = memo(function MessageItem({ m, isWhatsapp }: { m: any; isWhatsapp: boolean }) {
+const MessageItem = memo(function MessageItem({ m, isWhatsapp, highlight }: { m: any; isWhatsapp: boolean; highlight?: string }) {
   const isContact = m.authorType === 'contact';
   const isSystem  = m.messageType === 'system';
   const t = new Date(m.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
@@ -152,7 +169,7 @@ const MessageItem = memo(function MessageItem({ m, isWhatsapp }: { m: any; isWha
       <div style={{ display: 'flex', justifyContent: 'center', margin: '4px 0' }}>
         <div style={{ background: '#EEF2FF', border: '1px solid #C7D2FE', borderRadius: 8, padding: '5px 14px', fontSize: 11, color: '#4338CA', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6 }}>
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#4338CA" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v2z"/></svg>
-          {m.content}
+          {highlight ? <HighlightText text={m.content || ''} query={highlight} /> : m.content}
         </div>
       </div>
     );
@@ -177,7 +194,9 @@ const MessageItem = memo(function MessageItem({ m, isWhatsapp }: { m: any; isWha
           opacity: m._optimistic ? 0.75 : 1,
           transition: 'opacity 0.2s',
         }}>
-          <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{m.content}</p>
+          <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>
+            {highlight ? <HighlightText text={m.content || ''} query={highlight} /> : m.content}
+          </p>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 5 }}>
             <span style={{ fontSize: 10, color: isContact ? txt3 : 'rgba(255,255,255,.6)' }}>{t}</span>
             {!isContact && <MessageStatusIcon status={m.whatsappStatus} isWhatsapp={isWhatsapp} />}
@@ -209,6 +228,9 @@ export default function AtendimentoPage() {
   const [channelFilter, setChannelFilter] = useState<'all' | 'whatsapp' | 'portal'>(() => {
     try { return (localStorage.getItem('atend_channel') as any) || 'all'; } catch { return 'all'; }
   });
+  const [filterTags, setFilterTags] = useState<string[]>([]);
+  const [showTagDropdown, setShowTagDropdown] = useState(false);
+  const tagDropdownRef = useRef<HTMLDivElement>(null);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [showLinkModal, setShowLinkModal] = useState(false);
@@ -259,6 +281,17 @@ export default function AtendimentoPage() {
   const [transferLoading, setTransferLoading] = useState(false);
 
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
+  const [hasMoreMsgs, setHasMoreMsgs] = useState(false);
+  const [loadingMoreMsgs, setLoadingMoreMsgs] = useState(false);
+  const [isContactTyping, setIsContactTyping] = useState(false);
+  const contactTypingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const agentTypingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const agentIsTypingRef = useRef(false);
+  // â”€â”€ busca dentro da conversa â”€â”€
+  const [msgSearchOpen, setMsgSearchOpen] = useState(false);
+  const [msgSearchQuery, setMsgSearchQuery] = useState('');
+  const [msgSearchIdx, setMsgSearchIdx] = useState(0);
+  const msgSearchInputRef = useRef<HTMLInputElement>(null);
 
   const [showScrollBtn, setShowScrollBtn] = useState(false);
 
@@ -268,6 +301,15 @@ export default function AtendimentoPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true); // true = usuÃ¡rio estÃ¡ perto do fim da lista
+
+  // â”€â”€ paginaÃ§Ã£o de mensagens â”€â”€
+  const hasMoreMsgsRef = useRef(false);      // espelho de hasMoreMsgs para uso em callbacks
+  const loadingMoreMsgsRef = useRef(false);  // espelho de loadingMoreMsgs para uso em callbacks
+  const oldestMsgIdRef = useRef<string | null>(null); // cursor: ID da mensagem mais antiga carregada
+  const prevScrollHeightRef = useRef(0);     // scrollHeight antes de prepend (para restaurar posiÃ§Ã£o)
+  const shouldRestoreScrollRef = useRef(false);
+  hasMoreMsgsRef.current = hasMoreMsgs;
+  loadingMoreMsgsRef.current = loadingMoreMsgs;
 
   // â”€â”€ cache de dados estÃ¡veis + guard de race condition â”€â”€
   const loadIdRef = useRef(0);          // incrementado a cada loadChat; respostas velhas sÃ£o descartadas
@@ -294,7 +336,49 @@ export default function AtendimentoPage() {
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
     atBottomRef.current = nearBottom;
     if (nearBottom) setShowScrollBtn(false);
+    // PrÃ³ximo do topo â†’ carrega mensagens mais antigas
+    if (el.scrollTop < 80 && hasMoreMsgsRef.current && !loadingMoreMsgsRef.current) {
+      loadMoreMsgsRef.current();
+    }
   }, []);
+
+  // Carrega mensagens mais antigas (scroll para cima). Preserva posiÃ§Ã£o de scroll via useLayoutEffect.
+  const loadMoreMsgsRef = useRef<() => void>(() => {});
+  const loadMoreMessages = useCallback(async () => {
+    const conv = selectedRef.current;
+    if (!conv || !oldestMsgIdRef.current || loadingMoreMsgsRef.current || !hasMoreMsgsRef.current) return;
+    const isTicket = conv.type === 'ticket' || conv.id?.startsWith?.('ticket:');
+    if (isTicket) return; // tickets carregam tudo de uma vez
+    setLoadingMoreMsgs(true);
+    loadingMoreMsgsRef.current = true;
+    try {
+      const paged: any = await api.getConversationMessages(conv.id, {
+        limit: 50,
+        before: oldestMsgIdRef.current,
+      });
+      const older: any[] = paged?.messages ?? [];
+      if (older.length > 0) {
+        const el = scrollContainerRef.current;
+        if (el) prevScrollHeightRef.current = el.scrollHeight;
+        shouldRestoreScrollRef.current = true;
+        oldestMsgIdRef.current = older[0]?.id ?? oldestMsgIdRef.current;
+        setMessages((m) => [...older, ...m]);
+      }
+      setHasMoreMsgs(paged?.hasMore === true);
+    } catch {}
+    setLoadingMoreMsgs(false);
+    loadingMoreMsgsRef.current = false;
+  }, []);
+  loadMoreMsgsRef.current = loadMoreMessages;
+
+  // Restaura posiÃ§Ã£o de scroll apÃ³s prepend de mensagens antigas (sem pular)
+  useLayoutEffect(() => {
+    if (shouldRestoreScrollRef.current && scrollContainerRef.current) {
+      const el = scrollContainerRef.current;
+      el.scrollTop = el.scrollTop + (el.scrollHeight - prevScrollHeightRef.current);
+      shouldRestoreScrollRef.current = false;
+    }
+  });
 
   const sameItem = (a: any, b: any) => {
     if (!a || !b) return false;
@@ -365,6 +449,17 @@ export default function AtendimentoPage() {
     setLoadingChat(true);
     setCurrentTicket(null);
     setConversationTags(Array.isArray(conv?.tags) ? conv.tags : []);
+    atBottomRef.current = true; // sempre vai para o fim ao trocar de conversa
+    setShowScrollBtn(false);
+    setHasMoreMsgs(false);
+    oldestMsgIdRef.current = null;
+    // Limpa estado de "digitando..." ao trocar de conversa
+    setIsContactTyping(false);
+    if (contactTypingTimeoutRef.current) { clearTimeout(contactTypingTimeoutRef.current); contactTypingTimeoutRef.current = null; }
+    // Cancela "agente digitando" pendente
+    if (agentIsTypingRef.current && conv?.channel === 'whatsapp') {
+      agentIsTypingRef.current = false;
+    }
     try {
       const isTicket = conv.type === 'ticket' || conv.id?.startsWith?.('ticket:');
       const ticketId = isTicket ? (conv.ticketId || conv.id?.replace?.(/^ticket:/, '')) : conv.ticketId;
@@ -376,13 +471,25 @@ export default function AtendimentoPage() {
         tid ? api.getTicket(tid).catch(() => null) : Promise.resolve(null),
         isTicket && ticketId
           ? api.getMessages(ticketId, false).catch(() => [])
-          : api.getConversationMessages(conv.id).catch(() => []),
+          : api.getConversationMessages(conv.id, { limit: 50 }).catch(() => ({ messages: [], hasMore: false })),
       ]);
 
       if (myId !== loadIdRef.current) return; // conversa jÃ¡ mudou, descarta
 
       if (ticketRes) setCurrentTicket(ticketRes);
-      setMessages(Array.isArray(msgsRaw) ? msgsRaw : (msgsRaw as any)?.data ?? []);
+      // Conversa: resposta paginada { messages, hasMore }; ticket: array direto
+      if (isTicket) {
+        const arr = Array.isArray(msgsRaw) ? msgsRaw : (msgsRaw as any)?.data ?? [];
+        setMessages(arr);
+        setHasMoreMsgs(false);
+        oldestMsgIdRef.current = arr[0]?.id ?? null;
+      } else {
+        const paged = msgsRaw as any;
+        const arr: any[] = paged?.messages ?? (Array.isArray(paged) ? paged : []);
+        setMessages(arr);
+        setHasMoreMsgs(paged?.hasMore === true);
+        oldestMsgIdRef.current = arr[0]?.id ?? null;
+      }
       setLoadingChat(false); // â† conteÃºdo visÃ­vel aqui; fase 2 roda em background
 
       // Envia read receipts para mensagens do contato via Baileys (best-effort, nÃ£o bloqueia)
@@ -458,7 +565,18 @@ export default function AtendimentoPage() {
         if (contactId && !ctArr.find((c: any) => c.id === contactId)) {
           try { const ind: any = await api.getContactById(contactId); if (ind) ctArr.push(ind?.data ?? ind); } catch {}
         }
-        if (myId === loadIdRef.current) setContacts(ctArr);
+        if (myId === loadIdRef.current) {
+          setContacts(ctArr);
+          // Assina presenÃ§a do contato WhatsApp para receber "digitando..."
+          if (conv.channel === 'whatsapp') {
+            const phone = ctArr.find((c: any) => c.whatsapp)?.whatsapp;
+            if (phone && user?.tenantId) {
+              const digits = phone.replace(/\D/g, '');
+              const jid = digits.length >= 14 ? `${digits}@lid` : `${digits}@s.whatsapp.net`;
+              subscribeContactPresence(jid, user.tenantId);
+            }
+          }
+        }
       } else if (!clientId && contactsRaw) {
         const ct = (contactsRaw as any)?.data ?? contactsRaw;
         if (myId === loadIdRef.current) setContacts(ct ? [ct] : []);
@@ -477,10 +595,19 @@ export default function AtendimentoPage() {
     try {
       const isTicket = conv.type === 'ticket' || conv.id?.startsWith?.('ticket:');
       const ticketId = isTicket ? (conv.ticketId || conv.id?.replace?.(/^ticket:/, '')) : conv.ticketId;
-      const msgs = isTicket && ticketId
-        ? (await api.getMessages(ticketId, false) || [])
-        : (await api.getConversationMessages(conv.id) || []);
-      setMessages(Array.isArray(msgs) ? msgs : msgs?.data ?? []);
+      if (isTicket && ticketId) {
+        const msgs = await api.getMessages(ticketId, false).catch(() => []);
+        const arr = Array.isArray(msgs) ? msgs : (msgs as any)?.data ?? [];
+        setMessages(arr);
+        setHasMoreMsgs(false);
+        oldestMsgIdRef.current = arr[0]?.id ?? null;
+      } else {
+        const paged: any = await api.getConversationMessages(conv.id, { limit: 50 }).catch(() => ({ messages: [], hasMore: false }));
+        const arr: any[] = paged?.messages ?? (Array.isArray(paged) ? paged : []);
+        setMessages(arr);
+        setHasMoreMsgs(paged?.hasMore === true);
+        oldestMsgIdRef.current = arr[0]?.id ?? null;
+      }
     } catch {}
   };
 
@@ -718,6 +845,13 @@ export default function AtendimentoPage() {
     setInput('');
     setSending(true);
 
+    // Cancela "agente digitando" ao enviar
+    if (agentIsTypingRef.current && contacts[0]?.whatsapp && user?.tenantId) {
+      agentIsTypingRef.current = false;
+      if (agentTypingTimeoutRef.current) { clearTimeout(agentTypingTimeoutRef.current); agentTypingTimeoutRef.current = null; }
+      emitTypingPresence(contacts[0].whatsapp, user.tenantId, false);
+    }
+
     try {
       let res: any;
       if (isTicketType && ticketId) res = await api.addMessage(ticketId, { content: text, messageType: 'comment' });
@@ -787,7 +921,24 @@ export default function AtendimentoPage() {
   const ticketIdForRealtime = isTicketType ? (selected?.ticketId || selected?.id?.replace?.(/^ticket:/, '')) : null;
   const conversationIdForRealtime = !isTicketType ? selected?.id : null;
 
+  // IDs das mensagens que contÃªm a query de busca (excluindo internas e de sistema)
+  const msgMatchIds: string[] = (() => {
+    const q = msgSearchQuery.trim().toLowerCase();
+    if (!q) return [];
+    return messages
+      .filter((m: any) => m.messageType !== 'internal' && String(m.content || '').toLowerCase().includes(q))
+      .map((m: any) => m.id);
+  })();
+
   const filteredConversations = conversations.filter(c => {
+    // Filtro por tags: conversa precisa ter pelo menos uma das tags selecionadas
+    if (filterTags.length > 0) {
+      const cTags: string[] = Array.isArray(c.tags) ? c.tags : [];
+      const hasTag = filterTags.some(ft =>
+        cTags.some(ct => String(ct).toLowerCase() === String(ft).toLowerCase()),
+      );
+      if (!hasTag) return false;
+    }
     if (!search.trim()) return true;
     const q = search.toLowerCase();
     const name = (c.contactName || customerName(c.clientId) || '').toLowerCase();
@@ -806,13 +957,33 @@ export default function AtendimentoPage() {
     return () => clearInterval(interval);
   }, [loadConversations]);
 
-  useEffect(() => {
-    atBottomRef.current = true; // sempre vai para o fim ao trocar de conversa
-    setShowScrollBtn(false);
-    if (selected) loadChat(selected); else setMessages([]);
-  }, [selected?.id]);
+
+  useEffect(() => { if (selected) loadChat(selected); else setMessages([]); }, [selected?.id]);
   useEffect(() => { api.getTags({ active: true }).then((r: any) => setAvailableTags(r?.data ?? r ?? [])).catch(() => setAvailableTags([])); }, []);
-  useEffect(() => { api.getRootCauses({ active: true }).then((r: any) => setRootCauseOptions((r?.data ?? r ?? []).map((item: any) => item.name).filter(Boolean))).catch(() => setRootCauseOptions([])); }, []);
+  useEffect(() => {
+    api.getRootCauses({ active: true })
+      .then((r: any) => setRootCauseOptions((r?.data ?? r ?? []).map((item: any) => item.name).filter(Boolean)))
+      .catch(() => setRootCauseOptions([]));
+  }, []);
+  // Foca o input de busca ao abrir
+  useEffect(() => { if (msgSearchOpen) setTimeout(() => msgSearchInputRef.current?.focus(), 50); }, [msgSearchOpen]);
+  // Fecha busca ao trocar de conversa
+  useEffect(() => { setMsgSearchOpen(false); setMsgSearchQuery(''); setMsgSearchIdx(0); }, [selected?.id]);
+  // Scrolla para o resultado atual
+  useEffect(() => {
+    if (!msgMatchIds.length) return;
+    const safeIdx = Math.min(msgSearchIdx, msgMatchIds.length - 1);
+    const el = document.getElementById(`msg-${msgMatchIds[safeIdx]}`);
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [msgSearchIdx, msgMatchIds.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!showTagDropdown) return;
+    const handler = (e: MouseEvent) => {
+      if (!tagDropdownRef.current?.contains(e.target as Node)) setShowTagDropdown(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showTagDropdown]);
   useEffect(() => { setConversationTags(Array.isArray(selected?.tags) ? selected.tags : []); }, [selected?.id, selected?.tags]);
   useEffect(() => {
     if (!selected?.clientId) { setClientTickets([]); return; }
@@ -836,6 +1007,20 @@ export default function AtendimentoPage() {
       if (last && !last._optimistic) setShowScrollBtn(true);
     }
   }, [messages.length, scrollToBottom]);
+
+  // â”€â”€ realtime: contato digitando â”€â”€
+  const contactPhone = contacts[0]?.whatsapp ?? null;
+  useRealtimeContactTyping(
+    selected?.channel === 'whatsapp' ? contactPhone : null,
+    (isTyping) => {
+      setIsContactTyping(isTyping);
+      // Auto-limpa apÃ³s 6s caso o backend nÃ£o envie "paused"
+      if (contactTypingTimeoutRef.current) clearTimeout(contactTypingTimeoutRef.current);
+      if (isTyping) {
+        contactTypingTimeoutRef.current = setTimeout(() => setIsContactTyping(false), 6000);
+      }
+    },
+  );
 
   // â”€â”€ realtime â”€â”€
   useRealtimeConversation(conversationIdForRealtime ?? null, (msg) => {
@@ -891,6 +1076,7 @@ export default function AtendimentoPage() {
     }
     setSavingConversationTags(false);
   };
+
   // â”€â”€ notificaÃ§Ãµes de nova mensagem (conversas nÃ£o selecionadas) â”€â”€
   useRealtimeTenantNewMessages((msg) => {
     const currentSelected = selectedRef.current;
@@ -921,6 +1107,39 @@ export default function AtendimentoPage() {
       osc.start(ctx.currentTime);
       osc.stop(ctx.currentTime + 0.35);
     } catch {}
+  });
+
+  // â”€â”€ ticket transferido em tempo real â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  useRealtimeTicketAssigned((payload) => {
+    const myId = user?.id;
+    if (!myId) return;
+
+    // 1. Ticket foi atribuÃ­do a MIM â†’ toast + reload silencioso para aparecer no inbox
+    if (String(payload.assignedTo) === String(myId) && String(payload.assignedBy) !== String(myId)) {
+      const label = payload.ticketNumber ? `#${payload.ticketNumber}` : 'ticket';
+      const byName = payload.assignedByName || 'outro agente';
+      showToast(`ðŸŽ¯ ${label} transferido para vocÃª por ${byName}`, 'success');
+      loadConversations(false, true);
+    }
+
+    // 2. Ticket foi tirado de mim (transferido para outro) â†’ atualiza silenciosamente
+    if (String(payload.prevAssignedTo) === String(myId) && String(payload.assignedTo) !== String(myId)) {
+      loadConversations(false, true);
+    }
+  });
+
+  // â”€â”€ conversa fechada remotamente (ticket resolvido/encerrado por outro agente ou pela prÃ³pria aÃ§Ã£o) â”€â”€
+  useRealtimeConversationClosed((conversationId) => {
+    const currentSelected = selectedRef.current;
+    // Remove da lista de conversas ativas
+    setConversations(prev => prev.filter((c: any) => String(c.id) !== String(conversationId)));
+    // Se era a conversa selecionada, limpa a seleÃ§Ã£o
+    if (currentSelected && String(currentSelected.id) === String(conversationId)) {
+      setSelected(null);
+      setMessages([]);
+    }
+    // Remove badge de nÃ£o lidas
+    setUnreadCounts(p => { const next = { ...p }; delete next[conversationId]; return next; });
   });
 
   // â”€â”€ styles (shared) â”€â”€
@@ -1002,7 +1221,7 @@ export default function AtendimentoPage() {
           </div>
 
           {/* Filter chips */}
-          <div style={{ display: 'flex', gap: 6, padding: '10px 12px', borderBottom: S.border, flexShrink: 0 }}>
+          <div style={{ display: 'flex', gap: 6, padding: '10px 12px', borderBottom: availableTags.length > 0 ? 'none' : S.border, flexShrink: 0 }}>
             {([['all','Em aberto'],['closed','Encerradas'],['linked','Vinculadas']] as const).map(([f, label]) => (
               <button key={f} onClick={() => setFilter(f)}
                 style={{
@@ -1016,6 +1235,89 @@ export default function AtendimentoPage() {
               </button>
             ))}
           </div>
+
+          {/* Tag filter (sÃ³ aparece se hÃ¡ tags cadastradas) */}
+          {availableTags.length > 0 && (
+            <div ref={tagDropdownRef} style={{ padding: '8px 12px 10px', borderBottom: S.border, flexShrink: 0, position: 'relative' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                {/* BotÃ£o abre/fecha dropdown */}
+                <button
+                  onClick={() => setShowTagDropdown(v => !v)}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 9px',
+                    borderRadius: 6, fontSize: 11, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit',
+                    background: filterTags.length > 0 ? S.accentLight : 'transparent',
+                    color: filterTags.length > 0 ? S.accent : S.txt2,
+                    border: `1px solid ${filterTags.length > 0 ? S.accentMid : 'rgba(0,0,0,.12)'}`,
+                    transition: 'all .12s',
+                  }}
+                >
+                  <Tag size={11} strokeWidth={1.8} />
+                  {filterTags.length > 0 ? `Tags (${filterTags.length})` : 'Tags'}
+                  <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ transform: showTagDropdown ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }}><path d="M2 3.5l3 3 3-3"/></svg>
+                </button>
+                {/* Chips das tags selecionadas */}
+                {filterTags.map(tagName => {
+                  const t = availableTags.find((x: any) => String(x.name).toLowerCase() === String(tagName).toLowerCase());
+                  return (
+                    <span key={tagName} style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 7px',
+                      borderRadius: 999, fontSize: 10, fontWeight: 700, lineHeight: 1,
+                      background: t?.color ? `${t.color}18` : S.accentLight,
+                      color: t?.color || S.accent,
+                      border: `1px solid ${t?.color ? `${t.color}35` : S.accentMid}`,
+                    }}>
+                      {tagName}
+                      <button onClick={() => setFilterTags(prev => prev.filter(x => x !== tagName))}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', color: 'inherit', opacity: 0.7 }}>
+                        <X size={10} />
+                      </button>
+                    </span>
+                  );
+                })}
+                {filterTags.length > 0 && (
+                  <button onClick={() => setFilterTags([])}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', fontSize: 10, color: S.txt3, fontFamily: 'inherit' }}>
+                    limpar
+                  </button>
+                )}
+              </div>
+
+              {/* Dropdown de seleÃ§Ã£o de tags */}
+              {showTagDropdown && (
+                <div style={{
+                  position: 'absolute', top: 'calc(100% + 2px)', left: 12, right: 12, zIndex: 50,
+                  background: '#fff', border: S.border2, borderRadius: 10,
+                  boxShadow: '0 8px 24px rgba(0,0,0,.12)', overflow: 'hidden',
+                }}>
+                  <div style={{ maxHeight: 220, overflowY: 'auto', padding: '6px 6px' }}>
+                    {availableTags.map((tag: any) => {
+                      const active = filterTags.some(ft => String(ft).toLowerCase() === String(tag.name).toLowerCase());
+                      return (
+                        <button key={tag.id || tag.name}
+                          onClick={() => {
+                            setFilterTags(prev =>
+                              active ? prev.filter(x => String(x).toLowerCase() !== String(tag.name).toLowerCase()) : [...prev, tag.name],
+                            );
+                          }}
+                          style={{
+                            width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                            padding: '8px 10px', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                            background: active ? S.accentLight : 'transparent', gap: 10, textAlign: 'left',
+                          }}>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ width: 8, height: 8, borderRadius: '50%', background: tag.color || S.accent, flexShrink: 0 }} />
+                            <span style={{ fontSize: 12, fontWeight: 500, color: S.txt }}>{tag.name}</span>
+                          </span>
+                          {active && <Check size={13} color={tag.color || S.accent} />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* List */}
           <div style={{ flex: 1, overflowY: 'auto', padding: '0 8px 8px' }}>
@@ -1182,6 +1484,13 @@ export default function AtendimentoPage() {
                   </div>
                   {/* Actions */}
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
+                    {/* Busca dentro da conversa */}
+                    <button
+                      onClick={() => { setMsgSearchOpen(v => !v); if (msgSearchOpen) { setMsgSearchQuery(''); setMsgSearchIdx(0); } }}
+                      title="Buscar na conversa (Ctrl+F)"
+                      style={{ width: 30, height: 30, borderRadius: 8, border: S.border2, background: msgSearchOpen ? S.accentLight : S.bg2, color: msgSearchOpen ? S.accent : S.txt2, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      <Search size={14} strokeWidth={1.8} />
+                    </button>
                     {hasTicket && (
                       <Link href={`/dashboard/tickets/${selected.ticketId}`} target="_blank"
                         style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 12px', borderRadius: 8, background: S.accentLight, border: `1px solid ${S.accentMid}`, color: S.accent, fontSize: 12, fontWeight: 600, textDecoration: 'none', fontFamily: "'DM Mono', monospace" }}>
@@ -1234,6 +1543,52 @@ export default function AtendimentoPage() {
                 )}
               </div>
 
+              {/* Barra de busca dentro da conversa */}
+              {msgSearchOpen && (
+                <div style={{ padding: '8px 16px', borderBottom: S.border, background: S.bg, display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                  <Search size={13} color={S.txt3} strokeWidth={1.6} style={{ flexShrink: 0 }} />
+                  <input
+                    ref={msgSearchInputRef}
+                    value={msgSearchQuery}
+                    onChange={e => { setMsgSearchQuery(e.target.value); setMsgSearchIdx(0); }}
+                    onKeyDown={e => {
+                      if (e.key === 'Escape') { setMsgSearchOpen(false); setMsgSearchQuery(''); setMsgSearchIdx(0); }
+                      else if (e.key === 'Enter') {
+                        e.preventDefault();
+                        if (msgMatchIds.length > 0) setMsgSearchIdx(i => e.shiftKey ? (i - 1 + msgMatchIds.length) % msgMatchIds.length : (i + 1) % msgMatchIds.length);
+                      }
+                    }}
+                    placeholder="Buscar na conversa..."
+                    style={{ flex: 1, background: 'none', border: 'none', outline: 'none', fontSize: 13, color: S.txt, fontFamily: 'inherit' }}
+                  />
+                  {msgSearchQuery.trim() && (
+                    <span style={{ fontSize: 11, color: S.txt3, flexShrink: 0, whiteSpace: 'nowrap' }}>
+                      {msgMatchIds.length > 0 ? `${Math.min(msgSearchIdx + 1, msgMatchIds.length)} de ${msgMatchIds.length}` : 'Sem resultados'}
+                    </span>
+                  )}
+                  <button
+                    onClick={() => { if (msgMatchIds.length > 0) setMsgSearchIdx(i => (i - 1 + msgMatchIds.length) % msgMatchIds.length); }}
+                    disabled={msgMatchIds.length === 0}
+                    title="Resultado anterior (Shift+Enter)"
+                    style={{ background: 'none', border: S.border2, borderRadius: 6, width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: msgMatchIds.length > 0 ? 'pointer' : 'default', opacity: msgMatchIds.length > 0 ? 1 : 0.35 }}>
+                    <svg width="11" height="11" viewBox="0 0 10 10" fill="none" stroke={S.txt2} strokeWidth="1.6"><path d="M2 6.5l3-3 3 3"/></svg>
+                  </button>
+                  <button
+                    onClick={() => { if (msgMatchIds.length > 0) setMsgSearchIdx(i => (i + 1) % msgMatchIds.length); }}
+                    disabled={msgMatchIds.length === 0}
+                    title="PrÃ³ximo resultado (Enter)"
+                    style={{ background: 'none', border: S.border2, borderRadius: 6, width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: msgMatchIds.length > 0 ? 'pointer' : 'default', opacity: msgMatchIds.length > 0 ? 1 : 0.35 }}>
+                    <svg width="11" height="11" viewBox="0 0 10 10" fill="none" stroke={S.txt2} strokeWidth="1.6"><path d="M2 3.5l3 3 3-3"/></svg>
+                  </button>
+                  <button
+                    onClick={() => { setMsgSearchOpen(false); setMsgSearchQuery(''); setMsgSearchIdx(0); }}
+                    title="Fechar busca (Esc)"
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: S.txt3, display: 'flex', alignItems: 'center' }}>
+                    <X size={14} />
+                  </button>
+                </div>
+              )}
+
               {/* Messages â€” wrapper com position:relative para o botÃ£o flutuante */}
               <div style={{ flex: 1, position: 'relative', overflow: 'hidden', background: S.bg2 }}>
                 <div
@@ -1252,9 +1607,49 @@ export default function AtendimentoPage() {
                   ) : (
                     // Mensagens ficam visÃ­veis durante troca; opacidade reduzida enquanto carrega
                     <div style={{ display: 'contents', opacity: loadingChat ? 0.55 : 1, transition: 'opacity 0.18s' }}>
-                      {messages.filter((m: any) => m.messageType !== 'internal').map((m: any) => (
-                        <MessageItem key={m.id} m={m} isWhatsapp={isWhatsapp} />
-                      ))}
+                      {/* Indicador de histÃ³rico no topo */}
+                      {loadingMoreMsgs && (
+                        <div style={{ textAlign: 'center', padding: '8px 0', color: S.txt3, fontSize: 12 }}>
+                          Carregando histÃ³rico...
+                        </div>
+                      )}
+                      {!loadingMoreMsgs && hasMoreMsgs && (
+                        <div style={{ textAlign: 'center', padding: '4px 0' }}>
+                          <button
+                            onClick={loadMoreMessages}
+                            style={{ background: 'none', border: S.border2, borderRadius: 12, padding: '4px 14px', fontSize: 12, color: S.txt3, cursor: 'pointer', fontFamily: 'inherit' }}
+                          >
+                            Carregar mensagens anteriores
+                          </button>
+                        </div>
+                      )}
+                      {messages.filter((m: any) => m.messageType !== 'internal').map((m: any, _i: number) => {
+                        const isCurrentMatch = msgSearchQuery.trim() !== '' && msgMatchIds[Math.min(msgSearchIdx, msgMatchIds.length - 1)] === m.id && msgMatchIds.length > 0;
+                        return (
+                          <div
+                            key={m.id}
+                            id={`msg-${m.id}`}
+                            style={isCurrentMatch ? { borderRadius: 14, outline: '2px solid #FDE68A', outlineOffset: 3 } : undefined}
+                          >
+                            <MessageItem m={m} isWhatsapp={isWhatsapp} highlight={msgSearchQuery.trim() || undefined} />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {/* Indicador "contato digitando..." */}
+                  {isContactTyping && isWhatsapp && (
+                    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, marginTop: 4 }}>
+                      <div style={{ width: 26, height: 26, borderRadius: '50%', background: avatarColor(selected?.contactName || '?'), display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 9, fontWeight: 700, flexShrink: 0 }}>
+                        {initials(selected?.contactName || '?')}
+                      </div>
+                      <div style={{ background: '#FFFFFF', border: '1px solid rgba(0,0,0,.09)', borderRadius: '18px 18px 18px 4px', padding: '10px 16px', boxShadow: '0 1px 3px rgba(0,0,0,.06)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <span style={{ display: 'inline-flex', gap: 3, alignItems: 'center' }}>
+                          {[0,1,2].map(i => (
+                            <span key={i} style={{ width: 7, height: 7, borderRadius: '50%', background: '#A8A8BE', display: 'inline-block', animation: `typingDot 1.2s ${i * 0.2}s infinite ease-in-out` }} />
+                          ))}
+                        </span>
+                      </div>
                     </div>
                   )}
                   <div ref={messagesEndRef} />
@@ -1304,7 +1699,24 @@ export default function AtendimentoPage() {
                       <textarea
                         ref={inputRef}
                         value={input}
-                        onChange={(e) => { setInput(e.target.value); e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'; }}
+                        onChange={(e) => {
+                          setInput(e.target.value);
+                          e.target.style.height = 'auto';
+                          e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
+                          // Indicador "agente digitando" para conversas WhatsApp
+                          if (isWhatsapp && contacts[0]?.whatsapp && user?.tenantId) {
+                            if (!agentIsTypingRef.current) {
+                              agentIsTypingRef.current = true;
+                              emitTypingPresence(contacts[0].whatsapp, user.tenantId, true);
+                            }
+                            // Auto-stop apÃ³s 4s sem digitar
+                            if (agentTypingTimeoutRef.current) clearTimeout(agentTypingTimeoutRef.current);
+                            agentTypingTimeoutRef.current = setTimeout(() => {
+                              agentIsTypingRef.current = false;
+                              emitTypingPresence(contacts[0].whatsapp, user.tenantId, false);
+                            }, 4000);
+                          }
+                        }}
                         onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(e as any); } }}
                         placeholder={canSend ? (isWhatsapp ? 'Mensagem WhatsApp... (Enter para enviar)' : 'Digite sua mensagem...') : 'Vincule um ticket para enviar mensagens...'}
                         disabled={!canSend}
@@ -2270,4 +2682,3 @@ export default function AtendimentoPage() {
     </>
   );
 }
-

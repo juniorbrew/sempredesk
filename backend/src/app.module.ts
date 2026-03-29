@@ -126,6 +126,18 @@ export class AppModule implements NestModule, OnModuleInit {
       if (chatbotSvc && baileysSvc) chatbotSvc.setBaileysService(baileysSvc);
     } catch { /* opcional */ }
 
+    // Wira o BaileysService no RealtimeGateway (typing:agent socket handler)
+    // Wira o RealtimeEmitterService no BaileysService (presence.update → contact:typing)
+    try {
+      const { BaileysService } = require('./modules/whatsapp/baileys.service');
+      const { RealtimeEmitterService } = require('./modules/realtime/realtime-emitter.service');
+      const gateway = this.moduleRef.get(RealtimeGateway, { strict: false });
+      const baileysSvc = this.moduleRef.get(BaileysService, { strict: false });
+      const realtimeEmitterSvc = this.moduleRef.get(RealtimeEmitterService, { strict: false });
+      if (gateway && baileysSvc) gateway.setBaileysService(baileysSvc);
+      if (baileysSvc && realtimeEmitterSvc) baileysSvc.setRealtimeEmitter(realtimeEmitterSvc);
+    } catch { /* opcional */ }
+
     // Wira o ChatbotService no ConversationsService (reset de sessão ao fechar atendimento)
     try {
       const { ChatbotService } = require('./modules/chatbot/chatbot.service');
@@ -141,6 +153,21 @@ export class AppModule implements NestModule, OnModuleInit {
       const ticketsSvc = this.moduleRef.get(TicketsService, { strict: false });
       const assignmentSvc = this.moduleRef.get(TicketAssignmentService, { strict: false });
       if (ticketsSvc && assignmentSvc) ticketsSvc.setAssignmentService(assignmentSvc);
+    } catch { /* opcional */ }
+
+    // Wira o ConversationsService no TicketsService (fecha conversa ao resolver/encerrar ticket)
+    try {
+      const { TicketsService } = require('./modules/tickets/tickets.service');
+      const { ConversationsService } = require('./modules/conversations/conversations.service');
+      const ticketsSvc = this.moduleRef.get(TicketsService, { strict: false });
+      const convSvc = this.moduleRef.get(ConversationsService, { strict: false });
+      if (ticketsSvc && convSvc) {
+        ticketsSvc.setCloseConversationHandler(
+          async (tenantId: string, conversationId: string, userId: string, userName: string) => {
+            await convSvc.close(tenantId, conversationId, userId, userName, true /* keepTicketOpen */);
+          },
+        );
+      }
     } catch { /* opcional */ }
   }
 

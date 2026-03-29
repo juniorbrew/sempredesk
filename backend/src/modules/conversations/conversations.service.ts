@@ -448,6 +448,39 @@ export class ConversationsService {
   }
 
   /**
+   * Retorna mensagens paginadas (cursor-based). Usado pelo dashboard para carga incremental.
+   * @param opts.limit  quantas mensagens retornar (padrão 50)
+   * @param opts.before ID de mensagem — retorna apenas mensagens mais antigas que esta
+   */
+  async getMessagesPage(
+    tenantId: string,
+    conversationId: string,
+    opts: { limit: number; before?: string },
+  ): Promise<{ messages: ConversationMessage[]; hasMore: boolean }> {
+    const conv = await this.findOne(tenantId, conversationId);
+    const limit = Math.min(opts.limit, 200);
+
+    const qb = this.msgRepo
+      .createQueryBuilder('m')
+      .where('m.conversationId = :convId', { convId: conv.id })
+      .andWhere('m.tenantId = :tenantId', { tenantId })
+      .orderBy('m.createdAt', 'DESC')
+      .take(limit + 1); // busca um a mais para saber se há próxima página
+
+    if (opts.before) {
+      const ref = await this.msgRepo.findOne({ where: { id: opts.before, tenantId } });
+      if (ref) {
+        qb.andWhere('m.createdAt < :refDate', { refDate: ref.createdAt });
+      }
+    }
+
+    const rows = await qb.getMany();
+    const hasMore = rows.length > limit;
+    const messages = rows.slice(0, limit).reverse(); // ordena ASC para exibição
+    return { messages, hasMore };
+  }
+
+  /**
    * Adiciona mensagem à conversa (cliente ou agente). Usado no chat do portal.
    */
   async addMessage(
@@ -457,7 +490,7 @@ export class ConversationsService {
     authorName: string,
     authorType: 'contact' | 'user',
     content: string,
-    opts?: { skipOutbound?: boolean; initialWhatsappStatus?: string },
+    opts?: { skipOutbound?: boolean; initialWhatsappStatus?: string; initialExternalId?: string | null },
   ): Promise<ConversationMessage> {
     const conv = await this.findOne(tenantId, conversationId);
     if (conv.status === ConversationStatus.CLOSED) {
@@ -470,8 +503,10 @@ export class ConversationsService {
       authorName,
       authorType,
       content,
-      // Status inicial fornecido pelo chamador (ex: sendReplyFromTicket já enviou via Baileys)
+      // Status e externalId iniciais fornecidos pelo chamador
+      // (ex: sendReplyFromTicket já enviou via Baileys e tem o messageId)
       whatsappStatus: opts?.initialWhatsappStatus ?? null,
+      externalId: opts?.initialExternalId ?? null,
     });
     const saved = await this.msgRepo.save(msg);
     await this.updateLastMessageAt(tenantId, conversationId);
@@ -607,6 +642,10 @@ export class ConversationsService {
 
     conv.status = ConversationStatus.CLOSED;
     await this.convRepo.save(conv);
+
+    // Notifica todos os agentes do tenant que esta conversa foi encerrada
+    // O frontend remove do inbox ativo sem precisar de polling
+    this.realtimeEmitter.emitToTenant(tenantId, 'conversation:closed', { conversationId: conv.id });
 
     // WhatsApp: ao encerrar o atendimento formalmente, dispara avaliação ao cliente.
     // Se o atendimento não foi encerrado (keepTicketOpen), apenas reseta a sessão.

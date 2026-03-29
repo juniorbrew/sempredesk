@@ -176,10 +176,18 @@ export class TicketsController {
     @TenantId() tenantId: string,
     @Param('id') id: string,
     @Query('includeInternal') includeInternal?: string,
+    @Query('limit') limitStr?: string,
+    @Query('before') before?: string,
   ) {
     // Usuários portal NUNCA recebem notas internas, independente do parâmetro enviado
     const isPortal = req.user?.isPortal === true;
     const withInternal = isPortal ? false : includeInternal !== 'false';
+    if (limitStr) {
+      const limit = parseInt(limitStr, 10);
+      if (!isNaN(limit) && limit > 0) {
+        return this.ticketsService.getMessagesPage(tenantId, id, { limit, before, includeInternal: withInternal });
+      }
+    }
     return this.ticketsService.getMessages(tenantId, id, withInternal);
   }
 
