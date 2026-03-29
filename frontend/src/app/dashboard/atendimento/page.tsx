@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 import { useEffect, useLayoutEffect, useState, useCallback, useRef, memo } from 'react';
 import { api } from '@/lib/api';
 import Link from 'next/link';
@@ -12,13 +12,13 @@ import { EmojiPicker } from '@/components/ui/EmojiPicker';
 import ContactValidationBanner, { type ResolvedData } from '@/components/atendimento/ContactValidationBanner';
 import { TagMultiSelect } from '@/components/ui/TagMultiSelect';
 
-// â”€â”€ helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── helpers ──────────────────────────────────────────────────────────────────
 
-/** Formata nÃºmero de WhatsApp para exibiÃ§Ã£o: remove prefixo 55 e aplica mÃ¡scara BR */
+/** Formata número de WhatsApp para exibição: remove prefixo 55 e aplica máscara BR */
 function formatWhatsApp(raw?: string | null): string {
   if (!raw) return '';
   const digits = raw.replace(/\D/g, '');
-  // LID: identificador interno do WhatsApp (14+ dÃ­gitos) â€” nÃ£o Ã© nÃºmero de telefone real
+  // LID: identificador interno do WhatsApp (14+ dígitos) — não é número de telefone real
   if (digits.length >= 14) return '';
   // Brasil: remove prefixo 55 e formata com DDI
   if (digits.startsWith('55') && digits.length >= 12) {
@@ -26,7 +26,7 @@ function formatWhatsApp(raw?: string | null): string {
     if (local.length === 11) return `+55 (${local.slice(0,2)}) ${local.slice(2,3)} ${local.slice(3,7)}-${local.slice(7)}`;
     if (local.length === 10) return `+55 (${local.slice(0,2)}) ${local.slice(2,6)}-${local.slice(6)}`;
   }
-  // NÃºmero local BR sem DDI (10-11 dÃ­gitos)
+  // Número local BR sem DDI (10-11 dígitos)
   if (digits.length === 11) return `(${digits.slice(0,2)}) ${digits.slice(2,3)} ${digits.slice(3,7)}-${digits.slice(7)}`;
   if (digits.length === 10) return `(${digits.slice(0,2)}) ${digits.slice(2,6)}-${digits.slice(6)}`;
   // Outro: retorna com + se parece internacional
@@ -57,7 +57,7 @@ function avatarColor(name: string) {
   return COLORS[Math.abs(hash) % COLORS.length];
 }
 
-// â”€â”€ sub-components â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── sub-components ────────────────────────────────────────────────────────────
 function ChannelDot({ channel }: { channel: string }) {
   const isWa = channel === 'whatsapp';
   return (
@@ -76,10 +76,10 @@ function ChannelDot({ channel }: { channel: string }) {
   );
 }
 
-// â”€â”€ MessageStatusIcon â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-/** Ãcone de status de mensagem estilo WhatsApp */
+// ── MessageStatusIcon ─────────────────────────────────────────────────────────
+/** Ícone de status de mensagem estilo WhatsApp */
 function MessageStatusIcon({ status, isWhatsapp }: { status?: string | null; isWhatsapp?: boolean }) {
-  // Canal nÃ£o-WhatsApp: check simples
+  // Canal não-WhatsApp: check simples
   if (!isWhatsapp) return <CheckCircle2 size={11} style={{ color: 'rgba(255,255,255,.5)' }} />;
   // Pendente / enviando (otimista)
   if (!status || status === 'pending' || status === 'sending' || status === 'queued') {
@@ -97,26 +97,26 @@ function MessageStatusIcon({ status, isWhatsapp }: { status?: string | null; isW
       </svg>
     );
   }
-  // Enviado (âœ“ cinza)
+  // Enviado (✓ cinza)
   if (status === 'sent') {
     return <Check size={11} style={{ color: 'rgba(255,255,255,.5)' }} />;
   }
-  // Entregue (âœ“âœ“ cinza)
+  // Entregue (✓✓ cinza)
   if (status === 'delivered') {
     return (
-      <span style={{ fontSize: 10, color: 'rgba(255,255,255,.5)', letterSpacing: '-2px', lineHeight: 1 }}>âœ“âœ“</span>
+      <span style={{ fontSize: 10, color: 'rgba(255,255,255,.5)', letterSpacing: '-2px', lineHeight: 1 }}>✓✓</span>
     );
   }
-  // Lido (âœ“âœ“ azul)
+  // Lido (✓✓ azul)
   if (status === 'read') {
     return (
-      <span style={{ fontSize: 10, color: '#93C5FD', letterSpacing: '-2px', lineHeight: 1 }}>âœ“âœ“</span>
+      <span style={{ fontSize: 10, color: '#93C5FD', letterSpacing: '-2px', lineHeight: 1 }}>✓✓</span>
     );
   }
   return <Check size={11} style={{ color: 'rgba(255,255,255,.5)' }} />;
 }
 
-// â”€â”€ MessageSkeleton â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── MessageSkeleton ───────────────────────────────────────────────────────────
 /** Placeholder animado enquanto carrega mensagens pela primeira vez */
 function MessageSkeleton() {
   return (
@@ -131,8 +131,8 @@ function MessageSkeleton() {
   );
 }
 
-// â”€â”€ HighlightText â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-/** Destaca ocorrÃªncias de `query` dentro de `text` com fundo amarelo */
+// ── HighlightText ─────────────────────────────────────────────────────────────
+/** Destaca ocorrências de `query` dentro de `text` com fundo amarelo */
 function escapeRegex(s: string) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 function HighlightText({ text, query }: { text: string; query: string }) {
   if (!query) return <>{text}</>;
@@ -148,15 +148,15 @@ function HighlightText({ text, query }: { text: string; query: string }) {
   );
 }
 
-// â”€â”€ MessageItem (memoizado) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-/** Item individual de mensagem â€” memoizado para evitar re-render ao digitar */
+// ── MessageItem (memoizado) ───────────────────────────────────────────────────
+/** Item individual de mensagem — memoizado para evitar re-render ao digitar */
 const MessageItem = memo(function MessageItem({ m, isWhatsapp, highlight }: { m: any; isWhatsapp: boolean; highlight?: string }) {
   const isContact = m.authorType === 'contact';
   const isSystem  = m.messageType === 'system';
   const t = new Date(m.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
   const col = avatarColor(m.authorName || '?');
 
-  // Constantes de estilo (idÃªnticas ao S da tela pai)
+  // Constantes de estilo (idênticas ao S da tela pai)
   const accent = '#4F46E5';
   const accentLight = '#EEF2FF';
   const bg = '#FFFFFF';
@@ -207,7 +207,7 @@ const MessageItem = memo(function MessageItem({ m, isWhatsapp, highlight }: { m:
   );
 });
 
-// â”€â”€ main component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── main component ────────────────────────────────────────────────────────────
 export default function AtendimentoPage() {
   const { user } = useAuthStore();
   const [conversations, setConversations] = useState<any[]>([]);
@@ -253,7 +253,7 @@ export default function AtendimentoPage() {
   const [startContactSearch, setStartContactSearch] = useState('');
   const [startingConv, setStartingConv] = useState(false);
   const [loadingStartContacts, setLoadingStartContacts] = useState(false);
-  // Modo "Por nÃºmero"
+  // Modo "Por número"
   const [startPhone, setStartPhone] = useState('');
   const [startPhoneChecking, setStartPhoneChecking] = useState(false);
   const [startPhoneResult, setStartPhoneResult] = useState<{ exists: boolean; jid: string | null; normalized: string } | null>(null);
@@ -287,7 +287,7 @@ export default function AtendimentoPage() {
   const contactTypingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const agentTypingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const agentIsTypingRef = useRef(false);
-  // â”€â”€ busca dentro da conversa â”€â”€
+  // ── busca dentro da conversa ──
   const [msgSearchOpen, setMsgSearchOpen] = useState(false);
   const [msgSearchQuery, setMsgSearchQuery] = useState('');
   const [msgSearchIdx, setMsgSearchIdx] = useState(0);
@@ -300,23 +300,23 @@ export default function AtendimentoPage() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const atBottomRef = useRef(true); // true = usuÃ¡rio estÃ¡ perto do fim da lista
+  const atBottomRef = useRef(true); // true = usuário está perto do fim da lista
 
-  // â”€â”€ paginaÃ§Ã£o de mensagens â”€â”€
+  // ── paginação de mensagens ──
   const hasMoreMsgsRef = useRef(false);      // espelho de hasMoreMsgs para uso em callbacks
   const loadingMoreMsgsRef = useRef(false);  // espelho de loadingMoreMsgs para uso em callbacks
   const oldestMsgIdRef = useRef<string | null>(null); // cursor: ID da mensagem mais antiga carregada
-  const prevScrollHeightRef = useRef(0);     // scrollHeight antes de prepend (para restaurar posiÃ§Ã£o)
+  const prevScrollHeightRef = useRef(0);     // scrollHeight antes de prepend (para restaurar posição)
   const shouldRestoreScrollRef = useRef(false);
   hasMoreMsgsRef.current = hasMoreMsgs;
   loadingMoreMsgsRef.current = loadingMoreMsgs;
 
-  // â”€â”€ cache de dados estÃ¡veis + guard de race condition â”€â”€
-  const loadIdRef = useRef(0);          // incrementado a cada loadChat; respostas velhas sÃ£o descartadas
-  const customersRef = useRef<any[]>([]); // cache de clientes â€” nÃ£o rebusca a cada troca de conversa
-  const teamRef = useRef<any[]>([]);      // cache de equipe â€” idem
+  // ── cache de dados estáveis + guard de race condition ──
+  const loadIdRef = useRef(0);          // incrementado a cada loadChat; respostas velhas são descartadas
+  const customersRef = useRef<any[]>([]); // cache de clientes — não rebusca a cada troca de conversa
+  const teamRef = useRef<any[]>([]);      // cache de equipe — idem
 
-  // â”€â”€ helpers â”€â”€
+  // ── helpers ──
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3500);
@@ -336,13 +336,13 @@ export default function AtendimentoPage() {
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
     atBottomRef.current = nearBottom;
     if (nearBottom) setShowScrollBtn(false);
-    // PrÃ³ximo do topo â†’ carrega mensagens mais antigas
+    // Próximo do topo → carrega mensagens mais antigas
     if (el.scrollTop < 80 && hasMoreMsgsRef.current && !loadingMoreMsgsRef.current) {
       loadMoreMsgsRef.current();
     }
   }, []);
 
-  // Carrega mensagens mais antigas (scroll para cima). Preserva posiÃ§Ã£o de scroll via useLayoutEffect.
+  // Carrega mensagens mais antigas (scroll para cima). Preserva posição de scroll via useLayoutEffect.
   const loadMoreMsgsRef = useRef<() => void>(() => {});
   const loadMoreMessages = useCallback(async () => {
     const conv = selectedRef.current;
@@ -371,7 +371,7 @@ export default function AtendimentoPage() {
   }, []);
   loadMoreMsgsRef.current = loadMoreMessages;
 
-  // Restaura posiÃ§Ã£o de scroll apÃ³s prepend de mensagens antigas (sem pular)
+  // Restaura posição de scroll após prepend de mensagens antigas (sem pular)
   useLayoutEffect(() => {
     if (shouldRestoreScrollRef.current && scrollContainerRef.current) {
       const el = scrollContainerRef.current;
@@ -389,17 +389,17 @@ export default function AtendimentoPage() {
 
   const customerName = (cid: string) => {
     const c = customers.find((x: any) => x.id === cid);
-    return c ? (c.tradeName || c.companyName) : 'â€”';
+    return c ? (c.tradeName || c.companyName) : '—';
   };
 
   const contactName = (cid: string) => {
     const c = contacts.find((x: any) => x.id === cid);
-    return c?.name || 'â€”';
+    return c?.name || '—';
   };
 
   const canEditConversationTags = hasPermission(user, 'ticket.edit');
 
-  // â”€â”€ data loading â”€â”€
+  // ── data loading ──
   const loadConversations = useCallback(async (resetSelection = false, silent = false) => {
     if (!silent) setLoading(true);
     try {
@@ -419,7 +419,7 @@ export default function AtendimentoPage() {
       const ticketArr = Array.isArray(ticketConvList) ? ticketConvList : ticketConvList?.data ?? [];
       const sorted = [...convArr.map((c: any) => ({ ...c, type: c.type || 'conversation' })), ...ticketArr]
         .sort((a: any, b: any) => new Date(b.lastMessageAt || b.createdAt).getTime() - new Date(a.lastMessageAt || a.createdAt).getTime());
-      // Deduplica por contactId â€” 1 chat ativo por contato (mantÃ©m o mais recente)
+      // Deduplica por contactId — 1 chat ativo por contato (mantém o mais recente)
       const seenContacts = new Set<string>();
       const merged = sorted.filter((c: any) => {
         if (!c.contactId) return true;
@@ -435,9 +435,9 @@ export default function AtendimentoPage() {
         setSelected(merged.length ? merged[0] : null);
       } else {
         const found = merged.find((c: any) => sameItem(c, currentSelected));
-        // MantÃ©m seleÃ§Ã£o atual se ainda existe; sÃ³ atualiza o objeto (dados frescos)
+        // Mantém seleção atual se ainda existe; só atualiza o objeto (dados frescos)
         if (found) setSelected(found);
-        // else: conversa nÃ£o encontrada na lista (filtro mudou) â†’ nÃ£o forÃ§a primeiro item
+        // else: conversa não encontrada na lista (filtro mudou) → não força primeiro item
       }
     } catch (e) { console.error(e); setConversations([]); }
     setLoading(false);
@@ -465,7 +465,7 @@ export default function AtendimentoPage() {
       const ticketId = isTicket ? (conv.ticketId || conv.id?.replace?.(/^ticket:/, '')) : conv.ticketId;
       const tid = ticketId || conv.ticketId;
 
-      // â”€â”€ FASE 1: essencial â€” ticket + mensagens em paralelo â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+      // ── FASE 1: essencial — ticket + mensagens em paralelo ──────────────
       // Spinner some assim que estes dois chegarem (~150ms vs ~700ms antes)
       const [ticketRes, msgsRaw] = await Promise.all([
         tid ? api.getTicket(tid).catch(() => null) : Promise.resolve(null),
@@ -474,7 +474,7 @@ export default function AtendimentoPage() {
           : api.getConversationMessages(conv.id, { limit: 50 }).catch(() => ({ messages: [], hasMore: false })),
       ]);
 
-      if (myId !== loadIdRef.current) return; // conversa jÃ¡ mudou, descarta
+      if (myId !== loadIdRef.current) return; // conversa já mudou, descarta
 
       if (ticketRes) setCurrentTicket(ticketRes);
       // Conversa: resposta paginada { messages, hasMore }; ticket: array direto
@@ -490,14 +490,14 @@ export default function AtendimentoPage() {
         setHasMoreMsgs(paged?.hasMore === true);
         oldestMsgIdRef.current = arr[0]?.id ?? null;
       }
-      setLoadingChat(false); // â† conteÃºdo visÃ­vel aqui; fase 2 roda em background
+      setLoadingChat(false); // ← conteúdo visível aqui; fase 2 roda em background
 
-      // Envia read receipts para mensagens do contato via Baileys (best-effort, nÃ£o bloqueia)
+      // Envia read receipts para mensagens do contato via Baileys (best-effort, não bloqueia)
       if (!isTicket && conv.channel === 'whatsapp' && conv.id) {
         api.markConversationRead(conv.id).catch(() => {});
       }
 
-      // â”€â”€ FASE 2: dados de suporte â€” sem bloquear a UI â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+      // ── FASE 2: dados de suporte — sem bloquear a UI ─────────────────────
       const clientId = conv.clientId;
       const contactId = conv.contactId || (ticketRes as any)?.contactId;
       const needCustomers = customersRef.current.length === 0;
@@ -514,17 +514,17 @@ export default function AtendimentoPage() {
 
       if (myId !== loadIdRef.current) return;
 
-      // Customers â€” atualiza cache e estado
+      // Customers — atualiza cache e estado
       if (customersRes) {
         const arr: any[] = customersRes?.data || customersRes || [];
-        // Cliente desta conversa fora da lista paginada â†’ busca individual
+        // Cliente desta conversa fora da lista paginada → busca individual
         if (clientId && !arr.find((c: any) => c.id === clientId)) {
           try { const r: any = await api.getCustomer(clientId); if (r) arr.push(r?.data ?? r); } catch {}
         }
         customersRef.current = arr;
         if (myId === loadIdRef.current) setCustomers(arr);
       } else if (clientId && !customersRef.current.find((c: any) => c.id === clientId)) {
-        // Cache existente mas sem este cliente especÃ­fico â†’ busca individual
+        // Cache existente mas sem este cliente específico → busca individual
         try {
           const r: any = await api.getCustomer(clientId);
           if (r && myId === loadIdRef.current) {
@@ -535,13 +535,13 @@ export default function AtendimentoPage() {
         } catch {}
       }
 
-      // Team â€” atualiza cache e estado
+      // Team — atualiza cache e estado
       if (teamRes) {
         let arr: any[] = Array.isArray(teamRes) ? teamRes : teamRes?.data ?? [];
         teamRef.current = arr;
         if (myId === loadIdRef.current) setTeam(arr);
       }
-      // Garante que o agente responsÃ¡vel pelo ticket esteja na lista
+      // Garante que o agente responsável pelo ticket esteja na lista
       if (ticketRes?.assignedTo) {
         const cur = teamRef.current;
         if (!cur.find((u: any) => String(u.id) === String(ticketRes.assignedTo))) {
@@ -567,7 +567,7 @@ export default function AtendimentoPage() {
         }
         if (myId === loadIdRef.current) {
           setContacts(ctArr);
-          // Assina presenÃ§a do contato WhatsApp para receber "digitando..."
+          // Assina presença do contato WhatsApp para receber "digitando..."
           if (conv.channel === 'whatsapp') {
             const phone = ctArr.find((c: any) => c.whatsapp)?.whatsapp;
             if (phone && user?.tenantId) {
@@ -626,7 +626,7 @@ export default function AtendimentoPage() {
     } catch { setLinkTickets([]); }
   }, [selected?.clientId, selected?.contactId, linkTicketSearch]);
 
-  // â”€â”€ end flow â”€â”€
+  // ── end flow ──
   const openEndFlow = () => { setCloseForm({ solution:'', rootCause:'', timeSpent:'', internalNote:'', complexity:0 }); setShowEndModal(true); };
   const handleKeepOpen = () => { setShowEndModal(false); setKeepOpenReason(''); setShowKeepOpenModal(true); };
   const handleCloseTicket = () => { setShowEndModal(false); setCloseForm({ solution:'', rootCause:'', timeSpent:'', internalNote:'', complexity:0 }); setShowCloseForm(true); };
@@ -652,7 +652,7 @@ export default function AtendimentoPage() {
   const isTicketType = selected?.type === 'ticket' || selected?.id?.startsWith?.('ticket:');
 
   const confirmCloseTicket = async () => {
-    if (!closeForm.solution.trim()) { showToast('SoluÃ§Ã£o aplicada Ã© obrigatÃ³ria', 'error'); return; }
+    if (!closeForm.solution.trim()) { showToast('Solução aplicada é obrigatória', 'error'); return; }
     const tid = selected?.ticketId || (isTicketType ? selected?.id?.replace?.(/^ticket:/, '') : null);
     try {
       const timeSpentMin = closeForm.timeSpent ? parseInt(closeForm.timeSpent) : 0;
@@ -661,16 +661,16 @@ export default function AtendimentoPage() {
       } else if (tid) {
         await api.resolveTicket(tid, { resolutionSummary: closeForm.solution, timeSpentMin, rootCause: closeForm.rootCause || undefined, complexity: closeForm.complexity || undefined });
         if (closeForm.internalNote.trim()) await api.addMessage(tid, { content: closeForm.internalNote, messageType: 'internal' });
-        // Ticket permanece como "Resolvido" â€” cliente tem 7 dias para confirmar no portal
-      } else { showToast('Ticket nÃ£o encontrado', 'error'); return; }
+        // Ticket permanece como "Resolvido" — cliente tem 7 dias para confirmar no portal
+      } else { showToast('Ticket não encontrado', 'error'); return; }
       setShowCloseForm(false);
-      showToast('Chamado marcado como resolvido! O cliente serÃ¡ notificado para confirmar.');
+      showToast('Chamado marcado como resolvido! O cliente será notificado para confirmar.');
       loadConversations(true, true);
     } catch (e: any) { showToast(e?.response?.data?.message || 'Erro ao encerrar', 'error'); }
   };
 
-  // â”€â”€ assign agent â”€â”€
-  // â”€â”€ transfer â”€â”€
+  // ── assign agent ──
+  // ── transfer ──
   const openTransferModal = async () => {
     if (team.length === 0) { try { const r: any = await api.getTeam(); setTeam(Array.isArray(r) ? r : r?.data ?? []); } catch {} }
     setTransferAgentId('');
@@ -693,7 +693,7 @@ export default function AtendimentoPage() {
     setTransferLoading(false);
   };
 
-  // â”€â”€ start conversation â”€â”€
+  // ── start conversation ──
   const openStartModal = () => {
     setStartMode('contact');
     setStartClientId(''); setStartClientName(''); setStartContactId(''); setStartContacts([]); setStartContactSearch('');
@@ -727,7 +727,7 @@ export default function AtendimentoPage() {
     setStartPhoneChecking(false);
   };
 
-  // ApÃ³s criar conversa (qualquer modo), recarrega lista e seleciona
+  // Após criar conversa (qualquer modo), recarrega lista e seleciona
   const afterConvCreated = async (conv: any) => {
     setShowStartModal(false); setFilter('all'); setChannelFilter('all');
     const [cl, tc] = await Promise.all([
@@ -742,7 +742,7 @@ export default function AtendimentoPage() {
     setSelected(merged.find((c: any) => sameItem(c, conv)) || conv || null);
   };
 
-  // â”€â”€ create ticket â”€â”€
+  // ── create ticket ──
   const handleCreateTicket = async () => {
     if (!selected?.id) return;
     if (team.length === 0) { try { const r: any = await api.getTeam(); setTeam(Array.isArray(r) ? r : r?.data ?? []); } catch {} }
@@ -780,13 +780,13 @@ export default function AtendimentoPage() {
   };
 
   const confirmCreateTicket = async () => {
-    if (!createForm.subject.trim()) { showToast('Assunto Ã© obrigatÃ³rio', 'error'); return; }
+    if (!createForm.subject.trim()) { showToast('Assunto é obrigatório', 'error'); return; }
     if (!createForm.clientId) { showToast('Selecione o cliente', 'error'); return; }
     if (!selected?.id) return;
     setCreateLoading(true);
     try {
       // Only send contactId when the selected client is the same as the conversation's client
-      // (if the agent picks a different client, the contact won't belong to that client â†’ 400)
+      // (if the agent picks a different client, the contact won't belong to that client → 400)
       const contactId = (createForm.clientId && createForm.clientId === selected?.clientId)
         ? selected.contactId
         : undefined;
@@ -804,12 +804,12 @@ export default function AtendimentoPage() {
     setCreateLoading(false);
   };
 
-  // â”€â”€ link ticket â”€â”€
+  // ── link ticket ──
   const handleLinkTicket = (ticketId: string) => { setLinkSelectedId(ticketId); setLinkReason(''); };
 
   const confirmLinkTicket = async () => {
     if (!linkSelectedId || !selected?.id) return;
-    if (!linkReason.trim()) { showToast('Informe o motivo da vinculaÃ§Ã£o', 'error'); return; }
+    if (!linkReason.trim()) { showToast('Informe o motivo da vinculação', 'error'); return; }
     try {
       await api.linkTicketToConversation(selected.id, linkSelectedId);
       if (linkReason.trim()) await api.addMessage(linkSelectedId, { content: `Conversa vinculada ao ticket. Motivo: ${linkReason}`, messageType: 'system' }).catch(() => {});
@@ -820,7 +820,7 @@ export default function AtendimentoPage() {
     } catch (e: any) { showToast(e?.response?.data?.message || 'Erro ao vincular', 'error'); }
   };
 
-  // â”€â”€ send message â”€â”€
+  // ── send message ──
   const sendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     const text = input.trim();
@@ -836,7 +836,7 @@ export default function AtendimentoPage() {
     setMessages(m => [...m, {
       id: tempId,
       authorType: 'user',
-      authorName: 'VocÃª',
+      authorName: 'Você',
       content: text,
       createdAt: new Date().toISOString(),
       whatsappStatus: channel === 'whatsapp' ? 'sending' : null,
@@ -858,7 +858,7 @@ export default function AtendimentoPage() {
       else if (channel === 'whatsapp' && ticketId) res = await api.sendWhatsappFromTicket(ticketId, text);
       else res = await api.addConversationMessage(selected.id, { content: text });
 
-      // Extrai objeto de mensagem da resposta da API (vÃ¡rios formatos possÃ­veis)
+      // Extrai objeto de mensagem da resposta da API (vários formatos possíveis)
       // sendWhatsappFromTicket agora retorna { success, message: { id, ... } }
       const real = res?.message?.id ? res.message
         : res?.id ? res
@@ -866,15 +866,15 @@ export default function AtendimentoPage() {
         : null;
 
       if (real?.id) {
-        // Substitui otimista pelo objeto real em-place â€” sem flash, sem reload
+        // Substitui otimista pelo objeto real em-place — sem flash, sem reload
         setMessages(m => m.map(msg => msg.id === tempId ? { ...real } : msg));
-        // Socket tambÃ©m vai entregar via 'message'; dedup por ID cuidarÃ¡ disso sem duplicar
+        // Socket também vai entregar via 'message'; dedup por ID cuidará disso sem duplicar
       } else {
-        // API nÃ£o retornou objeto (caso raro: ticket sem conversationId ou meta API pura).
-        // Aguarda socket substituir o otimista; reload de seguranÃ§a apÃ³s 1.5s.
+        // API não retornou objeto (caso raro: ticket sem conversationId ou meta API pura).
+        // Aguarda socket substituir o otimista; reload de segurança após 1.5s.
         setTimeout(async () => {
           setMessages(m => {
-            if (!m.some((x: any) => x.id === tempId)) return m; // socket jÃ¡ substituiu
+            if (!m.some((x: any) => x.id === tempId)) return m; // socket já substituiu
             return m.filter((x: any) => x.id !== tempId); // remove otimista pendente
           });
           const fresh = isTicketType && ticketId
@@ -887,7 +887,7 @@ export default function AtendimentoPage() {
         }, 1500);
       }
     } catch (e: any) {
-      // Marca mensagem otimista como erro em vez de removÃª-la
+      // Marca mensagem otimista como erro em vez de removê-la
       setMessages(m => m.map(msg => msg.id === tempId ? { ...msg, whatsappStatus: 'error', _optimistic: false } : msg));
       showToast((e as any)?.response?.data?.message || 'Erro ao enviar', 'error');
     }
@@ -895,7 +895,7 @@ export default function AtendimentoPage() {
     inputRef.current?.focus();
   };
 
-  // Insere emoji na posiÃ§Ã£o do cursor no textarea
+  // Insere emoji na posição do cursor no textarea
   const insertEmoji = (emoji: string) => {
     const el = inputRef.current;
     if (!el) { setInput(v => v + emoji); return; }
@@ -903,25 +903,25 @@ export default function AtendimentoPage() {
     const end = el.selectionEnd ?? input.length;
     const next = input.slice(0, start) + emoji + input.slice(end);
     setInput(next);
-    // Reposiciona cursor apÃ³s o emoji
+    // Reposiciona cursor após o emoji
     requestAnimationFrame(() => {
       el.focus();
       el.setSelectionRange(start + emoji.length, start + emoji.length);
     });
   };
 
-  // â”€â”€ derived â”€â”€
+  // ── derived ──
   const hasTicket = !!selected?.ticketId || isTicketType;
   const isClosed = selected?.status === 'closed';
   const isWhatsapp = selected?.channel === 'whatsapp';
   const isPortalNoTicket = selected?.channel === 'portal' && !hasTicket && selected?.status !== 'closed';
-  // Conversa WhatsApp/canal sem ticket â€” iniciada pelo agente ou pelo contato, ainda sem ticket vinculado
+  // Conversa WhatsApp/canal sem ticket — iniciada pelo agente ou pelo contato, ainda sem ticket vinculado
   const isConvNoTicket = !isTicketType && !hasTicket && !!selected?.id && selected?.status !== 'closed';
   const canSend = hasTicket || isPortalNoTicket || isConvNoTicket;
   const ticketIdForRealtime = isTicketType ? (selected?.ticketId || selected?.id?.replace?.(/^ticket:/, '')) : null;
   const conversationIdForRealtime = !isTicketType ? selected?.id : null;
 
-  // IDs das mensagens que contÃªm a query de busca (excluindo internas e de sistema)
+  // IDs das mensagens que contêm a query de busca (excluindo internas e de sistema)
   const msgMatchIds: string[] = (() => {
     const q = msgSearchQuery.trim().toLowerCase();
     if (!q) return [];
@@ -946,7 +946,7 @@ export default function AtendimentoPage() {
     return name.includes(q) || num.includes(q);
   });
 
-  // â”€â”€ effects â”€â”€
+  // ── effects ──
   useEffect(() => {
     try { localStorage.setItem('atend_filter', filter); localStorage.setItem('atend_channel', channelFilter); } catch {}
     loadConversations(true, false);
@@ -1002,19 +1002,19 @@ export default function AtendimentoPage() {
     if (atBottomRef.current) {
       scrollToBottom(true);
     } else {
-      // UsuÃ¡rio estÃ¡ lendo o histÃ³rico â€” mostra botÃ£o em vez de pular
+      // Usuário está lendo o histórico — mostra botão em vez de pular
       const last = messages[messages.length - 1];
       if (last && !last._optimistic) setShowScrollBtn(true);
     }
   }, [messages.length, scrollToBottom]);
 
-  // â”€â”€ realtime: contato digitando â”€â”€
+  // ── realtime: contato digitando ──
   const contactPhone = contacts[0]?.whatsapp ?? null;
   useRealtimeContactTyping(
     selected?.channel === 'whatsapp' ? contactPhone : null,
     (isTyping) => {
       setIsContactTyping(isTyping);
-      // Auto-limpa apÃ³s 6s caso o backend nÃ£o envie "paused"
+      // Auto-limpa após 6s caso o backend não envie "paused"
       if (contactTypingTimeoutRef.current) clearTimeout(contactTypingTimeoutRef.current);
       if (isTyping) {
         contactTypingTimeoutRef.current = setTimeout(() => setIsContactTyping(false), 6000);
@@ -1022,15 +1022,15 @@ export default function AtendimentoPage() {
     },
   );
 
-  // â”€â”€ realtime â”€â”€
+  // ── realtime ──
   useRealtimeConversation(conversationIdForRealtime ?? null, (msg) => {
     if (!msg || !selected) return;
     setMessages((m) => {
-      // 1. JÃ¡ existe â†’ atualiza em-place (ex: atualizaÃ§Ã£o de status)
+      // 1. Já existe → atualiza em-place (ex: atualização de status)
       const exists = m.some((x: any) => String(x.id) === String(msg.id));
       if (exists) return m.map((x: any) => (String(x.id) === String(msg.id) ? { ...x, ...msg } : x));
-      // 2. Mensagem do agente chegou via socket enquanto otimista ainda estÃ¡ na lista
-      //    â†’ substitui o primeiro otimista em vez de duplicar
+      // 2. Mensagem do agente chegou via socket enquanto otimista ainda está na lista
+      //    → substitui o primeiro otimista em vez de duplicar
       if (msg.authorType === 'user') {
         const optIdx = m.findIndex((x: any) => x._optimistic === true);
         if (optIdx >= 0) {
@@ -1039,7 +1039,7 @@ export default function AtendimentoPage() {
           return next;
         }
       }
-      // 3. Mensagem nova do contato (ou sem otimista) â†’ adiciona ao final
+      // 3. Mensagem nova do contato (ou sem otimista) → adiciona ao final
       return [...m, msg];
     });
   });
@@ -1077,16 +1077,16 @@ export default function AtendimentoPage() {
     setSavingConversationTags(false);
   };
 
-  // â”€â”€ notificaÃ§Ãµes de nova mensagem (conversas nÃ£o selecionadas) â”€â”€
+  // ── notificações de nova mensagem (conversas não selecionadas) ──
   useRealtimeTenantNewMessages((msg) => {
     const currentSelected = selectedRef.current;
-    // Ignora mensagens da conversa atualmente selecionada (jÃ¡ renderizadas em tempo real)
+    // Ignora mensagens da conversa atualmente selecionada (já renderizadas em tempo real)
     if (currentSelected && String(currentSelected.id) === String(msg.conversationId)) return;
 
     // Incrementa badge
     setUnreadCounts(p => ({ ...p, [msg.conversationId]: (p[msg.conversationId] || 0) + 1 }));
 
-    // Sobe conversa para o topo da lista e atualiza prÃ©via
+    // Sobe conversa para o topo da lista e atualiza prévia
     setConversations(prev => {
       const idx = prev.findIndex((c: any) => String(c.id) === String(msg.conversationId));
       if (idx < 0) return prev;
@@ -1094,7 +1094,7 @@ export default function AtendimentoPage() {
       return [updated, ...prev.slice(0, idx), ...prev.slice(idx + 1)];
     });
 
-    // Som de notificaÃ§Ã£o via Web Audio API (sem arquivos externos)
+    // Som de notificação via Web Audio API (sem arquivos externos)
     try {
       const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
       const osc = ctx.createOscillator();
@@ -1109,40 +1109,40 @@ export default function AtendimentoPage() {
     } catch {}
   });
 
-  // â”€â”€ ticket transferido em tempo real â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── ticket transferido em tempo real ──────────────────────────────────────────
   useRealtimeTicketAssigned((payload) => {
     const myId = user?.id;
     if (!myId) return;
 
-    // 1. Ticket foi atribuÃ­do a MIM â†’ toast + reload silencioso para aparecer no inbox
+    // 1. Ticket foi atribuído a MIM → toast + reload silencioso para aparecer no inbox
     if (String(payload.assignedTo) === String(myId) && String(payload.assignedBy) !== String(myId)) {
       const label = payload.ticketNumber ? `#${payload.ticketNumber}` : 'ticket';
       const byName = payload.assignedByName || 'outro agente';
-      showToast(`ðŸŽ¯ ${label} transferido para vocÃª por ${byName}`, 'success');
+      showToast(`🎯 ${label} transferido para você por ${byName}`, 'success');
       loadConversations(false, true);
     }
 
-    // 2. Ticket foi tirado de mim (transferido para outro) â†’ atualiza silenciosamente
+    // 2. Ticket foi tirado de mim (transferido para outro) → atualiza silenciosamente
     if (String(payload.prevAssignedTo) === String(myId) && String(payload.assignedTo) !== String(myId)) {
       loadConversations(false, true);
     }
   });
 
-  // â”€â”€ conversa fechada remotamente (ticket resolvido/encerrado por outro agente ou pela prÃ³pria aÃ§Ã£o) â”€â”€
+  // ── conversa fechada remotamente (ticket resolvido/encerrado por outro agente ou pela própria ação) ──
   useRealtimeConversationClosed((conversationId) => {
     const currentSelected = selectedRef.current;
     // Remove da lista de conversas ativas
     setConversations(prev => prev.filter((c: any) => String(c.id) !== String(conversationId)));
-    // Se era a conversa selecionada, limpa a seleÃ§Ã£o
+    // Se era a conversa selecionada, limpa a seleção
     if (currentSelected && String(currentSelected.id) === String(conversationId)) {
       setSelected(null);
       setMessages([]);
     }
-    // Remove badge de nÃ£o lidas
+    // Remove badge de não lidas
     setUnreadCounts(p => { const next = { ...p }; delete next[conversationId]; return next; });
   });
 
-  // â”€â”€ styles (shared) â”€â”€
+  // ── styles (shared) ──
   const S = {
     border: '1px solid rgba(0,0,0,.07)',
     border2: '1px solid rgba(0,0,0,.12)',
@@ -1157,14 +1157,14 @@ export default function AtendimentoPage() {
     accentMid: '#C7D2FE',
   } as const;
 
-  // â”€â”€ render â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── render ────────────────────────────────────────────────────────────────
   return (
     <>
 
-      {/* â”€â”€ Main layout â”€â”€ */}
+      {/* ── Main layout ── */}
       <div style={{ margin: 0, height: 'calc(100vh - 44px)', display: 'flex', overflow: 'hidden', background: S.bg3 }}>
 
-        {/* â•â•â•â•â•â•â•â•â•â• CONVERSATION LIST (310px) â•â•â•â•â•â•â•â•â•â• */}
+        {/* ══════════ CONVERSATION LIST (310px) ══════════ */}
         <div style={{ width: 310, background: S.bg, borderRight: S.border, display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
 
           {/* Header */}
@@ -1236,11 +1236,11 @@ export default function AtendimentoPage() {
             ))}
           </div>
 
-          {/* Tag filter (sÃ³ aparece se hÃ¡ tags cadastradas) */}
+          {/* Tag filter (só aparece se há tags cadastradas) */}
           {availableTags.length > 0 && (
             <div ref={tagDropdownRef} style={{ padding: '8px 12px 10px', borderBottom: S.border, flexShrink: 0, position: 'relative' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                {/* BotÃ£o abre/fecha dropdown */}
+                {/* Botão abre/fecha dropdown */}
                 <button
                   onClick={() => setShowTagDropdown(v => !v)}
                   style={{
@@ -1283,7 +1283,7 @@ export default function AtendimentoPage() {
                 )}
               </div>
 
-              {/* Dropdown de seleÃ§Ã£o de tags */}
+              {/* Dropdown de seleção de tags */}
               {showTagDropdown && (
                 <div style={{
                   position: 'absolute', top: 'calc(100% + 2px)', left: 12, right: 12, zIndex: 50,
@@ -1346,8 +1346,8 @@ export default function AtendimentoPage() {
                 const noTicket = !c.ticketId;
                 const isClo = c.status === 'closed';
                 const ch = c.channel || 'whatsapp';
-                const dispName = c.contactName || customerName(c.clientId) || 'â€”';
-                const compName = c.clientName || (c.contactName ? customerName(c.clientId) : null) || (customerName(c.clientId) !== 'â€”' ? customerName(c.clientId) : null);
+                const dispName = c.contactName || customerName(c.clientId) || '—';
+                const compName = c.clientName || (c.contactName ? customerName(c.clientId) : null) || (customerName(c.clientId) !== '—' ? customerName(c.clientId) : null);
                 const col = avatarColor(dispName);
                 return (
                   <button key={c.id} onClick={() => { setSelected(c); if (c?.id) setUnreadCounts(p => { const n = { ...p }; delete n[c.id]; return n; }); }}
@@ -1359,7 +1359,7 @@ export default function AtendimentoPage() {
                     }}>
                     <div style={{ position: 'relative', flexShrink: 0 }}>
                       <div style={{ width: 38, height: 38, borderRadius: '50%', background: isClo ? '#E2E8F0' : col, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 13, fontWeight: 600 }}>
-                        {dispName !== 'â€”' ? initials(dispName) : <MessageSquare size={14} />}
+                        {dispName !== '—' ? initials(dispName) : <MessageSquare size={14} />}
                       </div>
                       <ChannelDot channel={ch} />
                     </div>
@@ -1383,10 +1383,10 @@ export default function AtendimentoPage() {
                           <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 5, fontWeight: 500, background: '#F0FDF4', color: '#166534' }}>{compName}</span>
                         )}
                         {c.escalated && (
-                          <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 5, fontWeight: 600, background: '#FEF2F2', color: '#DC2626' }}>â— Urgente</span>
+                          <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 5, fontWeight: 600, background: '#FEF2F2', color: '#DC2626' }}>● Urgente</span>
                         )}
                         {c.slaCritical && (
-                          <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 5, fontWeight: 600, background: '#FFF1F0', color: '#CF1322' }}>âš  SLA</span>
+                          <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 5, fontWeight: 600, background: '#FFF1F0', color: '#CF1322' }}>⚠ SLA</span>
                         )}
                         {noTicket && !isClo && (
                           <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 5, fontWeight: 500, background: '#FEF3C7', color: '#D97706' }}>Sem ticket</span>
@@ -1428,7 +1428,7 @@ export default function AtendimentoPage() {
           </div>
         </div>
 
-        {/* â•â•â•â•â•â•â•â•â•â• CHAT AREA (flex-1) â•â•â•â•â•â•â•â•â•â• */}
+        {/* ══════════ CHAT AREA (flex-1) ══════════ */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: S.bg, minWidth: 0 }}>
           {!selected ? (
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, color: S.txt3 }}>
@@ -1458,26 +1458,26 @@ export default function AtendimentoPage() {
                   {/* Info */}
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 15, fontWeight: 600, color: S.txt }}>
-                      {contactName(selected.contactId) !== 'â€”' ? contactName(selected.contactId) : messages.find((m: any) => m.authorType === 'contact')?.authorName || selected.contactName || 'â€”'}
+                      {contactName(selected.contactId) !== '—' ? contactName(selected.contactId) : messages.find((m: any) => m.authorType === 'contact')?.authorName || selected.contactName || '—'}
                     </div>
                     <div style={{ fontSize: 11, color: S.txt2, display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 600, padding: '1px 7px', borderRadius: 5, background: isWhatsapp ? '#DCFCE7' : '#EEF2FF', color: isWhatsapp ? '#15803D' : S.accent }}>
                         {isWhatsapp ? <Phone size={9} /> : <Globe size={9} />}
                         {isWhatsapp ? 'WhatsApp' : 'Portal'}
                       </span>
-                      <span style={{ color: S.txt3 }}>Â·</span>
+                      <span style={{ color: S.txt3 }}>·</span>
                       <span>{customerName(selected.clientId)}</span>
-                      {/* NÃºmero do contato visÃ­vel no cabeÃ§alho */}
+                      {/* Número do contato visível no cabeçalho */}
                       {contacts[0]?.whatsapp && isWhatsapp && (
                         <>
-                          <span style={{ color: S.txt3 }}>Â·</span>
+                          <span style={{ color: S.txt3 }}>·</span>
                           <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 10 }}>{formatWhatsApp(contacts[0].whatsapp)}</span>
                         </>
                       )}
                       {selected.lastMessageAt && (
                         <>
-                          <span style={{ color: S.txt3 }}>Â·</span>
-                          <span style={{ color: S.txt3 }}>Visto {timeAgo(selected.lastMessageAt)} atrÃ¡s</span>
+                          <span style={{ color: S.txt3 }}>·</span>
+                          <span style={{ color: S.txt3 }}>Visto {timeAgo(selected.lastMessageAt)} atrás</span>
                         </>
                       )}
                     </div>
@@ -1495,7 +1495,7 @@ export default function AtendimentoPage() {
                       <Link href={`/dashboard/tickets/${selected.ticketId}`} target="_blank"
                         style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 12px', borderRadius: 8, background: S.accentLight, border: `1px solid ${S.accentMid}`, color: S.accent, fontSize: 12, fontWeight: 600, textDecoration: 'none', fontFamily: "'DM Mono', monospace" }}>
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v2z"/></svg>
-                        {currentTicket?.ticketNumber ?? selected?.ticketNumber ?? 'â€”'}
+                        {currentTicket?.ticketNumber ?? selected?.ticketNumber ?? '—'}
                       </Link>
                     )}
                     {!hasTicket && !isPortalNoTicket && (
@@ -1528,14 +1528,14 @@ export default function AtendimentoPage() {
                   </div>
                 )}
 
-                {/* Contact validation banner â€” exibido apenas quando hÃ¡ ticket */}
+                {/* Contact validation banner — exibido apenas quando há ticket */}
                 {currentTicket?.id && (
                   <ContactValidationBanner
                     key={currentTicket.id}
                     ticketId={currentTicket.id}
                     initialCustomerSelectedAt={currentTicket.customerSelectedAt ?? null}
                     initialUnlinkedContact={currentTicket.unlinkedContact ?? false}
-                    initialCustomerName={customerName(selected?.clientId) !== 'â€”' ? customerName(selected?.clientId) : null}
+                    initialCustomerName={customerName(selected?.clientId) !== '—' ? customerName(selected?.clientId) : null}
                     onResolved={(data: ResolvedData) => {
                       setCurrentTicket((prev: any) => prev ? { ...prev, ...data } : prev);
                     }}
@@ -1576,7 +1576,7 @@ export default function AtendimentoPage() {
                   <button
                     onClick={() => { if (msgMatchIds.length > 0) setMsgSearchIdx(i => (i + 1) % msgMatchIds.length); }}
                     disabled={msgMatchIds.length === 0}
-                    title="PrÃ³ximo resultado (Enter)"
+                    title="Próximo resultado (Enter)"
                     style={{ background: 'none', border: S.border2, borderRadius: 6, width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: msgMatchIds.length > 0 ? 'pointer' : 'default', opacity: msgMatchIds.length > 0 ? 1 : 0.35 }}>
                     <svg width="11" height="11" viewBox="0 0 10 10" fill="none" stroke={S.txt2} strokeWidth="1.6"><path d="M2 3.5l3 3 3-3"/></svg>
                   </button>
@@ -1589,7 +1589,7 @@ export default function AtendimentoPage() {
                 </div>
               )}
 
-              {/* Messages â€” wrapper com position:relative para o botÃ£o flutuante */}
+              {/* Messages — wrapper com position:relative para o botão flutuante */}
               <div style={{ flex: 1, position: 'relative', overflow: 'hidden', background: S.bg2 }}>
                 <div
                   ref={scrollContainerRef}
@@ -1605,12 +1605,12 @@ export default function AtendimentoPage() {
                       <p style={{ margin: 0 }}>Nenhuma mensagem ainda</p>
                     </div>
                   ) : (
-                    // Mensagens ficam visÃ­veis durante troca; opacidade reduzida enquanto carrega
+                    // Mensagens ficam visíveis durante troca; opacidade reduzida enquanto carrega
                     <div style={{ display: 'contents', opacity: loadingChat ? 0.55 : 1, transition: 'opacity 0.18s' }}>
-                      {/* Indicador de histÃ³rico no topo */}
+                      {/* Indicador de histórico no topo */}
                       {loadingMoreMsgs && (
                         <div style={{ textAlign: 'center', padding: '8px 0', color: S.txt3, fontSize: 12 }}>
-                          Carregando histÃ³rico...
+                          Carregando histórico...
                         </div>
                       )}
                       {!loadingMoreMsgs && hasMoreMsgs && (
@@ -1655,7 +1655,7 @@ export default function AtendimentoPage() {
                   <div ref={messagesEndRef} />
                 </div>
 
-                {/* BotÃ£o flutuante: nova mensagem enquanto usuÃ¡rio lÃª histÃ³rico */}
+                {/* Botão flutuante: nova mensagem enquanto usuário lê histórico */}
                 {showScrollBtn && (
                   <button
                     onClick={() => scrollToBottom(true)}
@@ -1682,7 +1682,7 @@ export default function AtendimentoPage() {
                     {[
                       { label: 'Arquivo', icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg> },
                       { label: 'Imagem', icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg> },
-                      { label: 'Resposta rÃ¡pida', icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg> },
+                      { label: 'Resposta rápida', icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg> },
                       { label: 'Nota interna', icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> },
                       { label: 'Macro', icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg> },
                     ].map(({ label, icon }) => (
@@ -1709,7 +1709,7 @@ export default function AtendimentoPage() {
                               agentIsTypingRef.current = true;
                               emitTypingPresence(contacts[0].whatsapp, user.tenantId, true);
                             }
-                            // Auto-stop apÃ³s 4s sem digitar
+                            // Auto-stop após 4s sem digitar
                             if (agentTypingTimeoutRef.current) clearTimeout(agentTypingTimeoutRef.current);
                             agentTypingTimeoutRef.current = setTimeout(() => {
                               agentIsTypingRef.current = false;
@@ -1745,14 +1745,14 @@ export default function AtendimentoPage() {
               )}
               {isClosed && (
                 <div style={{ borderTop: S.border, background: S.bg2, padding: '12px 20px', flexShrink: 0, textAlign: 'center', fontSize: 12, color: S.txt3 }}>
-                  Esta conversa estÃ¡ encerrada
+                  Esta conversa está encerrada
                 </div>
               )}
             </>
           )}
         </div>
 
-        {/* â•â•â•â•â•â•â•â•â•â• CLIENT PANEL (290px) â•â•â•â•â•â•â•â•â•â• */}
+        {/* ══════════ CLIENT PANEL (290px) ══════════ */}
         <div style={{ width: 290, borderLeft: S.border, background: S.bg, display: 'flex', flexDirection: 'column', overflowY: 'auto', flexShrink: 0 }}>
           {selected ? (() => {
             const customer = customers.find((c: any) => c.id === selected?.clientId);
@@ -1789,7 +1789,7 @@ export default function AtendimentoPage() {
                 <span style={{ fontSize: 12, color: S.txt, fontWeight: 500, textAlign: 'right' as const }}>{value}</span>
               </div>
             );
-            const dispName = contactName(selected.contactId) !== 'â€”' ? contactName(selected.contactId) : selected.contactName || 'â€”';
+            const dispName = contactName(selected.contactId) !== '—' ? contactName(selected.contactId) : selected.contactName || '—';
             return (
               <>
                 {/* Top: client avatar + name + tags */}
@@ -1863,10 +1863,10 @@ export default function AtendimentoPage() {
                   </div>
                 )}
 
-                {/* RESPONSÃVEL */}
+                {/* RESPONSÁVEL */}
                 {currentTicket && (
                   <div style={{ padding: '14px 16px', borderBottom: S.border }}>
-                    {secTitle('ResponsÃ¡vel')}
+                    {secTitle('Responsável')}
                     {assignedUser ? (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <div style={{ width: 26, height: 26, borderRadius: '50%', background: S.accent, color: '#fff', fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -1879,7 +1879,7 @@ export default function AtendimentoPage() {
                     ) : (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '6px 10px', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8 }}>
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#D97706" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                        <span style={{ fontSize: 11, color: '#92400E', fontWeight: 500 }}>Aguardando distribuiÃ§Ã£o automÃ¡tica</span>
+                        <span style={{ fontSize: 11, color: '#92400E', fontWeight: 500 }}>Aguardando distribuição automática</span>
                       </div>
                     )}
                   </div>
@@ -1916,11 +1916,11 @@ export default function AtendimentoPage() {
                   </div>
                 )}
 
-                {/* INFORMAÃ‡Ã•ES */}
+                {/* INFORMAÇÕES */}
                 {customer && (
                   <div style={{ padding: '14px 16px', borderBottom: S.border }}>
-                    {secTitle('InformaÃ§Ãµes')}
-                    {field('Empresa', <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140, display: 'block' }}>{customer.tradeName || customer.companyName || 'â€”'}</span>)}
+                    {secTitle('Informações')}
+                    {field('Empresa', <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140, display: 'block' }}>{customer.tradeName || customer.companyName || '—'}</span>)}
                     {customer.networkName && field('Rede', customer.networkName)}
                     {customer.cnpj && field('CNPJ', <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11 }}>{customer.cnpj}</span>)}
                     {contact?.whatsapp && field('WhatsApp', <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11 }}>{formatWhatsApp(contact.whatsapp)}</span>)}
@@ -1936,9 +1936,9 @@ export default function AtendimentoPage() {
                     {secTitle('Atividade')}
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                       {[
-                        { val: total, label: 'Tickets total', sub: `+${clientTickets.filter((t: any) => { const d = new Date(t.createdAt); const now = new Date(); return d.getMonth()===now.getMonth()&&d.getFullYear()===now.getFullYear(); }).length} este mÃªs` },
-                        { val: `${resRate}%`, label: 'ResoluÃ§Ã£o', sub: null },
-                        { val: 'â€”', label: 'Tempo mÃ©dio', sub: null },
+                        { val: total, label: 'Tickets total', sub: `+${clientTickets.filter((t: any) => { const d = new Date(t.createdAt); const now = new Date(); return d.getMonth()===now.getMonth()&&d.getFullYear()===now.getFullYear(); }).length} este mês` },
+                        { val: `${resRate}%`, label: 'Resolução', sub: null },
+                        { val: '—', label: 'Tempo médio', sub: null },
                         { val: urgent, label: 'Urgentes abertos', sub: null },
                       ].map(({ val, label, sub }) => (
                         <div key={label} style={{ background: S.bg2, borderRadius: 10, padding: '10px 12px' }}>
@@ -1993,14 +1993,14 @@ export default function AtendimentoPage() {
         </div>
       </div>
 
-      {/* â•â•â•â•â•â•â•â•â•â• TOAST â•â•â•â•â•â•â•â•â•â• */}
+      {/* ══════════ TOAST ══════════ */}
       {toast && (
         <div style={{ position: 'fixed', bottom: 28, left: '50%', transform: 'translateX(-50%)', background: toast.type === 'success' ? '#16A34A' : '#DC2626', color: '#fff', padding: '12px 24px', borderRadius: 12, fontSize: 14, fontWeight: 600, boxShadow: '0 4px 20px rgba(0,0,0,0.2)', zIndex: 10002, whiteSpace: 'nowrap', animation: 'fadeUp 0.2s ease-out' }}>
-          {toast.type === 'success' ? 'âœ“ ' : 'âœ— '}{toast.msg}
+          {toast.type === 'success' ? '✓ ' : '✗ '}{toast.msg}
         </div>
       )}
 
-      {/* â•â•â•â•â•â•â•â•â•â• MODAL: Nova Conversa WhatsApp â•â•â•â•â•â•â•â•â•â• */}
+      {/* ══════════ MODAL: Nova Conversa WhatsApp ══════════ */}
       {showStartModal && (() => {
         const existingConv = startContactId
           ? conversations.find((c: any) => c.contactId === startContactId && c.status === 'active')
@@ -2010,7 +2010,7 @@ export default function AtendimentoPage() {
           const q = startContactSearch.toLowerCase();
           return c.name?.toLowerCase().includes(q) || c.whatsapp?.includes(q) || c.phone?.includes(q);
         });
-        // Modo "Por contato": sÃ³ mostra contatos que tÃªm whatsapp (nÃ£o apenas phone)
+        // Modo "Por contato": só mostra contatos que têm whatsapp (não apenas phone)
         const contactsWithWa = filteredContacts.filter((c: any) => c.whatsapp?.trim());
         const contactsPhoneOnly = filteredContacts.filter((c: any) => !c.whatsapp?.trim() && c.phone?.trim());
 
@@ -2043,10 +2043,10 @@ export default function AtendimentoPage() {
               <div style={{ padding: '12px 24px 0', flexShrink: 0 }}>
                 <div style={{ display: 'flex', gap: 4, background: '#F1F5F9', borderRadius: 10, padding: 4 }}>
                   <button style={S_TAB(startMode === 'contact')} onClick={() => { setStartMode('contact'); setStartPhoneResult(null); }}>
-                    ðŸ‘¤ Por contato existente
+                    👤 Por contato existente
                   </button>
                   <button style={S_TAB(startMode === 'phone')} onClick={() => { setStartMode('phone'); setStartContactId(''); }}>
-                    ðŸ“± Por nÃºmero direto
+                    📱 Por número direto
                   </button>
                 </div>
               </div>
@@ -2054,7 +2054,7 @@ export default function AtendimentoPage() {
               {/* Body */}
               <div style={{ flex: 1, overflowY: 'auto', padding: '16px 24px' }}>
 
-                {/* â”€â”€ Modo: Por contato â”€â”€ */}
+                {/* ── Modo: Por contato ── */}
                 {startMode === 'contact' && (
                   <>
                     <div style={{ marginBottom: 16 }}>
@@ -2072,7 +2072,7 @@ export default function AtendimentoPage() {
                         </label>
                         <div style={{ position: 'relative', marginBottom: 8 }}>
                           <Search style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', width: 14, height: 14, color: '#94A3B8' }} />
-                          <input value={startContactSearch} onChange={e => setStartContactSearch(e.target.value)} placeholder="Buscar por nome ou nÃºmero..."
+                          <input value={startContactSearch} onChange={e => setStartContactSearch(e.target.value)} placeholder="Buscar por nome ou número..."
                             style={{ width: '100%', padding: '9px 12px 9px 32px', borderRadius: 8, border: '1.5px solid #E2E8F0', fontSize: 13, outline: 'none', boxSizing: 'border-box' as const }} />
                         </div>
                         {loadingStartContacts ? (
@@ -2103,7 +2103,7 @@ export default function AtendimentoPage() {
                             })}
                             {contactsPhoneOnly.length > 0 && (
                               <div style={{ fontSize: 11, color: '#94A3B8', padding: '6px 4px 2px', borderTop: '1px solid #F1F5F9', marginTop: 4 }}>
-                                Contatos abaixo tÃªm apenas telefone (sem WhatsApp cadastrado â€” use &quot;Por nÃºmero direto&quot;):
+                                Contatos abaixo têm apenas telefone (sem WhatsApp cadastrado — use &quot;Por número direto&quot;):
                               </div>
                             )}
                             {contactsPhoneOnly.map((c: any) => (
@@ -2124,11 +2124,11 @@ export default function AtendimentoPage() {
                   </>
                 )}
 
-                {/* â”€â”€ Modo: Por nÃºmero direto â”€â”€ */}
+                {/* ── Modo: Por número direto ── */}
                 {startMode === 'phone' && (
                   <div>
                     <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#64748B', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6 }}>
-                      NÃºmero do WhatsApp
+                      Número do WhatsApp
                     </label>
                     <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
                       <input
@@ -2146,7 +2146,7 @@ export default function AtendimentoPage() {
                       </button>
                     </div>
                     <p style={{ margin: '0 0 12px', fontSize: 11, color: '#94A3B8' }}>
-                      Informe com DDI (ex: 55 para Brasil). O sistema verifica se o nÃºmero estÃ¡ ativo no WhatsApp.
+                      Informe com DDI (ex: 55 para Brasil). O sistema verifica se o número está ativo no WhatsApp.
                     </p>
                     {startPhoneResult && (
                       <div style={{ padding: '10px 14px', borderRadius: 10, background: startPhoneResult.exists ? '#F0FDF4' : '#FEF2F2', border: `1px solid ${startPhoneResult.exists ? '#BBF7D0' : '#FECACA'}`, marginBottom: 12, fontSize: 13, display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -2154,7 +2154,7 @@ export default function AtendimentoPage() {
                           <>
                             <CheckCircle2 size={16} color="#16A34A" style={{ flexShrink: 0 }} />
                             <div>
-                              <span style={{ fontWeight: 700, color: '#15803D' }}>NÃºmero encontrado no WhatsApp!</span>
+                              <span style={{ fontWeight: 700, color: '#15803D' }}>Número encontrado no WhatsApp!</span>
                               {startPhoneResult.jid && (
                                 <span style={{ color: '#64748B', marginLeft: 6, fontSize: 11 }}>JID: {startPhoneResult.jid}</span>
                               )}
@@ -2164,8 +2164,8 @@ export default function AtendimentoPage() {
                           <>
                             <X size={16} color="#DC2626" style={{ flexShrink: 0 }} />
                             <div>
-                              <span style={{ fontWeight: 700, color: '#DC2626' }}>NÃºmero nÃ£o encontrado no WhatsApp.</span>
-                              <span style={{ color: '#94A3B8', marginLeft: 6, fontSize: 11 }}>Verifique o nÃºmero e tente novamente, ou prossiga mesmo assim.</span>
+                              <span style={{ fontWeight: 700, color: '#DC2626' }}>Número não encontrado no WhatsApp.</span>
+                              <span style={{ color: '#94A3B8', marginLeft: 6, fontSize: 11 }}>Verifique o número e tente novamente, ou prossiga mesmo assim.</span>
                             </div>
                           </>
                         )}
@@ -2182,7 +2182,7 @@ export default function AtendimentoPage() {
                   </div>
                 )}
 
-                {/* â”€â”€ Mensagem inicial (ambos os modos) â”€â”€ */}
+                {/* ── Mensagem inicial (ambos os modos) ── */}
                 {(startMode === 'phone' || (startMode === 'contact' && startContactId)) && (
                   <div style={{ marginTop: 4 }}>
                     <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#64748B', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6 }}>
@@ -2191,11 +2191,11 @@ export default function AtendimentoPage() {
                     <textarea
                       value={startFirstMessage}
                       onChange={e => setStartFirstMessage(e.target.value)}
-                      placeholder="OlÃ¡! Entramos em contato para..."
+                      placeholder="Olá! Entramos em contato para..."
                       rows={3}
                       style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1.5px solid #E2E8F0', fontSize: 13, resize: 'vertical', outline: 'none', boxSizing: 'border-box' as const, fontFamily: 'inherit' }}
                     />
-                    <p style={{ margin: '3px 0 0', fontSize: 11, color: '#94A3B8' }}>Se preenchida, a mensagem serÃ¡ enviada imediatamente ao criar a conversa.</p>
+                    <p style={{ margin: '3px 0 0', fontSize: 11, color: '#94A3B8' }}>Se preenchida, a mensagem será enviada imediatamente ao criar a conversa.</p>
                   </div>
                 )}
               </div>
@@ -2204,7 +2204,7 @@ export default function AtendimentoPage() {
               <div style={{ padding: '14px 24px', borderTop: '1px solid #F1F5F9', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
                 <button onClick={() => setShowStartModal(false)} style={{ padding: '10px 18px', borderRadius: 10, border: '1.5px solid #E2E8F0', background: '#fff', color: '#475569', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancelar</button>
 
-                {/* BotÃ£o modo "Por contato" */}
+                {/* Botão modo "Por contato" */}
                 {startMode === 'contact' && (
                   <button disabled={!canStartByContact}
                     onClick={async () => {
@@ -2236,7 +2236,7 @@ export default function AtendimentoPage() {
                   </button>
                 )}
 
-                {/* BotÃ£o modo "Por nÃºmero" */}
+                {/* Botão modo "Por número" */}
                 {startMode === 'phone' && (
                   <button
                     disabled={!canStartByPhone}
@@ -2266,7 +2266,7 @@ export default function AtendimentoPage() {
         );
       })()}
 
-      {/* â•â•â•â•â•â•â•â•â•â• MODAL: Vincular Ticket â•â•â•â•â•â•â•â•â•â• */}
+      {/* ══════════ MODAL: Vincular Ticket ══════════ */}
       {showLinkModal && selected && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: 16 }} onClick={() => { setShowLinkModal(false); setLinkSelectedId(null); }}>
           <div style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 480, maxHeight: '85vh', overflow: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: '0 16px 48px rgba(0,0,0,0.2)' }} onClick={e => e.stopPropagation()}>
@@ -2281,7 +2281,7 @@ export default function AtendimentoPage() {
               <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', padding: '16px 20px', gap: 10 }}>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <input value={linkTicketSearch} onChange={e => setLinkTicketSearch(e.target.value)} onKeyDown={e => e.key === 'Enter' && searchTicketsForLink()}
-                    placeholder="Buscar por nÃºmero ou assunto..." style={{ flex: 1, padding: '9px 12px', borderRadius: 8, border: '1.5px solid #E2E8F0', fontSize: 13, outline: 'none' }} />
+                    placeholder="Buscar por número ou assunto..." style={{ flex: 1, padding: '9px 12px', borderRadius: 8, border: '1.5px solid #E2E8F0', fontSize: 13, outline: 'none' }} />
                   <button onClick={searchTicketsForLink} style={{ padding: '9px 14px', borderRadius: 8, border: '1.5px solid #E2E8F0', background: '#F8FAFC', color: '#475569', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Buscar</button>
                 </div>
                 <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -2305,7 +2305,7 @@ export default function AtendimentoPage() {
                   })}
                   {linkTickets.filter((t: any) => !['closed', 'cancelled'].includes(t.status)).length === 0 && (
                     <p style={{ textAlign: 'center', color: '#94A3B8', fontSize: 13, padding: '24px 0' }}>
-                      {linkTickets.length === 0 ? 'Nenhum ticket encontrado. Use a busca acima.' : 'Nenhum ticket disponÃ­vel para vincular.'}
+                      {linkTickets.length === 0 ? 'Nenhum ticket encontrado. Use a busca acima.' : 'Nenhum ticket disponível para vincular.'}
                     </p>
                   )}
                 </div>
@@ -2315,15 +2315,15 @@ export default function AtendimentoPage() {
                 <div style={{ background: '#EEF2FF', border: '1.5px solid #C7D2FE', borderRadius: 8, padding: '10px 14px' }}>
                   <p style={{ margin: 0, fontSize: 12, color: '#4338CA', fontWeight: 600 }}>Ticket selecionado</p>
                   <p style={{ margin: '4px 0 0', fontSize: 13, color: '#0F172A', fontWeight: 700 }}>
-                    {linkTickets.find(t => t.id === linkSelectedId)?.ticketNumber} â€” {linkTickets.find(t => t.id === linkSelectedId)?.subject}
+                    {linkTickets.find(t => t.id === linkSelectedId)?.ticketNumber} — {linkTickets.find(t => t.id === linkSelectedId)?.subject}
                   </p>
                 </div>
                 <div>
                   <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 6 }}>
-                    Motivo da VinculaÃ§Ã£o <span style={{ color: '#EF4444' }}>*</span>
+                    Motivo da Vinculação <span style={{ color: '#EF4444' }}>*</span>
                   </label>
                   <textarea value={linkReason} onChange={e => setLinkReason(e.target.value)} rows={3} autoFocus
-                    placeholder="Ex: Cliente abriu via WhatsApp, ticket jÃ¡ existia no sistema..."
+                    placeholder="Ex: Cliente abriu via WhatsApp, ticket já existia no sistema..."
                     style={{ width: '100%', padding: '10px 12px', border: `1.5px solid ${linkReason.trim() ? '#E2E8F0' : '#FCA5A5'}`, borderRadius: 8, fontSize: 13, color: '#0F172A', resize: 'vertical' as const, outline: 'none', boxSizing: 'border-box' as const }} />
                 </div>
                 <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
@@ -2336,13 +2336,13 @@ export default function AtendimentoPage() {
         </div>
       )}
 
-      {/* â•â•â•â•â•â•â•â•â•â• MODAL: Criar Ticket â•â•â•â•â•â•â•â•â•â• */}
+      {/* ══════════ MODAL: Criar Ticket ══════════ */}
       {showCreateModal && selected && (() => {
         const selDept = ticketSettingsTree.find((d: any) => d.name === createForm.department);
         const cats = selDept?.categories || [];
         const selCat = cats.find((c: any) => c.name === createForm.category);
         const subs = selCat?.subcategories || [];
-        const PRIORITY_OPTS = [{ v:'low',l:'Baixa'},{v:'medium',l:'MÃ©dia'},{v:'high',l:'Alta'},{v:'critical',l:'CrÃ­tico'}];
+        const PRIORITY_OPTS = [{ v:'low',l:'Baixa'},{v:'medium',l:'Média'},{v:'high',l:'Alta'},{v:'critical',l:'Crítico'}];
         return (
           <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
             <div style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 540, maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.25)', overflow: 'hidden' }}>
@@ -2352,9 +2352,9 @@ export default function AtendimentoPage() {
                 </div>
                 <div style={{ flex: 1 }}>
                   <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#0F172A' }}>Criar Ticket</h2>
-                  <p style={{ margin: 0, fontSize: 12, color: '#94A3B8' }}>Preencha as informaÃ§Ãµes do chamado</p>
+                  <p style={{ margin: 0, fontSize: 12, color: '#94A3B8' }}>Preencha as informações do chamado</p>
                 </div>
-                <button onClick={() => setShowCreateModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94A3B8', fontSize: 20 }}>Ã—</button>
+                <button onClick={() => setShowCreateModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94A3B8', fontSize: 20 }}>×</button>
               </div>
               <div style={{ overflowY: 'auto', padding: '18px 22px', display: 'flex', flexDirection: 'column', gap: 13 }}>
                 <div>
@@ -2453,7 +2453,7 @@ export default function AtendimentoPage() {
                     style={{ width: '100%', padding: '9px 12px', border: `1.5px solid ${createForm.subject.trim() ? '#E2E8F0' : '#FCA5A5'}`, borderRadius: 8, fontSize: 13, outline: 'none', boxSizing: 'border-box' as const }} />
                 </div>
                 <div>
-                  <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 5 }}>DescriÃ§Ã£o</label>
+                  <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 5 }}>Descrição</label>
                   <textarea value={createForm.description} onChange={e => setCreateForm(f => ({ ...f, description: e.target.value }))} rows={2}
                     style={{ width: '100%', padding: '9px 12px', border: '1.5px solid #E2E8F0', borderRadius: 8, fontSize: 13, outline: 'none', resize: 'vertical' as const, boxSizing: 'border-box' as const }} />
                 </div>
@@ -2466,10 +2466,10 @@ export default function AtendimentoPage() {
                     </select>
                   </div>
                   <div>
-                    <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 5 }}>TÃ©cnico</label>
+                    <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 5 }}>Técnico</label>
                     <select value={createForm.assignedTo} onChange={e => setCreateForm(f => ({ ...f, assignedTo: e.target.value }))}
                       style={{ width: '100%', padding: '9px 10px', border: '1.5px solid #E2E8F0', borderRadius: 8, fontSize: 13, outline: 'none', background: '#fff' }}>
-                      <option value=''>NÃ£o atribuÃ­do</option>
+                      <option value=''>Não atribuído</option>
                       {team.map((u: any) => <option key={u.id} value={u.id}>{u.name || u.email}</option>)}
                     </select>
                   </div>
@@ -2515,7 +2515,7 @@ export default function AtendimentoPage() {
         );
       })()}
 
-      {/* â•â•â•â•â•â•â•â•â•â• MODAL: Encerrar â€” step 1 â•â•â•â•â•â•â•â•â•â• */}
+      {/* ══════════ MODAL: Encerrar — step 1 ══════════ */}
       {showEndModal && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
           <div style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 400, boxShadow: '0 16px 48px rgba(0,0,0,0.2)', overflow: 'hidden' }}>
@@ -2528,14 +2528,14 @@ export default function AtendimentoPage() {
                 <RefreshCw size={18} style={{ flexShrink: 0 }} />
                 <div>
                   <p style={{ margin: 0, fontWeight: 700 }}>Manter ticket aberto</p>
-                  <p style={{ margin: 0, fontSize: 11, color: '#3B82F6', fontWeight: 400 }}>A conversa Ã© encerrada mas o ticket continua em aberto</p>
+                  <p style={{ margin: 0, fontSize: 11, color: '#3B82F6', fontWeight: 400 }}>A conversa é encerrada mas o ticket continua em aberto</p>
                 </div>
               </button>
               <button onClick={handleCloseTicket} style={{ padding: '14px 16px', border: '1.5px solid #FED7AA', borderRadius: 10, background: '#FFF7ED', color: '#C2410C', fontSize: 13, fontWeight: 600, cursor: 'pointer', textAlign: 'left', display: 'flex', gap: 10, alignItems: 'center' }}>
                 <Lock size={18} style={{ flexShrink: 0 }} />
                 <div>
                   <p style={{ margin: 0, fontWeight: 700 }}>Encerrar e fechar o ticket</p>
-                  <p style={{ margin: 0, fontSize: 11, color: '#EA580C', fontWeight: 400 }}>Preencher soluÃ§Ã£o, causa raiz, tempo e encerrar tudo</p>
+                  <p style={{ margin: 0, fontSize: 11, color: '#EA580C', fontWeight: 400 }}>Preencher solução, causa raiz, tempo e encerrar tudo</p>
                 </div>
               </button>
             </div>
@@ -2546,13 +2546,13 @@ export default function AtendimentoPage() {
         </div>
       )}
 
-      {/* â•â•â•â•â•â•â•â•â•â• MODAL: Manter aberto â•â•â•â•â•â•â•â•â•â• */}
+      {/* ══════════ MODAL: Manter aberto ══════════ */}
       {showKeepOpenModal && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
           <div style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 440, boxShadow: '0 16px 48px rgba(0,0,0,0.2)', overflow: 'hidden' }}>
             <div style={{ padding: '18px 22px', borderBottom: '1px solid #F1F5F9' }}>
               <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#0F172A' }}>Manter Ticket Aberto</h2>
-              <p style={{ margin: '4px 0 0', fontSize: 12, color: '#94A3B8' }}>Informe o motivo pelo qual o ticket ficarÃ¡ em aberto</p>
+              <p style={{ margin: '4px 0 0', fontSize: 12, color: '#94A3B8' }}>Informe o motivo pelo qual o ticket ficará em aberto</p>
             </div>
             <div style={{ padding: '18px 22px' }}>
               <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 6 }}>Motivo <span style={{ color: '#EF4444' }}>*</span></label>
@@ -2567,7 +2567,7 @@ export default function AtendimentoPage() {
         </div>
       )}
 
-      {/* â•â•â•â•â•â•â•â•â•â• MODAL: Encerrar (formulÃ¡rio completo) â•â•â•â•â•â•â•â•â•â• */}
+      {/* ══════════ MODAL: Encerrar (formulário completo) ══════════ */}
       {showCloseForm && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
           <div style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 520, maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.25)', overflow: 'hidden' }}>
@@ -2577,13 +2577,13 @@ export default function AtendimentoPage() {
               </div>
               <div style={{ flex: 1 }}>
                 <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#0F172A' }}>Encerrar Atendimento</h2>
-                <p style={{ margin: 0, fontSize: 12, color: '#94A3B8' }}>Preencha as informaÃ§Ãµes. O ticket vinculado tambÃ©m serÃ¡ fechado.</p>
+                <p style={{ margin: 0, fontSize: 12, color: '#94A3B8' }}>Preencha as informações. O ticket vinculado também será fechado.</p>
               </div>
               <button onClick={() => setShowCloseForm(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94A3B8' }}><X size={18} /></button>
             </div>
             <div style={{ overflowY: 'auto', padding: '18px 22px', display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div>
-                <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 6 }}>SoluÃ§Ã£o Aplicada <span style={{ color: '#EF4444' }}>OBRIGATÃ“RIO</span></label>
+                <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 6 }}>Solução Aplicada <span style={{ color: '#EF4444' }}>OBRIGATÓRIO</span></label>
                 <textarea value={closeForm.solution} onChange={e => setCloseForm(f => ({ ...f, solution: e.target.value }))} placeholder="Descreva o que foi feito para resolver..." rows={3}
                   style={{ width: '100%', padding: '10px 12px', border: `1.5px solid ${closeForm.solution.trim() ? '#E2E8F0' : '#FCA5A5'}`, borderRadius: 8, fontSize: 13, color: '#0F172A', resize: 'vertical' as const, outline: 'none', boxSizing: 'border-box' as const }} />
               </div>
@@ -2612,7 +2612,7 @@ export default function AtendimentoPage() {
               </div>
               <div>
                 <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 6 }}>Nota Interna</label>
-                <textarea value={closeForm.internalNote} onChange={e => setCloseForm(f => ({ ...f, internalNote: e.target.value }))} rows={2} placeholder="ObservaÃ§Ãµes internas (nÃ£o enviadas ao cliente)..."
+                <textarea value={closeForm.internalNote} onChange={e => setCloseForm(f => ({ ...f, internalNote: e.target.value }))} rows={2} placeholder="Observações internas (não enviadas ao cliente)..."
                   style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #E2E8F0', borderRadius: 8, fontSize: 13, color: '#0F172A', resize: 'vertical' as const, outline: 'none', boxSizing: 'border-box' as const }} />
               </div>
               <div>
@@ -2639,9 +2639,9 @@ export default function AtendimentoPage() {
           </div>
         </div>
       )}
-      {/* â•â•â•â•â•â•â•â•â•â• MODAL: Atribuir ResponsÃ¡vel â•â•â•â•â•â•â•â•â•â• */}
+      {/* ══════════ MODAL: Atribuir Responsável ══════════ */}
 
-      {/* â•â•â•â•â•â•â•â•â•â• MODAL: Transferir â•â•â•â•â•â•â•â•â•â• */}
+      {/* ══════════ MODAL: Transferir ══════════ */}
       {showTransferModal && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={() => setShowTransferModal(false)}>
           <div style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 420, boxShadow: '0 16px 48px rgba(0,0,0,0.2)', overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
@@ -2666,7 +2666,7 @@ export default function AtendimentoPage() {
                   {transferAgentId === u.id && <Check size={16} color={S.accent} />}
                 </button>
               ))}
-              {team.length === 0 && <p style={{ textAlign: 'center', color: '#94A3B8', fontSize: 13, padding: '16px 0' }}>Nenhum agente disponÃ­vel</p>}
+              {team.length === 0 && <p style={{ textAlign: 'center', color: '#94A3B8', fontSize: 13, padding: '16px 0' }}>Nenhum agente disponível</p>}
             </div>
             <div style={{ padding: '14px 22px', borderTop: '1px solid #F1F5F9', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button onClick={() => setShowTransferModal(false)} style={{ padding: '9px 18px', borderRadius: 8, border: '1.5px solid #E2E8F0', background: '#fff', color: '#475569', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancelar</button>

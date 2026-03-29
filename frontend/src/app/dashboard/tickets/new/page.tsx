@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 import { FormEvent, useEffect, useMemo, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -126,7 +126,7 @@ export default function NewTicketPage() {
         {/* Cliente */}
         <SECTION title="Cliente" icon={Building2} color="#4F46E5">
           <div ref={searchRef} style={{ position:'relative', marginBottom:16 }}>
-            <label style={lbl}>Buscar cliente <span style={{color:'#6366F1'}}>*</span> <span style={{color:'#CBD5E1',fontWeight:400,textTransform:'none',fontSize:11}}>(mÃ­nimo 3 caracteres)</span></label>
+            <label style={lbl}>Buscar cliente <span style={{color:'#6366F1'}}>*</span> <span style={{color:'#CBD5E1',fontWeight:400,textTransform:'none',fontSize:11}}>(mínimo 3 caracteres)</span></label>
 
             {selectedClient ? (
               <div style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 16px', background:'#EEF2FF', border:'1.5px solid #C7D2FE', borderRadius:12 }}>
@@ -187,7 +187,7 @@ export default function NewTicketPage() {
                 <div style={{ position:'relative' }}>
                   <select style={{ ...inp(), appearance:'none' as const }} value={form.contactId} onChange={e=>setForm({...form,contactId:e.target.value})}>
                     <option value="">{loadingContacts?'Carregando...':'Selecione o contato'}</option>
-                    {contacts.map((c:any)=><option key={c.id} value={c.id}>{c.name}{c.role?` â€” ${c.role}`:''}</option>)}
+                    {contacts.map((c:any)=><option key={c.id} value={c.id}>{c.name}{c.role?` — ${c.role}`:''}</option>)}
                   </select>
                   <ChevronDown style={{position:'absolute',right:12,top:'50%',transform:'translateY(-50%)',width:14,height:14,color:'#CBD5E1',pointerEvents:'none'}} />
                 </div>
@@ -197,7 +197,7 @@ export default function NewTicketPage() {
                 <div style={{ position:'relative' }}>
                   <select style={{ ...inp(), appearance:'none' as const }} value={form.contractId} onChange={e=>setForm({...form,contractId:e.target.value})}>
                     <option value="">Sem contrato</option>
-                    {clientContracts.map((c:any)=>{ const t:Record<string,string>={monthly:'Mensal',hours_bank:'Banco de Horas',on_demand:'Sob Demanda',warranty:'Garantia'}; return <option key={c.id} value={c.id}>{t[c.contractType]||c.contractType} â€” SLA {c.slaResolveHours}h</option>; })}
+                    {clientContracts.map((c:any)=>{ const t:Record<string,string>={monthly:'Mensal',hours_bank:'Banco de Horas',on_demand:'Sob Demanda',warranty:'Garantia'}; return <option key={c.id} value={c.id}>{t[c.contractType]||c.contractType} — SLA {c.slaResolveHours}h</option>; })}
                   </select>
                   <ChevronDown style={{position:'absolute',right:12,top:'50%',transform:'translateY(-50%)',width:14,height:14,color:'#CBD5E1',pointerEvents:'none'}} />
                 </div>
@@ -208,7 +208,7 @@ export default function NewTicketPage() {
         </SECTION>
 
         {/* Ticket Info */}
-        <SECTION title="InformaÃ§Ãµes do Ticket" icon={Ticket} color="#3B82F6">
+        <SECTION title="Informações do Ticket" icon={Ticket} color="#3B82F6">
           <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
             <div>
               <label style={lbl}>Assunto <span style={{color:'#6366F1'}}>*</span></label>
@@ -217,7 +217,7 @@ export default function NewTicketPage() {
                 style={inp(focusField==='subject')} />
             </div>
             <div>
-              <label style={lbl}>DescriÃ§Ã£o <span style={{color:'#6366F1'}}>*</span></label>
+              <label style={lbl}>Descrição <span style={{color:'#6366F1'}}>*</span></label>
               <textarea value={form.description} onChange={e=>setForm({...form,description:e.target.value})} required rows={4}
                 placeholder="Detalhe o problema, incluindo passos para reproduzir, erros, etc."
                 onFocus={()=>setFocusField('desc')} onBlur={()=>setFocusField('')}
@@ -225,10 +225,10 @@ export default function NewTicketPage() {
             </div>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
               <Sel label="Prioridade" value={form.priority} onChange={(e:any)=>setForm({...form,priority:e.target.value})}>
-                <option value="low">ðŸŸ¢ Baixa</option>
-                <option value="medium">ðŸ”µ MÃ©dia</option>
-                <option value="high">ðŸŸ  Alta</option>
-                <option value="critical">ðŸ”´ CrÃ­tica</option>
+                <option value="low">🟢 Baixa</option>
+                <option value="medium">🔵 Média</option>
+                <option value="high">🟠 Alta</option>
+                <option value="critical">🔴 Crítica</option>
               </Sel>
               <Sel label="Origem" value={form.origin} onChange={(e:any)=>setForm({...form,origin:e.target.value})}>
                 <option value="internal">Interno</option>
@@ -249,8 +249,8 @@ export default function NewTicketPage() {
                 <option value="">Selecione</option>
                 {subcategories.map((s:any)=><option key={s.id} value={s.name}>{s.name}</option>)}
               </Sel>
-              <Sel label="TÃ©cnico responsÃ¡vel" value={form.assignedTo} onChange={(e:any)=>setForm({...form,assignedTo:e.target.value})}>
-                <option value="">NÃ£o atribuÃ­do</option>
+              <Sel label="Técnico responsável" value={form.assignedTo} onChange={(e:any)=>setForm({...form,assignedTo:e.target.value})}>
+                <option value="">Não atribuído</option>
                 {team.map((u:any)=><option key={u.id} value={u.id}>{u.name||u.email}</option>)}
               </Sel>
             </div>
@@ -267,7 +267,7 @@ export default function NewTicketPage() {
           </div>
         </SECTION>
 
-        {/* BotÃµes */}
+        {/* Botões */}
         <div style={{ display:'flex', justifyContent:'flex-end', gap:12, paddingBottom:24 }}>
           <Link href="/dashboard/tickets" className="btn-secondary">Cancelar</Link>
           <button type="submit" disabled={saving||!form.clientId} className="btn-primary"
@@ -279,3 +279,4 @@ export default function NewTicketPage() {
     </div>
   );
 }
+
