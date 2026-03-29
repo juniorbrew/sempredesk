@@ -5,7 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import {
   Network, LayoutDashboard, Ticket, Users, FileText, Monitor,
   Users2, BookOpen, Bell, Settings, LogOut, Headphones,
-  FolderTree, Tag, Layers, ChevronDown, Database, MessageCircle, BarChart2,
+  FolderTree, Tag, Layers, ChevronDown, Database, MessageCircle, BarChart2, AlertTriangle,
   Sun, Moon, MessageSquare, Smartphone,
 } from 'lucide-react';
 import { useAuthStore, hasPermission } from '@/store/auth.store';
@@ -29,6 +29,7 @@ const CADASTROS_NAV = [
   { href: '/dashboard/networks',      icon: Network,    label: 'Redes', perm: 'networks.view' },
   { href: '/dashboard/departments',   icon: FolderTree, label: 'Departamentos', perm: 'settings.manage' },
   { href: '/dashboard/tags',          icon: Tag,        label: 'Tags', perm: 'settings.manage' },
+  { href: '/dashboard/root-causes',   icon: AlertTriangle, label: 'Causa Raiz', perm: 'settings.manage' },
   { href: '/dashboard/categories',    icon: Tag,        label: 'Categorias', perm: 'settings.manage' },
   { href: '/dashboard/subcategories', icon: Layers,     label: 'Sub-Categorias', perm: 'settings.manage' },
   { href: '/dashboard/team',          icon: Users2,     label: 'Equipe e Usuários', perm: 'agent.view' },

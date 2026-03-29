@@ -44,6 +44,7 @@ export default function TicketDetailsPage() {
   const [team, setTeam] = useState<any[]>([]);
   const [tree, setTree] = useState<any>({ departments: [] });
   const [availableTags, setAvailableTags] = useState<any[]>([]);
+  const [rootCauseOptions, setRootCauseOptions] = useState<string[]>([]);
   const [customers, setCustomers] = useState<any[]>([]);
   const [contacts, setContacts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -70,9 +71,9 @@ export default function TicketDetailsPage() {
   const load = async () => {
     setLoading(true);
     try {
-      const [ticketRes, messageRes, teamRes, treeRes, customersRes, contractsRes, tagsRes] = await Promise.all([
+      const [ticketRes, messageRes, teamRes, treeRes, customersRes, contractsRes, tagsRes, rootCausesRes] = await Promise.all([
         api.getTicket(id), api.getMessages(id, true), api.getTeam(),
-        api.getTicketSettingsTree(), api.getCustomers({ perPage:200 }), api.getContracts(), api.getTags({ active: true }),
+        api.getTicketSettingsTree(), api.getCustomers({ perPage:200 }), api.getContracts(), api.getTags({ active: true }), api.getRootCauses({ active: true }).catch(() => []),
       ]);
       const t: any = ticketRes;
       const msgs: any = messageRes;
@@ -84,6 +85,7 @@ export default function TicketDetailsPage() {
       setTree((treeRes as any) || { departments:[] });
       setCustomers((customersRes as any)?.data || (customersRes as any) || []);
       setAvailableTags(Array.isArray(tagsRes) ? tagsRes : (tagsRes as any)?.data ?? []);
+      setRootCauseOptions((Array.isArray(rootCausesRes) ? rootCausesRes : (rootCausesRes as any)?.data ?? []).map((item: any) => item.name).filter(Boolean));
       if (t.clientId) {
         try { const ct = await api.getContacts(t.clientId); setContacts(Array.isArray(ct) ? ct : (ct as any)?.data ?? []); } catch { setContacts([]); }
         try { const hist: any = await api.getTickets({ clientId: t.clientId, perPage: 6, sort: 'createdAt:desc' }); const hList = Array.isArray(hist) ? hist : hist?.data ?? hist?.items ?? []; setClientHistory(hList.filter((x: any) => x.id !== id)); } catch { setClientHistory([]); }
@@ -176,7 +178,12 @@ export default function TicketDetailsPage() {
     if (!closeForm.solution.trim()) { toast.error('Solução aplicada é obrigatória'); return; }
     const timeSpentMin = closeForm.timeSpent ? parseInt(closeForm.timeSpent) : 0;
     try {
-      await api.resolveTicket(id, { resolutionSummary: closeForm.solution, timeSpentMin });
+      await api.resolveTicket(id, {
+        resolutionSummary: closeForm.solution,
+        timeSpentMin,
+        rootCause: closeForm.rootCause || undefined,
+        complexity: closeForm.complexity || undefined,
+      });
       if (closeForm.internalNote.trim()) {
         await api.addMessage(id, { content: closeForm.internalNote, messageType: 'internal' });
       }
@@ -275,7 +282,6 @@ export default function TicketDetailsPage() {
     { v:'60', l:'1 hora' }, { v:'90', l:'1h30' }, { v:'120', l:'2 horas' },
     { v:'180', l:'3 horas' }, { v:'240', l:'4 horas' }, { v:'480', l:'8 horas' },
   ];
-  const ROOT_CAUSE_OPTIONS = ['Erro de configuração','Falha de hardware','Erro de software','Problema de rede','Falta de treinamento','Erro do usuário','Problema de integração','Atualização/deploy','Outro'];
   const COMPLEXITY_LABELS = ['','Muito Simples','Simples','Moderado','Complexo','Muito Complexo'];
 
   const S = {
@@ -394,7 +400,7 @@ export default function TicketDetailsPage() {
                 <select value={closeForm.rootCause} onChange={e => setCloseForm(f => ({...f, rootCause: e.target.value}))}
                   style={{ width:'100%', padding:'8px 10px', border:'1.5px solid #E2E8F0', borderRadius:8, fontSize:13, color:'#0F172A', outline:'none', background:'#fff' }}>
                   <option value="">Selecione...</option>
-                  {ROOT_CAUSE_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+                  {rootCauseOptions.map(o => <option key={o} value={o}>{o}</option>)}
                 </select>
               </div>
               <div>
@@ -931,6 +937,8 @@ export default function TicketDetailsPage() {
                 {ticket.satisfactionScore==='approved' ? <><ThumbsUp style={{width:11,height:11}}/> SIM</> : <><ThumbsDown style={{width:11,height:11}}/> NÃO</>}
               </span>
             )}
+            {ticket.rootCause && row('Causa raiz', <span style={{ fontSize:11 }}>{ticket.rootCause}</span>)}
+            {!!ticket.complexity && row('Complexidade', <span style={{ fontSize:11 }}>{COMPLEXITY_LABELS[ticket.complexity] || `${ticket.complexity}/5`}</span>)}
             {/* SLA inline */}
             {slaInfo && (
               <div style={{ marginTop:8, paddingTop:8, borderTop:`1px solid ${S.bd}` }}>

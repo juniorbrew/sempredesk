@@ -110,6 +110,10 @@ class ApiClient {
   createTag = (data: any) => this.client.post('/tags', data);
   updateTag = (id: string, data: any) => this.client.put(`/tags/${id}`, data);
   deleteTag = (id: string) => this.client.delete(`/tags/${id}`);
+  getRootCauses = (params?: any) => this.client.get('/root-causes', { params });
+  createRootCause = (data: any) => this.client.post('/root-causes', data);
+  updateRootCause = (id: string, data: any) => this.client.put(`/root-causes/${id}`, data);
+  deleteRootCause = (id: string) => this.client.delete(`/root-causes/${id}`);
 
   getCustomers = (params?: any) => this.client.get('/customers', { params });
   getCustomer = (id: string) => this.client.get(`/customers/${id}`);

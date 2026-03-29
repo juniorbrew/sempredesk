@@ -67,8 +67,9 @@ const COMPLEXITY_LABELS = ['','Muito Simples','Simples','Moderado','Complexo','M
 
 type CloseForm = { solution: string; rootCause: string; timeSpent: string; internalNote: string; complexity: number };
 
-function KanbanCloseModal({ ticket, customers, onConfirm, onCancel }: {
+function KanbanCloseModal({ ticket, customers, rootCauseOptions, onConfirm, onCancel }: {
   ticket: any; customers: any[];
+  rootCauseOptions: string[];
   onConfirm: (form: CloseForm) => void;
   onCancel: () => void;
 }) {
@@ -126,7 +127,7 @@ function KanbanCloseModal({ ticket, customers, onConfirm, onCancel }: {
               <select value={form.rootCause} onChange={e => setForm(f=>({...f,rootCause:e.target.value}))}
                 style={{ width:'100%', padding:'8px 10px', border:'1.5px solid #E2E8F0', borderRadius:8, fontSize:13, color:'#0F172A', outline:'none', background:'#fff' }}>
                 <option value="">Selecione...</option>
-                {ROOT_CAUSE_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+                {rootCauseOptions.map(o => <option key={o} value={o}>{o}</option>)}
               </select>
             </div>
             <div>
@@ -176,8 +177,9 @@ function KanbanCloseModal({ ticket, customers, onConfirm, onCancel }: {
   );
 }
 
-function KanbanView({ tickets, customers, team, onMove }: {
+function KanbanView({ tickets, customers, team, rootCauseOptions, onMove }: {
   tickets: any[]; customers: any[]; team: any[];
+  rootCauseOptions: string[];
   onMove: (ticketId: string, newStatus: string, oldStatus: string) => void;
 }) {
   const customerName = (cid:string) => { const c = customers.find((c:any)=>c.id===cid); return c?(c.tradeName||c.companyName):'—'; };
@@ -250,7 +252,12 @@ function KanbanView({ tickets, customers, team, onMove }: {
     const { ticket, newStatus, oldStatus } = pendingMove;
     try {
       if (newStatus === 'resolved') {
-        await api.resolveTicket(ticket.id, { resolutionSummary: form.solution || undefined, timeSpentMin: form.timeSpent ? Number(form.timeSpent) : 0 });
+        await api.resolveTicket(ticket.id, {
+          resolutionSummary: form.solution || undefined,
+          timeSpentMin: form.timeSpent ? Number(form.timeSpent) : 0,
+          rootCause: form.rootCause || undefined,
+          complexity: form.complexity || undefined,
+        });
       } else {
         await api.closeTicket(ticket.id);
       }
@@ -268,6 +275,7 @@ function KanbanView({ tickets, customers, team, onMove }: {
       <KanbanCloseModal
         ticket={pendingMove.ticket}
         customers={customers}
+        rootCauseOptions={rootCauseOptions}
         onConfirm={confirmKanbanClose}
         onCancel={() => setPendingMove(null)}
       />
@@ -439,6 +447,7 @@ export default function TicketsPage() {
   const [loading, setLoading] = useState(true);
   const [team, setTeam] = useState<any[]>([]);
   const [customers, setCustomers] = useState<any[]>([]);
+  const [rootCauseOptions, setRootCauseOptions] = useState<string[]>([]);
   const [departments, setDepartments] = useState<string[]>([]);
   const [viewMode, setViewMode] = useState<'list'|'kanban'>('list');
   const [sortField, setSortField] = useState<'ticketNumber'|'subject'|'createdAt'>('createdAt');
@@ -458,13 +467,14 @@ export default function TicketsPage() {
   const load = async () => {
     setLoading(true);
     try {
-      const [ticketsRes, statsRes, teamRes, customersRes, treeRes] = await Promise.all([
+      const [ticketsRes, statsRes, teamRes, customersRes, treeRes, rootCausesRes] = await Promise.all([
         api.getTickets(filters), api.ticketStats(), api.getTeam(),
-        api.getCustomers({ perPage:200 }), api.getTicketSettingsTree().catch(() => null),
+        api.getCustomers({ perPage:200 }), api.getTicketSettingsTree().catch(() => null), api.getRootCauses({ active: true }).catch(() => []),
       ]);
       setData(ticketsRes as any); setStats(statsRes); setTeam((teamRes as any)||[]); setCustomers((customersRes as any)?.data||(customersRes as any)||[]);
       const depts: any[] = (treeRes as any)?.departments ?? (Array.isArray(treeRes) ? treeRes : []);
       setDepartments(depts.map((d: any) => d.name).filter(Boolean));
+      setRootCauseOptions((Array.isArray(rootCausesRes) ? rootCausesRes : (rootCausesRes as any)?.data ?? []).map((item: any) => item.name).filter(Boolean));
     } catch(e){ console.error(e); }
     setLoading(false);
   };
@@ -642,7 +652,7 @@ export default function TicketsPage() {
                 Carregando...
               </div>
             ) : (
-              <KanbanView tickets={data.data} customers={customers} team={team} onMove={handleKanbanMove} />
+          <KanbanView tickets={data.data} customers={customers} team={team} rootCauseOptions={rootCauseOptions} onMove={handleKanbanMove} />
             )}
           </div>
         )}
