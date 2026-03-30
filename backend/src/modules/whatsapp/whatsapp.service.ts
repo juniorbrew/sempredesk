@@ -359,6 +359,9 @@ export class WhatsappService {
       contact.name || contact.email || wa,
       'contact',
       text,
+      {
+        initialExternalId: msg.messageId?.trim() || null,
+      },
     );
 
     // Se o cliente foi identificado via CNPJ, marca o ticket como validado automaticamente

@@ -669,6 +669,22 @@ export class ConversationsService {
     if (conv.status === ConversationStatus.CLOSED) {
       throw new BadRequestException('Conversa já encerrada.');
     }
+
+    const extId = opts?.initialExternalId?.trim();
+    if (extId) {
+      const existing = await this.msgRepo.findOne({
+        where: { tenantId, externalId: extId },
+      });
+      if (existing) {
+        if (existing.conversationId !== conversationId) {
+          this.logger.warn(
+            `Idempotência WA: external_id=${extId} já existe (conv=${existing.conversationId}, reenvio apontou ${conversationId}).`,
+          );
+        }
+        return existing;
+      }
+    }
+
     const msg = this.msgRepo.create({
       tenantId,
       conversationId: conv.id,
@@ -679,9 +695,20 @@ export class ConversationsService {
       // Status e externalId iniciais fornecidos pelo chamador
       // (ex: sendReplyFromTicket já enviou via Baileys e tem o messageId)
       whatsappStatus: opts?.initialWhatsappStatus ?? null,
-      externalId: opts?.initialExternalId ?? null,
+      externalId: extId ?? null,
     });
-    const saved = await this.msgRepo.save(msg);
+    let saved: ConversationMessage;
+    try {
+      saved = await this.msgRepo.save(msg);
+    } catch (err: unknown) {
+      const p = err as { code?: string; driverError?: { code?: string } };
+      const code = p.code ?? p.driverError?.code;
+      if (code === '23505' && extId) {
+        const race = await this.msgRepo.findOne({ where: { tenantId, externalId: extId } });
+        if (race) return race;
+      }
+      throw err;
+    }
     await this.updateLastMessageAt(tenantId, conversationId);
 
     // Quando a conversa já está vinculada a ticket, o atendimento pode estar ouvindo

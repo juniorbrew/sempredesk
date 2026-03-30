@@ -13,6 +13,7 @@ Migrações manuais aplicadas após o `init.sql`. Executar **na ordem** se for s
 7. `007_agent_presence.sql` — presença de agentes
 8. `008_contact_customers.sql` — pivot contato-cliente
 9. `009_bot_evaluation_columns.sql` — mensagens pós-ticket e avaliação
+10. `010_conversation_messages_external_id_unique.sql` — idempotência inbound WhatsApp (`tenant_id` + `external_id`)
 
 ## 001_renumber_tickets_to_hash_format.sql
 
@@ -78,3 +79,23 @@ Também cria `CHECK CONSTRAINT` `tickets_satisfaction_rating_range` (rating NULL
 e índice `chatbot_sessions_lookup_idx` que estava ausente no banco.
 
 **Idempotente:** pode ser executado mais de uma vez sem erro.
+
+---
+
+## 010_conversation_messages_external_id_unique.sql
+
+Índice único parcial `(tenant_id, external_id)` para evitar mensagens duplicadas quando o provedor reenvia o mesmo `messageId`.
+
+**Antes de aplicar em banco com dados:** conferir duplicatas:
+
+```sql
+SELECT tenant_id, external_id, COUNT(*) FROM conversation_messages
+WHERE external_id IS NOT NULL AND btrim(external_id) <> ''
+GROUP BY 1,2 HAVING COUNT(*) > 1;
+```
+
+**Executar:**
+
+```bash
+docker exec -i suporte_postgres psql -U suporte -d suporte_tecnico -f /path/to/010_conversation_messages_external_id_unique.sql
+```

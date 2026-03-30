@@ -1,4 +1,4 @@
-﻿-- ================================================================
+-- ================================================================
 -- SempreDesk — Schema Canônico v2.0
 -- Gerado em 2026-03-27 a partir do schema real do banco de produção.
 -- Substitui o init.sql v1.0 que havia ficado desatualizado em relação
@@ -672,6 +672,9 @@ CREATE INDEX idx_conversations_ticket   ON conversations(ticket_id) WHERE ticket
 CREATE INDEX idx_tags_tenant_active     ON tags(tenant_id, active, sort_order, name);
 CREATE INDEX idx_root_causes_tenant_active ON root_causes(tenant_id, active, sort_order, name);
 CREATE INDEX idx_conv_messages_conv     ON conversation_messages(conversation_id, created_at);
+CREATE UNIQUE INDEX uq_conversation_messages_tenant_external_id
+  ON conversation_messages (tenant_id, external_id)
+  WHERE external_id IS NOT NULL AND btrim(external_id) <> '';
 
 -- Chatbot sessions
 CREATE INDEX idx_chatbot_sessions       ON chatbot_sessions(tenant_id, identifier, channel);
