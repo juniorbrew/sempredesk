@@ -1314,22 +1314,38 @@ export class CustomersService {
     const normalized = normalizeWhatsappNumber(whatsapp) || whatsapp;
     const isTechnical = this.isTechnicalWhatsappIdentifier(normalized, whatsapp);
 
-    let contacts: Contact[] = [];
     if (isTechnical) {
       const canonical = await this.resolveCanonicalWhatsappContact(tenantId, {
         rawWhatsapp: whatsapp,
         normalizedWhatsapp: normalized,
         lid: normalized,
       });
-      if (!canonical.contact) return { mode: 'none' };
-      contacts = [canonical.contact];
-    } else {
-      contacts = await this.findContactsByWhatsapp(tenantId, whatsapp);
+      const technicalContactIds = Array.from(new Set([
+        ...(canonical.candidates ?? []),
+        canonical.contact?.id ?? null,
+      ].filter((value): value is string => Boolean(value))));
+      if (!technicalContactIds.length) return { mode: 'none' };
+
+      const linkedClients = await this.getLinkedClientsForContactIds(tenantId, technicalContactIds);
+
+      if (linkedClients.length === 1) {
+        return { mode: 'single', clientId: linkedClients[0].id };
+      }
+
+      if (linkedClients.length > 1) {
+        return { mode: 'multiple', clients: linkedClients };
+      }
+
+      return { mode: 'none' };
     }
+
+    const contacts = await this.findContactsByWhatsapp(tenantId, whatsapp);
     if (!contacts.length) return { mode: 'none' };
 
-    const contactIds = contacts.map((contact) => contact.id);
-    const linkedClients = await this.getLinkedClientsForContactIds(tenantId, contactIds);
+    const linkedClients = await this.getLinkedClientsForContactIds(
+      tenantId,
+      contacts.map((contact) => contact.id),
+    );
 
     if (linkedClients.length === 1) {
       return { mode: 'single', clientId: linkedClients[0].id };

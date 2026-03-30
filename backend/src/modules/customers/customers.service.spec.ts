@@ -43,4 +43,29 @@ describe('CustomersService multiempresa resolution', () => {
     expect(result).toEqual({ mode: 'multiple', clients: linkedClients });
     expect(contactsRepo.manager.query).toHaveBeenCalledTimes(1);
   });
+
+  it('resolveClientForSupportIdentifier deve considerar todos os candidatos do mesmo LID técnico', async () => {
+    const linkedClients = [
+      { id: 'client-a', companyName: 'Empresa A', tradeName: null, cnpj: '11111111000111' },
+      { id: 'client-b', companyName: 'Empresa B', tradeName: null, cnpj: '22222222000122' },
+    ];
+    const { service, contactsRepo } = makeService(linkedClients);
+
+    jest.spyOn(service, 'resolveCanonicalWhatsappContact').mockResolvedValue({
+      contact: { id: 'contact-primary' } as any,
+      matchedBy: 'lid',
+      normalizedWhatsapp: '131245778460786',
+      lid: '131245778460786',
+      candidates: ['contact-primary', 'contact-b', 'contact-c'],
+      canonicalReason: 'matched-lid,is-primary,active,oldest',
+    });
+
+    const result = await service.resolveClientForSupportIdentifier('tenant-1', '131245778460786');
+
+    expect(result).toEqual({ mode: 'multiple', clients: linkedClients });
+    expect(contactsRepo.manager.query).toHaveBeenCalledWith(
+      expect.stringContaining('SELECT DISTINCT'),
+      ['tenant-1', ['contact-primary', 'contact-b', 'contact-c']],
+    );
+  });
 });
