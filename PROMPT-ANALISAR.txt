@@ -1,0 +1,24 @@
+Use subagentes: architecture, frontend, backend, qa e review.
+
+Leia e respeite o AGENTS.md.
+
+Quero análise técnica deste problema, sem encerrar sem revisão final.
+
+Obrigatório:
+- avaliar impacto multiempresa
+- avaliar uso de activeCompanyId
+- avaliar risco de mistura de dados
+- avaliar regressão
+- passar pelo agente review antes de concluir
+
+Entregar:
+1. diagnóstico
+2. causa provável
+3. arquivos impactados
+4. solução recomendada
+5. riscos
+6. testes
+7. revisão final
+
+Problema:
+[COLE AQUI]

@@ -42,6 +42,15 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayDisconnect {
     private readonly presence: RealtimePresenceService,
   ) {}
 
+  private clearPendingClockOut(tenantId: string, userId: string) {
+    const key = `${tenantId}:${userId}`;
+    const pending = this.pendingClockOuts.get(key);
+    if (pending) {
+      clearTimeout(pending);
+      this.pendingClockOuts.delete(key);
+    }
+  }
+
   private async emitPresenceToTenant(tenantId: string) {
     const { onlineIds, statusMap } = await this.presence.getOnlineIdsAndStatus(tenantId);
     this.emitter.emitPresence(tenantId, onlineIds, statusMap);
@@ -124,10 +133,19 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayDisconnect {
   }) {
     const { tenantId, userId, userName, userEmail, userRole } = payload || {};
     if (tenantId && userId) {
-      // Cancela clock-out pendente (reconexão dentro do grace period)
-      const key = `${tenantId}:${userId}`;
-      const pending = this.pendingClockOuts.get(key);
-      if (pending) { clearTimeout(pending); this.pendingClockOuts.delete(key); }
+      const current = this.presence.getSocketInfo(client.id);
+
+      // Se o socket veio de outra empresa, sai da sala anterior antes de entrar na nova.
+      // Isso evita que um mesmo socket continue recebendo eventos da empresa antiga.
+      if (current && (current.tenantId !== tenantId || current.userId !== String(userId))) {
+        client.leave(`tenant:${current.tenantId}`);
+        this.clearPendingClockOut(current.tenantId, current.userId);
+        this.presence.remove(client.id);
+        await this.emitPresenceToTenant(current.tenantId);
+      }
+
+      // Cancela clock-out pendente da empresa atual (reconexão dentro do grace period)
+      this.clearPendingClockOut(tenantId, String(userId));
 
       client.join(`tenant:${tenantId}`);
       this.presence.add(tenantId, String(userId), client.id);
@@ -152,8 +170,10 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayDisconnect {
   @SubscribeMessage('leave-tenant')
   async handleLeaveTenant(client: any, payload: { tenantId: string; userId?: string }) {
     const { tenantId, userId } = payload || {};
-    if (tenantId && userId) {
+    const current = this.presence.getSocketInfo(client.id);
+    if (tenantId && userId && current && current.tenantId === tenantId && current.userId === String(userId)) {
       client.leave(`tenant:${tenantId}`);
+      this.clearPendingClockOut(tenantId, String(userId));
       this.presence.remove(client.id);
       await this.emitPresenceToTenant(tenantId);
     }

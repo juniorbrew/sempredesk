@@ -22,7 +22,7 @@ const PRIORITY_STYLE: Record<string,{ bg:string; color:string }> = {
 };
 
 export default function PortalTicketsPage() {
-  const { client, accessToken } = usePortalStore();
+  const { client, accessToken, activeCompanyId } = usePortalStore();
   const [tickets, setTickets] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
@@ -31,27 +31,63 @@ export default function PortalTicketsPage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [priorityFilter, setPriorityFilter] = useState('');
   const [page, setPage] = useState(1);
+  const companyId = activeCompanyId || client?.id || null;
 
-  const load = async () => {
-    if (!accessToken || !client?.id) return;
+  const load = async (scopePage = page, scopeCompanyId = companyId, signal?: AbortSignal) => {
+    if (!accessToken || !scopeCompanyId) return;
     setLoading(true);
     try {
-      const params = new URLSearchParams({ clientId:client.id, perPage:'20', page:String(page) });
+      const params = new URLSearchParams({ clientId: scopeCompanyId, perPage:'20', page:String(scopePage) });
       if (statusFilter) params.append('status', statusFilter);
       if (priorityFilter) params.append('priority', priorityFilter);
       if (search) params.append('search', search);
-      const res = await fetch(`/api/v1/tickets?${params}`, { headers:{ Authorization:`Bearer ${accessToken}` } });
+      const res = await fetch(`/api/v1/tickets?${params}`, {
+        headers:{ Authorization:`Bearer ${accessToken}` },
+        signal,
+      });
       const data = await res.json();
       const inner = data?.data || {};
       setTickets(inner?.data || []);
       setTotal(inner?.total || 0);
       setTotalPages(inner?.totalPages || 1);
-    } catch {}
-    setLoading(false);
+    } catch (e) {
+      if ((e as Error).name === 'AbortError') return;
+    } finally {
+      if (!signal?.aborted) setLoading(false);
+    }
   };
 
-  useEffect(() => { load(); }, [accessToken, client, statusFilter, priorityFilter, page]);
-  useEffect(() => { const t = setTimeout(()=>{ setPage(1); load(); }, 400); return ()=>clearTimeout(t); }, [search]);
+  useEffect(() => {
+    const ac = new AbortController();
+    setTickets([]);
+    setTotal(0);
+    setTotalPages(1);
+    setPage(1);
+    if (!accessToken || !companyId) {
+      setLoading(false);
+      return () => ac.abort();
+    }
+    void load(1, companyId, ac.signal);
+    return () => ac.abort();
+  }, [accessToken, companyId]);
+  useEffect(() => {
+    const ac = new AbortController();
+    if (!accessToken || !companyId) return () => ac.abort();
+    void load(page, companyId, ac.signal);
+    return () => ac.abort();
+  }, [accessToken, companyId, statusFilter, priorityFilter, page]);
+  useEffect(() => {
+    const ac = new AbortController();
+    const t = setTimeout(() => {
+      setPage(1);
+      if (!accessToken || !companyId) return;
+      void load(1, companyId, ac.signal);
+    }, 400);
+    return () => {
+      clearTimeout(t);
+      ac.abort();
+    };
+  }, [search, companyId]);
 
   // Stats rápidos
   const open = tickets.filter(t=>['open','in_progress','waiting_client'].includes(t.status)).length;

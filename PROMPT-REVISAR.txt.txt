@@ -1,0 +1,24 @@
+Use subagentes: qa e review.
+
+Leia e respeite o AGENTS.md.
+
+Quero revisão crítica da solução já proposta ou já implementada.
+
+Obrigatório:
+- verificar aderência ao contexto multiempresa
+- verificar uso correto de activeCompanyId
+- verificar risco de mistura de dados
+- verificar permissões
+- verificar regressões
+- apontar lacunas objetivamente
+- não encerrar sem passar pelo agente review
+
+Entregar:
+1. problemas encontrados
+2. riscos
+3. pontos faltando
+4. testes obrigatórios
+5. veredito final
+
+Solução ou contexto para revisar:
+[COLE AQUI]

@@ -1,0 +1,40 @@
+---
+description: Regras permanentes do projeto SempreDesk
+globs: ["**/*"]
+alwaysApply: true
+---
+
+# SempreDesk - Regras do Projeto
+
+## Fluxo obrigatório
+Seguir sempre este caminho:
+LOCAL -> GITHUB -> VPS
+
+## Regras críticas
+- respeitar arquitetura multiempresa
+- nunca misturar dados entre empresas
+- sempre considerar companyId
+- activeCompanyId é a fonte de verdade
+- não quebrar permissões por papel
+- não introduzir biblioteca nova sem necessidade
+- manter o padrão atual do projeto
+
+## Forma de trabalhar
+1. analisar o código local primeiro
+2. identificar arquivos impactados
+3. propor alteração mínima e segura
+4. aplicar correção local
+5. revisar risco de regressão
+6. informar se precisa GitHub
+7. informar se precisa VPS
+
+## Formato das respostas
+Sempre responder com:
+1. diagnóstico
+2. causa provável
+3. arquivos impactados
+4. alteração recomendada
+5. risco de regressão
+6. se precisa GitHub
+7. se precisa VPS
+8. próximos passos

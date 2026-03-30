@@ -1,0 +1,26 @@
+Use subagentes: architecture, frontend, backend, qa e review.
+
+Leia e respeite o AGENTS.md antes de executar.
+
+Quero correção aplicada no código com segurança.
+
+Obrigatório:
+- identificar causa raiz
+- corrigir no código
+- preservar padrão do projeto
+- não criar dependências desnecessárias
+- avaliar impacto multiempresa
+- revisar regressões
+- passar pelo agente review antes de concluir
+
+Entregar:
+1. diagnóstico
+2. causa raiz
+3. arquivos alterados
+4. o que foi corrigido
+5. riscos de regressão
+6. testes obrigatórios
+7. revisão final
+
+Tarefa:
+[COLE AQUI]

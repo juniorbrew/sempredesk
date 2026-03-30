@@ -5,24 +5,40 @@ import { usePortalStore } from '@/store/portal.store';
 import { Ticket, FileText, Clock, CheckCircle, AlertTriangle, Plus, ArrowRight, Bell } from 'lucide-react';
 
 export default function PortalHomePage() {
-  const { contact, client, accessToken } = usePortalStore();
+  const { contact, client, accessToken, activeCompanyId } = usePortalStore();
   const [tickets, setTickets] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const load = async () => {
-    if (!accessToken || !client?.id) return;
+  const companyId = activeCompanyId || client?.id || null;
+
+  const load = async (scopeCompanyId = companyId, signal?: AbortSignal) => {
+    if (!accessToken || !scopeCompanyId) return;
     setLoading(true);
     try {
-      const res = await fetch(`/api/v1/tickets?clientId=${client.id}&perPage=5`, {
-        headers: { Authorization: `Bearer ${accessToken}` }
+      const res = await fetch(`/api/v1/tickets?clientId=${scopeCompanyId}&perPage=5`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        signal,
       });
       const data = await res.json();
       setTickets(data?.data?.data || data?.data || []);
-    } catch {}
-    setLoading(false);
+    } catch (e) {
+      if ((e as Error).name === 'AbortError') return;
+    } finally {
+      if (!signal?.aborted) setLoading(false);
+    }
   };
 
-  useEffect(() => { load(); }, [accessToken, client]);
+  useEffect(() => {
+    const ac = new AbortController();
+    setTickets([]);
+    if (!accessToken || !companyId) {
+      setLoading(false);
+      return () => ac.abort();
+    }
+    setLoading(true);
+    void load(companyId, ac.signal);
+    return () => ac.abort();
+  }, [accessToken, companyId]);
 
   const open = tickets.filter(t => ['open','in_progress','waiting_client'].includes(t.status)).length;
   const resolved = tickets.filter(t => t.status === 'resolved').length;

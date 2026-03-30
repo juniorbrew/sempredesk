@@ -1,0 +1,28 @@
+Use subagentes: frontend e review.
+
+Leia e respeite o AGENTS.md.
+
+Contexto:
+Portal multiempresa com isolamento por companyId.
+activeCompanyId é a fonte de verdade.
+Nunca misturar dados entre empresas.
+
+Objetivo:
+Resolver o problema de forma direta, sem análise desnecessária.
+
+Obrigatório:
+- respeitar padrões do projeto
+- não quebrar multiempresa
+- não encerrar sem revisão final
+
+Entregar:
+1. diagnóstico
+2. causa provável
+3. arquivos impactados
+4. solução
+5. riscos
+6. testes
+7. revisão final
+
+Problema:
+[COLE AQUI]

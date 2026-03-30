@@ -1,0 +1,29 @@
+Use subagentes especializados e consolide a resposta final.
+
+Leia e respeite o AGENTS.md antes de analisar.
+
+Contexto do projeto:
+Portal multiempresa em React + Vite.
+O activeCompanyId em usePortal.js é a fonte de verdade da empresa ativa.
+Tickets, stats e notifications nunca podem ser misturados entre empresas.
+Ao trocar de empresa, sempre resetar filtro, busca e fechar dropdowns.
+Respeitar permissões por papel e padrões do projeto.
+
+Delegação:
+- architecture: revisar isolamento multiempresa, gerenciamento de estado e risco de mistura de dados
+- frontend: revisar componentes, hooks, troca de empresa, reset de estados, interface e permissões
+- backend: revisar aderência aos endpoints e uso obrigatório de companyId
+- qa: listar cenários de teste, regressão e critérios de aceite
+- review: revisar a análise consolidada antes do encerramento
+
+Instrução obrigatória:
+Não encerrar sem passar pelo agente review.
+
+Formato final obrigatório:
+1. diagnóstico
+2. causa provável
+3. arquivos impactados
+4. alteração recomendada
+5. riscos de regressão
+6. testes obrigatórios
+7. revisão final

@@ -40,7 +40,7 @@ const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
 };
 
 export default function ChatWidget() {
-  const { client, contact, accessToken, chatTicketId, chatConversationId, chatStep, chatClientId, setChatState } = usePortalStore();
+  const { client, contact, accessToken, activeCompanyId, chatTicketId, chatConversationId, chatStep, chatClientId, setChatState } = usePortalStore();
 
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<Step>('choice');
@@ -86,14 +86,14 @@ export default function ChatWidget() {
   }, []);
 
   useEffect(() => {
-    if (!open || !accessToken || !client || (!chatTicketId && !chatConversationId) || chatStep !== 'chat' || chatClientId !== client.id) return;
+    if (!open || !accessToken || !client || (!chatTicketId && !chatConversationId) || chatStep !== 'chat' || chatClientId !== (activeCompanyId || client.id)) return;
     setTicketId(chatTicketId);
     setConversationId(chatConversationId ?? null);
     setStep('chat');
     setClosed(false);
     if (chatConversationId) loadMessages(chatConversationId);
     if (chatTicketId) checkTicketStatus(chatTicketId);
-  }, [open, accessToken, client?.id, chatTicketId, chatConversationId, chatStep, chatClientId]);
+  }, [open, accessToken, client?.id, activeCompanyId, chatTicketId, chatConversationId, chatStep, chatClientId]);
 
   // ─── Navigation helpers ──────────────────────────────────────────────────
   const resetToChoice = () => {
@@ -118,7 +118,7 @@ export default function ChatWidget() {
     setTranscriptAttached(false);
     setError(null);
     setTicketStatus(null);
-    setChatState(tId, convId, 'chat', client?.id);
+    setChatState(tId, convId, 'chat', activeCompanyId || client?.id);
     if (fromNewTicket && convId) {
       setConversationId(convId);
       loadMessages(convId);
@@ -135,7 +135,7 @@ export default function ChatWidget() {
         const conv = data?.conversation ?? data?.data?.conversation ?? data;
         const newConvId = conv?.id ?? convId;
         setConversationId(newConvId);
-        setChatState(tId, newConvId, 'chat', client?.id);
+        setChatState(tId, newConvId, 'chat', activeCompanyId || client?.id);
         if (newConvId) loadMessages(newConvId);
       } catch (e: any) {
         setError(errMsg(e));
@@ -225,7 +225,7 @@ export default function ChatWidget() {
       setCreatedTicket(null);
       setTicketId(null);
       setConversationId(conv.id);
-      setChatState(null, conv.id, 'chat', client?.id);
+      setChatState(null, conv.id, 'chat', activeCompanyId || client?.id);
       setMessages([]);
       await loadMessages(conv.id);
       setStep('chat');
@@ -368,7 +368,7 @@ export default function ChatWidget() {
   // Reset chat state when client changes (user switched company)
   const prevClientIdRef = useRef<string | null>(null);
   useEffect(() => {
-    const currentId = client?.id ?? null;
+    const currentId = activeCompanyId || client?.id || null;
     if (prevClientIdRef.current !== null && prevClientIdRef.current !== currentId) {
       // Client changed — close widget and reset everything
       setOpen(false);
@@ -382,12 +382,13 @@ export default function ChatWidget() {
       setTranscriptAttached(false);
       setCloseConfirm(false);
       setTickets([]);
+      setUnreadCount(0);
       setError(null);
       setForm({ departmentId: '', departmentName: '', subject: '', description: '' });
       setChatState(null, null, 'form');
     }
     prevClientIdRef.current = currentId;
-  }, [client?.id]);
+  }, [client?.id, activeCompanyId]);
 
   useEffect(() => {
     if (step === 'new-dept') loadDepartments();
@@ -1000,7 +1001,7 @@ export default function ChatWidget() {
                             const conv = data?.conversation ?? data?.data?.conversation ?? data;
                             const convId = conv?.id ?? conversationId;
                             setConversationId(convId);
-                            setChatState(ticketId, convId, 'chat', client?.id);
+                            setChatState(ticketId, convId, 'chat', activeCompanyId || client?.id);
                             setClosed(false);
                             if (convId) loadMessages(convId);
                           } catch (e: any) {

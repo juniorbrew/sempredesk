@@ -6,6 +6,7 @@ interface PortalState {
   client: any;
   clients: any[];
   accessToken: string | null;
+  activeCompanyId: string | null;
   chatTicketId: string | null;
   chatConversationId: string | null;
   chatStep: 'form' | 'chat';
@@ -23,6 +24,7 @@ export const usePortalStore = create<PortalState>()(
       client: null,
       clients: [],
       accessToken: null,
+      activeCompanyId: null,
       chatTicketId: null,
       chatConversationId: null,
       chatStep: 'form',
@@ -31,11 +33,29 @@ export const usePortalStore = create<PortalState>()(
         contact: data.contact,
         clients: data.clients,
         client: data.clients.length === 1 ? data.clients[0] : null,
+        activeCompanyId: data.clients.length === 1 ? data.clients[0]?.id ?? null : null,
         accessToken: data.accessToken,
       }),
-      selectClient: (client) => set({ client, chatTicketId: null, chatConversationId: null, chatStep: 'form', chatClientId: null }),
+      selectClient: (client) => set({
+        client,
+        activeCompanyId: client?.id ?? null,
+        chatTicketId: null,
+        chatConversationId: null,
+        chatStep: 'form',
+        chatClientId: null,
+      }),
       setChatState: (ticketId, conversationId, step, clientId) => set({ chatTicketId: ticketId, chatConversationId: conversationId, chatStep: step, chatClientId: clientId ?? null }),
-      clearAuth: () => set({ contact: null, client: null, clients: [], accessToken: null, chatTicketId: null, chatConversationId: null, chatStep: 'form', chatClientId: null }),
+      clearAuth: () => set({
+        contact: null,
+        client: null,
+        clients: [],
+        accessToken: null,
+        activeCompanyId: null,
+        chatTicketId: null,
+        chatConversationId: null,
+        chatStep: 'form',
+        chatClientId: null,
+      }),
     }),
     { name: 'portal-auth' }
   )

@@ -1,0 +1,48 @@
+Use subagentes: architecture, frontend, backend, qa e review.
+
+Leia e respeite o AGENTS.md antes de executar.
+
+Objetivo:
+Não quero apenas análise. Quero correção aplicada com segurança, respeitando o padrão do projeto.
+
+Contexto obrigatório:
+- Portal multiempresa em React + Vite
+- activeCompanyId é a fonte de verdade
+- nunca misturar dados entre empresas
+- sempre usar companyId nas chamadas
+- ao trocar empresa, resetar filtros, busca e fechar dropdowns
+- respeitar permissões por papel
+- não usar UI library externa
+- manter componentes funcionais com hooks
+- manter CSS-in-JS inline com variáveis CSS
+- manter nomes e comentários em português
+
+Modo de trabalho:
+1. identificar a causa raiz
+2. apontar os arquivos impactados
+3. propor a correção
+4. aplicar a correção no código
+5. revisar impacto multiempresa
+6. revisar regressões
+7. passar obrigatoriamente pelo agente review antes de encerrar
+
+Instruções obrigatórias:
+- não encerrar só com explicação
+- entregar alteração concreta
+- evitar mudanças desnecessárias
+- preservar o padrão atual do projeto
+- não introduzir dependências novas sem necessidade
+- se alterar regra de negócio, explicar de forma objetiva
+- se houver risco de regressão, listar claramente
+
+Formato final obrigatório:
+1. diagnóstico
+2. causa raiz
+3. arquivos alterados
+4. o que foi corrigido
+5. riscos de regressão
+6. testes obrigatórios
+7. revisão final
+
+Tarefa:
+[COLE AQUI O PROBLEMA ESPECÍFICO]

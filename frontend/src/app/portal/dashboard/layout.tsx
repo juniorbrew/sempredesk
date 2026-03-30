@@ -26,7 +26,7 @@ const S = {
 export default function PortalDashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { contact, client, clients, accessToken, clearAuth } = usePortalStore();
+  const { contact, client, clients, accessToken, activeCompanyId, clearAuth } = usePortalStore();
 
   useEffect(() => { usePortalStore.persist.rehydrate(); }, []);
   useEffect(() => {
@@ -39,6 +39,7 @@ export default function PortalDashboardLayout({ children }: { children: React.Re
 
   const initials = (name: string) =>
     name.trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase() || '?';
+  const portalKey = activeCompanyId || client?.id || 'no-company';
 
   return (
     <div style={{ display:'flex', height:'100vh', background:S.bg2, fontFamily:'Inter,sans-serif', overflow:'hidden' }}>
@@ -121,11 +122,11 @@ export default function PortalDashboardLayout({ children }: { children: React.Re
       </aside>
 
       {/* Main */}
-      <main style={{ flex:1, overflowY:'auto', padding:'28px 32px' }}>
+      <main key={portalKey} style={{ flex:1, overflowY:'auto', padding:'28px 32px' }}>
         {children}
       </main>
 
-      <ChatWidget />
+      <ChatWidget key={portalKey} />
     </div>
   );
 }

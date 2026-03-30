@@ -4,13 +4,32 @@ import { resolveWsBase } from './ws-base';
 
 const WS_BASE = resolveWsBase();
 
+/**
+ * JWT para Socket.IO: o painel grava em `accessToken`; o portal do cliente usa
+ * Zustand persist na chave `portal-auth` (state.accessToken apenas).
+ */
+function readAccessTokenFromStorage(): string | null {
+  if (typeof window === 'undefined') return null;
+  const direct = window.localStorage.getItem('accessToken');
+  if (direct) return direct;
+  try {
+    const raw = window.localStorage.getItem('portal-auth');
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { state?: { accessToken?: string | null } };
+    const t = parsed?.state?.accessToken;
+    return typeof t === 'string' && t.length > 0 ? t : null;
+  } catch {
+    return null;
+  }
+}
+
 // ── Singleton: uma única conexão socket.io para toda a sessão ─────────────────
 // Hooks apenas emitem join/leave para trocar de sala, sem disconnect/reconnect.
 let _sharedSocket: any = null;
 
 async function getSharedSocket(): Promise<any | null> {
   if (!WS_BASE) return null;
-  const token = typeof window !== 'undefined' ? window.localStorage.getItem('accessToken') : null;
+  const token = readAccessTokenFromStorage();
   if (!token) return null;
   if (_sharedSocket) return _sharedSocket;
   const { io } = await import('socket.io-client');
