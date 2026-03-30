@@ -401,7 +401,7 @@ export class WhatsappService {
       `SELECT "companyName" FROM tenant_settings WHERE tenant_id::text = $1 LIMIT 1`,
       [tenantId],
     ).catch(() => []);
-    const companyName = settingsRows[0]?.companyName || 'nosso suporte';
+    const companyName = settingsRows[0]?.companyName || 'nossa equipe';
 
     // 2. Busca o nome do agente atribuÃƒÂ­do (se houver)
     let agentName: string | null = null;
@@ -423,9 +423,16 @@ export class WhatsappService {
       ? await this.chatbotService.getOrCreateConfig(tenantId).catch(() => null)
       : null;
 
-    const template = agentName
-      ? (config?.postTicketMessage || DEFAULT_WITH_AGENT)
-      : (config?.postTicketMessageNoAgent || DEFAULT_NO_AGENT);
+    const fallbackWithAgent =
+      'Ola, {contato}.\n\nBem-vindo(a) ao suporte de {empresa_atendente}.\n\nMeu nome e {agente} e estarei a disposicao para ajudar.\n\nO numero do seu ticket e #{numero_ticket}.\n\nComo posso te auxiliar?';
+    const fallbackNoAgent =
+      'Ola, {contato}.\n\nBem-vindo(a) ao suporte de {empresa_atendente}.\n\nSeu atendimento foi iniciado com sucesso.\n\nO numero do seu ticket e #{numero_ticket}.\n\nEm instantes um atendente dara continuidade.';
+    const template = this.normalizePostTicketTemplate(
+      agentName
+        ? (config?.postTicketMessage || DEFAULT_WITH_AGENT)
+        : (config?.postTicketMessageNoAgent || DEFAULT_NO_AGENT),
+      agentName ? fallbackWithAgent : fallbackNoAgent,
+    );
 
     // 4. Interpola as variÃƒÂ¡veis
     const contactName = contact.name || contact.email || 'cliente';
@@ -442,6 +449,20 @@ export class WhatsappService {
       this.logger.warn(`[postTicketMessage] Baileys falhou, tentando Meta API`);
     }
     await this.sendWhatsappMessage(wa, message);
+  }
+
+  private normalizePostTicketTemplate(template: string | null | undefined, fallback: string): string {
+    const raw = String(template || '').trim();
+    if (!raw) return fallback;
+
+    const looksBrokenEncoding =
+      raw.includes('OlÃ') ||
+      raw.includes('Ãƒ') ||
+      raw.includes('Ã°') ||
+      raw.includes('â‚¬') ||
+      raw.includes('ðŸ');
+
+    return looksBrokenEncoding ? fallback : raw;
   }
 
   /**

@@ -1298,6 +1298,49 @@ export class CustomersService {
     );
   }
 
+  private async getRawLinkedClientIdsForContactIds(
+    tenantId: string,
+    contactIds: string[],
+  ): Promise<string[]> {
+    if (!contactIds.length) return [];
+
+    const rows = await this.contacts.manager.query<{ client_id: string }[]>(
+      `SELECT DISTINCT links.client_id
+         FROM (
+                SELECT ct.client_id::text AS client_id
+                  FROM contacts ct
+                 WHERE ct.tenant_id::text = $1
+                   AND ct.id::text = ANY($2::text[])
+                   AND ct.client_id IS NOT NULL
+                UNION
+                SELECT cc.client_id::text AS client_id
+                  FROM contact_customers cc
+                 WHERE cc.tenant_id::text = $1
+                   AND cc.contact_id::text = ANY($2::text[])
+                   AND cc.client_id IS NOT NULL
+              ) links`,
+      [tenantId, contactIds],
+    );
+
+    return rows
+      .map((row) => String(row.client_id || '').trim())
+      .filter((clientId) => Boolean(clientId));
+  }
+
+  private buildAmbiguousLinkedClients(
+    rawLinkedClientIds: string[],
+    linkedClients: Array<{ id: string; companyName: string; tradeName: string | null; cnpj: string | null }>,
+  ): Array<{ id: string; companyName: string; tradeName: string | null; cnpj: string | null }> {
+    if (linkedClients.length) return linkedClients;
+
+    return rawLinkedClientIds.map((clientId) => ({
+      id: clientId,
+      companyName: 'Empresa vinculada',
+      tradeName: null,
+      cnpj: null,
+    }));
+  }
+
   async resolveClientForSupportContact(
     tenantId: string,
     contactId: string,
@@ -1306,7 +1349,12 @@ export class CustomersService {
     | { mode: 'single'; clientId: string }
     | { mode: 'multiple'; clients: Array<{ id: string; companyName: string; tradeName: string | null; cnpj: string | null }> }
   > {
+    const rawLinkedClientIds = await this.getRawLinkedClientIdsForContactIds(tenantId, [contactId]);
     const linked = await this.getLinkedClientsForContact(tenantId, contactId);
+
+    if (rawLinkedClientIds.length > 1) {
+      return { mode: 'multiple', clients: this.buildAmbiguousLinkedClients(rawLinkedClientIds, linked) };
+    }
 
     if (linked.length === 1) {
       return { mode: 'single', clientId: linked[0].id };
@@ -1343,7 +1391,15 @@ export class CustomersService {
       ].filter((value): value is string => Boolean(value))));
       if (!technicalContactIds.length) return { mode: 'none' };
 
+      const rawLinkedClientIds = await this.getRawLinkedClientIdsForContactIds(tenantId, technicalContactIds);
       const linkedClients = await this.getLinkedClientsForContactIds(tenantId, technicalContactIds);
+
+      if (rawLinkedClientIds.length > 1) {
+        return {
+          mode: 'multiple',
+          clients: this.buildAmbiguousLinkedClients(rawLinkedClientIds, linkedClients),
+        };
+      }
 
       if (linkedClients.length === 1) {
         return { mode: 'single', clientId: linkedClients[0].id };
@@ -1359,10 +1415,19 @@ export class CustomersService {
     const contacts = await this.findContactsByWhatsapp(tenantId, whatsapp);
     if (!contacts.length) return { mode: 'none' };
 
+    const contactIds = contacts.map((contact) => contact.id);
+    const rawLinkedClientIds = await this.getRawLinkedClientIdsForContactIds(tenantId, contactIds);
     const linkedClients = await this.getLinkedClientsForContactIds(
       tenantId,
-      contacts.map((contact) => contact.id),
+      contactIds,
     );
+
+    if (rawLinkedClientIds.length > 1) {
+      return {
+        mode: 'multiple',
+        clients: this.buildAmbiguousLinkedClients(rawLinkedClientIds, linkedClients),
+      };
+    }
 
     if (linkedClients.length === 1) {
       return { mode: 'single', clientId: linkedClients[0].id };
