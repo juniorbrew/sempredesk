@@ -20,8 +20,28 @@ jobs:
             set -e
             cd /opt/suporte-tecnico
 
-            echo "Baixando codigo atualizado..."
-            git pull origin main
+            echo "Validando resolucao DNS (github.com)..."
+            if ! getent hosts github.com > /dev/null 2>&1; then
+              echo "ERRO: getent hosts github.com falhou. DNS indisponivel ou host ilegivel."
+              exit 1
+            fi
+
+            echo "Atualizando codigo via fetch + reset (ate 3 tentativas)..."
+            ok=0
+            for i in 1 2 3; do
+              echo "Tentativa $i/3: git fetch origin main && git reset --hard origin/main"
+              if git fetch origin main && git reset --hard origin/main; then
+                ok=1
+                break
+              fi
+              echo "Falha na tentativa $i. Aguardando antes de retry..."
+              sleep 8
+            done
+
+            if [ "$ok" -ne 1 ]; then
+              echo "ERRO: Nao foi possivel atualizar o codigo apos 3 tentativas."
+              exit 1
+            fi
 
             echo "Rebuilding backend e frontend..."
             docker compose build backend frontend
