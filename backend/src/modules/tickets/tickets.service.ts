@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In, IsNull } from 'typeorm';
+import { Repository, In, IsNull, EntityManager } from 'typeorm';
 import { Cron } from '@nestjs/schedule';
 import {
   Ticket, TicketMessage, TicketStatus, TicketPriority, TicketOrigin, MessageType,
@@ -93,9 +93,25 @@ export class TicketsService {
     return normalized.length ? normalized : null;
   }
 
-  private async generateTicketNumber(tenantId: string): Promise<string> {
-    const count = await this.ticketRepo.count({ where: { tenantId } });
-    return `#${String(count + 1).padStart(6, '0')}`;
+  /**
+   * Próximo ticket_number (#000001) único globalmente (UNIQUE em ticket_number + migração 001).
+   * Deve ser chamado dentro de uma transação, após pg_advisory_xact_lock (feito aqui).
+   */
+  private async allocateNextTicketNumberInTx(em: EntityManager): Promise<string> {
+    await em.query(
+      `SELECT pg_advisory_xact_lock(abs(hashtext('sempredesk:global_ticket_number'::text)))`,
+    );
+    const rows = await em.query<Array<{ m: number | null }>>(
+      `SELECT MAX(SUBSTRING(ticket_number FROM 2 FOR 6)::integer) AS m
+       FROM tickets
+       WHERE ticket_number ~ '^#[0-9]{6}$'`,
+    );
+    const maxNum = rows[0]?.m != null ? Number(rows[0].m) : 0;
+    const next = (Number.isFinite(maxNum) ? maxNum : 0) + 1;
+    if (next > 999999) {
+      throw new BadRequestException('Limite de numeração de tickets (#999999) atingido.');
+    }
+    return `#${String(next).padStart(6, '0')}`;
   }
 
   private async getTicketOrFail(tenantId: string, id: string): Promise<Ticket> {
@@ -442,46 +458,51 @@ export class TicketsService {
 
     if (existing) return existing;
 
-    const ticketNumber = await this.generateTicketNumber(tenantId);
-    const now = new Date();
+    return this.ticketRepo.manager.transaction(async (em) => {
+      const ticketNumber = await this.allocateNextTicketNumberInTx(em);
+      const now = new Date();
 
-    const subject = `PDV offline: ${device.name}`;
-    const description = [
-      `Detecção automática: equipamento ficou offline (sem heartbeat há > 5min).`,
-      `Device: ${device.name} (${device.id})`,
-      device.ipAddress ? `IP: ${device.ipAddress}` : null,
-    ].filter(Boolean).join('\n');
+      const subject = `PDV offline: ${device.name}`;
+      const description = [
+        `Detecção automática: equipamento ficou offline (sem heartbeat há > 5min).`,
+        `Device: ${device.name} (${device.id})`,
+        device.ipAddress ? `IP: ${device.ipAddress}` : null,
+      ].filter(Boolean).join('\n');
 
-    const ticket = this.ticketRepo.create({
-      tenantId,
-      ticketNumber,
-      clientId: device.clientId,
-      origin: TicketOrigin.INTERNAL,
-      priority: TicketPriority.HIGH,
-      status: TicketStatus.OPEN,
-      subject,
-      description,
-      category: 'infraestrutura',
-      slaResponseAt: null,
-      slaResolveAt: null,
-      metadata: { deviceId: device.id, deviceName: device.name, source: 'monitoring', type: 'device_offline' },
-      createdAt: now as any,
-      updatedAt: now as any,
-    } as any);
+      const ticket = em.create(Ticket, {
+        tenantId,
+        ticketNumber,
+        clientId: device.clientId,
+        origin: TicketOrigin.INTERNAL,
+        priority: TicketPriority.HIGH,
+        status: TicketStatus.OPEN,
+        subject,
+        description,
+        category: 'infraestrutura',
+        slaResponseAt: null,
+        slaResolveAt: null,
+        metadata: { deviceId: device.id, deviceName: device.name, source: 'monitoring', type: 'device_offline' },
+        createdAt: now as any,
+        updatedAt: now as any,
+      } as any);
 
-    const saved = await this.ticketRepo.save(ticket as any);
+      const saved = await em.save(Ticket, ticket);
 
-    await this.messageRepo.save(this.messageRepo.create({
-      tenantId,
-      ticketId: saved.id,
-      authorId: null,
-      authorType: 'system',
-      authorName: 'Monitoring Engine',
-      messageType: MessageType.SYSTEM,
-      content: 'Ticket criado automaticamente devido a dispositivo offline.',
-    }));
+      await em.save(
+        TicketMessage,
+        em.create(TicketMessage, {
+          tenantId,
+          ticketId: saved.id,
+          authorId: null,
+          authorType: 'system',
+          authorName: 'Monitoring Engine',
+          messageType: MessageType.SYSTEM,
+          content: 'Ticket criado automaticamente devido a dispositivo offline.',
+        }),
+      );
 
-    return saved;
+      return saved;
+    });
   }
 
   async create(tenantId: string, userId: string, userName: string, dto: CreateTicketDto, authorType: 'user' | 'contact' = 'user'): Promise<Ticket> {
@@ -504,8 +525,6 @@ export class TicketsService {
       dto.category,
       dto.subcategory,
     );
-
-    const ticketNumber = await this.generateTicketNumber(tenantId);
 
     let slaResponseHours = 4;
     let slaResolveHours = 24;
@@ -530,21 +549,23 @@ export class TicketsService {
     const slaResponseAt = new Date(now.getTime() + slaResponseHours * multiplier * 3600 * 1000);
     const slaResolveAt = new Date(now.getTime() + slaResolveHours * multiplier * 3600 * 1000);
 
-    const ticket = this.ticketRepo.create({
-      ...dto,
-      conversationId: dto.conversationId || undefined,
-      department: classification.department || undefined,
-      category: classification.category || undefined,
-      subcategory: classification.subcategory || undefined,
-      tenantId,
-      ticketNumber,
-      status: dto.assignedTo ? TicketStatus.IN_PROGRESS : TicketStatus.OPEN,
-      slaResponseAt,
-      slaResolveAt,
-    } as any);
-
-    const saved = await this.ticketRepo.save(ticket);
-    const ticketSaved = Array.isArray(saved) ? saved[0] : saved;
+    const ticketSaved = await this.ticketRepo.manager.transaction(async (em) => {
+      const ticketNumber = await this.allocateNextTicketNumberInTx(em);
+      const ticket = em.create(Ticket, {
+        ...dto,
+        conversationId: dto.conversationId || undefined,
+        department: classification.department || undefined,
+        category: classification.category || undefined,
+        subcategory: classification.subcategory || undefined,
+        tenantId,
+        ticketNumber,
+        status: dto.assignedTo ? TicketStatus.IN_PROGRESS : TicketStatus.OPEN,
+        slaResponseAt,
+        slaResolveAt,
+      } as any);
+      const saved = await em.save(Ticket, ticket);
+      return Array.isArray(saved) ? saved[0] : saved;
+    });
 
     // Apply routing rules: auto-assign, set priority, notify email
     if (this.routingSvc) {
