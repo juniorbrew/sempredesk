@@ -1,3 +1,4 @@
+import { ConflictException } from '@nestjs/common';
 import { CustomersService } from './customers.service';
 
 describe('CustomersService multiempresa resolution', () => {
@@ -67,5 +68,32 @@ describe('CustomersService multiempresa resolution', () => {
       expect.stringContaining('SELECT DISTINCT'),
       ['tenant-1', ['contact-primary', 'contact-b', 'contact-c']],
     );
+  });
+});
+
+describe('CustomersService updateContact', () => {
+  it('deve retornar conflito amigável quando outro contato ativo já usa o mesmo whatsapp', async () => {
+    const contactsRepo: any = {
+      findOne: jest.fn().mockResolvedValue({
+        id: 'contact-a',
+        tenantId: 'tenant-1',
+        email: 'edson@demo.com',
+        metadata: {},
+      }),
+      update: jest.fn(),
+      manager: {
+        query: jest.fn().mockResolvedValue([{ id: 'contact-b' }]),
+      },
+    };
+
+    const service = new CustomersService({} as any, contactsRepo);
+
+    await expect(
+      service.updateContact('tenant-1', 'contact-a', {
+        whatsapp: '5573981168008',
+      } as any),
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    expect(contactsRepo.update).not.toHaveBeenCalled();
   });
 });

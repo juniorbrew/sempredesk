@@ -60,6 +60,47 @@ export class BaileysService {
     return digits || null;
   }
 
+  private buildPhoneCandidateJids(digits: string): string[] {
+    const normalized = this.extractDigitsFromJid(digits);
+    if (!normalized) return [];
+
+    if (normalized.startsWith('55') && normalized.length === 12) {
+      const ddd = normalized.slice(2, 4);
+      const num = normalized.slice(4);
+      return [`55${ddd}9${num}@s.whatsapp.net`, `${normalized}@s.whatsapp.net`];
+    }
+
+    if (normalized.startsWith('55') && normalized.length === 13) {
+      const ddd = normalized.slice(2, 4);
+      const numSem9 = normalized.slice(5);
+      return [`${normalized}@s.whatsapp.net`, `55${ddd}${numSem9}@s.whatsapp.net`];
+    }
+
+    return [`${normalized}@s.whatsapp.net`];
+  }
+
+  private async resolvePreferredInboundDigits(sock: any, digits?: string | null): Promise<string | null> {
+    const normalized = this.extractDigitsFromJid(digits);
+    if (!normalized) return null;
+    if (!normalized.startsWith('55') || (normalized.length !== 12 && normalized.length !== 13)) {
+      return normalized;
+    }
+
+    try {
+      const candidates = this.buildPhoneCandidateJids(normalized);
+      const results: Array<{ exists: boolean; jid: string }> = await sock.onWhatsApp(...candidates);
+      const found = results?.find((result) => result.exists && result.jid);
+      const preferredDigits = this.extractDigitsFromJid(found?.jid);
+      if (preferredDigits) {
+        return preferredDigits;
+      }
+    } catch (error: any) {
+      this.logger.warn(`[INBOUND] onWhatsApp falhou ao validar número aprendido ${normalized}: ${error?.message}`);
+    }
+
+    return normalized;
+  }
+
   /**
    * Enfileira uma operação de envio para o tenant.
    * - Se o último envio foi há mais de SEND_DELAY_MS: executa imediatamente.
@@ -406,6 +447,13 @@ export class BaileysService {
             this.logger.warn(`Failed to resolve PN for LID ${remoteJid}: ${error?.message}`);
           }
         }
+        if (resolvedDigits) {
+          const preferredDigits = await this.resolvePreferredInboundDigits(sock, resolvedDigits);
+          if (preferredDigits && preferredDigits !== resolvedDigits) {
+            this.logger.log(`[INBOUND] Ajustando número aprendido ${resolvedDigits} -> ${preferredDigits}`);
+          }
+          resolvedDigits = preferredDigits;
+        }
         if (!from || from.includes('@')) {
           this.logger.warn(`Skipping message from unrecognized JID format: ${remoteJid}`);
           return;
@@ -515,22 +563,7 @@ export class BaileysService {
 
     // Gera candidatos: para Brasil, tenta com e sem o dígito 9
     const candidates: string[] = [];
-    if (digits.startsWith('55') && digits.length === 12) {
-      // 12 dígitos: número antigo sem 9 → tenta com 9 primeiro
-      const ddd = digits.slice(2, 4);
-      const num = digits.slice(4);
-      candidates.push(`55${ddd}9${num}@s.whatsapp.net`);
-      candidates.push(`${digits}@s.whatsapp.net`);
-    } else if (digits.startsWith('55') && digits.length === 13) {
-      // 13 dígitos: padrão atual → tenta sem 9 como fallback
-      const ddd = digits.slice(2, 4);
-      const num9 = digits.slice(4);          // já tem o 9
-      const numSem9 = num9.slice(1);         // remove o 9
-      candidates.push(`${digits}@s.whatsapp.net`);
-      candidates.push(`55${ddd}${numSem9}@s.whatsapp.net`);
-    } else {
-      candidates.push(`${digits}@s.whatsapp.net`);
-    }
+    candidates.push(...this.buildPhoneCandidateJids(digits));
 
     this.logger.log(`[CHECK-NUMBER] Candidatos: ${candidates.join(', ')}`);
 
@@ -586,15 +619,7 @@ export class BaileysService {
       let jid = `${digits}@s.whatsapp.net`;
       try {
         let candidates: string[] = [jid];
-        if (digits.startsWith('55') && digits.length === 12) {
-          const ddd = digits.slice(2, 4);
-          const num = digits.slice(4);
-          candidates = [`55${ddd}9${num}@s.whatsapp.net`, jid];
-        } else if (digits.startsWith('55') && digits.length === 13) {
-          const ddd = digits.slice(2, 4);
-          const numSem9 = digits.slice(5); // remove o 9
-          candidates = [jid, `55${ddd}${numSem9}@s.whatsapp.net`];
-        }
+        candidates = this.buildPhoneCandidateJids(digits);
         this.logger.log(`[OUTBOUND] Verificando JID via onWhatsApp: ${candidates.join(', ')}`);
         const check: Array<{ exists: boolean; jid: string }> = await sock.onWhatsApp(...candidates);
         const found = check?.find(r => r.exists);

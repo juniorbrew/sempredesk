@@ -511,6 +511,23 @@ export class CustomersService {
       updates.whatsapp = updates.whatsapp.replace(/\D/g, '');
     }
 
+    if (typeof updates.whatsapp === 'string' && updates.whatsapp) {
+      const conflictingContacts = await this.contacts.manager.query(
+        `SELECT id
+           FROM contacts
+          WHERE tenant_id::text = $1
+            AND whatsapp = $2
+            AND id::text <> $3
+            AND status <> 'inactive'
+          LIMIT 1`,
+        [tenantId, updates.whatsapp, contactId],
+      );
+
+      if (Array.isArray(conflictingContacts) && conflictingContacts.length > 0) {
+        throw new ConflictException('Já existe outro contato ativo com este WhatsApp.');
+      }
+    }
+
     if (dto.password && String(dto.password).trim()) {
       const hashed = await bcrypt.hash(String(dto.password).trim(), 12);
 
