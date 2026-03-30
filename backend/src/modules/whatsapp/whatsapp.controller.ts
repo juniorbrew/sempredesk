@@ -40,6 +40,12 @@ export class WhatsappController {
     const meta = !generic ? this.whatsappService.normalizeMetaPayload(body) : null;
     const msg = generic || meta;
     if (!msg) return { success: false, reason: 'UNSUPPORTED_PAYLOAD' };
+
+    const connection = await this.baileysService.getStatus(tenantId).catch(() => null);
+    if (connection?.status === 'connected') {
+      return { success: true, skipped: true, reason: 'BAILEYS_CONNECTED' };
+    }
+
     const result = await this.whatsappService.handleIncomingMessage(tenantId, msg);
     return { success: true, ...result };
   }

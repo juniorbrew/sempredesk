@@ -82,13 +82,27 @@ function isTechnicalWhatsapp(contact: any): boolean {
   if (!contact?.whatsapp) return false;
   const digits = (contact.whatsapp as string).replace(/\D/g, '');
   if (contact.metadata?.whatsappLid === contact.whatsapp) return true;
-  if (digits.length >= 14 && !contact.phone) return true;
+  if (digits.length >= 14) return true;
   return false;
+}
+function isTechnicalPhone(value?: string | null, technicalWhatsapp?: string | null): boolean {
+  const digits = String(value || '').replace(/\D/g, '');
+  if (!digits) return false;
+  if (technicalWhatsapp && digits === String(technicalWhatsapp).replace(/\D/g, '')) return true;
+  return digits.length >= 14;
+}
+function getVisiblePhone(contact: any): string {
+  if (!contact?.phone) return '';
+  if (isTechnicalPhone(contact.phone, getTechnicalWhatsapp(contact))) return '';
+  return contact.phone as string;
 }
 /** Retorna o número visível/negocial — nunca retorna LID */
 function getVisibleWhatsapp(contact: any): string {
-  if (!contact?.whatsapp) return '';
-  return isTechnicalWhatsapp(contact) ? '' : contact.whatsapp;
+  if (!contact) return '';
+  if (contact.whatsapp && !isTechnicalWhatsapp(contact)) return contact.whatsapp;
+  if (contact.metadata?.whatsappResolvedDigits) return contact.metadata.whatsappResolvedDigits as string;
+  if (getVisiblePhone(contact)) return getVisiblePhone(contact);
+  return '';
 }
 /** Retorna o identificador técnico LID do contato */
 function getTechnicalWhatsapp(contact: any): string {
@@ -99,6 +113,26 @@ function getTechnicalWhatsapp(contact: any): string {
 /** True se o contato tem canal WhatsApp (visível ou técnico) */
 function hasWhatsappChannel(contact: any): boolean {
   return !!getVisibleWhatsapp(contact) || !!getTechnicalWhatsapp(contact);
+}
+
+function normalizeLoadedContact(contact: any): any {
+  if (!contact) return contact;
+  const resolvedDigits = typeof contact.metadata?.whatsappResolvedDigits === 'string'
+    ? String(contact.metadata.whatsappResolvedDigits).replace(/\D/g, '')
+    : '';
+  const phoneDigits = typeof contact.phone === 'string'
+    ? String(contact.phone).replace(/\D/g, '')
+    : '';
+  const whatsappDigits = typeof contact.whatsapp === 'string'
+    ? String(contact.whatsapp).replace(/\D/g, '')
+    : '';
+
+  return {
+    ...contact,
+    phone: phoneDigits || resolvedDigits || contact.phone || '',
+    whatsapp: whatsappDigits || contact.whatsapp || '',
+    metadata: contact.metadata ?? {},
+  };
 }
 
 export default function CustomerDetailPage() {
@@ -139,8 +173,14 @@ export default function CustomerDetailPage() {
   const load = async () => {
     setLoading(true);
     try {
-      const res: any = await api.getCustomer(id as string);
-      setCustomer(res); setForm(res); setContacts(res.contacts || []);
+      const [res, contactsRes]: any = await Promise.all([
+        api.getCustomer(id as string),
+        api.getContacts(id as string),
+      ]);
+      setCustomer(res);
+      setForm(res);
+      const contactsData = Array.isArray(contactsRes) ? contactsRes : contactsRes?.data ?? [];
+      setContacts((contactsData || []).map((contact: any) => normalizeLoadedContact(contact)));
       if (res.networkId) { try { const n: any = await api.getNetwork(res.networkId); setNetwork(n); } catch {} }
     } catch { router.push('/dashboard/customers'); }
     setLoading(false);
@@ -230,7 +270,7 @@ export default function CustomerDetailPage() {
   const openContactModal = (c?:any) => {
     setEditingContact(c || null);
     if (c) {
-      const ph = parsePhone(c.phone || '');
+      const ph = parsePhone(getVisiblePhone(c));
       const visibleWa = getVisibleWhatsapp(c);
       const wa = parsePhone(visibleWa);
       const techWa = getTechnicalWhatsapp(c);
@@ -262,11 +302,17 @@ export default function CustomerDetailPage() {
       const phoneComplete = composePhone(phoneCountry, rest.phone);
       const whatsComplete = composePhone(whatsappCountry, rest.whatsapp);
       const clean: any = Object.fromEntries(Object.entries({ ...rest, phone: phoneComplete, whatsapp: whatsComplete }).filter(([_, v]) => v !== '' && v !== null));
-      // Preserva LID: se o campo visível ficou vazio mas há identificador técnico, mantém routing
-      if (editingContact && !whatsComplete && technicalWhatsapp) {
-        clean.whatsapp = technicalWhatsapp;
+      const editingResolvedDigits = editingContact?.metadata?.whatsappResolvedDigits || '';
+      const editingHasOnlyTechnicalWhatsapp = !!editingContact && !!technicalWhatsapp && !editingContact?.whatsapp;
+      if (
+        editingHasOnlyTechnicalWhatsapp &&
+        whatsComplete &&
+        editingResolvedDigits &&
+        whatsComplete === editingResolvedDigits
+      ) {
+        delete clean.whatsapp;
       }
-      // Persiste o LID em metadata para separação técnica
+      // Persiste o LID em metadata para separação técnica sem poluir o campo visível whatsapp
       if (editingContact && technicalWhatsapp) {
         clean.metadata = { ...(editingContact.metadata ?? {}), whatsappLid: technicalWhatsapp };
       }
@@ -715,7 +761,7 @@ export default function CustomerDetailPage() {
                     </div>
                     <div className="flex items-center gap-4 mt-1 flex-wrap">
                       {c.email && <span className="flex items-center gap-1 text-xs" style={{ color:'#64748B' }}><Mail className="w-3 h-3" />{c.email}</span>}
-                      {c.phone && <span className="flex items-center gap-1 text-xs" style={{ color:'#64748B' }}><Phone className="w-3 h-3" />{c.phone}</span>}
+                      {getVisiblePhone(c) && <span className="flex items-center gap-1 text-xs" style={{ color:'#64748B' }}><Phone className="w-3 h-3" />{getVisiblePhone(c)}</span>}
                       {hasWhatsappChannel(c) && (
                         <span className="flex items-center gap-1 text-xs" style={{ color:'#16A34A' }}>
                           <MessageCircle className="w-3 h-3" />
@@ -771,6 +817,7 @@ export default function CustomerDetailPage() {
                 style={{ background:'#F1F5F9', border:'none', borderRadius:8, width:32, height:32, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color:'#64748B', fontSize:18 }}>×</button>
             </div>
 
+            <form onSubmit={(e) => { e.preventDefault(); void handleSaveContact(); }}>
             <div style={{ padding:'18px 20px', display:'flex', flexDirection:'column', gap:14 }}>
               {/* Identificação */}
               <div style={{ background:'#F8FAFC', borderRadius:10, padding:'14px 16px', border:'1px solid #E2E8F0' }}>
@@ -822,7 +869,20 @@ export default function CustomerDetailPage() {
                               }
                             }
                             if (found) {
-                              setContactForm(p => ({ ...p, email: val, name: found.name||p.name, role: found.role||p.role, phone: found.phone||p.phone, whatsapp: getVisibleWhatsapp(found)||p.whatsapp, isPrimary: found.isPrimary||p.isPrimary, technicalWhatsapp: getTechnicalWhatsapp(found)||p.technicalWhatsapp }));
+                              const foundPhone = parsePhone(found.phone || '');
+                              const foundWhatsapp = parsePhone(getVisibleWhatsapp(found) || '');
+                              setContactForm(p => ({
+                                ...p,
+                                email: val,
+                                name: found.name || p.name,
+                                role: found.role || p.role,
+                                phone: foundPhone.local || p.phone,
+                                phoneCountry: foundPhone.local ? foundPhone.country : p.phoneCountry,
+                                whatsapp: foundWhatsapp.local || p.whatsapp,
+                                whatsappCountry: foundWhatsapp.local ? foundWhatsapp.country : p.whatsappCountry,
+                                isPrimary: found.isPrimary || p.isPrimary,
+                                technicalWhatsapp: getTechnicalWhatsapp(found) || p.technicalWhatsapp,
+                              }));
                             }
                           } catch {}
                           setEmailSearching(false);
@@ -928,12 +988,13 @@ export default function CustomerDetailPage() {
             </div>
 
             <div style={{ display:'flex', justifyContent:'flex-end', gap:10, padding:'14px 20px', borderTop:'1px solid #F1F5F9', background:'#fff', position:'sticky', bottom:0 }}>
-              <button onClick={() => setShowContactModal(false)} className="btn-secondary">Cancelar</button>
-              <button onClick={handleSaveContact} disabled={savingContact || !contactForm.name.trim()} className="btn-primary"
+              <button type="button" onClick={() => setShowContactModal(false)} className="btn-secondary">Cancelar</button>
+              <button type="submit" disabled={savingContact || !contactForm.name.trim()} className="btn-primary"
                 style={{ opacity:!contactForm.name.trim()?0.5:1 }}>
                 {savingContact ? 'Salvando...' : (editingContact ? 'Salvar alterações' : 'Criar contato')}
               </button>
             </div>
+            </form>
           </div>
         </div>
       )}

@@ -225,8 +225,11 @@ export default function AtendimentoPage() {
   const [filter, setFilter] = useState<'all' | 'no_ticket' | 'linked' | 'closed'>(() => {
     try { return (localStorage.getItem('atend_filter') as any) || 'all'; } catch { return 'all'; }
   });
-  const [channelFilter, setChannelFilter] = useState<'all' | 'whatsapp' | 'portal'>(() => {
-    try { return (localStorage.getItem('atend_channel') as any) || 'all'; } catch { return 'all'; }
+  const [channelFilter, setChannelFilter] = useState<'all' | 'whatsapp'>(() => {
+    try {
+      const saved = localStorage.getItem('atend_channel');
+      return saved === 'whatsapp' ? 'whatsapp' : 'all';
+    } catch { return 'all'; }
   });
   const [filterTags, setFilterTags] = useState<string[]>([]);
   const [showTagDropdown, setShowTagDropdown] = useState(false);
@@ -315,6 +318,13 @@ export default function AtendimentoPage() {
   const loadIdRef = useRef(0);          // incrementado a cada loadChat; respostas velhas são descartadas
   const customersRef = useRef<any[]>([]); // cache de clientes — não rebusca a cada troca de conversa
   const teamRef = useRef<any[]>([]);      // cache de equipe — idem
+  const customersCachedAtRef = useRef<number>(0);      // timestamp do último fetch completo de customers
+  const teamCachedAtRef = useRef<number>(0);           // timestamp do último fetch completo de team
+  // cache de contatos por clientId → evita refetch a cada troca de contato
+  const contactsCacheRef = useRef<Record<string, { data: any[]; ts: number }>>({});
+  // cache de contato individual por contactId (convs sem clientId)
+  const singleContactCacheRef = useRef<Record<string, { data: any; ts: number }>>({});
+  const PHASE2_CACHE_TTL = 2 * 60 * 1000; // 2 minutos
 
   // ── helpers ──
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
@@ -398,6 +408,13 @@ export default function AtendimentoPage() {
   };
 
   const canEditConversationTags = hasPermission(user, 'ticket.edit');
+  const canManageCustomerLink = hasPermission(user, 'customer.edit');
+  const canCloseTicket = hasPermission(user, 'ticket.close');
+  const [customerLinkRequired, setCustomerLinkRequired] = useState(false);
+
+  useEffect(() => {
+    setCustomerLinkRequired(false);
+  }, [currentTicket?.id]);
 
   // ── data loading ──
   const loadConversations = useCallback(async (resetSelection = false, silent = false) => {
@@ -411,11 +428,11 @@ export default function AtendimentoPage() {
       else { params.status = 'active'; params.hasTicket = 'all'; }
       const [convList, ticketConvList] = await Promise.all([
         api.getConversations(params),
-        (channelFilter === 'portal' || channelFilter === 'all')
-          ? api.getTicketConversations({ origin: channelFilter === 'portal' ? 'portal' : undefined, status: filter === 'closed' ? 'closed' : 'active', perPage: 50 }).catch(() => [] as any)
+        (channelFilter === 'whatsapp' || channelFilter === 'all')
+          ? api.getTicketConversations({ origin: 'whatsapp', status: filter === 'closed' ? 'closed' : 'active', perPage: 50 }).catch(() => [] as any)
           : Promise.resolve([]),
       ]);
-      const convArr = Array.isArray(convList) ? convList : convList?.data ?? [];
+      const convArr = (Array.isArray(convList) ? convList : convList?.data ?? []).filter((c: any) => c?.channel !== 'portal');
       const ticketArr = Array.isArray(ticketConvList) ? ticketConvList : ticketConvList?.data ?? [];
       const sorted = [...convArr.map((c: any) => ({ ...c, type: c.type || 'conversation' })), ...ticketArr]
         .sort((a: any, b: any) => new Date(b.lastMessageAt || b.createdAt).getTime() - new Date(a.lastMessageAt || a.createdAt).getTime());
@@ -500,16 +517,29 @@ export default function AtendimentoPage() {
       // ── FASE 2: dados de suporte — sem bloquear a UI ─────────────────────
       const clientId = conv.clientId;
       const contactId = conv.contactId || (ticketRes as any)?.contactId;
-      const needCustomers = customersRef.current.length === 0;
-      const needTeam = teamRef.current.length === 0;
+      const now = Date.now();
 
-      // Customers + team + contacts todos em paralelo
+      const needCustomers = customersRef.current.length === 0 || (now - customersCachedAtRef.current) > PHASE2_CACHE_TTL;
+      const needTeam = teamRef.current.length === 0 || (now - teamCachedAtRef.current) > PHASE2_CACHE_TTL;
+
+      // Verifica cache de contatos — evita refetch a cada troca de contato
+      const cachedClientContacts = clientId ? contactsCacheRef.current[clientId] : null;
+      const cachedSingleContact = (!clientId && contactId) ? singleContactCacheRef.current[contactId] : null;
+      const needContacts = clientId
+        ? !cachedClientContacts || (now - cachedClientContacts.ts) > PHASE2_CACHE_TTL
+        : (!clientId && contactId)
+          ? !cachedSingleContact || (now - cachedSingleContact.ts) > PHASE2_CACHE_TTL
+          : false;
+
+      // Customers + team + contacts todos em paralelo (somente o que não está cacheado)
       const [customersRes, teamRes, contactsRaw] = await Promise.all([
         needCustomers ? api.getCustomers({ perPage: 200 }).catch(() => null) : Promise.resolve(null),
         needTeam ? api.getTeam().catch(() => null) : Promise.resolve(null),
-        clientId
-          ? api.getContacts(clientId).catch(() => null)
-          : contactId ? api.getContactById(contactId).catch(() => null) : Promise.resolve(null),
+        needContacts
+          ? (clientId
+              ? api.getContacts(clientId).catch(() => null)
+              : contactId ? api.getContactById(contactId).catch(() => null) : Promise.resolve(null))
+          : Promise.resolve(null),
       ]);
 
       if (myId !== loadIdRef.current) return;
@@ -522,6 +552,7 @@ export default function AtendimentoPage() {
           try { const r: any = await api.getCustomer(clientId); if (r) arr.push(r?.data ?? r); } catch {}
         }
         customersRef.current = arr;
+        customersCachedAtRef.current = now;
         if (myId === loadIdRef.current) setCustomers(arr);
       } else if (clientId && !customersRef.current.find((c: any) => c.id === clientId)) {
         // Cache existente mas sem este cliente específico → busca individual
@@ -539,6 +570,7 @@ export default function AtendimentoPage() {
       if (teamRes) {
         let arr: any[] = Array.isArray(teamRes) ? teamRes : teamRes?.data ?? [];
         teamRef.current = arr;
+        teamCachedAtRef.current = now;
         if (myId === loadIdRef.current) setTeam(arr);
       }
       // Garante que o agente responsável pelo ticket esteja na lista
@@ -551,6 +583,7 @@ export default function AtendimentoPage() {
             if (member?.id && myId === loadIdRef.current) {
               const arr = [...teamRef.current, member];
               teamRef.current = arr;
+              teamCachedAtRef.current = now;
               setTeam(arr);
             }
           } catch {}
@@ -559,11 +592,32 @@ export default function AtendimentoPage() {
 
       if (myId !== loadIdRef.current) return;
 
-      // Contacts
-      if (clientId && contactsRaw) {
-        const ctArr: any[] = Array.isArray(contactsRaw) ? contactsRaw : (contactsRaw as any)?.data ?? [];
-        if (contactId && !ctArr.find((c: any) => c.id === contactId)) {
-          try { const ind: any = await api.getContactById(contactId); if (ind) ctArr.push(ind?.data ?? ind); } catch {}
+      // Contacts — usa cache quando disponível, evita refetch a cada troca
+      if (clientId) {
+        let ctArr: any[];
+        if (contactsRaw) {
+          // Dados frescos da API — popula cache
+          ctArr = Array.isArray(contactsRaw) ? contactsRaw : (contactsRaw as any)?.data ?? [];
+          // Contato específico fora da lista do cliente → busca individual (com cache)
+          if (contactId && !ctArr.find((c: any) => c.id === contactId)) {
+            const cachedInd = singleContactCacheRef.current[contactId];
+            if (cachedInd && (now - cachedInd.ts) < PHASE2_CACHE_TTL) {
+              ctArr = [...ctArr, cachedInd.data];
+            } else {
+              try {
+                const ind: any = await api.getContactById(contactId);
+                if (ind) {
+                  const ct = ind?.data ?? ind;
+                  singleContactCacheRef.current[contactId] = { data: ct, ts: now };
+                  ctArr = [...ctArr, ct];
+                }
+              } catch {}
+            }
+          }
+          contactsCacheRef.current[clientId] = { data: ctArr, ts: now };
+        } else {
+          // Cache válido — reutiliza sem nenhuma requisição
+          ctArr = cachedClientContacts?.data ?? [];
         }
         if (myId === loadIdRef.current) {
           setContacts(ctArr);
@@ -577,11 +631,19 @@ export default function AtendimentoPage() {
             }
           }
         }
-      } else if (!clientId && contactsRaw) {
-        const ct = (contactsRaw as any)?.data ?? contactsRaw;
-        if (myId === loadIdRef.current) setContacts(ct ? [ct] : []);
       } else if (!clientId && contactId) {
-        if (myId === loadIdRef.current) setContacts([]);
+        let ct: any;
+        if (contactsRaw) {
+          // Dados frescos da API — popula cache
+          ct = (contactsRaw as any)?.data ?? contactsRaw;
+          if (ct) singleContactCacheRef.current[contactId] = { data: ct, ts: now };
+        } else if (cachedSingleContact) {
+          // Cache válido — reutiliza
+          ct = cachedSingleContact.data;
+        } else {
+          ct = null;
+        }
+        if (myId === loadIdRef.current) setContacts(ct ? [ct] : []);
       }
 
     } catch (e) {
@@ -627,9 +689,25 @@ export default function AtendimentoPage() {
   }, [selected?.clientId, selected?.contactId, linkTicketSearch]);
 
   // ── end flow ──
-  const openEndFlow = () => { setCloseForm({ solution:'', rootCause:'', timeSpent:'', internalNote:'', complexity:0 }); setShowEndModal(true); };
+  const openEndFlow = () => {
+    setCloseForm({ solution:'', rootCause:'', timeSpent:'', internalNote:'', complexity:0 });
+    setShowEndModal(true);
+  };
   const handleKeepOpen = () => { setShowEndModal(false); setKeepOpenReason(''); setShowKeepOpenModal(true); };
-  const handleCloseTicket = () => { setShowEndModal(false); setCloseForm({ solution:'', rootCause:'', timeSpent:'', internalNote:'', complexity:0 }); setShowCloseForm(true); };
+  const handleCloseTicket = () => {
+    if (customerLinkRequired) {
+      showToast(
+        canManageCustomerLink
+          ? 'Defina a empresa deste atendimento antes de encerrar o ticket.'
+          : 'Este atendimento ainda precisa de uma empresa vinculada antes do encerramento.',
+        'error',
+      );
+      return;
+    }
+    setShowEndModal(false);
+    setCloseForm({ solution:'', rootCause:'', timeSpent:'', internalNote:'', complexity:0 });
+    setShowCloseForm(true);
+  };
 
   const confirmKeepOpen = async () => {
     if (!keepOpenReason.trim()) { showToast('Informe o motivo para manter o ticket aberto', 'error'); return; }
@@ -652,6 +730,15 @@ export default function AtendimentoPage() {
   const isTicketType = selected?.type === 'ticket' || selected?.id?.startsWith?.('ticket:');
 
   const confirmCloseTicket = async () => {
+    if (customerLinkRequired) {
+      showToast(
+        canManageCustomerLink
+          ? 'Defina a empresa deste atendimento antes de encerrar o ticket.'
+          : 'Este atendimento ainda precisa de uma empresa vinculada antes do encerramento.',
+        'error',
+      );
+      return;
+    }
     if (!closeForm.solution.trim()) { showToast('Solução aplicada é obrigatória', 'error'); return; }
     const tid = selected?.ticketId || (isTicketType ? selected?.id?.replace?.(/^ticket:/, '') : null);
     try {
@@ -915,8 +1002,9 @@ export default function AtendimentoPage() {
   const isClosed = selected?.status === 'closed';
   const isWhatsapp = selected?.channel === 'whatsapp';
   const isPortalNoTicket = selected?.channel === 'portal' && !hasTicket && selected?.status !== 'closed';
-  // Conversa WhatsApp/canal sem ticket — iniciada pelo agente ou pelo contato, ainda sem ticket vinculado
+  // Conversa WhatsApp/canal sem ticket — ainda sem ticket vinculado (usado para exibição de estado)
   const isConvNoTicket = !isTicketType && !hasTicket && !!selected?.id && selected?.status !== 'closed';
+  // Conversas ativas podem continuar trocando mensagens mesmo sem ticket vinculado.
   const canSend = hasTicket || isPortalNoTicket || isConvNoTicket;
   const ticketIdForRealtime = isTicketType ? (selected?.ticketId || selected?.id?.replace?.(/^ticket:/, '')) : null;
   const conversationIdForRealtime = !isTicketType ? selected?.id : null;
@@ -1196,7 +1284,7 @@ export default function AtendimentoPage() {
 
           {/* Channel tabs */}
           <div style={{ display: 'flex', gap: 0, padding: '10px 12px 0', borderBottom: S.border, flexShrink: 0 }}>
-            {([['all','Todos'],['whatsapp','WhatsApp'],['portal','Portal']] as const).map(([ch, label]) => (
+            {([['all','Todos'],['whatsapp','WhatsApp']] as const).map(([ch, label]) => (
               <button key={ch} onClick={() => { setChannelFilter(ch); if (filter === 'no_ticket') setFilter('all'); }}
                 style={{
                   padding: '6px 12px 8px', borderRadius: 0, fontSize: 12, fontWeight: 500, cursor: 'pointer',
@@ -1513,8 +1601,9 @@ export default function AtendimentoPage() {
                       Transferir
                     </button>
                     {!isClosed && (hasTicket || isPortalNoTicket) && (
-                      <button onClick={openEndFlow}
-                        style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid #FECACA', background: '#FEF2F2', color: '#DC2626', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' }}>
+                      <button onClick={openEndFlow} disabled={!canCloseTicket || customerLinkRequired}
+                        title={customerLinkRequired ? 'Defina a empresa antes de encerrar' : undefined}
+                        style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid #FECACA', background: customerLinkRequired ? '#FFF1F2' : '#FEF2F2', color: '#DC2626', fontSize: 12, fontWeight: 600, cursor: (!canCloseTicket || customerLinkRequired) ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit', opacity: (!canCloseTicket || customerLinkRequired) ? 0.6 : 1 }}>
                         Encerrar
                       </button>
                     )}
@@ -1524,7 +1613,7 @@ export default function AtendimentoPage() {
                 {/* Warning banners */}
                 {!hasTicket && !isPortalNoTicket && (
                   <div style={{ marginTop: 10, padding: '10px 14px', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8, fontSize: 12, color: '#92400E' }}>
-                    Sem ticket vinculado. Crie ou vincule um ticket para enviar mensagens e registrar o atendimento.
+                    Sem ticket vinculado. Você ainda pode conversar normalmente e vincular o ticket depois, se necessário.
                   </div>
                 )}
 
@@ -1535,10 +1624,12 @@ export default function AtendimentoPage() {
                     ticketId={currentTicket.id}
                     initialCustomerSelectedAt={currentTicket.customerSelectedAt ?? null}
                     initialUnlinkedContact={currentTicket.unlinkedContact ?? false}
+                    canManageCustomerLink={canManageCustomerLink}
                     initialCustomerName={customerName(selected?.clientId) !== '—' ? customerName(selected?.clientId) : null}
                     onResolved={(data: ResolvedData) => {
                       setCurrentTicket((prev: any) => prev ? { ...prev, ...data } : prev);
                     }}
+                    onRequirementChange={setCustomerLinkRequired}
                   />
                 )}
               </div>
@@ -1718,7 +1809,7 @@ export default function AtendimentoPage() {
                           }
                         }}
                         onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(e as any); } }}
-                        placeholder={canSend ? (isWhatsapp ? 'Mensagem WhatsApp... (Enter para enviar)' : 'Digite sua mensagem...') : 'Vincule um ticket para enviar mensagens...'}
+                        placeholder={canSend ? (isWhatsapp ? 'Mensagem WhatsApp... (Enter para enviar)' : 'Digite sua mensagem...') : 'Conversa indisponível para envio'}
                         disabled={!canSend}
                         rows={1}
                         style={{
@@ -2215,7 +2306,7 @@ export default function AtendimentoPage() {
                           await afterConvCreated(existingConv);
                           showToast('Conversa aberta!');
                         } else {
-                          // Usa startOutbound para criar ticket + enviar mensagem inicial automaticamente
+                          // Usa startOutbound para criar conversa + enviar mensagem inicial (sem ticket — atendente vincula depois)
                           const selectedContact = startContacts.find((c: any) => c.id === startContactId);
                           const res: any = await api.startOutboundConversation({
                             contactId: startContactId,
@@ -2531,7 +2622,7 @@ export default function AtendimentoPage() {
                   <p style={{ margin: 0, fontSize: 11, color: '#3B82F6', fontWeight: 400 }}>A conversa é encerrada mas o ticket continua em aberto</p>
                 </div>
               </button>
-              <button onClick={handleCloseTicket} style={{ padding: '14px 16px', border: '1.5px solid #FED7AA', borderRadius: 10, background: '#FFF7ED', color: '#C2410C', fontSize: 13, fontWeight: 600, cursor: 'pointer', textAlign: 'left', display: 'flex', gap: 10, alignItems: 'center' }}>
+              <button onClick={handleCloseTicket} disabled={customerLinkRequired} style={{ padding: '14px 16px', border: '1.5px solid #FED7AA', borderRadius: 10, background: '#FFF7ED', color: '#C2410C', fontSize: 13, fontWeight: 600, cursor: customerLinkRequired ? 'not-allowed' : 'pointer', textAlign: 'left', display: 'flex', gap: 10, alignItems: 'center', opacity: customerLinkRequired ? 0.6 : 1 }}>
                 <Lock size={18} style={{ flexShrink: 0 }} />
                 <div>
                   <p style={{ margin: 0, fontWeight: 700 }}>Encerrar e fechar o ticket</p>
@@ -2631,8 +2722,8 @@ export default function AtendimentoPage() {
             </div>
             <div style={{ padding: '14px 22px', borderTop: '1px solid #F1F5F9', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button onClick={() => setShowCloseForm(false)} style={{ padding: '9px 18px', borderRadius: 8, border: '1.5px solid #E2E8F0', background: '#fff', color: '#475569', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancelar</button>
-              <button onClick={confirmCloseTicket}
-                style={{ padding: '9px 20px', borderRadius: 8, border: 'none', background: '#EA580C', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <button onClick={confirmCloseTicket} disabled={customerLinkRequired}
+                style={{ padding: '9px 20px', borderRadius: 8, border: 'none', background: '#EA580C', color: '#fff', fontSize: 13, fontWeight: 700, cursor: customerLinkRequired ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, opacity: customerLinkRequired ? 0.6 : 1 }}>
                 <Lock size={14} /> Encerrar Atendimento
               </button>
             </div>

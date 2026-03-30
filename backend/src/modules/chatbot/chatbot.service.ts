@@ -12,6 +12,7 @@ import { ConversationChannel } from '../conversations/entities/conversation.enti
 import { TicketSatisfactionService } from '../tickets/ticket-satisfaction.service';
 import { v4 as uuidv4 } from 'uuid';
 import { normalizeCnpj, validateCnpj } from '../../common/utils/cnpj.utils';
+import { normalizeWhatsappNumber } from '../../common/utils/phone.utils';
 
 export interface ProcessResult {
   handled: boolean;
@@ -136,6 +137,9 @@ export class ChatbotService {
     if (channel === 'portal' && !config.channelPortal) return { handled: false, replies: [] };
 
     let session = await this.getActiveSession(tenantId, identifier, channel, config.sessionTimeoutMinutes);
+    if (channel === 'whatsapp') {
+      this.logger.log(`[processMessage] identifier=${identifier} text=${JSON.stringify(text)} sessionStep=${session?.step ?? 'none'}`);
+    }
 
     // New session or expired → send welcome + menu
     if (!session || session.step === 'welcome') {
@@ -160,6 +164,32 @@ export class ChatbotService {
 
     // Already transferred to human — don't intercept
     if (session.step === 'transferred') {
+      if (channel === 'whatsapp' && this.customersService) {
+        const normalizedIdentifier = normalizeWhatsappNumber(identifier) || identifier.replace(/\D/g, '');
+        const looksTechnicalIdentifier = identifier.includes('@') || normalizedIdentifier.length >= 14;
+        if (looksTechnicalIdentifier) {
+          const canonical = await this.customersService.resolveCanonicalWhatsappContact(tenantId, {
+            rawWhatsapp: identifier,
+            normalizedWhatsapp: normalizedIdentifier,
+            lid: normalizedIdentifier,
+            direction: 'inbound',
+          }).catch(() => null);
+
+          const blockedTechnicalOnly = canonical?.canonicalReason?.includes('blocked-technical-only') ?? false;
+          if (!canonical?.contact && blockedTechnicalOnly) {
+            this.logger.warn(
+              `[processMessage] resetting orphan transferred session for technical identifier=${identifier}`,
+            );
+            session.step = 'awaiting_menu';
+            session.lastActivity = new Date();
+            await this.sessionRepo.save(session);
+            return {
+              handled: true,
+              replies: [this.buildWelcome(config)],
+            };
+          }
+        }
+      }
       await this.touchSession(session);
       return { handled: false, replies: [] };
     }
@@ -176,10 +206,19 @@ export class ChatbotService {
         return { handled: true, replies: [`${aviso}\n\n${pedido}`] };
       }
       // Nota válida → guarda na metadata e avança para comentário
-      session.metadata = { ...((session.metadata as Record<string, unknown>) ?? {}), rating: nota };
-      session.step = 'awaiting_rating_comment';
-      session.lastActivity = new Date();
-      await this.sessionRepo.save(session);
+      const ratingIdentifiers = channel === 'whatsapp' && this.customersService
+        ? await this.customersService.getWhatsappSessionIdentifiers(tenantId, identifier).catch(() => [identifier])
+        : [identifier];
+      const ratingSessions = await this.sessionRepo.find({
+        where: ratingIdentifiers.map((currentIdentifier) => ({ tenantId, identifier: currentIdentifier, channel })) as any,
+      });
+      const sessionsToAdvance = ratingSessions.length ? ratingSessions : [session];
+      for (const currentSession of sessionsToAdvance) {
+        currentSession.metadata = { ...((currentSession.metadata as Record<string, unknown>) ?? {}), rating: nota };
+        currentSession.step = 'awaiting_rating_comment';
+        currentSession.lastActivity = new Date();
+        await this.sessionRepo.save(currentSession);
+      }
       const msgComentario =
         config.ratingCommentMessage ||
         'Obrigado pela nota! 🙏 Gostaria de deixar um comentário? (Responda com o texto ou envie *pular* para finalizar.)';
@@ -198,7 +237,10 @@ export class ChatbotService {
       if (ticketId && rating) {
         await this.saveWhatsappRating(tenantId, ticketId, rating, comment ?? undefined).catch(() => {});
       }
-      await this.sessionRepo.delete({ id: session.id });
+      const ratingIdentifiers = channel === 'whatsapp' && this.customersService
+        ? await this.customersService.getWhatsappSessionIdentifiers(tenantId, identifier).catch(() => [identifier])
+        : [identifier];
+      await this.sessionRepo.delete(ratingIdentifiers.map((currentIdentifier) => ({ tenantId, identifier: currentIdentifier, channel })) as any);
 
       const obrigado =
         config.ratingThanksMessage || 'Obrigado pela avaliação! 😊 Até a próxima.';
@@ -237,9 +279,28 @@ export class ChatbotService {
       // Transfer to human — verificar se contato já tem empresa vinculada
       let knownClientId: string | null = null;
       let knownClientName: string | null = null;
+      let hasMultipleLinkedClients = false;
       if (this.customersService) {
         const existingContact = await this.customersService.findContactByWhatsapp(tenantId, identifier).catch(() => null);
-        if (existingContact?.clientId) {
+        const resolution = await this.customersService.resolveClientForSupportIdentifier(tenantId, identifier).catch(() => ({ mode: 'none' as const }));
+        if (resolution.mode === 'single') {
+            const rows = await this.sessionRepo.manager.query<{ id: string; company_name: string; trade_name: string | null; metadata: any }[]>(
+              `SELECT id, company_name, trade_name, metadata
+                 FROM clients
+                WHERE id::text = $1
+                  AND tenant_id::text = $2
+                LIMIT 1`,
+              [resolution.clientId, tenantId],
+            ).catch(() => []);
+            const row = rows[0];
+            if (row && row.metadata?.autoCreated !== true && row.metadata?.autoCreated !== 'true') {
+              knownClientId = row.id;
+              knownClientName = row.trade_name?.trim() || row.company_name?.trim() || null;
+            }
+        } else if (resolution.mode === 'multiple') {
+          hasMultipleLinkedClients = true;
+        }
+        if (false && existingContact?.id) {
           // Verificar se o cliente não é auto-criado
           const clients = await this.customersService.searchByNameOrCnpj(tenantId, existingContact.clientId).catch(() => []);
           // Busca direta pelo id
@@ -267,6 +328,21 @@ export class ChatbotService {
           senderName: senderName ?? null,
           pendingClientId: knownClientId,
         }, prefixMsg);
+      }
+
+      if (hasMultipleLinkedClients && this.customersService) {
+        session.step = 'awaiting_cnpj';
+        session.metadata = {
+          pendingDepartment: chosen.department ?? null,
+          pendingMenuLabel: selectedLabel,
+          senderName: senderName ?? null,
+          cnpjAttempts: 0,
+        };
+        await this.sessionRepo.save(session);
+        return {
+          handled: true,
+          replies: ['Identificamos mais de uma empresa vinculada a este contato. Informe o CNPJ da empresa que deseja atendimento.'],
+        };
       }
 
       // Pedir CNPJ se habilitado
@@ -300,12 +376,13 @@ export class ChatbotService {
       const attempts = (meta.cnpjAttempts as number) ?? 0;
       const trimmed = text.trim().toLowerCase();
 
-      const goToDesc = (clientId: string | null, prefixMsg?: string) =>
+      const goToDesc = (clientId: string | null, prefixMsg?: string, trustedSelection = false) =>
         this.goToDescriptionStep(session, config, {
           pendingDepartment,
           pendingMenuLabel,
           senderName: storedSenderName,
           pendingClientId: clientId,
+          pendingClientIdTrusted: trustedSelection,
         }, prefixMsg);
 
       // Usuário quer pular
@@ -318,7 +395,13 @@ export class ChatbotService {
       if (digits.length !== 14 && digits.length < 8) {
         if (this.customersService && text.trim().length >= 3) {
           const found = await this.customersService.searchByNameOrCnpj(tenantId, text.trim()).catch(() => []);
-          if (found.length === 1) return goToDesc(found[0].id, `Empresa identificada: *${found[0].tradeName || found[0].companyName}*.\n`);
+          if (found.length === 1) {
+            return goToDesc(
+              found[0].id,
+              `Empresa identificada: *${found[0].tradeName || found[0].companyName}*.\n`,
+              true,
+            );
+          }
         }
         if (attempts < 1) {
           session.metadata = { ...meta, cnpjAttempts: attempts + 1 };
@@ -335,7 +418,11 @@ export class ChatbotService {
       const match = results.find(r => normalizeCnpj(r.cnpj ?? '') === digits);
 
       if (match) {
-        return goToDesc(match.id, `Empresa identificada: *${match.tradeName || match.companyName}*.\n`);
+        return goToDesc(
+          match.id,
+          `Empresa identificada: *${match.tradeName || match.companyName}*.\n`,
+          true,
+        );
       }
 
       // Não encontrado — dar feedback contextualizado ao usuário
@@ -356,7 +443,12 @@ export class ChatbotService {
       const meta = (session.metadata ?? {}) as Record<string, unknown>;
       const pendingDepartment = meta.pendingDepartment as string | null;
       const storedSenderName = (meta.senderName as string | null) ?? senderName;
-      const pendingClientId = meta.pendingClientId as string | null;
+      const pendingClientId = await this.resolveTrustedPendingClientId(
+        tenantId,
+        identifier,
+        meta.pendingClientId as string | null,
+        meta.pendingClientIdTrusted === true,
+      );
 
       session.step = 'transferred';
       session.metadata = null;
@@ -381,7 +473,13 @@ export class ChatbotService {
   private async goToDescriptionStep(
     session: ChatbotSession,
     config: ChatbotConfig,
-    meta: { pendingDepartment: string | null; pendingMenuLabel: string | null; senderName: string | null; pendingClientId: string | null },
+    meta: {
+      pendingDepartment: string | null;
+      pendingMenuLabel: string | null;
+      senderName: string | null;
+      pendingClientId: string | null;
+      pendingClientIdTrusted?: boolean;
+    },
     prefixMsg?: string,
   ): Promise<ProcessResult> {
     session.step = 'awaiting_description';
@@ -390,6 +488,7 @@ export class ChatbotService {
       pendingMenuLabel: meta.pendingMenuLabel,
       senderName: meta.senderName,
       pendingClientId: meta.pendingClientId,
+      pendingClientIdTrusted: meta.pendingClientIdTrusted === true,
       descriptionStartedAt: new Date().toISOString(),
     };
     await this.sessionRepo.save(session);
@@ -398,6 +497,44 @@ export class ChatbotService {
       : '';
     const msg = `${prefixMsg ?? ''}${selectionPrefix}${config.descriptionRequestMessage}`;
     return { handled: true, replies: [msg] };
+  }
+
+  private async resolveTrustedPendingClientId(
+    tenantId: string,
+    identifier: string,
+    pendingClientId: string | null,
+    pendingClientIdTrusted = false,
+  ): Promise<string | null> {
+    if (!pendingClientId || !this.customersService) return pendingClientId;
+
+    const digits = identifier.replace(/\D/g, '');
+    const normalizedWhatsapp = normalizeWhatsappNumber(digits) || digits;
+    const isTechnicalIdentifier = identifier.includes('@') || normalizedWhatsapp.length >= 14;
+    if (!isTechnicalIdentifier) return pendingClientId;
+    if (pendingClientIdTrusted) {
+      this.logger.log(
+        `[resolveTrustedPendingClientId] Mantendo pendingClientId confiável para identificador técnico: ${identifier}`,
+      );
+      return pendingClientId;
+    }
+
+    const canonical = await this.customersService.resolveCanonicalWhatsappContact(tenantId, {
+      rawWhatsapp: identifier,
+      normalizedWhatsapp,
+      lid: normalizedWhatsapp,
+      clientId: pendingClientId,
+      direction: 'inbound',
+    }).catch(() => null);
+
+    const blockedTechnicalOnly = canonical?.canonicalReason?.includes('blocked-technical-only') ?? false;
+    if (!canonical?.contact || blockedTechnicalOnly) {
+      this.logger.warn(
+        `[resolveTrustedPendingClientId] Ignorando pendingClientId para identificador técnico sem contato canônico confiável: ${identifier}`,
+      );
+      return null;
+    }
+
+    return pendingClientId;
   }
 
   /**
@@ -416,12 +553,17 @@ export class ChatbotService {
     if (!staleSessions.length) return;
     this.logger.log(`ChatbotScheduler: ${staleSessions.length} sessões em timeout de descrição`);
 
-    for (const session of staleSessions) {
-      try {
-        const tenantId = session.tenantId;
-        const meta = (session.metadata ?? {}) as Record<string, unknown>;
-        const pendingDepartment = meta.pendingDepartment as string | null;
-        const pendingClientId = meta.pendingClientId as string | null;
+      for (const session of staleSessions) {
+        try {
+          const tenantId = session.tenantId;
+          const meta = (session.metadata ?? {}) as Record<string, unknown>;
+          const pendingDepartment = meta.pendingDepartment as string | null;
+          const pendingClientId = await this.resolveTrustedPendingClientId(
+            tenantId,
+            session.identifier,
+            meta.pendingClientId as string | null,
+            meta.pendingClientIdTrusted === true,
+          );
 
         // Marcar como transferida
         session.step = 'transferred';
@@ -437,10 +579,18 @@ export class ChatbotService {
 
         // Criar conversa/ticket automaticamente
         const contact = await this.customersService!.findContactByWhatsapp(tenantId, session.identifier).catch(() => null);
-        if (contact?.client) {
+        if (contact?.id) {
+          let resolvedClientId = pendingClientId ?? null;
+          if (!resolvedClientId) {
+            const resolution = await this.customersService.resolveClientForSupportIdentifier(tenantId, session.identifier).catch(() => ({ mode: 'none' as const }));
+            if (resolution.mode === 'single') {
+              resolvedClientId = resolution.clientId;
+            }
+          }
+          if (!resolvedClientId) continue;
           await this.conversationsService!.getOrCreateForContact(
             tenantId,
-            pendingClientId ?? contact.client.id,
+            resolvedClientId,
             contact.id,
             ConversationChannel.WHATSAPP,
             {
@@ -458,6 +608,7 @@ export class ChatbotService {
 
   /** Reset session so bot engages again (e.g. conversation closed) */
   async resetSession(tenantId: string, identifier: string, channel = 'whatsapp'): Promise<void> {
+    this.logger.log(`[resetSession] tenantId=${tenantId} identifier=${identifier} channel=${channel}`);
     await this.sessionRepo.delete({ tenantId, identifier, channel });
   }
 
@@ -482,21 +633,32 @@ export class ChatbotService {
     const message = config?.ratingRequestMessage || DEFAULT_REQUEST;
 
     // Upsert session → awaiting_rating
-    let session = await this.sessionRepo.findOne({ where: { tenantId, identifier, channel } });
-    if (!session) {
-      session = this.sessionRepo.create({
-        tenantId, identifier, channel,
-        step: 'awaiting_rating',
-        metadata: { ticketId },
-        lastActivity: new Date(),
-      });
-    } else {
-      session.step = 'awaiting_rating';
-      session.metadata = { ...((session.metadata as Record<string, unknown>) ?? {}), ticketId };
-      session.lastActivity = new Date();
+    const ratingIdentifiers = channel === 'whatsapp' && this.customersService
+      ? await this.customersService.getWhatsappSessionIdentifiers(tenantId, identifier).catch(() => [identifier])
+      : [identifier];
+    this.logger.log(`[initiateRating] ticketId=${ticketId} identifier=${identifier} aliases=${ratingIdentifiers.join(',')}`);
+    for (const currentIdentifier of ratingIdentifiers) {
+      let session = await this.sessionRepo.findOne({ where: { tenantId, identifier: currentIdentifier, channel } });
+      if (!session) {
+        session = this.sessionRepo.create({
+          tenantId, identifier: currentIdentifier, channel,
+          step: 'awaiting_rating',
+          metadata: { ticketId },
+          lastActivity: new Date(),
+        });
+      } else {
+        session.step = 'awaiting_rating';
+        session.metadata = { ...((session.metadata as Record<string, unknown>) ?? {}), ticketId };
+        session.lastActivity = new Date();
+      }
+      await this.sessionRepo.save(session);
+      this.logger.log(`[initiateRating] saved session identifier=${currentIdentifier} step=${session.step} sessionId=${session.id}`);
     }
-    await this.sessionRepo.save(session);
-    await outboundSend(message);
+    try {
+      await outboundSend(message);
+    } catch (error) {
+      this.logger.warn(`Falha ao enviar mensagem de avaliação para ${identifier}`, error as any);
+    }
   }
 
   /**
@@ -519,10 +681,26 @@ export class ChatbotService {
     timeoutMinutes: number,
   ): Promise<ChatbotSession | null> {
     const cutoff = new Date(Date.now() - timeoutMinutes * 60 * 1000);
-    return this.sessionRepo.findOne({
+    const direct = await this.sessionRepo.findOne({
       where: { tenantId, identifier, channel, lastActivity: MoreThan(cutoff) },
       order: { lastActivity: 'DESC' },
     });
+    if (direct) return direct;
+
+    if (!this.customersService || channel !== 'whatsapp') return null;
+
+    const identifiers = await this.customersService.getWhatsappSessionIdentifiers(tenantId, identifier).catch(() => [identifier]);
+
+    if (!identifiers.length) return null;
+
+    return this.sessionRepo
+      .createQueryBuilder('s')
+      .where('s.tenant_id = :tenantId', { tenantId })
+      .andWhere('s.channel = :channel', { channel })
+      .andWhere('s.last_activity > :cutoff', { cutoff })
+      .andWhere('s.identifier IN (:...identifiers)', { identifiers })
+      .orderBy('s.last_activity', 'DESC')
+      .getOne();
   }
 
   private async touchSession(session: ChatbotSession): Promise<void> {

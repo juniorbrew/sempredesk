@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull } from 'typeorm';
 import { Conversation, ConversationChannel, ConversationStatus, ConversationInitiatedBy } from './entities/conversation.entity';
@@ -10,6 +10,12 @@ import { RealtimeEmitterService } from '../realtime/realtime-emitter.service';
 
 @Injectable()
 export class ConversationsService {
+  private readonly logger = new Logger(ConversationsService.name);
+
+  private logConversationResolution(payload: Record<string, unknown>) {
+    this.logger.log(JSON.stringify(payload));
+  }
+
   /** Setter para ChatbotService — injetado via AppModule.onModuleInit (evita circular dep) */
   private chatbotService: {
     resetSession(tenantId: string, identifier: string, channel?: string): Promise<void>;
@@ -98,15 +104,14 @@ export class ConversationsService {
   ) {}
 
   /**
-   * Builds or creates a conversation for a contact, creating the ticket in the background.
-   * Used when starting a portal chat or receiving the first WhatsApp message.
+   * Builds or creates a conversation for a contact without creating tickets automatically.
    */
   async getOrCreateForContact(
     tenantId: string,
     clientId: string | null,
     contactId: string,
     channel: ConversationChannel,
-    opts?: { chatAlert?: boolean; firstMessage?: string; contactName?: string; department?: string },
+    opts?: { chatAlert?: boolean; firstMessage?: string; contactName?: string; department?: string; autoCreateTicket?: boolean },
   ): Promise<{ conversation: Conversation; ticket: any; ticketCreated: boolean }> {
     const active = await this.convRepo.findOne({
       where: {
@@ -117,27 +122,113 @@ export class ConversationsService {
         status: ConversationStatus.ACTIVE,
       },
     });
+    this.logConversationResolution({
+      scope: 'conversation-resolution',
+      tenantId,
+      contactId,
+      clientId,
+      channel,
+      existingConversationId: active?.id ?? null,
+      action: active ? 'reuse' : 'create',
+      stage: 'lookup-getOrCreateForContact',
+    });
     if (active?.ticketId) {
       const ticket = await this.ticketsService.findOne(tenantId, active.ticketId);
+      this.logConversationResolution({
+        scope: 'conversation-resolution',
+        tenantId,
+        contactId,
+        clientId,
+        channel,
+        existingConversationId: active.id,
+        action: 'reuse',
+        stage: 'return-active-ticket-getOrCreateForContact',
+      });
       return { conversation: active, ticket, ticketCreated: false };
     }
     if (active && !active.ticketId) {
-      const contact = await this.customersService.findContactById(tenantId, contactId);
-      const contactName = opts?.contactName || contact?.name || 'Cliente';
-      const ticket = await this.createTicketForConversation(
-        tenantId, active, opts?.firstMessage, contactName, undefined, contactId, contactName, undefined, opts?.department,
-      );
-      active.ticketId = ticket.id;
-      await this.convRepo.save(active);
-      return { conversation: active, ticket, ticketCreated: true };
+      if (opts?.autoCreateTicket && active.initiatedBy !== ConversationInitiatedBy.AGENT) {
+        const ticket = await this.createTicketForConversation(
+          tenantId,
+          active,
+          opts?.firstMessage,
+          opts?.contactName,
+          undefined,
+          undefined,
+          undefined,
+          opts?.firstMessage,
+          undefined,
+          opts?.department,
+        );
+        active.ticketId = ticket.id;
+        await this.convRepo.save(active);
+        this.logConversationResolution({
+          scope: 'conversation-resolution',
+          tenantId,
+          contactId,
+          clientId,
+          channel,
+          existingConversationId: active.id,
+          action: 'reuse',
+          stage: 'return-active-auto-ticket-getOrCreateForContact',
+        });
+        return { conversation: active, ticket, ticketCreated: true };
+      }
+      this.logConversationResolution({
+        scope: 'conversation-resolution',
+        tenantId,
+        contactId,
+        clientId,
+        channel,
+        existingConversationId: active.id,
+        action: 'reuse',
+        stage: 'return-active-no-ticket-getOrCreateForContact',
+      });
+      return { conversation: active, ticket: null, ticketCreated: false };
     }
     const result = await this.startConversation(tenantId, clientId, contactId, channel, opts as any);
-    return { ...result, ticketCreated: true };
+    if (opts?.autoCreateTicket) {
+      const ticket = await this.createTicketForConversation(
+        tenantId,
+        result.conversation,
+        opts?.firstMessage,
+        opts?.contactName,
+        undefined,
+        undefined,
+        undefined,
+        opts?.firstMessage,
+        undefined,
+        opts?.department,
+      );
+      result.conversation.ticketId = ticket.id;
+      await this.convRepo.save(result.conversation);
+      this.logConversationResolution({
+        scope: 'conversation-resolution',
+        tenantId,
+        contactId,
+        clientId,
+        channel,
+        existingConversationId: null,
+        action: 'create',
+        stage: 'return-created-auto-ticket-getOrCreateForContact',
+      });
+      return { conversation: result.conversation, ticket, ticketCreated: true };
+    }
+    this.logConversationResolution({
+      scope: 'conversation-resolution',
+      tenantId,
+      contactId,
+      clientId,
+      channel,
+      existingConversationId: null,
+      action: 'create',
+      stage: 'return-created-no-ticket-getOrCreateForContact',
+    });
+    return { ...result, ticketCreated: false };
   }
 
   /**
-   * Portal: Iniciar atendimento. Cria conversa + ticket automaticamente.
-   * Aceita subject, description e departmentId para criar ticket completo.
+   * Portal: Iniciar atendimento. Cria apenas a conversa.
    */
   async startPortalConversation(
     tenantId: string,
@@ -185,12 +276,12 @@ export class ConversationsService {
       departmentId: dto.departmentId,
     });
 
-    const estimatedResponse = this.calcEstimatedResponse(result.ticket?.slaResponseAt);
+    const estimatedResponse = result.ticket ? this.calcEstimatedResponse(result.ticket?.slaResponseAt) : null;
 
     return {
       conversation: result.conversation,
       ticket: result.ticket,
-      ticketNumber: result.ticket?.ticketNumber,
+      ticketNumber: result.ticket?.ticketNumber ?? null,
       estimatedResponse,
     };
   }
@@ -205,7 +296,7 @@ export class ConversationsService {
   }
 
   /**
-   * Inbound: starts conversation + ticket (portal "Iniciar atendimento" ou primeira mensagem WhatsApp).
+   * Inbound: inicia apenas a conversa.
    */
   async startConversation(
     tenantId: string,
@@ -221,7 +312,7 @@ export class ConversationsService {
       departmentId?: string;
       department?: string;
     },
-  ): Promise<{ conversation: Conversation; ticket: any }> {
+  ): Promise<{ conversation: Conversation; ticket: any | null }> {
     const conv = this.convRepo.create({
       tenantId,
       clientId,
@@ -232,10 +323,19 @@ export class ConversationsService {
       initiatedBy: ConversationInitiatedBy.CONTACT,
     });
     const savedConv = await this.convRepo.save(conv);
-    const ticket = await this.createTicketForConversation(tenantId, savedConv, opts?.firstMessage, opts?.contactName, opts?.subject, undefined, undefined, opts?.description, opts?.departmentId, opts?.department);
-    savedConv.ticketId = ticket.id;
-    await this.convRepo.save(savedConv);
-    return { conversation: savedConv, ticket };
+    return { conversation: savedConv, ticket: null };
+  }
+
+  private async resetChatbotSessionForWhatsappContact(tenantId: string, contact: any): Promise<void> {
+    if (!this.chatbotService) return;
+    const identifiers = Array.from(new Set([
+      contact?.whatsapp ? String(contact.whatsapp) : null,
+      (contact as any)?.metadata?.whatsappLid ? String((contact as any).metadata.whatsappLid) : null,
+    ].filter(Boolean) as string[]));
+
+    for (const identifier of identifiers) {
+      await this.chatbotService.resetSession(tenantId, identifier, 'whatsapp').catch(() => {});
+    }
   }
 
   /**
@@ -251,18 +351,60 @@ export class ConversationsService {
     const contact = await this.customersService.findContactById(tenantId, contactId);
     if (!contact) throw new BadRequestException('Contato não encontrado');
     // Permite contatos vinculados ao cliente informado OU contatos sem cliente (serão vinculados depois)
-    if (clientId && contact.clientId && String(contact.clientId) !== String(clientId)) {
-      throw new BadRequestException('Contato pertence a outro cliente');
+    if (clientId) {
+      const canAccessClient = await this.customersService.canContactAccessClient(tenantId, contact.id, clientId);
+      if (!canAccessClient && contact.clientId && String(contact.clientId) !== String(clientId)) {
+        throw new BadRequestException('Contato pertence a outro cliente');
+      }
     }
     if (channel === ConversationChannel.WHATSAPP && !contact.whatsapp) {
       throw new BadRequestException('Contato não possui WhatsApp cadastrado');
     }
     // Usa o clientId do contato se já vinculado; caso contrário usa o informado
-    const resolvedClientId = contact.clientId ? String(contact.clientId) : (clientId ?? null);
+    let resolvedClientId = clientId ?? null;
+    if (!resolvedClientId) {
+      const supportIdentifier =
+        channel === ConversationChannel.WHATSAPP
+          ? ((contact as any)?.metadata?.whatsappLid || contact.whatsapp || null)
+          : null;
+      const resolution = supportIdentifier
+        ? await this.customersService.resolveClientForSupportIdentifier(tenantId, supportIdentifier)
+        : await this.customersService.resolveClientForSupportContact(tenantId, contact.id);
+      if (resolution.mode === 'single') {
+        resolvedClientId = resolution.clientId;
+      } else if (resolution.mode === 'multiple') {
+        throw new BadRequestException('Contato vinculado a mais de uma empresa. Selecione a empresa antes de iniciar o atendimento.');
+      }
+    }
     const existing = await this.convRepo.findOne({
       where: { tenantId, clientId: resolvedClientId, contactId, channel, status: ConversationStatus.ACTIVE },
     });
-    if (existing) return existing;
+    this.logConversationResolution({
+      scope: 'conversation-resolution',
+      tenantId,
+      contactId,
+      clientId: resolvedClientId,
+      channel,
+      existingConversationId: existing?.id ?? null,
+      action: existing ? 'reuse' : 'create',
+      stage: 'lookup-startAgentConversation',
+    });
+    if (channel === ConversationChannel.WHATSAPP) {
+      await this.resetChatbotSessionForWhatsappContact(tenantId, contact);
+    }
+    if (existing) {
+      this.logConversationResolution({
+        scope: 'conversation-resolution',
+        tenantId,
+        contactId,
+        clientId: resolvedClientId,
+        channel,
+        existingConversationId: existing.id,
+        action: 'reuse',
+        stage: 'return-existing-startAgentConversation',
+      });
+      return existing;
+    }
     const conv = this.convRepo.create({
       tenantId,
       clientId: resolvedClientId,
@@ -271,7 +413,18 @@ export class ConversationsService {
       status: ConversationStatus.ACTIVE,
       initiatedBy: ConversationInitiatedBy.AGENT,
     });
-    return this.convRepo.save(conv);
+    const savedConversation = await this.convRepo.save(conv);
+    this.logConversationResolution({
+      scope: 'conversation-resolution',
+      tenantId,
+      contactId,
+      clientId: resolvedClientId,
+      channel,
+      existingConversationId: null,
+      action: 'create',
+      stage: 'return-created-startAgentConversation',
+    });
+    return savedConversation;
   }
 
   /**
@@ -364,6 +517,24 @@ export class ConversationsService {
       .addOrderBy('c.created_at', 'DESC');
     if (channel) qb.andWhere('c.channel = :channel', { channel });
     return qb.getMany();
+  }
+
+  async findActiveHumanWhatsappConversation(
+    tenantId: string,
+    contactId: string,
+  ): Promise<Conversation | null> {
+    return this.convRepo
+      .createQueryBuilder('c')
+      .where('c.tenant_id = :tenantId', { tenantId })
+      .andWhere('c.contact_id = :contactId', { contactId })
+      .andWhere('c.channel = :channel', { channel: ConversationChannel.WHATSAPP })
+      .andWhere('c.status = :status', { status: ConversationStatus.ACTIVE })
+      .andWhere('(c.initiated_by = :agent OR c.ticket_id IS NOT NULL)', {
+        agent: ConversationInitiatedBy.AGENT,
+      })
+      .orderBy('c.last_message_at', 'DESC', 'NULLS LAST')
+      .addOrderBy('c.created_at', 'DESC')
+      .getOne();
   }
 
   async findOne(tenantId: string, id: string): Promise<Conversation> {
@@ -511,11 +682,13 @@ export class ConversationsService {
     const saved = await this.msgRepo.save(msg);
     await this.updateLastMessageAt(tenantId, conversationId);
 
-    // Helper: emite evento de mensagem incluindo campos de status
-    const emitMsg = (statusOverride?: string) =>
-      this.realtimeEmitter.emitNewConversationMessage(conversationId, {
+    // Quando a conversa já está vinculada a ticket, o atendimento pode estar ouvindo
+    // a sala ticket:<id> em vez da sala conversation:<id>. Emitimos nos dois canais.
+    const emitMsg = (statusOverride?: string) => {
+      const payload = {
         id: saved.id,
         conversationId: saved.conversationId,
+        ticketId: conv.ticketId ?? null,
         authorId: saved.authorId,
         authorType: saved.authorType,
         authorName: saved.authorName,
@@ -523,7 +696,12 @@ export class ConversationsService {
         createdAt: saved.createdAt,
         whatsappStatus: statusOverride ?? saved.whatsappStatus,
         externalId: saved.externalId ?? null,
-      });
+      };
+      this.realtimeEmitter.emitNewConversationMessage(conversationId, payload);
+      if (conv.ticketId) {
+        this.realtimeEmitter.emitNewMessage(conv.ticketId, payload);
+      }
+    };
 
     emitMsg(); // emit inicial com o status que foi salvo
 
@@ -592,15 +770,7 @@ export class ConversationsService {
 
     let ticketId = conv.ticketId;
 
-    if (!ticketId) {
-      const contact = await this.customersService.findContactById(tenantId, conv.contactId);
-      const contactName = contact?.name || 'Cliente';
-      const ticket = await this.createTicketForConversation(tenantId, conv, undefined, contactName, undefined, userId, userName);
-
-      ticketId = ticket.id;
-      conv.ticketId = ticketId;
-      await this.convRepo.save(conv);
-    }
+    if (!ticketId) throw new BadRequestException('Conversa sem ticket vinculado nao pode ser encerrada.');
 
     // 1. Copiar mensagens da conversa para o ticket (transcrição do chat)
     const msgs = await this.getMessages(tenantId, conv.id);
@@ -653,21 +823,20 @@ export class ConversationsService {
       const contact = conv.contactId
         ? await this.customersService.findContactById(tenantId, conv.contactId).catch(() => null)
         : null;
-      const identifier = (contact as any)?.whatsapp ?? null;
+      const identifier =
+        (contact as any)?.metadata?.whatsappLid
+        || (contact as any)?.whatsapp
+        || null;
 
       if (identifier) {
         const deveAvaliar = !keepTicketOpen && !!ticketId && !!this.outboundSender;
+        console.log(`[ConversationsService.close] conversation=${conv.id} ticket=${ticketId ?? 'none'} identifier=${identifier} keepTicketOpen=${!!keepTicketOpen} shouldRate=${deveAvaliar}`);
         if (deveAvaliar) {
           const sender = this.outboundSender!;
-          this.chatbotService
-            .initiateRating(tenantId, identifier, ticketId!, 'whatsapp', async (text) => {
-              await sender(tenantId, identifier, text);
-            })
-            .catch(() => {
-              // Fallback: se avaliação falhar, apenas reseta a sessão
-              this.chatbotService!.resetSession(tenantId, identifier, 'whatsapp').catch(() => {});
-            });
-        } else {
+          await this.chatbotService.initiateRating(tenantId, identifier, ticketId!, 'whatsapp', async (text) => {
+            await sender(tenantId, identifier, text);
+          });
+        } else if (!keepTicketOpen) {
           this.chatbotService.resetSession(tenantId, identifier, 'whatsapp').catch(() => {});
         }
       }
@@ -759,9 +928,11 @@ export class ConversationsService {
     await this.msgRepo.update(msg.id, { whatsappStatus: newStatus });
 
     // Emite socket para o frontend atualizar o ícone em tempo real
-    this.realtimeEmitter.emitNewConversationMessage(msg.conversationId, {
+    const conv = await this.convRepo.findOne({ where: { tenantId, id: msg.conversationId } });
+    const payload = {
       id: msg.id,
       conversationId: msg.conversationId,
+      ticketId: conv?.ticketId ?? null,
       authorId: msg.authorId,
       authorType: msg.authorType,
       authorName: msg.authorName,
@@ -769,6 +940,11 @@ export class ConversationsService {
       createdAt: msg.createdAt,
       whatsappStatus: newStatus,
       externalId: msg.externalId ?? null,
-    });
+    };
+    this.realtimeEmitter.emitNewConversationMessage(msg.conversationId, payload);
+    if (conv?.ticketId) {
+      this.realtimeEmitter.emitNewMessage(conv.ticketId, payload);
+    }
   }
 }
+

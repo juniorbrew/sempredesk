@@ -18,6 +18,7 @@ import {
   ResolveTicketDto,
   CancelTicketDto,
 } from './dto/ticket.dto';
+import { TicketOrigin } from './entities/ticket.entity';
 
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('tickets')
@@ -32,6 +33,28 @@ export class TicketsController {
   async create(@Request() req: any, @Body() dto: CreateTicketDto) {
     const isPortal = req.user?.isPortal === true;
     const authorType = isPortal ? 'contact' : 'user';
+    if (isPortal) {
+      if (!dto.clientId) {
+        throw new BadRequestException('clientId é obrigatório para o portal');
+      }
+
+      const portalContact = await this.customersService.findPortalContactForClient(
+        req.tenantId,
+        req.user?.email,
+        dto.clientId,
+      );
+
+      if (!portalContact) {
+        throw new BadRequestException('Contato do portal não possui acesso a esta empresa');
+      }
+
+      dto = {
+        ...dto,
+        contactId: portalContact.id,
+        origin: dto.origin || TicketOrigin.PORTAL,
+      };
+    }
+
     const ticket = await this.ticketsService.create(req.tenantId, req.user.id, req.user.name, dto, authorType);
     if (isPortal) {
       const diff = ticket.slaResponseAt ? Math.max(0, ticket.slaResponseAt.getTime() - Date.now()) : 0;
@@ -63,7 +86,11 @@ export class TicketsController {
       const isPrimary = !!req.user.isPrimary;
       let effectiveClientId = fallbackClientId;
       if (requestedClientId) {
-        const canAccess = await this.customersService.canContactAccessClient(tenantId, contactId, requestedClientId);
+        const canAccess = await this.customersService.canPortalEmailAccessClient(
+          tenantId,
+          req.user?.email,
+          requestedClientId,
+        );
         effectiveClientId = canAccess ? requestedClientId : fallbackClientId;
       }
       filters = { ...filters, clientId: effectiveClientId };

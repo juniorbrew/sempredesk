@@ -11,9 +11,102 @@ import { PaginationDto } from '../../common/dto/pagination.dto';
 import { normalizeCnpj, validateCnpj as validateCnpjUtil } from '../../common/utils/cnpj.utils';
 import { normalizeWhatsappNumber } from '../../common/utils/phone.utils';
 
+export type ResolveCanonicalWhatsappContactResult = {
+  contact: Contact | null;
+  matchedBy: 'whatsapp' | 'lid' | 'whatsapp+lid' | 'none';
+  normalizedWhatsapp: string | null;
+  lid: string | null;
+  candidates: string[];
+  canonicalReason: string;
+};
+
 @Injectable()
 export class CustomersService {
   private readonly logger = new Logger(CustomersService.name);
+
+  private logContactResolution(payload: Record<string, unknown>) {
+    this.logger.log(JSON.stringify(payload));
+  }
+
+  private logWhatsappIdentityGuard(payload: Record<string, unknown>) {
+    this.logger.warn(JSON.stringify(payload));
+  }
+
+  private logContactCreateAudit(payload: Record<string, unknown>) {
+    this.logger.log(JSON.stringify(payload));
+  }
+
+  private isTechnicalWhatsappIdentifier(value?: string | null, rawValue?: string | null): boolean {
+    const raw = String(rawValue ?? value ?? '');
+    const normalized = normalizeWhatsappNumber(value ?? raw) || String(value ?? raw ?? '');
+    if (!normalized) return false;
+    if (raw.includes('@')) return true;
+    if (normalized.length >= 14) return true;
+    return false;
+  }
+
+  private isCanonicalWhatsappValue(value?: string | null, rawValue?: string | null): boolean {
+    const normalized = normalizeWhatsappNumber(value ?? rawValue ?? '');
+    if (!normalized) return false;
+    return !this.isTechnicalWhatsappIdentifier(value ?? null, rawValue ?? null);
+  }
+
+  private filterVisibleContactsForClient(contacts: Contact[]): Contact[] {
+    const activeContacts = (contacts || []).filter((contact) => contact.status !== 'inactive');
+    const hasCanonicalContact = activeContacts.some((contact) =>
+      this.isCanonicalWhatsappValue(contact.whatsapp, contact.whatsapp),
+    );
+    if (!hasCanonicalContact) return activeContacts;
+
+    return activeContacts.filter((contact) =>
+      this.isCanonicalWhatsappValue(contact.whatsapp, contact.whatsapp)
+      || !contact.whatsapp
+      || contact.isPrimary,
+    );
+  }
+
+  private async getContactResolutionSnapshot(
+    tenantId: string,
+    normalizedWhatsapp: string,
+    clientId?: string | null,
+  ) {
+    const [existingByWhatsapp, existingByLid, existingByClientId] = await Promise.all([
+      this.contacts.createQueryBuilder('ct')
+        .select('ct.id', 'id')
+        .where('ct.tenant_id = :tenantId', { tenantId })
+        .andWhere('ct.whatsapp = :normalizedWhatsapp', { normalizedWhatsapp })
+        .orderBy("ct.status = 'active'", 'DESC')
+        .addOrderBy('ct.created_at', 'ASC')
+        .getRawOne<{ id: string }>(),
+      this.contacts.createQueryBuilder('ct')
+        .select('ct.id', 'id')
+        .where('ct.tenant_id = :tenantId', { tenantId })
+        .andWhere("ct.metadata->>'whatsappLid' = :normalizedWhatsapp", { normalizedWhatsapp })
+        .orderBy("ct.status = 'active'", 'DESC')
+        .addOrderBy('ct.created_at', 'ASC')
+        .getRawOne<{ id: string }>(),
+      clientId
+        ? this.contacts.createQueryBuilder('ct')
+          .select('ct.id', 'id')
+          .where('ct.tenant_id = :tenantId', { tenantId })
+          .andWhere('ct.client_id::text = :clientId', { clientId })
+          .andWhere(
+            "(ct.whatsapp = :normalizedWhatsapp OR ct.metadata->>'whatsappLid' = :normalizedWhatsapp)",
+            { normalizedWhatsapp },
+          )
+          .orderBy("ct.status = 'active'", 'DESC')
+          .addOrderBy('ct.created_at', 'ASC')
+          .getRawOne<{ id: string }>()
+        : Promise.resolve(null),
+    ]);
+
+    return {
+      existingContactByWhatsapp: existingByWhatsapp?.id ?? null,
+      existingContactByPhone: existingByWhatsapp?.id ?? null,
+      existingContactByLid: existingByLid?.id ?? null,
+      existingContactByClientId: existingByClientId?.id ?? null,
+    };
+  }
 
   constructor(
     @InjectRepository(Client) private readonly clients: Repository<Client>,
@@ -34,14 +127,13 @@ export class CustomersService {
   private async getClientOrFail(tenantId: string, id: string): Promise<Client> {
     const client = await this.clients.findOne({
       where: { id, tenantId },
-      relations: ['contacts'],
     });
 
     if (!client) {
       throw new NotFoundException('Cliente não encontrado');
     }
 
-    client.contacts = (client.contacts || []).filter((ct) => ct.status !== 'inactive');
+    client.contacts = await this.findContacts(tenantId, id);
     return client;
   }
 
@@ -197,7 +289,6 @@ export class CustomersService {
     } = filter as any;
 
     const qb = this.clients.createQueryBuilder('c')
-      .leftJoinAndSelect('c.contacts', 'ct', "ct.status != 'inactive'")
       .where('c.tenant_id = :tenantId', { tenantId })
       .orderBy('c.code', 'ASC');
 
@@ -217,6 +308,10 @@ export class CustomersService {
       .skip((page - 1) * perPage)
       .take(perPage)
       .getManyAndCount();
+
+    for (const client of data) {
+      client.contacts = await this.findContacts(tenantId, client.id);
+    }
 
     return { data, total, page, perPage };
   }
@@ -325,6 +420,37 @@ export class CustomersService {
       contactData.whatsapp = contactData.whatsapp.replace(/\D/g, '');
     }
 
+    if (contactData.whatsapp) {
+      const existing = await this.contacts.findOne({
+        where: { tenantId, whatsapp: contactData.whatsapp },
+      });
+
+      if (existing) {
+        const updates: Partial<Contact> = {};
+        if (!existing.phone && contactData.phone) updates.phone = contactData.phone;
+        if (!existing.email && contactData.email) updates.email = contactData.email;
+        if (!existing.role && contactData.role) updates.role = contactData.role;
+        if (!existing.department && contactData.department) updates.department = contactData.department;
+        if (!existing.notes && contactData.notes) updates.notes = contactData.notes;
+        if (!existing.preferredChannel && contactData.preferredChannel) updates.preferredChannel = contactData.preferredChannel;
+        if (!existing.portalPassword && portalPassword) updates.portalPassword = portalPassword;
+        if (existing.status === 'inactive') updates.status = 'active' as any;
+
+        if (Object.keys(updates).length > 0) {
+          await this.contacts.update({ id: existing.id, tenantId }, updates as any);
+        }
+
+        await this.contacts.manager.query(
+          `INSERT INTO contact_customers (id, tenant_id, contact_id, client_id, linked_by, linked_at)
+           VALUES (gen_random_uuid(), $1, $2, $3, NULL, NOW())
+           ON CONFLICT (contact_id, client_id) DO NOTHING`,
+          [tenantId, existing.id, clientId],
+        );
+
+        return this.contacts.findOne({ where: { id: existing.id, tenantId } });
+      }
+    }
+
     const contact = this.contacts.create({
       ...contactData,
       tenantId,
@@ -332,18 +458,46 @@ export class CustomersService {
       portalPassword,
     });
 
-    return this.contacts.save(contact);
+    const saved = await this.contacts.save(contact as any);
+
+    await this.contacts.manager.query(
+      `INSERT INTO contact_customers (id, tenant_id, contact_id, client_id, linked_by, linked_at)
+       VALUES (gen_random_uuid(), $1, $2, $3, NULL, NOW())
+       ON CONFLICT (contact_id, client_id) DO NOTHING`,
+      [tenantId, saved.id, clientId],
+    );
+
+    return saved;
   }
 
   async findContacts(tenantId: string, clientId: string) {
-    await this.getClientOrFail(tenantId, clientId);
+    const clientExists = await this.clients.findOne({
+      where: { id: clientId, tenantId },
+      select: ['id'],
+    });
+    if (!clientExists) {
+      throw new NotFoundException('Cliente não encontrado');
+    }
 
-    return this.contacts.createQueryBuilder('ct')
+    const contacts = await this.contacts.createQueryBuilder('ct')
       .where('ct.tenant_id = :tenantId', { tenantId })
-      .andWhere('ct.client_id = :clientId', { clientId })
+      .andWhere(
+        `(ct.client_id::text = :clientId OR EXISTS (
+           SELECT 1
+             FROM contact_customers cc
+            WHERE cc.contact_id::text = ct.id::text
+              AND cc.client_id::text = :clientId
+              AND cc.tenant_id::text = :tenantId
+         ))`,
+        { clientId, tenantId },
+      )
       .andWhere("ct.status != 'inactive'")
       .orderBy('ct.name', 'ASC')
       .getMany();
+    const visibleContacts = this.filterVisibleContactsForClient(contacts);
+    return Promise.all(
+      visibleContacts.map((contact) => this.sanitizeTechnicalContactIdentifiers(tenantId, contact)),
+    );
   }
 
   async updateContact(tenantId: string, contactId: string, dto: UpdateContactDto) {
@@ -396,19 +550,621 @@ export class CustomersService {
     });
   }
 
-  async findContactByWhatsapp(tenantId: string, whatsapp: string) {
+  private buildWhatsappContactsQuery(tenantId: string, normalized: string, includeInactive = false) {
+    const qb = this.contacts.createQueryBuilder('ct')
+      .leftJoinAndSelect('ct.client', 'client')
+      .addSelect(
+        `CASE
+           WHEN ct.metadata->>'whatsappLid' = :normalized THEN 0
+           WHEN ct.whatsapp = :normalized THEN 1
+           ELSE 2
+         END`,
+        'match_rank',
+      )
+      .addSelect(
+        `(SELECT COUNT(*)
+            FROM contact_customers cc
+           WHERE cc.tenant_id::text = :tenantId
+             AND cc.contact_id::text = ct.id::text)`,
+        'link_count',
+      )
+      .where('ct.tenant_id = :tenantId', { tenantId })
+      .andWhere(
+        "(ct.whatsapp = :normalized OR ct.metadata->>'whatsappLid' = :normalized)",
+        { normalized },
+      );
+
+    if (!includeInactive) {
+      qb.andWhere("ct.status = 'active'");
+    }
+
+    return qb
+      .orderBy('match_rank', 'ASC')
+      .addOrderBy('ct.is_primary', 'DESC')
+      .addOrderBy('link_count', 'DESC')
+      .addOrderBy('ct.created_at', 'ASC');
+  }
+
+  private async consolidateWhatsappContactLinks(tenantId: string, targetContactId: string, normalized: string) {
+    const matches = await this.buildWhatsappContactsQuery(tenantId, normalized, true).getMany();
+    if (!matches.length) return;
+
+    const allClientIds = Array.from(new Set([
+      ...matches.map((contact) => contact.clientId ? String(contact.clientId) : null),
+      ...(await this.contacts.manager.query<{ client_id: string }[]>(
+        `SELECT DISTINCT cc.client_id::text AS client_id
+           FROM contact_customers cc
+          WHERE cc.tenant_id::text = $1
+            AND cc.contact_id::text = ANY($2::text[])`,
+        [tenantId, matches.map((contact) => contact.id)],
+      )).map((row) => row.client_id),
+    ].filter(Boolean) as string[]));
+
+    for (const clientId of allClientIds) {
+      await this.contacts.manager.query(
+        `INSERT INTO contact_customers (id, tenant_id, contact_id, client_id, linked_by, linked_at)
+         VALUES (gen_random_uuid(), $1, $2, $3, NULL, NOW())
+         ON CONFLICT (contact_id, client_id) DO NOTHING`,
+        [tenantId, targetContactId, clientId],
+      );
+    }
+
+    const target = matches.find((contact) => contact.id === targetContactId)
+      || await this.contacts.findOne({ where: { id: targetContactId, tenantId } });
+    if (!target) return;
+
+    const updates: Record<string, unknown> = {};
+    const updatedMeta = { ...(target.metadata ?? {}) } as Record<string, unknown>;
+    if (normalized.length >= 14 && updatedMeta.whatsappLid !== normalized) {
+      updatedMeta.whatsappLid = normalized;
+    }
+    if (JSON.stringify(updatedMeta) !== JSON.stringify(target.metadata ?? {})) {
+      updates.metadata = updatedMeta;
+    }
+    if (target.status !== 'active') {
+      updates.status = 'active';
+    }
+    if (!target.isPrimary && allClientIds.length > 1) {
+      updates.isPrimary = true;
+    }
+    if (Object.keys(updates).length) {
+      await this.contacts.update({ id: targetContactId, tenantId }, updates as any);
+    }
+  }
+
+  private async isContactLinkedToClient(tenantId: string, contactId: string, clientId?: string | null): Promise<boolean> {
+    if (!clientId) return false;
+
+    const directMatch = await this.contacts.findOne({
+      where: { id: contactId, tenantId, clientId },
+      select: ['id'],
+    });
+    if (directMatch) return true;
+
+    const linkedRows = await this.contacts.manager.query<{ linked: string }[]>(
+      `SELECT '1' AS linked
+         FROM contact_customers cc
+        WHERE cc.tenant_id::text = $1
+          AND cc.contact_id::text = $2
+          AND cc.client_id::text = $3
+        LIMIT 1`,
+      [tenantId, contactId, clientId],
+    );
+
+    return linkedRows.length > 0;
+  }
+
+  private async sanitizeTechnicalContactIdentifiers(tenantId: string, contact: Contact): Promise<Contact> {
+    const normalizedWhatsapp = contact.whatsapp
+      ? (normalizeWhatsappNumber(contact.whatsapp) || contact.whatsapp)
+      : null;
+    const normalizedPhone = contact.phone
+      ? (normalizeWhatsappNumber(contact.phone) || contact.phone)
+      : null;
+    const normalizedResolvedDigits = typeof contact.metadata?.whatsappResolvedDigits === 'string'
+      ? (normalizeWhatsappNumber(contact.metadata.whatsappResolvedDigits) || contact.metadata.whatsappResolvedDigits)
+      : null;
+    const safeResolvedDigits = normalizedResolvedDigits && !this.isTechnicalWhatsappIdentifier(
+      normalizedResolvedDigits,
+      contact.metadata?.whatsappResolvedDigits ?? null,
+    )
+      ? normalizedResolvedDigits
+      : null;
+
+    const technicalWhatsapp = normalizedWhatsapp && this.isTechnicalWhatsappIdentifier(normalizedWhatsapp, contact.whatsapp)
+      ? normalizedWhatsapp
+      : null;
+    const technicalPhone = normalizedPhone && this.isTechnicalWhatsappIdentifier(normalizedPhone, contact.phone)
+      ? normalizedPhone
+      : null;
+    const shouldPromoteResolvedDigitsToPhone = !!safeResolvedDigits && (!normalizedPhone || !!technicalPhone);
+
+    if (!technicalWhatsapp && !technicalPhone && !shouldPromoteResolvedDigitsToPhone) {
+      return contact;
+    }
+
+    const updates: Record<string, unknown> = {};
+    const updatedMetadata = { ...(contact.metadata ?? {}) } as Record<string, unknown>;
+    const resolvedLid = technicalWhatsapp || technicalPhone;
+
+    if (resolvedLid && updatedMetadata.whatsappLid !== resolvedLid) {
+      updatedMetadata.whatsappLid = resolvedLid;
+      updates.metadata = updatedMetadata;
+    }
+    if (technicalWhatsapp) {
+      updates.whatsapp = null;
+    }
+    if (technicalPhone) {
+      updates.phone = null;
+    }
+    if (shouldPromoteResolvedDigitsToPhone) {
+      updates.phone = safeResolvedDigits;
+    }
+
+    if (!Object.keys(updates).length) {
+      return contact;
+    }
+
+    await this.contacts.update({ id: contact.id, tenantId }, updates as any);
+    return this.contacts.findOne({
+      where: { id: contact.id, tenantId },
+      relations: ['client'],
+    }) as Promise<Contact>;
+  }
+
+  async findContactsByWhatsapp(tenantId: string, whatsapp: string) {
     const normalized = normalizeWhatsappNumber(whatsapp) || whatsapp;
 
-    // Busca por whatsapp OU pelo LID técnico armazenado em metadata
-    const contact = await this.contacts.createQueryBuilder('ct')
+    return this.buildWhatsappContactsQuery(tenantId, normalized).getMany();
+  }
+
+  async persistWhatsappRuntimeIdentifiers(
+    tenantId: string,
+    contactId: string,
+    identifiers: {
+      whatsappJid?: string | null;
+      whatsappLid?: string | null;
+      whatsappResolvedDigits?: string | null;
+    },
+    opts?: { direction?: 'inbound' | 'outbound'; clientId?: string | null; rawInput?: string },
+  ) {
+    const contact = await this.contacts.findOne({ where: { id: contactId, tenantId } });
+    if (!contact) return;
+
+    const normalizedLid = identifiers.whatsappLid
+      ? (normalizeWhatsappNumber(identifiers.whatsappLid) || identifiers.whatsappLid)
+      : null;
+    const normalizedResolvedDigits = identifiers.whatsappResolvedDigits
+      ? (normalizeWhatsappNumber(identifiers.whatsappResolvedDigits) || identifiers.whatsappResolvedDigits)
+      : null;
+    const safeResolvedDigits = normalizedResolvedDigits && !this.isTechnicalWhatsappIdentifier(
+      normalizedResolvedDigits,
+      identifiers.whatsappResolvedDigits ?? null,
+    )
+      ? normalizedResolvedDigits
+      : null;
+    const whatsappJid = identifiers.whatsappJid ?? null;
+
+    const updatedMeta = { ...(contact.metadata ?? {}) } as Record<string, unknown>;
+    if (normalizedLid) updatedMeta.whatsappLid = normalizedLid;
+    if (whatsappJid) updatedMeta.whatsappJid = whatsappJid;
+    if (safeResolvedDigits) updatedMeta.whatsappResolvedDigits = safeResolvedDigits;
+    else if (
+      normalizedResolvedDigits &&
+      typeof updatedMeta.whatsappResolvedDigits === 'string' &&
+      updatedMeta.whatsappResolvedDigits === normalizedResolvedDigits
+    ) {
+      delete updatedMeta.whatsappResolvedDigits;
+    }
+
+    const normalizedPhone = contact.phone
+      ? (normalizeWhatsappNumber(contact.phone) || contact.phone)
+      : null;
+    const technicalPhone = normalizedPhone && this.isTechnicalWhatsappIdentifier(normalizedPhone, contact.phone);
+    const updates: Record<string, unknown> = {};
+
+    if (JSON.stringify(updatedMeta) !== JSON.stringify(contact.metadata ?? {})) {
+      updates.metadata = updatedMeta;
+      contact.metadata = updatedMeta as any;
+    }
+
+    if (safeResolvedDigits && (!normalizedPhone || technicalPhone)) {
+      updates.phone = safeResolvedDigits;
+      contact.phone = safeResolvedDigits;
+    }
+
+    if (Object.keys(updates).length) {
+      await this.contacts.update({ id: contactId, tenantId }, updates as any);
+    }
+
+    this.logContactResolution({
+      scope: 'canonical-contact-resolution',
+      direction: opts?.direction ?? 'inbound',
+      tenantId,
+      normalizedWhatsapp: safeResolvedDigits ?? contact.whatsapp ?? null,
+      lid: normalizedLid,
+      clientId: opts?.clientId ?? contact.clientId ?? null,
+      candidates: [contactId],
+      matchedBy: normalizedLid && safeResolvedDigits ? 'whatsapp+lid' : normalizedLid ? 'lid' : safeResolvedDigits ? 'whatsapp' : 'none',
+      canonicalReason: 'persist-runtime-identifiers',
+      chosenContactId: contactId,
+      whatsappJid,
+      whatsappResolvedDigits: safeResolvedDigits,
+      stage: 'persistWhatsappRuntimeIdentifiers',
+    });
+  }
+
+  private chooseCanonicalWhatsappContact(
+    candidates: Contact[],
+    normalizedWhatsapp: string | null,
+    lid: string | null,
+    rawWhatsapp: string | null,
+    clientId?: string | null,
+  ): { contact: Contact | null; reason: string } {
+    if (!candidates.length) {
+      return { contact: null, reason: 'no-candidates' };
+    }
+
+    const sorted = [...candidates].sort((a, b) => {
+      const aWhatsappMatch = normalizedWhatsapp
+        && this.isCanonicalWhatsappValue(a.whatsapp, a.whatsapp)
+        && a.whatsapp === normalizedWhatsapp ? 1 : 0;
+      const bWhatsappMatch = normalizedWhatsapp
+        && this.isCanonicalWhatsappValue(b.whatsapp, b.whatsapp)
+        && b.whatsapp === normalizedWhatsapp ? 1 : 0;
+      if (aWhatsappMatch !== bWhatsappMatch) return bWhatsappMatch - aWhatsappMatch;
+
+      const aClientMatch = clientId && a.clientId && String(a.clientId) === String(clientId) ? 1 : 0;
+      const bClientMatch = clientId && b.clientId && String(b.clientId) === String(clientId) ? 1 : 0;
+      if (aClientMatch !== bClientMatch) return bClientMatch - aClientMatch;
+
+      const aRealWhatsapp = this.isCanonicalWhatsappValue(a.whatsapp, a.whatsapp) ? 1 : 0;
+      const bRealWhatsapp = this.isCanonicalWhatsappValue(b.whatsapp, b.whatsapp) ? 1 : 0;
+      if (aRealWhatsapp !== bRealWhatsapp) return bRealWhatsapp - aRealWhatsapp;
+
+      const aTechnicalMatch =
+        (normalizedWhatsapp && a.metadata?.whatsappResolvedDigits === normalizedWhatsapp ? 1 : 0) +
+        (rawWhatsapp && a.metadata?.whatsappJid === rawWhatsapp ? 1 : 0) +
+        (lid && a.metadata?.whatsappLid === lid ? 1 : 0);
+      const bTechnicalMatch =
+        (normalizedWhatsapp && b.metadata?.whatsappResolvedDigits === normalizedWhatsapp ? 1 : 0) +
+        (rawWhatsapp && b.metadata?.whatsappJid === rawWhatsapp ? 1 : 0) +
+        (lid && b.metadata?.whatsappLid === lid ? 1 : 0);
+      if (aTechnicalMatch !== bTechnicalMatch) return bTechnicalMatch - aTechnicalMatch;
+
+      const aPrimary = a.isPrimary ? 1 : 0;
+      const bPrimary = b.isPrimary ? 1 : 0;
+      if (aPrimary !== bPrimary) return bPrimary - aPrimary;
+
+      const aActive = a.status === 'active' ? 1 : 0;
+      const bActive = b.status === 'active' ? 1 : 0;
+      if (aActive !== bActive) return bActive - aActive;
+
+      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    });
+
+    const chosen = sorted[0];
+    const reasonParts = [
+      normalizedWhatsapp
+      && this.isCanonicalWhatsappValue(chosen.whatsapp, chosen.whatsapp)
+      && chosen.whatsapp === normalizedWhatsapp ? 'matched-whatsapp' : null,
+      clientId && chosen.clientId && String(chosen.clientId) === String(clientId) ? 'matched-clientId' : null,
+      this.isCanonicalWhatsappValue(chosen.whatsapp, chosen.whatsapp) ? 'real-whatsapp' : null,
+      normalizedWhatsapp && chosen.metadata?.whatsappResolvedDigits === normalizedWhatsapp ? 'matched-resolved-digits' : null,
+      rawWhatsapp && chosen.metadata?.whatsappJid === rawWhatsapp ? 'matched-jid' : null,
+      lid && chosen.metadata?.whatsappLid === lid ? 'matched-lid' : null,
+      chosen.isPrimary ? 'is-primary' : null,
+      chosen.status === 'active' ? 'active' : null,
+      'oldest',
+    ].filter(Boolean);
+
+    return { contact: chosen, reason: reasonParts.join(',') };
+  }
+
+  async resolveCanonicalWhatsappContact(
+    tenantId: string,
+    opts: {
+      rawWhatsapp?: string | null;
+      normalizedWhatsapp?: string | null;
+      lid?: string | null;
+      clientId?: string | null;
+      direction?: 'inbound' | 'outbound';
+    },
+  ): Promise<ResolveCanonicalWhatsappContactResult> {
+    const normalizedWhatsapp = opts.normalizedWhatsapp
+      ? (normalizeWhatsappNumber(opts.normalizedWhatsapp) || opts.normalizedWhatsapp)
+      : (opts.rawWhatsapp ? (normalizeWhatsappNumber(opts.rawWhatsapp) || opts.rawWhatsapp) : null);
+    const lid = opts.lid ? (normalizeWhatsappNumber(opts.lid) || opts.lid) : null;
+    const rawWhatsapp = opts.rawWhatsapp ?? null;
+
+    const [whatsappMatches, lidMatches, jidMatches, resolvedDigitsMatches] = await Promise.all([
+      normalizedWhatsapp
+        ? this.buildWhatsappContactsQuery(tenantId, normalizedWhatsapp, true).getMany()
+        : Promise.resolve([] as Contact[]),
+      lid
+        ? this.contacts.createQueryBuilder('ct')
+          .leftJoinAndSelect('ct.client', 'client')
+          .where('ct.tenant_id = :tenantId', { tenantId })
+          .andWhere("ct.metadata->>'whatsappLid' = :lid", { lid })
+          .orderBy("ct.status = 'active'", 'DESC')
+          .addOrderBy('ct.is_primary', 'DESC')
+          .addOrderBy('ct.created_at', 'ASC')
+          .getMany()
+        : Promise.resolve([] as Contact[]),
+      rawWhatsapp
+        ? this.contacts.createQueryBuilder('ct')
+          .leftJoinAndSelect('ct.client', 'client')
+          .where('ct.tenant_id = :tenantId', { tenantId })
+          .andWhere("ct.metadata->>'whatsappJid' = :rawWhatsapp", { rawWhatsapp })
+          .orderBy("ct.status = 'active'", 'DESC')
+          .addOrderBy('ct.is_primary', 'DESC')
+          .addOrderBy('ct.created_at', 'ASC')
+          .getMany()
+        : Promise.resolve([] as Contact[]),
+      normalizedWhatsapp
+        ? this.contacts.createQueryBuilder('ct')
+          .leftJoinAndSelect('ct.client', 'client')
+          .where('ct.tenant_id = :tenantId', { tenantId })
+          .andWhere("ct.metadata->>'whatsappResolvedDigits' = :normalizedWhatsapp", { normalizedWhatsapp })
+          .orderBy("ct.status = 'active'", 'DESC')
+          .addOrderBy('ct.is_primary', 'DESC')
+          .addOrderBy('ct.created_at', 'ASC')
+          .getMany()
+        : Promise.resolve([] as Contact[]),
+    ]);
+
+    const candidateMap = new Map<string, Contact>();
+    for (const contact of [...whatsappMatches, ...lidMatches, ...jidMatches, ...resolvedDigitsMatches]) {
+      if (!candidateMap.has(contact.id)) candidateMap.set(contact.id, contact);
+    }
+    const candidateClientIds = Array.from(
+      new Set(
+        Array.from(candidateMap.values())
+          .map((candidate) => candidate.clientId ? String(candidate.clientId) : null)
+          .filter((value): value is string => Boolean(value)),
+      ),
+    );
+    if (candidateClientIds.length) {
+      const siblingMatches = await this.contacts.createQueryBuilder('ct')
+        .leftJoinAndSelect('ct.client', 'client')
+        .where('ct.tenant_id = :tenantId', { tenantId })
+        .andWhere('ct.client_id::text IN (:...candidateClientIds)', { candidateClientIds })
+        .andWhere("COALESCE(ct.whatsapp, '') <> ''")
+        .orderBy("ct.status = 'active'", 'DESC')
+        .addOrderBy('ct.is_primary', 'DESC')
+        .addOrderBy('ct.created_at', 'ASC')
+        .getMany();
+      for (const contact of siblingMatches) {
+        if (!candidateMap.has(contact.id)) candidateMap.set(contact.id, contact);
+      }
+    }
+    const candidates = Array.from(candidateMap.values());
+    const canonicalCandidates = candidates.filter((candidate) =>
+      this.isCanonicalWhatsappValue(candidate.whatsapp, candidate.whatsapp),
+    );
+
+    const { contact, reason } = this.chooseCanonicalWhatsappContact(
+      candidates,
+      normalizedWhatsapp,
+      lid,
+      rawWhatsapp,
+      opts.clientId,
+    );
+    const matchedBy: ResolveCanonicalWhatsappContactResult['matchedBy'] =
+      whatsappMatches.length && lidMatches.length ? 'whatsapp+lid'
+        : whatsappMatches.length ? 'whatsapp'
+          : lidMatches.length ? 'lid'
+            : 'none';
+
+    const hasTrustedLidOnlyContact = Boolean(
+      contact &&
+      !canonicalCandidates.length &&
+      lid &&
+      contact.status === 'active' &&
+      contact.isPrimary &&
+      contact.metadata?.whatsappLid === lid,
+    );
+
+    const hasTrustedClientLinkedTechnicalContact = Boolean(
+      contact &&
+      !canonicalCandidates.length &&
+      contact.status === 'active' &&
+      opts.clientId &&
+      await this.isContactLinkedToClient(tenantId, contact.id, opts.clientId),
+    );
+
+    const hasTrustedExplicitClientSelectionForSingleTechnicalCandidate = Boolean(
+      contact &&
+      !canonicalCandidates.length &&
+      contact.status === 'active' &&
+      opts.clientId &&
+      lid &&
+      matchedBy !== 'none' &&
+      candidates.length === 1,
+    );
+
+    const safeContact = contact && (
+      canonicalCandidates.length > 0
+      || matchedBy === 'whatsapp'
+      || hasTrustedLidOnlyContact
+      || hasTrustedClientLinkedTechnicalContact
+      || hasTrustedExplicitClientSelectionForSingleTechnicalCandidate
+    )
+      ? contact
+      : null;
+
+    if (contact && !safeContact) {
+      this.logWhatsappIdentityGuard({
+        scope: 'whatsapp-identity-guard',
+        tenantId,
+        attemptedWhatsappValue: contact.whatsapp ?? rawWhatsapp ?? lid ?? normalizedWhatsapp,
+        reason: 'technical-identifier-blocked',
+      });
+    }
+
+    if (safeContact && (lid || rawWhatsapp || normalizedWhatsapp)) {
+      await this.persistWhatsappRuntimeIdentifiers(
+        tenantId,
+        safeContact.id,
+        {
+          whatsappJid: rawWhatsapp && rawWhatsapp.includes('@') ? rawWhatsapp : null,
+          whatsappLid: lid,
+          whatsappResolvedDigits: this.isTechnicalWhatsappIdentifier(normalizedWhatsapp, opts.rawWhatsapp ?? null)
+            ? null
+            : normalizedWhatsapp,
+        },
+        {
+          direction: opts.direction ?? 'inbound',
+          clientId: opts.clientId ?? null,
+          rawInput: opts.rawWhatsapp ?? lid ?? normalizedWhatsapp,
+        },
+      ).catch(() => {});
+      safeContact.metadata = {
+        ...(safeContact.metadata ?? {}),
+        ...(lid ? { whatsappLid: lid } : {}),
+        ...((rawWhatsapp && rawWhatsapp.includes('@')) ? { whatsappJid: rawWhatsapp } : {}),
+        ...(!this.isTechnicalWhatsappIdentifier(normalizedWhatsapp, opts.rawWhatsapp ?? null) && normalizedWhatsapp
+          ? { whatsappResolvedDigits: normalizedWhatsapp }
+          : {}),
+      };
+    }
+
+    this.logContactResolution({
+      scope: 'canonical-contact-resolution',
+      direction: opts.direction ?? 'inbound',
+      tenantId,
+      rawInput: opts.rawWhatsapp ?? lid ?? normalizedWhatsapp,
+      normalizedWhatsapp,
+      clientId: opts.clientId ?? null,
+      lid,
+      existingContactByWhatsapp: whatsappMatches[0]?.id ?? null,
+      existingContactByPhone: whatsappMatches[0]?.id ?? null,
+      existingContactByClientId: opts.clientId
+        ? candidates.find((candidate) => candidate.clientId && String(candidate.clientId) === String(opts.clientId))?.id ?? null
+        : null,
+      existingContactByLid: lidMatches[0]?.id ?? null,
+      chosenContactId: safeContact?.id ?? null,
+      action: safeContact ? 'reuse' : 'create',
+      stage: 'resolveCanonicalWhatsappContact',
+      matchedBy,
+      candidates: candidates.map((candidate) => candidate.id),
+      canonicalReason: safeContact ? reason : `${reason},blocked-technical-only`,
+      whatsappJid: jidMatches[0]?.metadata?.whatsappJid ?? null,
+      whatsappResolvedDigits: resolvedDigitsMatches[0]?.metadata?.whatsappResolvedDigits ?? null,
+    });
+
+    return {
+      contact: safeContact ?? null,
+      matchedBy,
+      normalizedWhatsapp,
+      lid,
+      candidates: candidates.map((candidate) => candidate.id),
+      canonicalReason: safeContact ? reason : `${reason},blocked-technical-only`,
+    };
+  }
+
+  async findContactByWhatsappOrLid(tenantId: string, whatsappOrLid: string) {
+    const normalized = normalizeWhatsappNumber(whatsappOrLid) || whatsappOrLid;
+    const snapshot = await this.getContactResolutionSnapshot(tenantId, normalized);
+    this.logContactResolution({
+      scope: 'contact-resolution',
+      direction: 'unknown',
+      tenantId,
+      rawInput: whatsappOrLid,
+      normalizedWhatsapp: normalized,
+      clientId: null,
+      lid: normalized.length >= 14 ? normalized : null,
+      ...snapshot,
+      chosenContactId: null,
+      action: 'create',
+      stage: 'before-findContactByWhatsappOrLid',
+    });
+
+    let [contact] = await this.buildWhatsappContactsQuery(tenantId, normalized, true).getMany();
+    if (contact) {
+      this.logContactResolution({
+        scope: 'contact-resolution',
+        direction: 'unknown',
+        tenantId,
+        rawInput: whatsappOrLid,
+        normalizedWhatsapp: normalized,
+        clientId: contact.clientId ?? null,
+        lid: normalized.length >= 14 ? normalized : null,
+        ...snapshot,
+        chosenContactId: contact.id,
+        action: 'reuse',
+        stage: 'after-findContactByWhatsappOrLid',
+      });
+      return contact;
+    }
+
+    contact = await this.contacts.createQueryBuilder('ct')
       .leftJoinAndSelect('ct.client', 'client')
       .where('ct.tenant_id = :tenantId', { tenantId })
-      .andWhere("ct.status = 'active'")
       .andWhere(
         "(ct.whatsapp = :normalized OR ct.metadata->>'whatsappLid' = :normalized)",
         { normalized },
       )
+      .orderBy("ct.status = 'active'", 'DESC')
+      .addOrderBy('ct.is_primary', 'DESC')
+      .addOrderBy('ct.created_at', 'ASC')
       .getOne();
+
+    this.logContactResolution({
+      scope: 'contact-resolution',
+      direction: 'unknown',
+      tenantId,
+      rawInput: whatsappOrLid,
+      normalizedWhatsapp: normalized,
+      clientId: contact?.clientId ?? null,
+      lid: normalized.length >= 14 ? normalized : null,
+      ...snapshot,
+      chosenContactId: contact?.id ?? null,
+      action: contact ? 'reuse' : 'create',
+      stage: 'after-findContactByWhatsappOrLid',
+    });
+
+    return contact ?? null;
+  }
+
+  async findContactByWhatsapp(
+    tenantId: string,
+    whatsapp: string,
+    opts?: { direction?: 'inbound' | 'outbound'; clientId?: string | null; rawInput?: string; lid?: string | null },
+  ) {
+    const normalized = normalizeWhatsappNumber(whatsapp) || whatsapp;
+    const snapshot = await this.getContactResolutionSnapshot(tenantId, normalized, opts?.clientId);
+    this.logContactResolution({
+      scope: 'contact-resolution',
+      direction: opts?.direction ?? 'inbound',
+      tenantId,
+      rawInput: opts?.rawInput ?? whatsapp,
+      normalizedWhatsapp: normalized,
+      clientId: opts?.clientId ?? null,
+      lid: opts?.lid ?? (normalized.length >= 14 ? normalized : null),
+      ...snapshot,
+      chosenContactId: null,
+      action: 'create',
+      stage: 'before-findContactByWhatsapp',
+    });
+
+    // Busca por telefone normalizado ou LID, sempre reaproveitando o mesmo contato
+    let contact = await this.findContactByWhatsappOrLid(tenantId, normalized);
+
+    if (!contact) {
+      const [inactiveCandidate] = await this.buildWhatsappContactsQuery(tenantId, normalized, true).getMany();
+      if (inactiveCandidate) {
+        await this.contacts.update(
+          { id: inactiveCandidate.id, tenantId },
+          { status: 'active', isPrimary: inactiveCandidate.isPrimary || undefined } as any,
+        );
+        await this.consolidateWhatsappContactLinks(tenantId, inactiveCandidate.id, normalized);
+        contact = await this.contacts.findOne({
+          where: { id: inactiveCandidate.id, tenantId },
+          relations: ['client'],
+        });
+      }
+    }
 
     if (!contact) return null;
 
@@ -423,7 +1179,180 @@ export class CustomersService {
       contact.metadata = updatedMeta;
     }
 
+    await this.consolidateWhatsappContactLinks(tenantId, contact.id, normalized);
+    contact = await this.contacts.findOne({
+      where: { id: contact.id, tenantId },
+      relations: ['client'],
+    });
+
+    this.logContactResolution({
+      scope: 'contact-resolution',
+      direction: opts?.direction ?? 'inbound',
+      tenantId,
+      rawInput: opts?.rawInput ?? whatsapp,
+      normalizedWhatsapp: normalized,
+      clientId: opts?.clientId ?? contact?.clientId ?? null,
+      lid: opts?.lid ?? (normalized.length >= 14 ? normalized : null),
+      ...snapshot,
+      chosenContactId: contact?.id ?? null,
+      action: contact ? 'reuse' : 'create',
+      stage: 'after-findContactByWhatsapp',
+    });
+
     return contact;
+  }
+
+  async persistWhatsappLid(
+    tenantId: string,
+    contactId: string,
+    whatsappLid: string,
+    opts?: { direction?: 'inbound' | 'outbound'; clientId?: string | null; rawInput?: string },
+  ) {
+    const normalized = normalizeWhatsappNumber(whatsappLid) || whatsappLid;
+    if (!normalized) return;
+    const snapshot = await this.getContactResolutionSnapshot(tenantId, normalized, opts?.clientId);
+    this.logContactResolution({
+      scope: 'contact-resolution',
+      direction: opts?.direction ?? 'inbound',
+      tenantId,
+      rawInput: opts?.rawInput ?? whatsappLid,
+      normalizedWhatsapp: normalized,
+      clientId: opts?.clientId ?? null,
+      lid: normalized,
+      ...snapshot,
+      chosenContactId: contactId,
+      action: 'reuse',
+      stage: 'persistWhatsappLid',
+    });
+
+    const contact = await this.contacts.findOne({ where: { id: contactId, tenantId } });
+    if (!contact) return;
+    const anchorWhatsapp = contact.whatsapp && contact.whatsapp !== normalized ? contact.whatsapp : null;
+
+    const siblingContacts = anchorWhatsapp
+      ? await this.contacts.find({
+          where: { tenantId, whatsapp: anchorWhatsapp, status: 'active' as any },
+        })
+      : [];
+
+    const contactsToUpdate = [contact, ...siblingContacts.filter((sibling) => sibling.id !== contact.id)];
+    for (const current of contactsToUpdate) {
+      if (current.metadata?.whatsappLid === normalized) continue;
+      const updatedMeta = { ...(current.metadata ?? {}), whatsappLid: normalized };
+      await this.contacts.update({ id: current.id, tenantId }, { metadata: updatedMeta } as any);
+    }
+  }
+
+  async getLinkedClientsForContact(
+    tenantId: string,
+    contactId: string,
+  ): Promise<Array<{ id: string; companyName: string; tradeName: string | null; cnpj: string | null }>> {
+    return this.getLinkedClientsForContactIds(tenantId, [contactId]);
+  }
+
+  private async getLinkedClientsForContactIds(
+    tenantId: string,
+    contactIds: string[],
+  ): Promise<Array<{ id: string; companyName: string; tradeName: string | null; cnpj: string | null }>> {
+    if (!contactIds.length) return [];
+
+    return this.contacts.manager.query(
+      `SELECT DISTINCT
+              c.id,
+              c.company_name AS "companyName",
+              c.trade_name   AS "tradeName",
+              c.cnpj
+         FROM clients c
+         JOIN (
+                SELECT ct.client_id::text AS client_id
+                  FROM contacts ct
+                 WHERE ct.tenant_id::text = $1
+                   AND ct.id::text = ANY($2::text[])
+                   AND ct.client_id IS NOT NULL
+                UNION
+                SELECT cc.client_id::text AS client_id
+                  FROM contact_customers cc
+                 WHERE cc.tenant_id::text = $1
+                   AND cc.contact_id::text = ANY($2::text[])
+              ) links ON links.client_id = c.id::text
+        WHERE c.status = 'active'
+        ORDER BY c.company_name ASC`,
+      [tenantId, contactIds],
+    );
+  }
+
+  async resolveClientForSupportContact(
+    tenantId: string,
+    contactId: string,
+  ): Promise<
+    | { mode: 'none' }
+    | { mode: 'single'; clientId: string }
+    | { mode: 'multiple'; clients: Array<{ id: string; companyName: string; tradeName: string | null; cnpj: string | null }> }
+  > {
+    const linked = await this.getLinkedClientsForContact(tenantId, contactId);
+
+    if (linked.length === 1) {
+      return { mode: 'single', clientId: linked[0].id };
+    }
+
+    if (linked.length > 1) {
+      return { mode: 'multiple', clients: linked };
+    }
+
+    // fallback temporário para compatibilidade com cadastros antigos
+    return { mode: 'none' };
+  }
+
+  async resolveClientForSupportIdentifier(
+    tenantId: string,
+    whatsapp: string,
+  ): Promise<
+    | { mode: 'none' }
+    | { mode: 'single'; clientId: string }
+    | { mode: 'multiple'; clients: Array<{ id: string; companyName: string; tradeName: string | null; cnpj: string | null }> }
+  > {
+    const normalized = normalizeWhatsappNumber(whatsapp) || whatsapp;
+    const isTechnical = this.isTechnicalWhatsappIdentifier(normalized, whatsapp);
+
+    let contacts: Contact[] = [];
+    if (isTechnical) {
+      const canonical = await this.resolveCanonicalWhatsappContact(tenantId, {
+        rawWhatsapp: whatsapp,
+        normalizedWhatsapp: normalized,
+        lid: normalized,
+      });
+      if (!canonical.contact) return { mode: 'none' };
+      contacts = [canonical.contact];
+    } else {
+      contacts = await this.findContactsByWhatsapp(tenantId, whatsapp);
+    }
+    if (!contacts.length) return { mode: 'none' };
+
+    const contactIds = contacts.map((contact) => contact.id);
+    const linkedClients = await this.getLinkedClientsForContactIds(tenantId, contactIds);
+
+    if (linkedClients.length === 1) {
+      return { mode: 'single', clientId: linkedClients[0].id };
+    }
+
+    if (linkedClients.length > 1) {
+      return { mode: 'multiple', clients: linkedClients };
+    }
+
+    return { mode: 'none' };
+  }
+
+  async getWhatsappSessionIdentifiers(tenantId: string, whatsapp: string): Promise<string[]> {
+    const normalized = normalizeWhatsappNumber(whatsapp) || whatsapp;
+    const contacts = await this.findContactsByWhatsapp(tenantId, normalized);
+    const identifiers = new Set<string>([normalized]);
+
+    for (const contact of contacts) {
+      if (contact.whatsapp) identifiers.add(String(contact.whatsapp));
+      if (contact.metadata?.whatsappLid) identifiers.add(String(contact.metadata.whatsappLid));
+    }
+
+    return Array.from(identifiers);
   }
 
   findContactByEmail(tenantId: string, email: string) {
@@ -444,6 +1373,14 @@ export class CustomersService {
     });
     if (!contact) return false;
     if (contact.clientId === clientId) return true;
+    const linked = await this.contacts.manager.query(
+      `SELECT 1
+       FROM contact_customers
+       WHERE tenant_id = $1 AND contact_id = $2 AND client_id = $3
+       LIMIT 1`,
+      [tenantId, contactId, clientId],
+    );
+    if (linked.length) return true;
     if (contact.isPrimary && contact.client?.networkId) {
       const targetClient = await this.clients.findOne({
         where: { id: clientId, tenantId, status: 'active' },
@@ -451,6 +1388,50 @@ export class CustomersService {
       if (targetClient?.networkId === contact.client.networkId) return true;
     }
     return false;
+  }
+
+  /**
+   * Resolve qual contato do portal deve representar o usuário para uma empresa.
+   * Isso cobre:
+   * - contato primário direto (contacts.client_id)
+   * - vínculos N:N em contact_customers
+   * - múltiplos contatos ativos com o mesmo e-mail
+   * - empresas da mesma rede quando o contato é primary
+   */
+  async findPortalContactForClient(
+    tenantId: string,
+    email: string,
+    clientId: string,
+  ): Promise<Contact | null> {
+    const normalized = email?.trim().toLowerCase();
+    if (!normalized) return null;
+
+    const contacts = await this.contacts.createQueryBuilder('c')
+      .leftJoinAndSelect('c.client', 'cl')
+      .where('c.tenant_id = :tenantId', { tenantId })
+      .andWhere("LOWER(TRIM(c.email)) = :email", { email: normalized })
+      .andWhere("c.status = 'active'")
+      .andWhere('c.portal_password IS NOT NULL')
+      .orderBy('c.is_primary', 'DESC')
+      .addOrderBy('c.created_at', 'ASC')
+      .getMany();
+
+    for (const contact of contacts) {
+      if (await this.canContactAccessClient(tenantId, contact.id, clientId)) {
+        return contact;
+      }
+    }
+
+    return null;
+  }
+
+  async canPortalEmailAccessClient(
+    tenantId: string,
+    email: string,
+    clientId: string,
+  ): Promise<boolean> {
+    const contact = await this.findPortalContactForClient(tenantId, email, clientId);
+    return !!contact;
   }
 
   /** Contato principal: pode ver ticket se tiver acesso ao cliente. Contato normal: só se o ticket for dele (ou mesmo email). */
@@ -461,7 +1442,13 @@ export class CustomersService {
     ticketContactId: string | null,
     isPrimary: boolean,
   ): Promise<boolean> {
-    const canAccessClient = await this.canContactAccessClient(tenantId, contactId, ticketClientId);
+    let canAccessClient = await this.canContactAccessClient(tenantId, contactId, ticketClientId);
+    if (!canAccessClient) {
+      const currentContact = await this.contacts.findOne({ where: { id: contactId, tenantId } });
+      if (currentContact?.email) {
+        canAccessClient = await this.canPortalEmailAccessClient(tenantId, currentContact.email, ticketClientId);
+      }
+    }
     if (!canAccessClient) return false;
     if (isPrimary) return true;
     if (!ticketContactId) return false;
@@ -547,19 +1534,106 @@ export class CustomersService {
     return rows;
   }
 
-  async findOrCreateByWhatsapp(tenantId: string, phone: string, displayName?: string, isLid = false) {
+  async findOrCreateByWhatsapp(
+    tenantId: string,
+    phone: string,
+    displayName?: string,
+    isLid = false,
+    opts?: { direction?: 'inbound' | 'outbound'; clientId?: string | null; rawInput?: string },
+  ) {
     const normalized = normalizeWhatsappNumber(phone) || phone;
+    const snapshot = await this.getContactResolutionSnapshot(tenantId, normalized, opts?.clientId);
+    this.logContactResolution({
+      scope: 'contact-resolution',
+      direction: opts?.direction ?? 'inbound',
+      tenantId,
+      rawInput: opts?.rawInput ?? phone,
+      normalizedWhatsapp: normalized,
+      clientId: opts?.clientId ?? null,
+      lid: isLid ? normalized : null,
+      ...snapshot,
+      chosenContactId: null,
+      action: 'create',
+      stage: 'before-findOrCreateByWhatsapp',
+    });
+    this.logContactCreateAudit({
+      scope: 'contact-create',
+      source: opts?.direction ?? 'inbound',
+      whatsapp: normalized,
+      isTechnical: isLid || this.isTechnicalWhatsappIdentifier(normalized, opts?.rawInput ?? phone),
+      allowed: false,
+      stage: 'before-findOrCreateByWhatsapp',
+    });
 
-    // 1. Busca por whatsapp OU por metadata.whatsappLid (inclui contatos LID antigos)
-    const existing = await this.findContactByWhatsapp(tenantId, normalized);
+    // 1. Nunca cria duplicado se já existir contato equivalente por telefone ou LID
+    const existing = await this.findContactByWhatsappOrLid(tenantId, normalized);
     if (existing) {
+      const sanitizedExisting = await this.sanitizeTechnicalContactIdentifiers(tenantId, existing);
       // Garante que metadata.whatsappLid está presente para contatos LID já existentes
-      if (isLid && existing.metadata?.whatsappLid !== normalized) {
-        const updatedMeta = { ...(existing.metadata ?? {}), whatsappLid: normalized };
-        await this.contacts.update({ id: existing.id, tenantId }, { metadata: updatedMeta } as any);
-        existing.metadata = updatedMeta;
+      if (isLid && sanitizedExisting.metadata?.whatsappLid !== normalized) {
+        const updatedMeta = { ...(sanitizedExisting.metadata ?? {}), whatsappLid: normalized };
+        await this.contacts.update({ id: sanitizedExisting.id, tenantId }, { metadata: updatedMeta } as any);
+        sanitizedExisting.metadata = updatedMeta;
       }
-      return existing;
+      await this.consolidateWhatsappContactLinks(tenantId, sanitizedExisting.id, normalized);
+      this.logContactResolution({
+        scope: 'contact-resolution',
+        direction: opts?.direction ?? 'inbound',
+        tenantId,
+        rawInput: opts?.rawInput ?? phone,
+        normalizedWhatsapp: normalized,
+        clientId: opts?.clientId ?? sanitizedExisting.clientId ?? null,
+        lid: isLid ? normalized : null,
+        ...snapshot,
+        chosenContactId: sanitizedExisting.id,
+        action: 'reuse',
+        stage: 'after-findOrCreateByWhatsapp',
+      });
+      this.logContactCreateAudit({
+        scope: 'contact-create',
+        source: opts?.direction ?? 'inbound',
+        whatsapp: normalized,
+        isTechnical: isLid || this.isTechnicalWhatsappIdentifier(normalized, opts?.rawInput ?? phone),
+        allowed: false,
+        stage: 'reused-existing-contact',
+      });
+      return sanitizedExisting;
+    }
+
+    // LID é apenas identificador técnico do WhatsApp.
+    // Sem match confiável, não deve virar contato novo nem telefone principal.
+    if (isLid || this.isTechnicalWhatsappIdentifier(normalized, opts?.rawInput ?? phone)) {
+      this.logWhatsappIdentityGuard({
+        scope: 'whatsapp-identity-guard',
+        direction: opts?.direction ?? 'inbound',
+        tenantId,
+        attemptedWhatsappValue: normalized,
+        reason: opts?.direction === 'outbound'
+          ? 'technical-identifier-blocked-outbound'
+          : 'technical-identifier-blocked',
+      });
+      this.logContactResolution({
+        scope: 'contact-resolution',
+        direction: opts?.direction ?? 'inbound',
+        tenantId,
+        rawInput: opts?.rawInput ?? phone,
+        normalizedWhatsapp: normalized,
+        clientId: opts?.clientId ?? null,
+        lid: normalized,
+        ...snapshot,
+        chosenContactId: null,
+        action: 'create',
+        stage: 'after-findOrCreateByWhatsapp',
+      });
+      this.logContactCreateAudit({
+        scope: 'contact-create',
+        source: opts?.direction ?? 'inbound',
+        whatsapp: normalized,
+        isTechnical: true,
+        allowed: false,
+        stage: 'blocked-technical-identifier',
+      });
+      return null;
     }
 
     // 2. Cria SOMENTE o contato — sem cliente temporário
@@ -571,16 +1645,37 @@ export class CustomersService {
       this.contacts.create({
         tenantId,
         clientId: null as any,
-        name: displayName || (isLid ? 'WhatsApp' : `+${normalized}`),
+        name: displayName || `+${normalized}`,
         whatsapp: normalized,
-        phone: isLid ? (null as any) : normalized,
+        phone: normalized,
         preferredChannel: 'whatsapp',
         canOpenTickets: true,
         status: 'active',
-        metadata: isLid ? { whatsappLid: normalized } : {},
+        metadata: {},
       }),
     );
     contact.client = null as any;
+    this.logContactResolution({
+      scope: 'contact-resolution',
+      direction: opts?.direction ?? 'inbound',
+      tenantId,
+      rawInput: opts?.rawInput ?? phone,
+      normalizedWhatsapp: normalized,
+      clientId: opts?.clientId ?? null,
+      lid: null,
+      ...snapshot,
+      chosenContactId: contact.id,
+      action: 'create',
+      stage: 'after-findOrCreateByWhatsapp',
+    });
+    this.logContactCreateAudit({
+      scope: 'contact-create',
+      source: opts?.direction ?? 'inbound',
+      whatsapp: normalized,
+      isTechnical: false,
+      allowed: true,
+      stage: 'created-contact',
+    });
     return contact;
   }
 
@@ -590,7 +1685,8 @@ export class CustomersService {
    * Também insere no pivot contact_customers (vinculação automática, linked_by = null).
    */
   async linkContactToClient(tenantId: string, contactId: string, clientId: string): Promise<void> {
-    const contact = await this.contacts.findOne({ where: { id: contactId, tenantId } });
+    const current = await this.contacts.findOne({ where: { id: contactId, tenantId } });
+    const contact = current ? await this.sanitizeTechnicalContactIdentifiers(tenantId, current) : null;
     if (!contact) return;
     // Só vincula se o contato ainda não estiver associado a nenhum cliente
     if (contact.clientId) return;

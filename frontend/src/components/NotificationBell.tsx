@@ -2,10 +2,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { Bell, X, Ticket, MessageSquare, AlertTriangle, CheckCircle } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { resolveWsBase } from '@/lib/ws-base';
 
-const WS_BASE = process.env.NEXT_PUBLIC_API_URL
-  ? process.env.NEXT_PUBLIC_API_URL.replace('/api/v1', '')
-  : (typeof window !== 'undefined' ? window.location.origin : '');
+const WS_BASE = resolveWsBase();
 const STORAGE_KEY = 'app_notifications';
 const MAX = 50;
 

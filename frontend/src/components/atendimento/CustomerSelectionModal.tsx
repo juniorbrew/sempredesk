@@ -19,6 +19,7 @@ interface Props {
   contact: { id: string; name: string; whatsapp?: string | null; email?: string | null } | null;
   candidates: CandidateClient[];
   onConfirmed: (client: CandidateClient, timestamp: string) => void;
+  onCancel: () => void;
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -41,7 +42,7 @@ function formatWhatsApp(raw?: string | null): string {
 
 // ── Component ──────────────────────────────────────────────────────────────
 
-export default function CustomerSelectionModal({ ticketId, contact, candidates, onConfirmed }: Props) {
+export default function CustomerSelectionModal({ ticketId, contact, candidates, onConfirmed, onCancel }: Props) {
   const [selectedId, setSelectedId]       = useState<string | null>(null);
   const [selectedClient, setSelectedClient] = useState<CandidateClient | null>(null);
   const [loading, setLoading]             = useState(false);
@@ -221,7 +222,11 @@ export default function CustomerSelectionModal({ ticketId, contact, candidates, 
         <div style={{ height: 1, background: 'rgba(0,0,0,.07)', flexShrink: 0 }} />
 
         {/* Footer */}
-        <div style={{ padding: '14px 24px', display: 'flex', justifyContent: 'flex-end' }}>
+        <div style={{ padding: '14px 24px', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+          <button onClick={onCancel} disabled={loading}
+            style={{ padding: '9px 18px', borderRadius: 9, border: '1px solid rgba(0,0,0,.12)', background: '#F8F8FB', color: '#111118', fontSize: 13, fontWeight: 500, cursor: loading ? 'not-allowed' : 'pointer', fontFamily: 'inherit' }}>
+            Cancelar
+          </button>
           <button onClick={handleConfirm} disabled={!selectedId || loading}
             style={{ padding: '9px 24px', borderRadius: 9, border: 'none', background: !selectedId || loading ? '#C7D2FE' : '#4F46E5', color: '#fff', fontSize: 13, fontWeight: 600, cursor: !selectedId || loading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 8, fontFamily: 'inherit', transition: 'background .12s' }}>
             {loading && <span style={{ width: 14, height: 14, border: '2px solid rgba(255,255,255,.4)', borderTopColor: '#fff', borderRadius: '50%', display: 'inline-block', animation: 'spin 0.7s linear infinite' }} />}

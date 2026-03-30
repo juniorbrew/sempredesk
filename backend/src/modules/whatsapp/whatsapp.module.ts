@@ -6,6 +6,7 @@ import { WhatsappController } from './whatsapp.controller';
 import { BaileysService } from './baileys.service';
 import { WhatsappConnection } from './entities/whatsapp-connection.entity';
 import { CustomersModule } from '../customers/customers.module';
+import { CustomersService } from '../customers/customers.service';
 import { TicketsModule } from '../tickets/tickets.module';
 import { ConversationsModule } from '../conversations/conversations.module';
 import { ConversationsService } from '../conversations/conversations.service';
@@ -31,10 +32,16 @@ import { ChatbotService } from '../chatbot/chatbot.service';
 })
 export class WhatsappModule implements OnModuleInit {
   private readonly logger = new Logger(WhatsappModule.name);
+  private readonly processedInboundMessageIds = new Map<string, number>();
+
+  private logSkipChatbot(payload: Record<string, unknown>) {
+    this.logger.log(JSON.stringify(payload));
+  }
 
   constructor(
     private readonly baileysService: BaileysService,
     private readonly whatsappService: WhatsappService,
+    private readonly customersService: CustomersService,
     private readonly conversationsService: ConversationsService,
     @Optional() private readonly chatbotService: ChatbotService,
   ) {}
@@ -73,12 +80,72 @@ export class WhatsappModule implements OnModuleInit {
       }
     });
 
-    this.baileysService.setMessageHandler(async (tenantId: string, from: string, text: string, messageId: string, senderName?: string, isLid?: boolean) => {
+    this.baileysService.setMessageHandler(async (
+      tenantId: string,
+      from: string,
+      text: string,
+      messageId: string,
+      senderName?: string,
+      isLid?: boolean,
+      resolvedDigits?: string | null,
+    ) => {
       try {
+        const messageKey = `${tenantId}:${messageId}`;
+        const now = Date.now();
+        const seenAt = this.processedInboundMessageIds.get(messageKey);
+        if (seenAt && now - seenAt < 10 * 60 * 1000) {
+          this.logger.log(`Skipping duplicated inbound WhatsApp message ${messageId} from ${from}`);
+          return;
+        }
+        this.processedInboundMessageIds.set(messageKey, now);
+        for (const [key, timestamp] of this.processedInboundMessageIds.entries()) {
+          if (now - timestamp > 10 * 60 * 1000) {
+            this.processedInboundMessageIds.delete(key);
+          }
+        }
+
+        let skipChatbot = false;
+        const wa = String(from).replace(/\D/g, '');
+        const normalizedWhatsapp = wa;
+        let foundContactIds: string[] = [];
+        let canonicalContactId: string | null = null;
+        let foundActiveConversationId: string | null = null;
+        try {
+          const canonical = await this.customersService.resolveCanonicalWhatsappContact(tenantId, {
+            rawWhatsapp: from,
+            normalizedWhatsapp,
+            lid: isLid ? wa : null,
+            direction: 'inbound',
+          });
+          foundContactIds = canonical.candidates;
+          canonicalContactId = canonical.contact?.id ?? null;
+          if (canonical.contact?.id) {
+            const activeHumanConversation = await this.conversationsService.findActiveHumanWhatsappConversation(tenantId, canonical.contact.id);
+            if (activeHumanConversation) {
+              skipChatbot = true;
+              foundActiveConversationId = activeHumanConversation.id;
+              this.logger.log(`Active human WhatsApp conversation found for ${from}; skipping chatbot`);
+            }
+          }
+        } catch (err) {
+          this.logger.warn(`Failed to evaluate active human conversation for ${from}`, err);
+        }
+        this.logSkipChatbot({
+          scope: 'skip-chatbot',
+          tenantId,
+          rawPhone: from,
+          rawWhatsapp: from,
+          normalizedPhone: normalizedWhatsapp,
+          contactIds: foundContactIds,
+          canonicalContactId,
+          activeConversationId: foundActiveConversationId,
+          skipChatbot,
+        });
+
         // Run through chatbot first if available
         let transferDept: string | undefined;
         let transferClientId: string | undefined;
-        if (this.chatbotService) {
+        if (this.chatbotService && !skipChatbot) {
           const botResult = await this.chatbotService.processMessage(tenantId, from, text, 'whatsapp', senderName);
           if (botResult.handled) {
             // Send bot replies back via Baileys
@@ -101,7 +168,7 @@ export class WhatsappModule implements OnModuleInit {
         }
 
         // Bot didn't handle (or is handing off) → normal ticket/conversation flow
-        const msg = { provider: 'generic' as const, from, text, messageId, senderName, isLid };
+        const msg = { provider: 'generic' as const, from, text, messageId, senderName, isLid, resolvedDigits };
         const result = await this.whatsappService.handleIncomingMessage(tenantId, msg, transferDept, transferClientId);
         this.logger.log(`Baileys message processed: tenantId=${tenantId} from=${from} result=${JSON.stringify(result)}`);
       } catch (err) {

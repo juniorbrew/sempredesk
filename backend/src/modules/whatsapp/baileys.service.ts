@@ -51,6 +51,15 @@ export class BaileysService {
   private lastSendTime = new Map<string, number>(); // tenantId → timestamp do último envio
   private readonly SEND_DELAY_MS = parseInt(process.env.WHATSAPP_SEND_DELAY_MS ?? '1200', 10);
 
+  private extractDigitsFromJid(jid?: string | null): string | null {
+    const raw = String(jid || '').trim();
+    if (!raw) return null;
+    const cleaned = raw.replace(/@s\.whatsapp\.net|@lid|@c\.us|@hosted|@hosted\.lid/g, '').trim();
+    const userPart = cleaned.split(':')[0]?.trim() || '';
+    const digits = userPart.replace(/\D/g, '');
+    return digits || null;
+  }
+
   /**
    * Enfileira uma operação de envio para o tenant.
    * - Se o último envio foi há mais de SEND_DELAY_MS: executa imediatamente.
@@ -83,9 +92,25 @@ export class BaileysService {
     }
   }
 
-  private onMessageCallback: ((tenantId: string, from: string, text: string, messageId: string, senderName?: string, isLid?: boolean) => void) | null = null;
+  private onMessageCallback: ((
+    tenantId: string,
+    from: string,
+    text: string,
+    messageId: string,
+    senderName?: string,
+    isLid?: boolean,
+    resolvedDigits?: string | null,
+  ) => void) | null = null;
 
-  setMessageHandler(cb: (tenantId: string, from: string, text: string, messageId: string, senderName?: string, isLid?: boolean) => void) {
+  setMessageHandler(cb: (
+    tenantId: string,
+    from: string,
+    text: string,
+    messageId: string,
+    senderName?: string,
+    isLid?: boolean,
+    resolvedDigits?: string | null,
+  ) => void) {
     this.onMessageCallback = cb;
   }
 
@@ -371,12 +396,22 @@ export class BaileysService {
         // Strip all JID suffixes: @s.whatsapp.net, @lid, @c.us
         const isLid = remoteJid.endsWith('@lid');
         const from = remoteJid.replace(/@s\.whatsapp\.net|@lid|@c\.us/g, '').trim();
+        const altJid = String(msg.key.participantAlt || msg.key.remoteJidAlt || '').trim();
+        let resolvedDigits = this.extractDigitsFromJid(altJid);
+        if (!resolvedDigits && isLid) {
+          try {
+            const mappedPnJid = await sock.signalRepository?.lidMapping?.getPNForLID(remoteJid);
+            resolvedDigits = this.extractDigitsFromJid(mappedPnJid);
+          } catch (error: any) {
+            this.logger.warn(`Failed to resolve PN for LID ${remoteJid}: ${error?.message}`);
+          }
+        }
         if (!from || from.includes('@')) {
           this.logger.warn(`Skipping message from unrecognized JID format: ${remoteJid}`);
           return;
         }
-        this.logger.log(`Incoming WhatsApp message from ${from} (JID: ${remoteJid}, lid=${isLid})`);
-        this.onMessageCallback?.(tenantId, from, text, msg.key.id, msg.pushName || undefined, isLid);
+        this.logger.log(`Incoming WhatsApp message from ${from} (JID: ${remoteJid}, lid=${isLid}, resolved=${resolvedDigits ?? 'none'})`);
+        this.onMessageCallback?.(tenantId, from, text, msg.key.id, msg.pushName || undefined, isLid, resolvedDigits);
       });
 
       // Presença do contato: repassa "digitando..." ao frontend via WebSocket
