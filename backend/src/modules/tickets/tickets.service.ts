@@ -104,6 +104,72 @@ export class TicketsService {
     return ticket;
   }
 
+  private isRealClientRecord(client?: { company_name?: string | null; trade_name?: string | null; metadata?: Record<string, any> | null } | null): boolean {
+    if (!client) return false;
+    const autoCreated = client.metadata?.autoCreated === true || client.metadata?.autoCreated === 'true';
+    const looksWhatsappTemp =
+      /\(WhatsApp\)$/i.test(client.company_name ?? '') ||
+      /\(WhatsApp\)$/i.test(client.trade_name ?? '');
+    return !autoCreated && !looksWhatsappTemp;
+  }
+
+  private async ensureCustomerLinkedBeforeClosing(tenantId: string, ticket: Ticket): Promise<void> {
+    if (ticket.origin !== TicketOrigin.WHATSAPP || !ticket.contactId) return;
+    if (ticket.customerSelectedAt) return;
+
+    if (ticket.unlinkedContact) {
+      throw new BadRequestException('Defina a empresa do contato antes de encerrar o atendimento.');
+    }
+
+    if (!ticket.clientId) {
+      throw new BadRequestException('Defina a empresa do contato antes de encerrar o atendimento.');
+    }
+
+    const rows = await this.ticketRepo.manager.query<Array<{
+      ticket_company_name: string | null;
+      ticket_trade_name: string | null;
+      ticket_metadata: Record<string, any> | null;
+      contact_company_name: string | null;
+      contact_trade_name: string | null;
+      contact_metadata: Record<string, any> | null;
+    }>>(
+      `SELECT
+         tc.company_name AS ticket_company_name,
+         tc.trade_name   AS ticket_trade_name,
+         tc.metadata     AS ticket_metadata,
+         cc.company_name AS contact_company_name,
+         cc.trade_name   AS contact_trade_name,
+         cc.metadata     AS contact_metadata
+       FROM contacts c
+       LEFT JOIN clients tc
+         ON tc.id::text = $2
+        AND tc.tenant_id::text = $1
+       LEFT JOIN clients cc
+         ON cc.id::text = c.client_id::text
+        AND cc.tenant_id::text = $1
+       WHERE c.id::text = $3
+         AND c.tenant_id::text = $1
+       LIMIT 1`,
+      [tenantId, ticket.clientId, ticket.contactId],
+    );
+
+    const row = rows[0];
+    const ticketClientIsReal = this.isRealClientRecord(row ? {
+      company_name: row.ticket_company_name,
+      trade_name: row.ticket_trade_name,
+      metadata: row.ticket_metadata,
+    } : null);
+    const contactClientIsReal = this.isRealClientRecord(row ? {
+      company_name: row.contact_company_name,
+      trade_name: row.contact_trade_name,
+      metadata: row.contact_metadata,
+    } : null);
+
+    if (ticketClientIsReal && contactClientIsReal) return;
+
+    throw new BadRequestException('Defina a empresa do contato antes de encerrar o atendimento.');
+  }
+
   /** Returns a map of agentId → active ticket count for the given agent IDs */
   async countActiveByAgents(tenantId: string, agentIds: string[]): Promise<Record<string, number>> {
     if (!agentIds.length) return {};
@@ -1054,6 +1120,7 @@ export class TicketsService {
     dto: ResolveTicketDto,
   ): Promise<Ticket> {
     const ticket = await this.getTicketOrFail(tenantId, id);
+    await this.ensureCustomerLinkedBeforeClosing(tenantId, ticket);
 
     if (ticket.status === TicketStatus.CANCELLED) {
       throw new BadRequestException('Chamado cancelado não pode ser resolvido');
@@ -1123,6 +1190,7 @@ export class TicketsService {
 
   async close(tenantId: string, id: string, userId: string, userName: string): Promise<Ticket> {
     const ticket = await this.getTicketOrFail(tenantId, id);
+    await this.ensureCustomerLinkedBeforeClosing(tenantId, ticket);
 
     if (ticket.status === TicketStatus.CANCELLED) {
       throw new BadRequestException('Chamado cancelado não pode ser fechado');

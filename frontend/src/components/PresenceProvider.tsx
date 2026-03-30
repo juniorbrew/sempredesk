@@ -2,10 +2,9 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { useAuthStore } from '@/store/auth.store';
 import { usePresenceStore } from '@/store/presence.store';
+import { resolveWsBase } from '@/lib/ws-base';
 
-const WS_BASE = process.env.NEXT_PUBLIC_API_URL
-  ? process.env.NEXT_PUBLIC_API_URL.replace('/api/v1', '')
-  : (typeof window !== 'undefined' ? window.location.origin : '');
+const WS_BASE = resolveWsBase();
 
 const HEARTBEAT_INTERVAL_MS = 15_000;
 const POLL_INTERVAL_MS = 10_000;

@@ -6,11 +6,13 @@ import { ContactCustomer } from './entities/contact-customer.entity';
 import { ContactValidationService } from './contact-validation.service';
 import { ContactValidationController } from './contact-validation.controller';
 import { CustomersModule } from '../customers/customers.module';
+import { PermissionsModule } from '../permissions/permissions.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Ticket, Contact, Client, ContactCustomer]),
     CustomersModule,
+    PermissionsModule,
   ],
   providers: [ContactValidationService],
   controllers: [ContactValidationController],

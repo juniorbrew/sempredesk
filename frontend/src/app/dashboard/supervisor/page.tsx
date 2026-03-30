@@ -426,13 +426,12 @@ export default function SupervisorPage() {
 
   // Reload imediato ao receber evento de transferência/atribuição de ticket
   useEffect(() => {
-    const WS_BASE = process.env.NEXT_PUBLIC_API_URL
-      ? process.env.NEXT_PUBLIC_API_URL.replace('/api/v1', '')
-      : (typeof window !== 'undefined' ? window.location.origin : '');
     const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
-    if (!token || !WS_BASE) return;
     let socket: any;
     (async () => {
+      const { resolveWsBase } = await import('@/lib/ws-base');
+      const WS_BASE = resolveWsBase();
+      if (!token || !WS_BASE) return;
       const { io } = await import('socket.io-client');
       const user = (await import('@/store/auth.store')).useAuthStore.getState().user;
       if (!user?.tenantId) return;

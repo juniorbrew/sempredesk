@@ -902,7 +902,7 @@ X-Api-Secret: {INBOUND_EMAIL_SECRET}`}</pre>
                 <Field label="E-mail" hint="Não pode ser alterado aqui"><input value={profile.email} disabled className="input" /></Field>
                 <Field label="Telefone"><input value={(profile as any).phone||''} onChange={e=>setProfile(p=>({...p,phone:e.target.value} as any))} className="input" placeholder="(00) 90000-0000" /></Field>
               </div>
-              <div style={{ borderTop:'1px solid #F1F5F9',paddingTop:20 }}>
+              <form onSubmit={(e) => e.preventDefault()} style={{ borderTop:'1px solid #F1F5F9',paddingTop:20 }}>
                 <div className="flex items-center gap-2 mb-4">
                   <Lock className="w-4 h-4" style={{ color:'#6366F1' }} />
                   <p style={{ fontSize:14,fontWeight:700,color:'#0F172A' }}>Alterar senha</p>
@@ -913,7 +913,7 @@ X-Api-Secret: {INBOUND_EMAIL_SECRET}`}</pre>
                   <Field label="Nova senha"><input type="password" value={profile.newPassword} onChange={e=>setProfile(p=>({...p,newPassword:e.target.value}))} className="input" placeholder="••••••••" /></Field>
                   <Field label="Confirmar senha"><input type="password" value={profile.confirmPassword} onChange={e=>setProfile(p=>({...p,confirmPassword:e.target.value}))} className="input" placeholder="••••••••" /></Field>
                 </div>
-              </div>
+              </form>
               {profileError && <div style={{ background:'#FEE2E2',color:'#DC2626',padding:'10px 16px',borderRadius:10,fontSize:13,fontWeight:600 }}>{profileError}</div>}
               <button onClick={handleSaveProfile} disabled={saving} className="btn-primary">
                 {saving?<RefreshCw className="w-4 h-4 animate-spin"/>:saved?<CheckCircle className="w-4 h-4"/>:<Save className="w-4 h-4"/>}

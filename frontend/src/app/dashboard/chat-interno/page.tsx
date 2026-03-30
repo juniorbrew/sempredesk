@@ -3,14 +3,13 @@ import { useEffect, useRef, useState } from 'react';
 import { MessageSquare, Send, Search, User, Paperclip, Phone, MoreHorizontal, FileText, Ticket as TicketIcon } from 'lucide-react';
 import { EmojiPicker } from '@/components/ui/EmojiPicker';
 import { api } from '@/lib/api';
+import { resolveWsBase } from '@/lib/ws-base';
 import { useAuthStore, hasPermission } from '@/store/auth.store';
 import { usePresenceStore } from '@/store/presence.store';
 import { format, isToday, isYesterday } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
-const WS_BASE = process.env.NEXT_PUBLIC_API_URL
-  ? process.env.NEXT_PUBLIC_API_URL.replace('/api/v1', '')
-  : (typeof window !== 'undefined' ? window.location.origin : '');
+const WS_BASE = resolveWsBase();
 
 const S = {
   bg: '#fff', bg2: '#F8F8FB', bg3: '#F1F1F6',

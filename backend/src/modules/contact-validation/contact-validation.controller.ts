@@ -3,6 +3,8 @@ import {
 } from '@nestjs/common';
 import { IsUUID } from 'class-validator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { PermissionsGuard } from '../../common/guards/permissions.guard';
+import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 import { TenantId } from '../../common/decorators/tenant-id.decorator';
 import { ContactValidationService, LinkByCnpjResult } from './contact-validation.service';
 
@@ -30,7 +32,7 @@ class LinkByCnpjDto {
  *      c. POST /attendance/:ticketId/skip-link        — pula vinculação
  */
 @Controller('attendance')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class ContactValidationController {
   constructor(private readonly validationSvc: ContactValidationService) {}
 
@@ -41,6 +43,7 @@ export class ContactValidationController {
    * Se needsValidation = true → exibir painel de vinculação para o agente.
    */
   @Get(':ticketId/contact-validation')
+  @RequirePermission('attendance.view')
   getValidation(
     @TenantId() tenantId: string,
     @Param('ticketId') ticketId: string,
@@ -57,6 +60,7 @@ export class ContactValidationController {
    */
   @Post(':ticketId/select-customer')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('customer.edit')
   selectCustomer(
     @TenantId() tenantId: string,
     @Param('ticketId') ticketId: string,
@@ -79,6 +83,7 @@ export class ContactValidationController {
    */
   @Post(':ticketId/link-contact')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('customer.edit')
   linkContact(
     @TenantId() tenantId: string,
     @Param('ticketId') ticketId: string,
@@ -101,6 +106,7 @@ export class ContactValidationController {
    */
   @Post(':ticketId/skip-link')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('customer.edit')
   skipLink(
     @TenantId() tenantId: string,
     @Param('ticketId') ticketId: string,
@@ -118,6 +124,7 @@ export class ContactValidationController {
    */
   @Post(':ticketId/link-by-cnpj')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('customer.edit')
   linkByCnpj(
     @TenantId() tenantId: string,
     @Param('ticketId') ticketId: string,

@@ -86,13 +86,13 @@ export default function ChatWidget() {
   }, []);
 
   useEffect(() => {
-    if (!open || !accessToken || !client || !chatTicketId || chatStep !== 'chat' || chatClientId !== client.id) return;
+    if (!open || !accessToken || !client || (!chatTicketId && !chatConversationId) || chatStep !== 'chat' || chatClientId !== client.id) return;
     setTicketId(chatTicketId);
     setConversationId(chatConversationId ?? null);
     setStep('chat');
     setClosed(false);
     if (chatConversationId) loadMessages(chatConversationId);
-    checkTicketStatus(chatTicketId);
+    if (chatTicketId) checkTicketStatus(chatTicketId);
   }, [open, accessToken, client?.id, chatTicketId, chatConversationId, chatStep, chatClientId]);
 
   // ─── Navigation helpers ──────────────────────────────────────────────────
@@ -220,16 +220,15 @@ export default function ChatWidget() {
         throw new Error(msg);
       }
       const result = data?.data ?? data;
-      const tkt = result?.ticket;
       const conv = result?.conversation;
-      if (!tkt?.id || !conv?.id) throw new Error('Resposta inválida do servidor.');
-      setCreatedTicket({
-        id: tkt.id,
-        ticketNumber: result.ticketNumber ?? tkt.ticketNumber,
-        estimatedResponse: result.estimatedResponse ?? '4h',
-      });
+      if (!conv?.id) throw new Error('Resposta invalida do servidor.');
+      setCreatedTicket(null);
+      setTicketId(null);
       setConversationId(conv.id);
-      setStep('new-confirm');
+      setChatState(null, conv.id, 'chat', client?.id);
+      setMessages([]);
+      await loadMessages(conv.id);
+      setStep('chat');
     } catch (e: any) {
       setError(errMsg(e));
     }
@@ -362,6 +361,8 @@ export default function ChatWidget() {
     setClosed(true);
   };
 
+  const canSendInConversation = !!conversationId && !closed;
+
   // ─── Effects ─────────────────────────────────────────────────────────────
 
   // Reset chat state when client changes (user switched company)
@@ -398,11 +399,11 @@ export default function ChatWidget() {
   }, [step, messages.length]);
 
   useEffect(() => {
-    if (step === 'chat' && conversationId && ticketId && !closed) {
+    if (step === 'chat' && conversationId && !closed) {
       const t = setInterval(() => {
         const preservePending = Date.now() - lastSendRef.current < 5000;
         loadMessages(conversationId, preservePending);
-        checkTicketStatus(ticketId);
+        if (ticketId) checkTicketStatus(ticketId);
       }, 15000);
       return () => clearInterval(t);
     }
@@ -1151,17 +1152,18 @@ export default function ChatWidget() {
                       value={input}
                       onChange={(e) => setInput(e.target.value)}
                       placeholder="Digite sua mensagem..."
+                      disabled={!canSendInConversation}
                       style={{ flex: 1, ...inputStyle, borderRadius: 12, padding: '11px 16px' }}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' && !e.shiftKey) {
                           e.preventDefault();
-                          if (input.trim() && !sending) sendMessage(e as any);
+                          if (input.trim() && !sending && canSendInConversation) sendMessage(e as any);
                         }
                       }}
                     />
                     <button
                       type="submit"
-                      disabled={sending || !input.trim()}
+                      disabled={sending || !input.trim() || !canSendInConversation}
                       style={{
                         ...btnPrimary,
                         padding: '11px 16px',
@@ -1169,7 +1171,7 @@ export default function ChatWidget() {
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        opacity: input.trim() && !sending ? 1 : 0.5,
+                        opacity: input.trim() && !sending && canSendInConversation ? 1 : 0.5,
                         flexShrink: 0,
                       }}
                     >

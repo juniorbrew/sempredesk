@@ -340,12 +340,9 @@ export class ContactValidationService {
       const client = await trx.findOne(Client, { where: { id: clientId, tenantId } });
       if (!client) throw new NotFoundException('Cliente não encontrado');
 
-      if (ticket.customerSelectedAt || ticket.unlinkedContact) {
-        throw new BadRequestException('Ticket já foi validado');
-      }
-
       ticket.clientId = clientId;
       ticket.customerSelectedAt = new Date();
+      ticket.unlinkedContact = false;
       await trx.save(Ticket, ticket);
 
       // Atualiza conversa vinculada ao ticket
@@ -375,7 +372,7 @@ export class ContactValidationService {
           tenantId,
           ticketId,
           agentId,
-          `Cliente vinculado: "${client.tradeName || client.companyName}" — contato adicionado automaticamente ao cadastro`,
+          `Cliente definido para o ticket: "${client.tradeName || client.companyName}"`,
         ],
       );
     });
@@ -417,10 +414,6 @@ export class ContactValidationService {
       });
       if (!contact) throw new NotFoundException('Contato do ticket não encontrado');
 
-      if (ticket.customerSelectedAt || ticket.unlinkedContact) {
-        throw new BadRequestException('Ticket já foi validado');
-      }
-
       // Upsert no pivot (evita duplicata — único por contact_id+client_id)
       const upsertResult = await trx.query<{ id: string }[]>(
         `INSERT INTO contact_customers (id, tenant_id, contact_id, client_id, linked_by, linked_at)
@@ -440,7 +433,15 @@ export class ContactValidationService {
       // Atualiza ticket
       ticket.clientId = clientId;
       ticket.customerSelectedAt = new Date();
+      ticket.unlinkedContact = false;
       await trx.save(Ticket, ticket);
+
+      if (ticket.conversationId) {
+        await trx.query(
+          `UPDATE conversations SET client_id = $1 WHERE id = $2 AND tenant_id = $3`,
+          [clientId, ticket.conversationId, tenantId],
+        );
+      }
 
       // Audit log
       await trx.query(

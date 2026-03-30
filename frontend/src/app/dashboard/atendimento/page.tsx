@@ -408,6 +408,13 @@ export default function AtendimentoPage() {
   };
 
   const canEditConversationTags = hasPermission(user, 'ticket.edit');
+  const canManageCustomerLink = hasPermission(user, 'customer.edit');
+  const canCloseTicket = hasPermission(user, 'ticket.close');
+  const [customerLinkRequired, setCustomerLinkRequired] = useState(false);
+
+  useEffect(() => {
+    setCustomerLinkRequired(false);
+  }, [currentTicket?.id]);
 
   // ── data loading ──
   const loadConversations = useCallback(async (resetSelection = false, silent = false) => {
@@ -682,9 +689,25 @@ export default function AtendimentoPage() {
   }, [selected?.clientId, selected?.contactId, linkTicketSearch]);
 
   // ── end flow ──
-  const openEndFlow = () => { setCloseForm({ solution:'', rootCause:'', timeSpent:'', internalNote:'', complexity:0 }); setShowEndModal(true); };
+  const openEndFlow = () => {
+    setCloseForm({ solution:'', rootCause:'', timeSpent:'', internalNote:'', complexity:0 });
+    setShowEndModal(true);
+  };
   const handleKeepOpen = () => { setShowEndModal(false); setKeepOpenReason(''); setShowKeepOpenModal(true); };
-  const handleCloseTicket = () => { setShowEndModal(false); setCloseForm({ solution:'', rootCause:'', timeSpent:'', internalNote:'', complexity:0 }); setShowCloseForm(true); };
+  const handleCloseTicket = () => {
+    if (customerLinkRequired) {
+      showToast(
+        canManageCustomerLink
+          ? 'Defina a empresa deste atendimento antes de encerrar o ticket.'
+          : 'Este atendimento ainda precisa de uma empresa vinculada antes do encerramento.',
+        'error',
+      );
+      return;
+    }
+    setShowEndModal(false);
+    setCloseForm({ solution:'', rootCause:'', timeSpent:'', internalNote:'', complexity:0 });
+    setShowCloseForm(true);
+  };
 
   const confirmKeepOpen = async () => {
     if (!keepOpenReason.trim()) { showToast('Informe o motivo para manter o ticket aberto', 'error'); return; }
@@ -707,6 +730,15 @@ export default function AtendimentoPage() {
   const isTicketType = selected?.type === 'ticket' || selected?.id?.startsWith?.('ticket:');
 
   const confirmCloseTicket = async () => {
+    if (customerLinkRequired) {
+      showToast(
+        canManageCustomerLink
+          ? 'Defina a empresa deste atendimento antes de encerrar o ticket.'
+          : 'Este atendimento ainda precisa de uma empresa vinculada antes do encerramento.',
+        'error',
+      );
+      return;
+    }
     if (!closeForm.solution.trim()) { showToast('Solução aplicada é obrigatória', 'error'); return; }
     const tid = selected?.ticketId || (isTicketType ? selected?.id?.replace?.(/^ticket:/, '') : null);
     try {
@@ -972,8 +1004,8 @@ export default function AtendimentoPage() {
   const isPortalNoTicket = selected?.channel === 'portal' && !hasTicket && selected?.status !== 'closed';
   // Conversa WhatsApp/canal sem ticket — ainda sem ticket vinculado (usado para exibição de estado)
   const isConvNoTicket = !isTicketType && !hasTicket && !!selected?.id && selected?.status !== 'closed';
-  // Só permite enviar se houver ticket vinculado; portal é exceção (atendimento direto sem ticket)
-  const canSend = hasTicket || isPortalNoTicket;
+  // Conversas ativas podem continuar trocando mensagens mesmo sem ticket vinculado.
+  const canSend = hasTicket || isPortalNoTicket || isConvNoTicket;
   const ticketIdForRealtime = isTicketType ? (selected?.ticketId || selected?.id?.replace?.(/^ticket:/, '')) : null;
   const conversationIdForRealtime = !isTicketType ? selected?.id : null;
 
@@ -1569,8 +1601,9 @@ export default function AtendimentoPage() {
                       Transferir
                     </button>
                     {!isClosed && (hasTicket || isPortalNoTicket) && (
-                      <button onClick={openEndFlow}
-                        style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid #FECACA', background: '#FEF2F2', color: '#DC2626', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' }}>
+                      <button onClick={openEndFlow} disabled={!canCloseTicket || customerLinkRequired}
+                        title={customerLinkRequired ? 'Defina a empresa antes de encerrar' : undefined}
+                        style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid #FECACA', background: customerLinkRequired ? '#FFF1F2' : '#FEF2F2', color: '#DC2626', fontSize: 12, fontWeight: 600, cursor: (!canCloseTicket || customerLinkRequired) ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit', opacity: (!canCloseTicket || customerLinkRequired) ? 0.6 : 1 }}>
                         Encerrar
                       </button>
                     )}
@@ -1580,7 +1613,7 @@ export default function AtendimentoPage() {
                 {/* Warning banners */}
                 {!hasTicket && !isPortalNoTicket && (
                   <div style={{ marginTop: 10, padding: '10px 14px', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8, fontSize: 12, color: '#92400E' }}>
-                    Sem ticket vinculado. Crie ou vincule um ticket para enviar mensagens e registrar o atendimento.
+                    Sem ticket vinculado. Você ainda pode conversar normalmente e vincular o ticket depois, se necessário.
                   </div>
                 )}
 
@@ -1591,10 +1624,12 @@ export default function AtendimentoPage() {
                     ticketId={currentTicket.id}
                     initialCustomerSelectedAt={currentTicket.customerSelectedAt ?? null}
                     initialUnlinkedContact={currentTicket.unlinkedContact ?? false}
+                    canManageCustomerLink={canManageCustomerLink}
                     initialCustomerName={customerName(selected?.clientId) !== '—' ? customerName(selected?.clientId) : null}
                     onResolved={(data: ResolvedData) => {
                       setCurrentTicket((prev: any) => prev ? { ...prev, ...data } : prev);
                     }}
+                    onRequirementChange={setCustomerLinkRequired}
                   />
                 )}
               </div>
@@ -1774,7 +1809,7 @@ export default function AtendimentoPage() {
                           }
                         }}
                         onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(e as any); } }}
-                        placeholder={canSend ? (isWhatsapp ? 'Mensagem WhatsApp... (Enter para enviar)' : 'Digite sua mensagem...') : 'Vincule um ticket para enviar mensagens...'}
+                        placeholder={canSend ? (isWhatsapp ? 'Mensagem WhatsApp... (Enter para enviar)' : 'Digite sua mensagem...') : 'Conversa indisponível para envio'}
                         disabled={!canSend}
                         rows={1}
                         style={{
@@ -2587,7 +2622,7 @@ export default function AtendimentoPage() {
                   <p style={{ margin: 0, fontSize: 11, color: '#3B82F6', fontWeight: 400 }}>A conversa é encerrada mas o ticket continua em aberto</p>
                 </div>
               </button>
-              <button onClick={handleCloseTicket} style={{ padding: '14px 16px', border: '1.5px solid #FED7AA', borderRadius: 10, background: '#FFF7ED', color: '#C2410C', fontSize: 13, fontWeight: 600, cursor: 'pointer', textAlign: 'left', display: 'flex', gap: 10, alignItems: 'center' }}>
+              <button onClick={handleCloseTicket} disabled={customerLinkRequired} style={{ padding: '14px 16px', border: '1.5px solid #FED7AA', borderRadius: 10, background: '#FFF7ED', color: '#C2410C', fontSize: 13, fontWeight: 600, cursor: customerLinkRequired ? 'not-allowed' : 'pointer', textAlign: 'left', display: 'flex', gap: 10, alignItems: 'center', opacity: customerLinkRequired ? 0.6 : 1 }}>
                 <Lock size={18} style={{ flexShrink: 0 }} />
                 <div>
                   <p style={{ margin: 0, fontWeight: 700 }}>Encerrar e fechar o ticket</p>
@@ -2687,8 +2722,8 @@ export default function AtendimentoPage() {
             </div>
             <div style={{ padding: '14px 22px', borderTop: '1px solid #F1F5F9', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button onClick={() => setShowCloseForm(false)} style={{ padding: '9px 18px', borderRadius: 8, border: '1.5px solid #E2E8F0', background: '#fff', color: '#475569', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancelar</button>
-              <button onClick={confirmCloseTicket}
-                style={{ padding: '9px 20px', borderRadius: 8, border: 'none', background: '#EA580C', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <button onClick={confirmCloseTicket} disabled={customerLinkRequired}
+                style={{ padding: '9px 20px', borderRadius: 8, border: 'none', background: '#EA580C', color: '#fff', fontSize: 13, fontWeight: 700, cursor: customerLinkRequired ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, opacity: customerLinkRequired ? 0.6 : 1 }}>
                 <Lock size={14} /> Encerrar Atendimento
               </button>
             </div>

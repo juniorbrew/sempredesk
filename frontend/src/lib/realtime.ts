@@ -1,11 +1,8 @@
 'use client';
 import { useEffect, useRef, useCallback } from 'react';
+import { resolveWsBase } from './ws-base';
 
-const WS_BASE = typeof window !== 'undefined'
-  ? (process.env.NEXT_PUBLIC_API_URL
-      ? process.env.NEXT_PUBLIC_API_URL.replace(/\/api\/v1\/?$/, '')
-      : window.location.origin)
-  : '';
+const WS_BASE = resolveWsBase();
 
 // ── Singleton: uma única conexão socket.io para toda a sessão ─────────────────
 // Hooks apenas emitem join/leave para trocar de sala, sem disconnect/reconnect.
@@ -13,11 +10,14 @@ let _sharedSocket: any = null;
 
 async function getSharedSocket(): Promise<any | null> {
   if (!WS_BASE) return null;
+  const token = typeof window !== 'undefined' ? window.localStorage.getItem('accessToken') : null;
+  if (!token) return null;
   if (_sharedSocket) return _sharedSocket;
   const { io } = await import('socket.io-client');
   _sharedSocket = io(`${WS_BASE}/realtime`, {
     path: '/socket.io',
     transports: ['websocket', 'polling'],
+    auth: { token },
   });
   return _sharedSocket;
 }
