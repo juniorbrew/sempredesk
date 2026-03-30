@@ -110,6 +110,7 @@ export class WhatsappModule implements OnModuleInit {
         let foundContactIds: string[] = [];
         let canonicalContactId: string | null = null;
         let foundActiveConversationId: string | null = null;
+        let foundActiveConversationClientId: string | null = null;
         try {
           const canonical = await this.customersService.resolveCanonicalWhatsappContact(tenantId, {
             rawWhatsapp: from,
@@ -124,6 +125,7 @@ export class WhatsappModule implements OnModuleInit {
             if (activeHumanConversation) {
               skipChatbot = true;
               foundActiveConversationId = activeHumanConversation.id;
+              foundActiveConversationClientId = activeHumanConversation.clientId ?? null;
               this.logger.log(`Active human WhatsApp conversation found for ${from}; skipping chatbot`);
             }
           }
@@ -168,6 +170,9 @@ export class WhatsappModule implements OnModuleInit {
         }
 
         // Bot didn't handle (or is handing off) → normal ticket/conversation flow
+        if (!transferClientId && foundActiveConversationClientId) {
+          transferClientId = foundActiveConversationClientId;
+        }
         const msg = { provider: 'generic' as const, from, text, messageId, senderName, isLid, resolvedDigits };
         const result = await this.whatsappService.handleIncomingMessage(tenantId, msg, transferDept, transferClientId);
         this.logger.log(`Baileys message processed: tenantId=${tenantId} from=${from} result=${JSON.stringify(result)}`);

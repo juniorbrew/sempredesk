@@ -532,7 +532,9 @@ export class ConversationsService {
       .andWhere('(c.initiated_by = :agent OR c.ticket_id IS NOT NULL)', {
         agent: ConversationInitiatedBy.AGENT,
       })
-      .orderBy('c.last_message_at', 'DESC', 'NULLS LAST')
+      .orderBy('CASE WHEN c.client_id IS NULL THEN 1 ELSE 0 END', 'ASC')
+      .addOrderBy('CASE WHEN c.ticket_id IS NULL THEN 1 ELSE 0 END', 'ASC')
+      .addOrderBy('c.last_message_at', 'DESC', 'NULLS LAST')
       .addOrderBy('c.created_at', 'DESC')
       .getOne();
   }
