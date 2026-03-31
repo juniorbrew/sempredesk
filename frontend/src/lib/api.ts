@@ -253,6 +253,27 @@ class ApiClient {
   /** GET /customers/search?q= — busca clientes por nome ou CNPJ */
   searchCustomers = (q: string) =>
     this.client.get('/customers/search', { params: { q } });
+
+  // ── Admin / SaaS ────────────────────────────────────────────────────────
+  adminListTenants = (params?: { search?: string; status?: string }) =>
+    this.client.get('/admin/tenants', { params });
+
+  adminGetTenant = (id: string) =>
+    this.client.get(`/admin/tenants/${id}`);
+
+  adminCreateTenant = (data: {
+    name: string;
+    slug: string;
+    email?: string;
+    phone?: string;
+    planSlug?: string;
+    adminName: string;
+    adminEmail: string;
+    adminPassword?: string;
+  }) => this.client.post('/admin/tenants', data);
+
+  adminUpdateTenant = (id: string, data: any) =>
+    this.client.put(`/tenants/${id}`, data);
 }
 
 export const api = new ApiClient();

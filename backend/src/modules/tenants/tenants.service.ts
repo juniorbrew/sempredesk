@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Tenant } from './tenant.entity';
 
-const PLAN_LIMITS: Record<string, any> = {
+export const PLAN_LIMITS: Record<string, any> = {
   starter:      { technicians:  3, clients:  50, ticketsPerMonth:  200, devices:  20, storageGb:   5 },
   professional: { technicians: 10, clients: 500, ticketsPerMonth: 2000, devices: 200, storageGb:  50 },
   enterprise:   { technicians: -1, clients:  -1, ticketsPerMonth:   -1, devices:  -1, storageGb: 500 },

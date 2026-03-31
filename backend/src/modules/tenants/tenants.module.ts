@@ -3,11 +3,16 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Tenant } from './tenant.entity';
 import { TenantsService } from './tenants.service';
 import { TenantsController } from './tenants.controller';
+import { AdminTenantsController } from './admin-tenants.controller';
+import { TenantsOnboardService } from './tenants-onboard.service';
+import { SaasModule } from '../saas/saas.module';
+import { AuditLogModule } from '../audit/audit-log.module';
+import { TeamModule } from '../team/team.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Tenant])],
-  providers: [TenantsService],
-  controllers: [TenantsController],
+  imports: [TypeOrmModule.forFeature([Tenant]), SaasModule, AuditLogModule, TeamModule],
+  providers: [TenantsService, TenantsOnboardService],
+  controllers: [TenantsController, AdminTenantsController],
   exports: [TenantsService],
 })
 export class TenantsModule {}

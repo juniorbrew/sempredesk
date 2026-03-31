@@ -40,6 +40,8 @@ import { TenantMiddleware } from './common/middlewares/tenant.middleware';
 import { RealtimeGateway } from './modules/realtime/realtime.gateway';
 import { TicketAssignmentService } from './modules/ticket-assignment/ticket-assignment.service';
 import { AttendanceService } from './modules/attendance/attendance.service';
+import { AuditLogModule } from './modules/audit/audit-log.module';
+import { SaasModule } from './modules/saas/saas.module';
 
 @Module({
   imports: [
@@ -98,6 +100,8 @@ import { AttendanceService } from './modules/attendance/attendance.service';
     ChatbotModule,
     TicketAssignmentModule,
     ContactValidationModule,
+    AuditLogModule,
+    SaasModule,
   ],
 })
 export class AppModule implements NestModule, OnModuleInit {
