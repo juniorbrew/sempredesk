@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, EntityManager, Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
 import { AuditLog } from './audit-log.entity';
 
 export type AuditActor = {
@@ -14,7 +14,6 @@ export class AuditLogService {
   constructor(
     @InjectRepository(AuditLog)
     private readonly repo: Repository<AuditLog>,
-    private readonly dataSource: DataSource,
   ) {}
 
   async log(

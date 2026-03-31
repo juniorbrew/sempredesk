@@ -7,10 +7,9 @@ import { AdminTenantsController } from './admin-tenants.controller';
 import { TenantsOnboardService } from './tenants-onboard.service';
 import { SaasModule } from '../saas/saas.module';
 import { AuditLogModule } from '../audit/audit-log.module';
-import { TeamModule } from '../team/team.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Tenant]), SaasModule, AuditLogModule, TeamModule],
+  imports: [TypeOrmModule.forFeature([Tenant]), SaasModule, AuditLogModule],
   providers: [TenantsService, TenantsOnboardService],
   controllers: [TenantsController, AdminTenantsController],
   exports: [TenantsService],

@@ -6,7 +6,6 @@ import { PLAN_LIMITS } from './tenants.service';
 import { TenantLicense } from '../saas/tenant-license.entity';
 import { User } from '../auth/user.entity';
 import { TenantLicenseService } from '../saas/tenant-license.service';
-import { TeamService } from '../team/team.service';
 import { AuditActor, AuditLogService } from '../audit/audit-log.service';
 import { CreateTenantOnboardDto } from './dto/create-tenant-onboard.dto';
 
@@ -16,7 +15,6 @@ export class TenantsOnboardService {
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly licenseSvc: TenantLicenseService,
-    private readonly teamSvc: TeamService,
     private readonly audit: AuditLogService,
   ) {}
 
@@ -34,7 +32,8 @@ export class TenantsOnboardService {
       const existingUser = await userRepo.findOne({ where: { email: dto.adminEmail } });
       if (existingUser) throw new ConflictException('E-mail do admin já está em uso');
 
-      const tenant = tenantRepo.create({
+      const tenant = tenantRepo.create();
+      Object.assign(tenant, {
         name: dto.name,
         slug: dto.slug,
         email: dto.email,
@@ -42,14 +41,16 @@ export class TenantsOnboardService {
         plan: planSlug,
         status: 'trial',
         limits: PLAN_LIMITS[planSlug] ?? PLAN_LIMITS.starter,
-      } as any);
+      });
       await tenantRepo.save(tenant);
 
       const licensePayload = this.licenseSvc.buildInitialLicensePayload(tenant.id, planSlug);
-      const license = licenseRepo.create(licensePayload as any);
+      const license = licenseRepo.create();
+      Object.assign(license, licensePayload);
       await licenseRepo.save(license);
 
-      const admin = userRepo.create({
+      const admin = userRepo.create();
+      Object.assign(admin, {
         name: dto.adminName,
         email: dto.adminEmail,
         password: dto.adminPassword || 'Mudar@123',
@@ -57,7 +58,7 @@ export class TenantsOnboardService {
         tenantId: tenant.id,
         status: 'active',
         settings: { forcePasswordChange: !dto.adminPassword },
-      } as any);
+      });
       await userRepo.save(admin);
 
       await this.audit.log(
