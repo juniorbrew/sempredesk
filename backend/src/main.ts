@@ -9,7 +9,7 @@ import { ResponseInterceptor } from './common/interceptors/response.interceptor'
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
-  const app = await NestFactory.create(AppModule, { logger: ['error', 'warn', 'log'] });
+  const app = await NestFactory.create(AppModule, { logger: ['error', 'warn', 'log'], rawBody: true });
   app.useWebSocketAdapter(new IoAdapter(app));
 
   // Disable Express ETag so browsers don't cache API responses

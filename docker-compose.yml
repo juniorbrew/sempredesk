@@ -84,8 +84,6 @@ services:
       REDIS_PORT: 6379
       REDIS_PASSWORD: redis123
       RABBITMQ_URL: amqp://suporte:suporte123@rabbitmq:5672/suporte_vhost
-      JWT_SECRET: 9b90a2643c78a18028f033be2337d58883bb1f01dcf2421f1fc7c93b1d43bc6f6dba17f36d4753323e88518fcb2dcda17658f68b62da304d6b49e764582311be
-      JWT_REFRESH_SECRET: 6cde4d44caa350e84dd67ac5235ffad240b4e892565015f3dcf638eebfb6b3a3a4ff6572e378fc4b21832ece3404de5791d7d0b2130e038fea07de7307fc9c4a
       NODE_ENV: production
       ALLOWED_ORIGINS: https://suporte.sempredesk.com.br,https://cliente.sempredesk.com.br,http://suporte.sempredesk.com.br,http://cliente.sempredesk.com.br,http://77.237.236.230
       PORT: 4000

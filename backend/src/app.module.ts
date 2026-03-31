@@ -59,7 +59,7 @@ import { AttendanceService } from './modules/attendance/attendance.service';
         synchronize: cfg.get('DB_SYNCHRONIZE', 'false') === 'true',
         logging: false,
         ssl: cfg.get('DB_SSL') === 'true' ? { rejectUnauthorized: false } : false,
-        extra: { max: 20 },
+        extra: { max: 50 },
       }),
       inject: [ConfigService],
     }),

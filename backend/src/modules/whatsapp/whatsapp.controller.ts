@@ -1,6 +1,23 @@
-import { Body, Controller, Get, Post, Put, Delete, Query, UseGuards, Request, Res, Sse } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Post,
+  Put,
+  Delete,
+  Query,
+  UseGuards,
+  Request,
+  Res,
+  Sse,
+  Headers,
+  HttpCode,
+  HttpStatus,
+  RawBodyRequest,
+} from '@nestjs/common';
 import { Observable } from 'rxjs';
-import { Response } from 'express';
+import { Response, Request as ExpressRequest } from 'express';
+import { createHmac, timingSafeEqual } from 'crypto';
 import { WhatsappService } from './whatsapp.service';
 import { BaileysService } from './baileys.service';
 import { JwtAuthGuard, Public } from '../auth/guards/jwt-auth.guard';
@@ -34,7 +51,32 @@ export class WhatsappController {
   // ── Meta/Generic webhook receive (POST) ──────────────────────────────
   @Public()
   @Post()
-  async receive(@Body() body: any) {
+  @HttpCode(HttpStatus.OK)
+  async receive(
+    @Request() req: RawBodyRequest<ExpressRequest>,
+    @Body() body: any,
+    @Headers('x-hub-signature-256') metaSignature?: string,
+  ) {
+    const metaAppSecret = process.env.META_APP_SECRET;
+    const isMetaPayload = body?.object === 'whatsapp_business_account';
+
+    if (metaAppSecret && isMetaPayload) {
+      if (!metaSignature) {
+        return { success: false, reason: 'MISSING_SIGNATURE' };
+      }
+      const rawBody = req.rawBody;
+      if (!rawBody) {
+        return { success: false, reason: 'RAW_BODY_UNAVAILABLE' };
+      }
+      const expectedHmac = 'sha256=' + createHmac('sha256', metaAppSecret).update(rawBody).digest('hex');
+      const sigBuf = Buffer.from(metaSignature, 'utf8');
+      const expBuf = Buffer.from(expectedHmac, 'utf8');
+      const valid = sigBuf.length === expBuf.length && timingSafeEqual(sigBuf, expBuf);
+      if (!valid) {
+        return { success: false, reason: 'INVALID_SIGNATURE' };
+      }
+    }
+
     const tenantId = body?.tenantId || body?.tenant_id || body?.tenant || '00000000-0000-0000-0000-000000000001';
     const generic = this.whatsappService.normalizeGenericPayload(body);
     const meta = !generic ? this.whatsappService.normalizeMetaPayload(body) : null;
