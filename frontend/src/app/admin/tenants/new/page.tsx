@@ -7,6 +7,7 @@ export default function NewTenantPage() {
   const [form, setForm] = useState({
     name: '',
     slug: '',
+    cnpj: '',
     email: '',
     phone: '',
     planSlug: 'starter',
@@ -30,6 +31,7 @@ export default function NewTenantPage() {
       const payload = {
         name: form.name,
         slug: form.slug,
+        cnpj: form.cnpj || undefined,
         email: form.email || undefined,
         phone: form.phone || undefined,
         planSlug: form.planSlug,
@@ -78,6 +80,16 @@ export default function NewTenantPage() {
             value={form.slug}
             onChange={onChange}
             required
+            style={{ width: '100%', padding: 8 }}
+          />
+        </label>
+
+        <label>
+          CNPJ
+          <input
+            name="cnpj"
+            value={form.cnpj}
+            onChange={onChange}
             style={{ width: '100%', padding: 8 }}
           />
         </label>

@@ -18,6 +18,11 @@ export class CreateTenantOnboardDto {
 
   @IsOptional()
   @IsString()
+  @Length(11, 18)
+  cnpj?: string;
+
+  @IsOptional()
+  @IsString()
   @Length(0, 20)
   phone?: string;
 

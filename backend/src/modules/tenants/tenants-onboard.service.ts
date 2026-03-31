@@ -1,4 +1,4 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { Tenant } from './tenant.entity';
@@ -36,6 +36,7 @@ export class TenantsOnboardService {
       Object.assign(tenant, {
         name: dto.name,
         slug: dto.slug,
+        cnpj: dto.cnpj,
         email: dto.email,
         phone: dto.phone,
         plan: planSlug,
@@ -92,6 +93,7 @@ export class TenantsOnboardService {
         tenant: {
           id: tenant.id,
           slug: tenant.slug,
+          cnpj: tenant.cnpj,
           name: tenant.name,
           status: tenant.status,
           plan: tenant.plan,
@@ -113,6 +115,101 @@ export class TenantsOnboardService {
         },
       };
     });
+  }
+
+  async list(search?: string, status?: string) {
+    const tenantRepo = this.dataSource.getRepository(Tenant);
+    const rows = await tenantRepo
+      .createQueryBuilder('t')
+      .where(status ? 't.status = :status' : '1=1', status ? { status } : {})
+      .andWhere(
+        search
+          ? '(LOWER(t.name) LIKE LOWER(:q) OR LOWER(t.email) LIKE LOWER(:q) OR LOWER(t.slug) LIKE LOWER(:q) OR t.cnpj LIKE :qRaw)'
+          : '1=1',
+        search ? { q: `%${search}%`, qRaw: `%${search}%` } : {},
+      )
+      .orderBy('t.created_at', 'DESC')
+      .getMany();
+
+    const data = await Promise.all(
+      rows.map(async (t) => {
+        const lic = await this.licenseSvc.getLatestLicense(t.id);
+        return {
+          id: t.id,
+          name: t.name,
+          slug: t.slug,
+          cnpj: t.cnpj,
+          email: t.email,
+          status: t.status,
+          plan: t.plan,
+          license: lic
+            ? {
+                id: lic.id,
+                status: lic.status,
+                planSlug: lic.planSlug,
+                expiresAt: lic.expiresAt,
+              }
+            : null,
+        };
+      }),
+    );
+    return data;
+  }
+
+  async getById(id: string) {
+    const tenantRepo = this.dataSource.getRepository(Tenant);
+    const tenant = await tenantRepo.findOne({ where: { id } });
+    if (!tenant) throw new NotFoundException('Tenant não encontrado');
+    const license = await this.licenseSvc.getLatestLicense(id);
+    return {
+      ...tenant,
+      license: license
+        ? {
+            id: license.id,
+            status: license.status,
+            planSlug: license.planSlug,
+            billingCycle: license.billingCycle,
+            startedAt: license.startedAt,
+            expiresAt: license.expiresAt,
+          }
+        : null,
+    };
+  }
+
+  async setStatus(id: string, newStatus: 'active' | 'suspended', actor: AuditActor) {
+    const tenantRepo = this.dataSource.getRepository(Tenant);
+    const tenant = await tenantRepo.findOne({ where: { id } });
+    if (!tenant) throw new NotFoundException('Tenant não encontrado');
+    const oldStatus = tenant.status;
+    tenant.status = newStatus;
+    await tenantRepo.save(tenant);
+
+    const lic = await this.licenseSvc.getLatestLicense(id);
+    if (lic) {
+      lic.status = newStatus === 'suspended' ? 'suspended' : 'active';
+      await this.dataSource.getRepository(TenantLicense).save(lic);
+    }
+
+    await this.audit.log(
+      'TENANT_STATUS_CHANGED',
+      'tenant',
+      id,
+      actor,
+      { oldStatus, newStatus },
+    );
+    return this.getById(id);
+  }
+
+  async renew(id: string, periodDays: number, actor: AuditActor) {
+    const license = await this.licenseSvc.renewLicense(id, periodDays);
+    await this.audit.log(
+      'LICENSE_RENEWED',
+      'tenant_license',
+      license.id,
+      actor,
+      { tenantId: id, periodDays, expiresAt: license.expiresAt },
+    );
+    return this.getById(id);
   }
 }
 

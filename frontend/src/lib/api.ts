@@ -264,6 +264,7 @@ class ApiClient {
   adminCreateTenant = (data: {
     name: string;
     slug: string;
+    cnpj?: string;
     email?: string;
     phone?: string;
     planSlug?: string;
@@ -272,8 +273,10 @@ class ApiClient {
     adminPassword?: string;
   }) => this.client.post('/admin/tenants', data);
 
-  adminUpdateTenant = (id: string, data: any) =>
-    this.client.put(`/tenants/${id}`, data);
+  adminSuspendTenant = (id: string) => this.client.patch(`/admin/tenants/${id}/suspend`);
+  adminReactivateTenant = (id: string) => this.client.patch(`/admin/tenants/${id}/reactivate`);
+  adminRenewLicense = (id: string, periodDays = 30) =>
+    this.client.post(`/admin/tenants/${id}/renew-license`, { periodDays });
 }
 
 export const api = new ApiClient();

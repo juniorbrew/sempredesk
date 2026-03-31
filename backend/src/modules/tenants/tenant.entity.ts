@@ -9,6 +9,7 @@ export class Tenant {
   @PrimaryGeneratedColumn('uuid') id: string;
   @Column({ length: 200 }) name: string;
   @Column({ unique: true, length: 100 }) slug: string;
+  @Column({ nullable: true, length: 18 }) cnpj: string;
   @Column({ length: 30, default: 'starter' }) plan: string;
   @Column({ length: 30, default: 'trial' }) status: string;
   @Column({ nullable: true, length: 200 }) email: string;
