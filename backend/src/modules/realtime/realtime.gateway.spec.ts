@@ -17,8 +17,14 @@ describe('RealtimeGateway', () => {
       setStatusAsync: jest.fn(),
     } as any;
 
-    const gateway = new RealtimeGateway(emitter, presence);
-    return { gateway, emitter, presence };
+    const ticketViewers = {
+      addViewer: jest.fn().mockResolvedValue([]),
+      removeViewer: jest.fn().mockResolvedValue([]),
+      removeUserFromTickets: jest.fn().mockResolvedValue([]),
+    } as any;
+
+    const gateway = new RealtimeGateway(emitter, presence, ticketViewers);
+    return { gateway, emitter, presence, ticketViewers };
   }
 
   it('troca o socket de empresa removendo a sala anterior', async () => {
