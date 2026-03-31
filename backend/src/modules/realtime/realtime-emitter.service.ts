@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Server } from 'socket.io';
+import type { TicketViewer } from './ticket-viewers.service';
 
 /**
  * Serviço para emitir eventos WebSocket de forma desacoplada.
@@ -56,5 +57,17 @@ export class RealtimeEmitterService {
       onlineIds,
       statusMap: statusMap || {},
     });
+  }
+
+  /**
+   * Emite a lista de agentes visualizando um ticket no momento.
+   * Todos os sockets na sala ticket:{ticketId} recebem o evento "ticket:viewers".
+   *
+   * O frontend usa isso para exibir o aviso
+   * "Agente X também está visualizando este atendimento".
+   */
+  emitTicketViewers(ticketId: string, viewers: TicketViewer[]) {
+    if (!this.server) return;
+    this.server.to(`ticket:${ticketId}`).emit('ticket:viewers', { ticketId, viewers });
   }
 }

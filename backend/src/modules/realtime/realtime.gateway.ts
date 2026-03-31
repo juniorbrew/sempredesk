@@ -9,6 +9,7 @@ import { Server } from 'socket.io';
 import { Logger } from '@nestjs/common';
 import { RealtimeEmitterService } from './realtime-emitter.service';
 import { RealtimePresenceService } from './realtime-presence.service';
+import { TicketViewersService } from './ticket-viewers.service';
 import { PRESENCE_HEARTBEAT_INTERVAL_MS } from './presence.types';
 
 @WebSocketGateway({
@@ -37,9 +38,18 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayDisconnect {
   /** Clock-outs pendentes: "tenantId:userId" → timer (grace period 60s) */
   private readonly pendingClockOuts = new Map<string, ReturnType<typeof setTimeout>>();
 
+  /**
+   * Rastreia os ticketIds que cada socket está visualizando.
+   * Chave: socketId → Set<ticketId>
+   * Usado para limpar visualizações na desconexão sem precisar
+   * consultar o Redis por padrão (economiza round-trips).
+   */
+  private readonly socketTickets = new Map<string, Set<string>>();
+
   constructor(
     private readonly emitter: RealtimeEmitterService,
     private readonly presence: RealtimePresenceService,
+    private readonly ticketViewers: TicketViewersService,
   ) {}
 
   private clearPendingClockOut(tenantId: string, userId: string) {
@@ -68,9 +78,26 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayDisconnect {
   }
 
   async handleDisconnect(client: any) {
+    // Remove visualizações de tickets antes de apagar o socketInfo do presence
+    const ticketIds = Array.from(this.socketTickets.get(client.id) ?? []);
+    this.socketTickets.delete(client.id);
+
     const info = this.presence.remove(client.id);
     if (info) {
       await this.emitPresenceToTenant(info.tenantId);
+
+      // Limpa viewers de todos os tickets que este agente estava visualizando
+      if (ticketIds.length > 0) {
+        const updates = await this.ticketViewers.removeUserFromTickets(
+          info.tenantId,
+          info.userId,
+          ticketIds,
+        );
+        for (const { ticketId, viewers } of updates) {
+          this.emitter.emitTicketViewers(ticketId, viewers);
+        }
+      }
+
       // Redistribui tickets ao agente desconectar
       if (this.assignmentSvc) {
         this.assignmentSvc.redistributeOnAgentOffline(info.tenantId, info.userId).catch(() => {});
@@ -92,18 +119,55 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayDisconnect {
   }
 
   @SubscribeMessage('join-ticket')
-  handleJoinTicket(client: any, payload: { ticketId: string }) {
-    const { ticketId } = payload || {};
-    if (ticketId) {
-      client.join(`ticket:${ticketId}`);
+  async handleJoinTicket(
+    client: any,
+    payload: { ticketId: string; userName?: string },
+  ) {
+    const { ticketId, userName } = payload || {};
+    if (!ticketId) return;
+
+    client.join(`ticket:${ticketId}`);
+
+    // Rastreia localmente quais tickets este socket está vendo
+    let ticketSet = this.socketTickets.get(client.id);
+    if (!ticketSet) {
+      ticketSet = new Set<string>();
+      this.socketTickets.set(client.id, ticketSet);
+    }
+    ticketSet.add(ticketId);
+
+    // Registra viewer no Redis e emite lista atualizada para a sala
+    const socketInfo = this.presence.getSocketInfo(client.id);
+    if (socketInfo) {
+      const viewers = await this.ticketViewers.addViewer(
+        socketInfo.tenantId,
+        ticketId,
+        socketInfo.userId,
+        userName || socketInfo.userId,
+      );
+      this.emitter.emitTicketViewers(ticketId, viewers);
     }
   }
 
   @SubscribeMessage('leave-ticket')
-  handleLeaveTicket(client: any, payload: { ticketId: string }) {
+  async handleLeaveTicket(client: any, payload: { ticketId: string }) {
     const { ticketId } = payload || {};
-    if (ticketId) {
-      client.leave(`ticket:${ticketId}`);
+    if (!ticketId) return;
+
+    client.leave(`ticket:${ticketId}`);
+
+    // Remove rastreamento local
+    this.socketTickets.get(client.id)?.delete(ticketId);
+
+    // Remove viewer do Redis e emite lista atualizada
+    const socketInfo = this.presence.getSocketInfo(client.id);
+    if (socketInfo) {
+      const viewers = await this.ticketViewers.removeViewer(
+        socketInfo.tenantId,
+        ticketId,
+        socketInfo.userId,
+      );
+      this.emitter.emitTicketViewers(ticketId, viewers);
     }
   }
 

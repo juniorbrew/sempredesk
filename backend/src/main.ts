@@ -3,14 +3,18 @@ import { RequestLoggingInterceptor } from './common/interceptors/request-logging
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
-import { IoAdapter } from '@nestjs/platform-socket.io';
 import { AppModule } from './app.module';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
+import { RedisIoAdapter } from './modules/realtime/redis-io.adapter';
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
   const app = await NestFactory.create(AppModule, { logger: ['error', 'warn', 'log'], rawBody: true });
-  app.useWebSocketAdapter(new IoAdapter(app));
+
+  // Redis Adapter para Socket.io — habilita multi-instância com fallback automático
+  const redisIoAdapter = new RedisIoAdapter(app);
+  await redisIoAdapter.connectToRedis();
+  app.useWebSocketAdapter(redisIoAdapter);
 
   // Disable Express ETag so browsers don't cache API responses
   app.getHttpAdapter().getInstance().disable('etag');

@@ -13,6 +13,7 @@ import {
   Headers,
   HttpCode,
   HttpStatus,
+  Logger,
   RawBodyRequest,
 } from '@nestjs/common';
 import { Observable } from 'rxjs';
@@ -27,6 +28,8 @@ import { TenantId } from '../../common/decorators/tenant-id.decorator';
 
 @Controller('webhooks/whatsapp')
 export class WhatsappController {
+  private readonly logger = new Logger(WhatsappController.name);
+
   constructor(
     private readonly whatsappService: WhatsappService,
     private readonly baileysService: BaileysService,
@@ -83,13 +86,20 @@ export class WhatsappController {
     const msg = generic || meta;
     if (!msg) return { success: false, reason: 'UNSUPPORTED_PAYLOAD' };
 
-    const connection = await this.baileysService.getStatus(tenantId).catch(() => null);
-    if (connection?.status === 'connected') {
-      return { success: true, skipped: true, reason: 'BAILEYS_CONNECTED' };
-    }
+    // Responde à Meta imediatamente (timeout deles é 5 s).
+    // O processamento real acontece de forma assíncrona via setImmediate
+    // para não bloquear a resposta HTTP nem perder a mensagem.
+    setImmediate(async () => {
+      try {
+        const connection = await this.baileysService.getStatus(tenantId).catch(() => null);
+        if (connection?.status === 'connected') return;
+        await this.whatsappService.handleIncomingMessage(tenantId, msg);
+      } catch (err) {
+        this.logger.error(`Erro ao processar mensagem WhatsApp (tenant=${tenantId}): ${err}`);
+      }
+    });
 
-    const result = await this.whatsappService.handleIncomingMessage(tenantId, msg);
-    return { success: true, ...result };
+    return { success: true, queued: true };
   }
 
   // ── Send via Meta API ─────────────────────────────────────────────────
