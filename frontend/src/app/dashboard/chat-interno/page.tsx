@@ -9,8 +9,6 @@ import { usePresenceStore } from '@/store/presence.store';
 import { format, isToday, isYesterday } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
-const WS_BASE = resolveWsBase();
-
 const S = {
   bg: '#fff', bg2: '#F8F8FB', bg3: '#F1F1F6',
   bd: 'rgba(0,0,0,0.07)', bd2: 'rgba(0,0,0,0.12)',
@@ -153,8 +151,10 @@ export default function ChatInternoPage() {
     (async () => {
       const token = localStorage.getItem('accessToken');
       if (!token || !user?.tenantId) return;
+      const base = resolveWsBase();
+      if (!base) return;
       const { io } = await import('socket.io-client');
-      socket = io(`${WS_BASE}/realtime`, {
+      socket = io(`${base}/realtime`, {
         path: '/socket.io',
         transports: ['websocket', 'polling'],
         auth: { token },

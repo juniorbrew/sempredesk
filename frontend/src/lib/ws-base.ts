@@ -1,5 +1,6 @@
 'use client';
 
+/** Base do Socket.IO; chamar em runtime (useEffect / handler), não em const de topo do módulo. */
 export function resolveWsBase(): string {
   const configured = process.env.NEXT_PUBLIC_API_URL?.replace(/\/api\/v1\/?$/, '');
   if (configured) return configured;

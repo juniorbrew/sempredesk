@@ -4,8 +4,6 @@ import { useAuthStore } from '@/store/auth.store';
 import { usePresenceStore } from '@/store/presence.store';
 import { resolveWsBase } from '@/lib/ws-base';
 
-const WS_BASE = resolveWsBase();
-
 const HEARTBEAT_INTERVAL_MS = 15_000;
 const POLL_INTERVAL_MS = 10_000;
 
@@ -78,8 +76,10 @@ export function PresenceProvider({ children }: { children: React.ReactNode }) {
 
     (async () => {
       loadPresence();
+      const base = resolveWsBase();
+      if (!base) return;
       const { io } = await import('socket.io-client');
-      socket = io(`${WS_BASE}/realtime`, {
+      socket = io(`${base}/realtime`, {
         path: '/socket.io',
         transports: ['websocket', 'polling'],
         auth: { token },

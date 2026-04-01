@@ -2,8 +2,6 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { resolveWsBase } from './ws-base';
 
-const WS_BASE = resolveWsBase();
-
 /**
  * JWT para Socket.IO: o painel grava em `accessToken`; o portal do cliente usa
  * Zustand persist na chave `portal-auth` (state.accessToken apenas).
@@ -28,12 +26,13 @@ function readAccessTokenFromStorage(): string | null {
 let _sharedSocket: any = null;
 
 async function getSharedSocket(): Promise<any | null> {
-  if (!WS_BASE) return null;
+  const base = resolveWsBase();
+  if (!base) return null;
   const token = readAccessTokenFromStorage();
   if (!token) return null;
   if (_sharedSocket) return _sharedSocket;
   const { io } = await import('socket.io-client');
-  _sharedSocket = io(`${WS_BASE}/realtime`, {
+  _sharedSocket = io(`${base}/realtime`, {
     path: '/socket.io',
     transports: ['websocket', 'polling'],
     auth: { token },
@@ -47,7 +46,7 @@ export function useRealtimeTicket(ticketId: string | null, onMessage: (msg: any)
   onMessageRef.current = onMessage;
 
   useEffect(() => {
-    if (!ticketId || !WS_BASE) return;
+    if (!ticketId || !resolveWsBase()) return;
 
     let active = true;
     let handler: ((msg: any) => void) | null = null;
@@ -81,7 +80,7 @@ export function useRealtimeConversation(conversationId: string | null, onMessage
   onMessageRef.current = onMessage;
 
   useEffect(() => {
-    if (!conversationId || !WS_BASE) return;
+    if (!conversationId || !resolveWsBase()) return;
 
     let active = true;
     let handler: ((msg: any) => void) | null = null;
@@ -131,7 +130,7 @@ export function useRealtimeConversationClosed(
   onClosedRef.current = onClosed;
 
   useEffect(() => {
-    if (!WS_BASE) return;
+    if (!resolveWsBase()) return;
 
     let active = true;
     let handler: ((payload: any) => void) | null = null;
@@ -176,7 +175,7 @@ export function useRealtimeTicketAssigned(
   onAssignedRef.current = onAssigned;
 
   useEffect(() => {
-    if (!WS_BASE) return;
+    if (!resolveWsBase()) return;
 
     let active = true;
     let handler: ((payload: any) => void) | null = null;
@@ -232,7 +231,7 @@ export function useRealtimeContactTyping(
   onTypingRef.current = onTyping;
 
   useEffect(() => {
-    if (!WS_BASE) return;
+    if (!resolveWsBase()) return;
 
     let active = true;
     let handler: ((payload: any) => void) | null = null;
@@ -275,7 +274,7 @@ export function useRealtimeTenantNewMessages(
   onMessageRef.current = onMessage;
 
   useEffect(() => {
-    if (!WS_BASE) return;
+    if (!resolveWsBase()) return;
 
     let active = true;
     let handler: ((msg: any) => void) | null = null;

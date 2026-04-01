@@ -4,7 +4,6 @@ import { Bell, X, Ticket, MessageSquare, AlertTriangle, CheckCircle } from 'luci
 import { useRouter } from 'next/navigation';
 import { resolveWsBase } from '@/lib/ws-base';
 
-const WS_BASE = resolveWsBase();
 const STORAGE_KEY = 'app_notifications';
 const MAX = 50;
 
@@ -49,8 +48,10 @@ export default function NotificationBell() {
     (async () => {
       const token = localStorage.getItem('accessToken');
       if (!token) return;
+      const base = resolveWsBase();
+      if (!base) return;
       const { io } = await import('socket.io-client');
-      socket = io(`${WS_BASE}/realtime`, {
+      socket = io(`${base}/realtime`, {
         path: '/socket.io',
         transports: ['websocket', 'polling'],
         auth: { token },
