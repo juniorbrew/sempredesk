@@ -4,7 +4,7 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { usePortalStore } from '@/store/portal.store';
 import { portalFetch } from '@/lib/portal-fetch';
-import { useRealtimeTicket } from '@/lib/realtime';
+import { useRealtimeTicket, useRealtimeConversation } from '@/lib/realtime';
 import { ArrowLeft, Send, User, Headphones, RefreshCw, AlertTriangle, UserCircle, MessageSquare, PhoneCall, ThumbsUp, ThumbsDown, CheckCircle, XCircle, ChevronUp, ImagePlus } from 'lucide-react';
 
 const API_BASE = '/api/v1';
@@ -44,6 +44,8 @@ export default function PortalDashboardTicketDetailPage() {
   const routeTicketRef = decodeURIComponent(Array.isArray(id) ? id[0] : String(id || ''));
   const isUuidTicketRef = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(routeTicketRef);
   const apiTicketId = ticket?.id || routeTicketRef;
+  const linkedConvIdRef = useRef<string | null>(null);
+  linkedConvIdRef.current = ticket?.conversationId ?? null;
 
   const STATUS_PT: Record<string,string> = { open:'Aberto', in_progress:'Em Andamento', waiting_client:'Aguardando Cliente', resolved:'Resolvido', closed:'Fechado', cancelled:'Cancelado', low:'Baixa', medium:'Média', high:'Alta', critical:'Crítico' };
 
@@ -184,13 +186,48 @@ export default function PortalDashboardTicketDetailPage() {
     };
   }, [messages, accessToken]);
 
-  // ── realtime: append new messages without full reload ──
+  // ── realtime: mensagens só do ticket (evita duplicar as da conversa vinculada) ──
   useRealtimeTicket(ticket?.id || null, (msg: any) => {
     if (!msg) return;
-    setMessages(prev => {
+    const linked = linkedConvIdRef.current;
+    if (linked && msg.conversationId != null && String(msg.conversationId) === String(linked)) {
+      return;
+    }
+    setMessages((prev) => {
       const exists = prev.some((x: any) => String(x.id) === String(msg.id));
-      if (exists) return prev.map((x: any) => String(x.id) === String(msg.id) ? { ...x, ...msg } : x);
+      if (exists) return prev.map((x: any) => (String(x.id) === String(msg.id) ? { ...x, ...msg } : x));
       return [...prev, msg];
+    });
+  });
+
+  // ── realtime: histórico unificado — mensagens da conversa (portal / WhatsApp / mídia) ──
+  useRealtimeConversation(ticket?.conversationId ?? null, (msg: any) => {
+    if (!msg?.id) return;
+    const linked = linkedConvIdRef.current;
+    if (!linked || msg.conversationId == null || String(msg.conversationId) !== String(linked)) return;
+    const row = {
+      id: msg.id,
+      authorId: msg.authorId,
+      authorType: msg.authorType,
+      authorName: msg.authorName,
+      content: msg.content,
+      createdAt: msg.createdAt,
+      messageType: 'comment' as const,
+      channel: msg.channel,
+      mediaKind: msg.mediaKind ?? null,
+      mediaMime: msg.mediaMime ?? null,
+      hasMedia: !!(msg.hasMedia ?? msg.mediaKind),
+      whatsappStatus: msg.whatsappStatus ?? null,
+      externalId: msg.externalId ?? null,
+    };
+    setMessages((prev) => {
+      const exists = prev.some((x: any) => String(x.id) === String(row.id));
+      if (exists) {
+        return prev.map((x: any) => (String(x.id) === String(row.id) ? { ...x, ...row } : x));
+      }
+      return [...prev, row].sort(
+        (a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+      );
     });
   });
 
