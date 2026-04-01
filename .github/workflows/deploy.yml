@@ -103,4 +103,24 @@ jobs:
             echo "Subindo restantes servicos..."
             docker compose up -d
 
+            echo "Aguardando backend /api/v1/health (ate ~2 min)..."
+            okapi=0
+            for i in $(seq 1 40); do
+              if curl -sf --max-time 8 http://127.0.0.1:4000/api/v1/health >/dev/null 2>&1; then
+                okapi=1
+                echo "Backend respondeu (tentativa $i)"
+                break
+              fi
+              sleep 3
+            done
+            if [ "$okapi" -ne 1 ]; then
+              echo "ERRO: backend nao respondeu em 127.0.0.1:4000"
+              docker compose ps
+              docker compose logs backend --tail 100
+              exit 1
+            fi
+
+            echo "Smoke (scripts/smoke-public.sh)..."
+            BASE_URL=http://127.0.0.1:4000 bash scripts/smoke-public.sh
+
             echo "Deploy concluido!"

@@ -31,8 +31,8 @@ echo | openssl s_client -connect cliente.sempredesk.com.br:443 -servername clien
 ## 3) Smoke tests funcionais
 
 - [ ] Health da API (rápido, a partir da pasta do repo):
-  - `BASE_URL=http://127.0.0.1:4000 bash scripts/smoke-public.sh` (no host, com porto do backend exposto), ou
-  - `BASE_URL=https://suporte.sempredesk.com.br bash scripts/smoke-public.sh` (HTTPS atrás do nginx).
+  - O **Deploy para Servidor** (GitHub Actions) já corre `scripts/smoke-public.sh` na VPS após o `compose up`.
+  - Manual: `BASE_URL=http://127.0.0.1:4000 bash scripts/smoke-public.sh` (host com porto 4000), ou `BASE_URL=https://suporte.sempredesk.com.br ...` (via nginx).
 - [ ] `GET /api/v1/health` manual (equivalente ao script acima).
 - [ ] Login **painel suporte** (`suporte.*`).
 - [ ] Login **portal cliente** (`cliente.*`).
