@@ -19,7 +19,10 @@ export async function portalFetch(input: RequestInfo | URL, init?: RequestInit):
       const msg = typeof err === 'object' && err && typeof (err as { message?: string }).message === 'string'
         ? (err as { message: string }).message
         : '';
-      window.location.replace(`/license-blocked?reason=${encodeURIComponent(msg)}`);
+      const q = new URLSearchParams();
+      if (msg) q.set('reason', msg);
+      q.set('from', 'portal');
+      window.location.replace(`/license-blocked?${q.toString()}`);
       throw new Error('PORTAL_LICENSE_BLOCKED');
     }
   }

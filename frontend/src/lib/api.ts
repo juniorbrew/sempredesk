@@ -45,8 +45,11 @@ class ApiClient {
             if (!path.startsWith('/license-blocked')) {
               const msg =
                 typeof raw === 'object' && raw && 'message' in raw ? String((raw as { message?: string }).message || '') : '';
-              const qs = msg ? `?reason=${encodeURIComponent(msg)}` : '';
-              window.location.replace(`/license-blocked${qs}`);
+              const q = new URLSearchParams();
+              if (msg) q.set('reason', msg);
+              if (path.startsWith('/portal')) q.set('from', 'portal');
+              else q.set('from', 'staff');
+              window.location.replace(`/license-blocked?${q.toString()}`);
             }
           }
         }
