@@ -9,16 +9,26 @@ import { Eye, EyeOff, Shield, Zap, Headphones, BarChart3 } from 'lucide-react';
 
 interface LoginForm { email: string; password: string; }
 
+function destinoAposLoginHost(): '/admin/tenants' | '/dashboard' {
+  if (typeof window === 'undefined') return '/dashboard';
+  return window.location.hostname.includes('adminpanel.') ? '/admin/tenants' : '/dashboard';
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const setAuth = useAuthStore((s) => s.setAuth);
   const [showPwd, setShowPwd] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [painelMaster, setPainelMaster] = useState(false);
+
+  useEffect(() => {
+    setPainelMaster(window.location.hostname.includes('adminpanel.'));
+  }, []);
 
   useEffect(() => {
     useAuthStore.persist.rehydrate();
     const token = localStorage.getItem('accessToken');
-    if (token) router.replace('/dashboard');
+    if (token) router.replace(destinoAposLoginHost());
   }, [router]);
 
   const { register, handleSubmit, formState: { errors } } = useForm<LoginForm>();
@@ -29,7 +39,7 @@ export default function LoginPage() {
       const res: any = await api.login(data.email, data.password);
       setAuth(res.user, res.accessToken, res.refreshToken);
       toast.success(`Bem-vindo, ${res.user.name}!`);
-      router.push('/dashboard');
+      router.push(destinoAposLoginHost());
     } catch (err: any) {
       toast.error(err?.response?.data?.error?.message || 'Credenciais inválidas');
     } finally {
@@ -49,10 +59,14 @@ export default function LoginPage() {
             <span className="text-white font-bold text-xl">SempreDesk</span>
           </div>
           <h1 className="text-4xl font-bold text-white mb-4 leading-tight">
-            Gerencie seu suporte técnico com eficiência
+            {painelMaster
+              ? 'Administração master — empresas e licenças'
+              : 'Gerencie seu suporte técnico com eficiência'}
           </h1>
           <p className="text-indigo-200 text-lg">
-            Tickets, monitoramento de PDVs, contratos e muito mais em um só lugar.
+            {painelMaster
+              ? 'Onboarding de tenants, renovação de licenças e gestão da plataforma.'
+              : 'Tickets, monitoramento de PDVs, contratos e muito mais em um só lugar.'}
           </p>
         </div>
 
@@ -76,8 +90,14 @@ export default function LoginPage() {
       <div className="flex-1 flex items-center justify-center p-8 bg-white">
         <div className="w-full max-w-md">
           <div className="mb-8">
-            <h2 className="text-3xl font-bold text-gray-900">Entrar</h2>
-            <p className="text-gray-500 mt-2">Acesse sua conta para continuar</p>
+            <h2 className="text-3xl font-bold text-gray-900">
+              {painelMaster ? 'Painel master' : 'Entrar'}
+            </h2>
+            <p className="text-gray-500 mt-2">
+              {painelMaster
+                ? 'Acesso restrito à equipe SempreDesk (super admin).'
+                : 'Acesse sua conta para continuar'}
+            </p>
           </div>
 
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
@@ -125,18 +145,30 @@ export default function LoginPage() {
             </button>
           </form>
 
-          <div className="mt-8 p-4 bg-gray-50 rounded-lg text-sm text-gray-600">
-            <p className="font-medium mb-1">Credenciais demo (equipe):</p>
-            <p>admin@demo.com / Admin@123</p>
-          </div>
+          {!painelMaster && (
+            <div className="mt-8 p-4 bg-gray-50 rounded-lg text-sm text-gray-600">
+              <p className="font-medium mb-1">Credenciais demo (equipe):</p>
+              <p>admin@demo.com / Admin@123</p>
+            </div>
+          )}
 
-          <div className="mt-4 p-4 bg-amber-50 rounded-lg text-sm text-amber-800 border border-amber-200">
-            <p className="font-semibold mb-1">É cliente? Use o portal do cliente</p>
-            <p className="mb-2">As credenciais do portal <strong>não funcionam aqui</strong>. Acesse <strong>cliente.sempredesk.com.br</strong> para acompanhar seus tickets.</p>
-            <a href="https://cliente.sempredesk.com.br" className="text-amber-700 hover:underline font-semibold">
-              Ir para portal do cliente →
-            </a>
-          </div>
+          {painelMaster ? (
+            <div className="mt-8 p-4 bg-slate-100 rounded-lg text-sm text-slate-700 border border-slate-200">
+              <p className="font-semibold mb-1">Operação diária do suporte</p>
+              <p className="mb-2">Use <strong>suporte.sempredesk.com.br</strong> para tickets e dashboard da empresa.</p>
+              <a href="https://suporte.sempredesk.com.br/auth/login" className="text-indigo-700 hover:underline font-semibold">
+                Ir para o painel de suporte →
+              </a>
+            </div>
+          ) : (
+            <div className="mt-4 p-4 bg-amber-50 rounded-lg text-sm text-amber-800 border border-amber-200">
+              <p className="font-semibold mb-1">É cliente? Use o portal do cliente</p>
+              <p className="mb-2">As credenciais do portal <strong>não funcionam aqui</strong>. Acesse <strong>cliente.sempredesk.com.br</strong> para acompanhar seus tickets.</p>
+              <a href="https://cliente.sempredesk.com.br" className="text-amber-700 hover:underline font-semibold">
+                Ir para portal do cliente →
+              </a>
+            </div>
+          )}
         </div>
       </div>
     </div>

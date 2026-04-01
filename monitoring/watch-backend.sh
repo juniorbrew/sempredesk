@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -u
 
-URL="${1:-https://suporte.financeos.com.br/api/monitoring/health}"
+URL="${1:-https://suporte.sempredesk.com.br/api/monitoring/health}"
 LOG="/opt/suporte-tecnico/logs/backend-watch.log"
 
 mkdir -p /opt/suporte-tecnico/logs

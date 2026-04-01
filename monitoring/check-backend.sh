@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
-URL="${1:-https://suporte.financeos.com.br/api/monitoring/health}"
+URL="${1:-https://suporte.sempredesk.com.br/api/monitoring/health}"
 
 echo "Verificando $URL"
 STATUS=$(curl -k -s -o /tmp/backend-health.out -w "%{http_code}" "$URL" || true)

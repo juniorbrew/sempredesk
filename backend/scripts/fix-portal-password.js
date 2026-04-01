@@ -76,7 +76,7 @@ async function main() {
   );
 
   console.log('\n✓ Senha do portal definida com sucesso!');
-  console.log('  O contato pode acessar em: cliente.financeos.com.br');
+  console.log('  O contato pode acessar em: https://cliente.sempredesk.com.br');
   console.log('  E-mail:', c.email);
   console.log('  Senha: (a que você informou)');
 

@@ -1,5 +1,3 @@
-version: '3.9'
-
 services:
   # ─────────────────────────────────────────
   # PostgreSQL
@@ -85,7 +83,7 @@ services:
       REDIS_PASSWORD: redis123
       RABBITMQ_URL: amqp://suporte:suporte123@rabbitmq:5672/suporte_vhost
       NODE_ENV: production
-      ALLOWED_ORIGINS: https://suporte.sempredesk.com.br,https://cliente.sempredesk.com.br,http://suporte.sempredesk.com.br,http://cliente.sempredesk.com.br,http://77.237.236.230
+      ALLOWED_ORIGINS: https://suporte.sempredesk.com.br,https://cliente.sempredesk.com.br,https://adminpanel.sempredesk.com.br,http://suporte.sempredesk.com.br,http://cliente.sempredesk.com.br,http://adminpanel.sempredesk.com.br,http://77.237.236.230
       PORT: 4000
     ports:
       - "4000:4000"
