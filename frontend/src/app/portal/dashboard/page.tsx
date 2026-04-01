@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePortalStore } from '@/store/portal.store';
+import { portalFetch } from '@/lib/portal-fetch';
 import { Ticket, FileText, Clock, CheckCircle, AlertTriangle, Plus, ArrowRight, Bell } from 'lucide-react';
 
 export default function PortalHomePage() {
@@ -15,7 +16,7 @@ export default function PortalHomePage() {
     if (!accessToken || !scopeCompanyId) return;
     setLoading(true);
     try {
-      const res = await fetch(`/api/v1/tickets?clientId=${scopeCompanyId}&perPage=5`, {
+      const res = await portalFetch(`/api/v1/tickets?clientId=${scopeCompanyId}&perPage=5`, {
         headers: { Authorization: `Bearer ${accessToken}` },
         signal,
       });

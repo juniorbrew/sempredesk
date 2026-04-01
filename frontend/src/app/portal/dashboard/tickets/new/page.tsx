@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, Send } from 'lucide-react';
 import { usePortalStore } from '@/store/portal.store';
+import { portalFetch } from '@/lib/portal-fetch';
 
 const lbl = {
   display: 'block',
@@ -49,7 +50,7 @@ export default function PortalNewTicketPage() {
   useEffect(() => {
     if (!accessToken) return;
 
-    fetch('/api/v1/ticket-settings/tree', {
+    portalFetch('/api/v1/ticket-settings/tree', {
       headers: { Authorization: `Bearer ${accessToken}` },
     })
       .then((r) => r.json())
@@ -86,7 +87,7 @@ export default function PortalNewTicketPage() {
     setError('');
 
     try {
-      const res = await fetch('/api/v1/tickets', {
+      const res = await portalFetch('/api/v1/tickets', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

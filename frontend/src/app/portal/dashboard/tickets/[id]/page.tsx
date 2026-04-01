@@ -3,6 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { usePortalStore } from '@/store/portal.store';
+import { portalFetch } from '@/lib/portal-fetch';
 import { useRealtimeTicket } from '@/lib/realtime';
 import { ArrowLeft, Send, User, Headphones, RefreshCw, AlertTriangle, UserCircle, MessageSquare, PhoneCall, ThumbsUp, ThumbsDown, CheckCircle, XCircle, ChevronUp } from 'lucide-react';
 
@@ -71,7 +72,7 @@ export default function PortalDashboardTicketDetailPage() {
       const ticketUrl = !isUuidTicketRef && client?.id
         ? `${API_BASE}/tickets/by-number/${encodeURIComponent(routeTicketRef)}?clientId=${client.id}`
         : `${API_BASE}/tickets/${routeTicketRef}`;
-      const tRes = await fetch(ticketUrl, { headers:{ Authorization:`Bearer ${accessToken}` } });
+      const tRes = await portalFetch(ticketUrl, { headers:{ Authorization:`Bearer ${accessToken}` } });
       const tData = await tRes.json();
       const teamData: any[] = [];
       const ticketData = (tRes.ok && (tData?.data || tData)) ? (tData?.data || tData) : null;
@@ -82,7 +83,7 @@ export default function PortalDashboardTicketDetailPage() {
         setLoading(false);
         return;
       }
-      const mRes = await fetch(`${API_BASE}/tickets/${ticketData.id}/messages?includeInternal=false&limit=${PAGE_LIMIT}`, { headers:{ Authorization:`Bearer ${accessToken}` } });
+      const mRes = await portalFetch(`${API_BASE}/tickets/${ticketData.id}/messages?includeInternal=false&limit=${PAGE_LIMIT}`, { headers:{ Authorization:`Bearer ${accessToken}` } });
       const mData = await mRes.json();
       // Suporte a resposta paginada ({ messages, hasMore }) e array simples
       const rawTicketMsgs = (mData?.messages ?? mData?.data ?? mData ?? []).filter((m:any) => m.messageType !== 'internal');
@@ -91,7 +92,7 @@ export default function PortalDashboardTicketDetailPage() {
 
       if (ticketData?.conversationId) {
         try {
-          const cRes = await fetch(`${API_BASE}/conversations/${ticketData.conversationId}/messages?limit=${PAGE_LIMIT}`, { headers:{ Authorization:`Bearer ${accessToken}` } });
+          const cRes = await portalFetch(`${API_BASE}/conversations/${ticketData.conversationId}/messages?limit=${PAGE_LIMIT}`, { headers:{ Authorization:`Bearer ${accessToken}` } });
           const cData = await cRes.json();
           convMsgs = Array.isArray(cData?.messages) ? cData.messages : Array.isArray(cData?.data) ? cData.data : Array.isArray(cData) ? cData : [];
         } catch {}
@@ -114,7 +115,7 @@ export default function PortalDashboardTicketDetailPage() {
       const oldest = messages.find((m:any) => m.messageType !== 'internal' && !['system','status_change','assignment','escalation'].includes(m.messageType));
       const cursorId = oldest?.id;
       const url = `${API_BASE}/tickets/${apiTicketId}/messages?includeInternal=false&limit=${PAGE_LIMIT}${cursorId ? `&before=${cursorId}` : ''}`;
-      const res = await fetch(url, { headers:{ Authorization:`Bearer ${accessToken}` } });
+      const res = await portalFetch(url, { headers:{ Authorization:`Bearer ${accessToken}` } });
       const data = await res.json();
       const older = (data?.messages ?? data?.data ?? data ?? []).filter((m:any) => m.messageType !== 'internal');
       setHasMore(data?.hasMore ?? false);
@@ -148,7 +149,7 @@ export default function PortalDashboardTicketDetailPage() {
     if (!message.trim() || !apiTicketId) return;
     setSending(true);
     try {
-      await fetch(`${API_BASE}/tickets/${apiTicketId}/messages`, {
+      await portalFetch(`${API_BASE}/tickets/${apiTicketId}/messages`, {
         method:'POST',
         headers:{ 'Content-Type':'application/json', Authorization:`Bearer ${accessToken}` },
         body: JSON.stringify({ content:message, messageType:'comment', channel:'portal' }),
@@ -162,7 +163,7 @@ export default function PortalDashboardTicketDetailPage() {
     if (satisfying || !apiTicketId) return;
     setSatisfying(true);
     try {
-      await fetch(`${API_BASE}/tickets/${apiTicketId}/satisfaction`, {
+      await portalFetch(`${API_BASE}/tickets/${apiTicketId}/satisfaction`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
         body: JSON.stringify({ score }),

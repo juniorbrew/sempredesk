@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { SettingsService } from '../settings/settings.service';
 import * as nodemailer from 'nodemailer';
 
@@ -6,7 +7,10 @@ import * as nodemailer from 'nodemailer';
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
 
-  constructor(private readonly settingsService: SettingsService) {}
+  constructor(
+    private readonly settingsService: SettingsService,
+    private readonly cfg: ConfigService,
+  ) {}
 
   private async getTransporter(tenantId: string) {
     const s = await this.settingsService.findByTenant(tenantId);
@@ -180,6 +184,37 @@ export class EmailService {
       });
     } catch (e) {
       this.logger.error('Error sending weekly report:', e.message);
+    }
+  }
+
+  /**
+   * E-mail da plataforma (trial / SaaS), sem depender do SMTP configurado por tenant.
+   * Variáveis: SAAS_SMTP_HOST, SAAS_SMTP_PORT, SAAS_SMTP_USER, SAAS_SMTP_PASS, SAAS_SMTP_FROM
+   */
+  async sendSaasPlatformEmail(to: string, subject: string, html: string): Promise<boolean> {
+    const host = this.cfg.get<string>('SAAS_SMTP_HOST')?.trim();
+    if (!host) {
+      this.logger.warn('SAAS_SMTP_HOST não definido — lembrete de trial não enviado');
+      return false;
+    }
+    const port = parseInt(this.cfg.get<string>('SAAS_SMTP_PORT') || '587', 10);
+    const user = this.cfg.get<string>('SAAS_SMTP_USER')?.trim();
+    const pass = this.cfg.get<string>('SAAS_SMTP_PASS') ?? '';
+    const from = this.cfg.get<string>('SAAS_SMTP_FROM')?.trim() || user || 'noreply@sempredesk.com.br';
+    const secure = this.cfg.get<string>('SAAS_SMTP_SECURE') === 'true';
+
+    try {
+      const transport = nodemailer.createTransport({
+        host,
+        port,
+        secure,
+        auth: user ? { user, pass } : undefined,
+      });
+      await transport.sendMail({ from, to, subject, html });
+      return true;
+    } catch (e: any) {
+      this.logger.error(`sendSaasPlatformEmail falhou: ${e?.message || e}`);
+      return false;
     }
   }
 }

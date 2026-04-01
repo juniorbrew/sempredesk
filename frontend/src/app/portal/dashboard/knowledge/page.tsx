@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { usePortalStore } from '@/store/portal.store';
+import { portalFetch } from '@/lib/portal-fetch';
 import { BookOpen, Search, Eye } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -16,7 +17,7 @@ export default function PortalKnowledgePage() {
     setLoading(true);
     try {
       const url = q ? `/api/v1/knowledge/search?q=${encodeURIComponent(q)}` : `/api/v1/knowledge`;
-      const res = await fetch(url, { headers:{ Authorization:`Bearer ${accessToken}` } });
+      const res = await portalFetch(url, { headers:{ Authorization:`Bearer ${accessToken}` } });
       const data = await res.json();
       setArticles(data?.data || []);
     } catch {}

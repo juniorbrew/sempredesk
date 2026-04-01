@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { usePortalStore } from '@/store/portal.store';
+import { portalFetch } from '@/lib/portal-fetch';
 import { FileText, Clock, CheckCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -19,7 +20,7 @@ export default function PortalContractsPage() {
   useEffect(() => {
     if (!accessToken || !client?.id) return;
     setLoading(true);
-    fetch(`/api/v1/contracts`, { headers:{ Authorization:`Bearer ${accessToken}` } })
+    portalFetch(`/api/v1/contracts`, { headers:{ Authorization:`Bearer ${accessToken}` } })
       .then(r=>r.json())
       .then(d => {
         const all = d?.data?.data || d?.data || d || [];

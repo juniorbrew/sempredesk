@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePortalStore } from '@/store/portal.store';
+import { portalFetch } from '@/lib/portal-fetch';
 import { Ticket, Plus, Search, ChevronLeft, ChevronRight, Filter } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -41,7 +42,7 @@ export default function PortalTicketsPage() {
       if (statusFilter) params.append('status', statusFilter);
       if (priorityFilter) params.append('priority', priorityFilter);
       if (search) params.append('search', search);
-      const res = await fetch(`/api/v1/tickets?${params}`, {
+      const res = await portalFetch(`/api/v1/tickets?${params}`, {
         headers:{ Authorization:`Bearer ${accessToken}` },
         signal,
       });
