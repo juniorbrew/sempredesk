@@ -49,9 +49,9 @@ echo | openssl s_client -connect cliente.sempredesk.com.br:443 -servername clien
 
 ---
 
-## 5) Deploy CI falhou — rede ou nome de container em conflito
+## 5) Deploy CI falhou — rede, nome de container ou dependência Compose
 
-Mensagens típicas: `network with name suporte_network already exists`, `container name ... already in use`.
+Mensagens típicas: `network with name suporte_network already exists`, `container name ... already in use`, `postgres-exporter is missing dependency postgres`.
 
 Na VPS, como utilizador com acesso ao Docker:
 
@@ -66,6 +66,12 @@ done
 for id in $(docker ps -aq --filter "label=com.docker.compose.project=suporte-tecnico" 2>/dev/null); do docker rm -f "$id" 2>/dev/null || true; done
 for id in $(docker ps -aq --filter "name=suporte" 2>/dev/null); do docker rm -f "$id" 2>/dev/null || true; done
 docker network rm suporte_network 2>/dev/null || true
+docker compose up -d postgres redis rabbitmq
+for i in $(seq 1 90); do
+  st=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}unknown{{end}}' suporte_postgres 2>/dev/null || echo none)
+  [ "$st" = "healthy" ] && break
+  sleep 2
+done
 docker compose up -d
 ```
 

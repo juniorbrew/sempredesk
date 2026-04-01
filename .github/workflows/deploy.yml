@@ -78,7 +78,29 @@ jobs:
             # Rede fixa no docker-compose.yml (name: suporte_network) pode ficar orfa.
             docker network rm suporte_network 2>/dev/null || true
 
-            echo "Subindo containers..."
+            # Fase 1: DB e filas primeiro (evita "postgres-exporter is missing dependency postgres" no up paralelo).
+            echo "Subindo postgres, redis e rabbitmq..."
+            docker compose up -d postgres redis rabbitmq
+
+            echo "Aguardando postgres ficar healthy (ate ~3 min)..."
+            okpg=0
+            for i in $(seq 1 90); do
+              st=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}unknown{{end}}' suporte_postgres 2>/dev/null || echo "none")
+              if [ "$st" = "healthy" ]; then
+                okpg=1
+                echo "Postgres healthy (tentativa $i)"
+                break
+              fi
+              sleep 2
+            done
+            if [ "$okpg" -ne 1 ]; then
+              echo "ERRO: timeout a esperar suporte_postgres healthy. Estado:"
+              docker compose ps
+              docker inspect suporte_postgres --format '{{json .State}}' 2>/dev/null || true
+              exit 1
+            fi
+
+            echo "Subindo restantes servicos..."
             docker compose up -d
 
             echo "Deploy concluido!"

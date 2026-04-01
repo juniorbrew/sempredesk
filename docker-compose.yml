@@ -211,9 +211,10 @@ services:
       DATA_SOURCE_NAME: postgresql://suporte:suporte123@postgres:5432/suporte_tecnico?sslmode=disable
     ports:
       - "9187:9187"
+    # service_started evita "missing dependency postgres" em up -d paralelo; o exporter falha/recomeça até o DB aceitar.
     depends_on:
       postgres:
-        condition: service_healthy
+        condition: service_started
 
   redis-exporter:
     image: oliver006/redis_exporter:latest
@@ -226,7 +227,7 @@ services:
       - "9121:9121"
     depends_on:
       redis:
-        condition: service_healthy
+        condition: service_started
 
 volumes:
   postgres_data:
