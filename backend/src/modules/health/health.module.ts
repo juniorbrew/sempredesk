@@ -2,8 +2,10 @@ import { Controller, Get, Res } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Module } from '@nestjs/common';
 import type { Response } from 'express';
+import { SkipTenantLicenseCheck } from '../../common/decorators/skip-tenant-license.decorator';
 
 @ApiTags('health')
+@SkipTenantLicenseCheck()
 @Controller()
 export class HealthController {
   @Get('health')

@@ -1,6 +1,8 @@
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
 import { RequestLoggingInterceptor } from './common/interceptors/request-logging.interceptor';
-import { NestFactory } from '@nestjs/core';
+import { TenantLicenseInterceptor } from './common/interceptors/tenant-license.interceptor';
+import { TenantLicenseService } from './modules/saas/tenant-license.service';
+import { NestFactory, Reflector } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
@@ -27,6 +29,7 @@ async function bootstrap() {
         'http://localhost:3000',
         'https://cliente.sempredesk.com.br',
         'https://suporte.sempredesk.com.br',
+        'https://adminpanel.sempredesk.com.br',
       ];
   app.enableCors({
     origin: allowedOrigins,
@@ -45,7 +48,12 @@ async function bootstrap() {
   );
 
   app.useGlobalFilters(new AllExceptionsFilter());
-  app.useGlobalInterceptors(new ResponseInterceptor());
+  const reflector = app.get(Reflector);
+  const tenantLicenseSvc = app.get(TenantLicenseService);
+  app.useGlobalInterceptors(
+    new TenantLicenseInterceptor(reflector, tenantLicenseSvc),
+    new ResponseInterceptor(),
+  );
 
   // Swagger
   const config = new DocumentBuilder()

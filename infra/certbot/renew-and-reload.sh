@@ -1,6 +1,5 @@
 #!/usr/bin/env sh
 # Rodar no HOST da VPS (cron), a partir do diretório do projeto — ex.: /opt/suporte-tecnico
-# O hook deploy dentro do container certbot não executa `docker exec` com segurança; use isto no cron.
 set -e
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 REPO_ROOT=$(cd "$SCRIPT_DIR/../.." && pwd)

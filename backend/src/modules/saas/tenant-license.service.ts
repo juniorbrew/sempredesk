@@ -1,13 +1,16 @@
-import { Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { TenantLicense } from './tenant-license.entity';
+import { Tenant } from '../tenants/tenant.entity';
 
 @Injectable()
 export class TenantLicenseService {
   constructor(
     @InjectRepository(TenantLicense)
     private readonly repo: Repository<TenantLicense>,
+    @InjectRepository(Tenant)
+    private readonly tenants: Repository<Tenant>,
   ) {}
 
   buildInitialLicensePayload(tenantId: string, planSlug: string) {
@@ -70,6 +73,31 @@ export class TenantLicenseService {
     latest.expiresAt = expiresAt;
     latest.cancelledAt = null;
     return this.repo.save(latest as any) as Promise<TenantLicense>;
+  }
+
+  /**
+   * Garante que o tenant pode usar a API (empresa ativa + licença não expirada / não cancelada).
+   * Sem linha em tenant_licenses: não bloqueia (compatibilidade com tenants antigos).
+   */
+  async assertTenantOperational(tenantId: string): Promise<void> {
+    const tenant = await this.tenants.findOne({ where: { id: tenantId } });
+    if (!tenant) {
+      throw new ForbiddenException('Empresa inválida');
+    }
+    if (tenant.status === 'suspended') {
+      throw new ForbiddenException('Esta empresa está suspensa. Contacte o suporte SempreDesk.');
+    }
+
+    const lic = await this.getLatestLicense(tenantId);
+    if (!lic) return;
+
+    const inactive = ['suspended', 'cancelled', 'expired'];
+    if (inactive.includes(lic.status)) {
+      throw new ForbiddenException('Licença inativa. Contacte o suporte SempreDesk.');
+    }
+    if (lic.expiresAt && new Date(lic.expiresAt).getTime() < Date.now()) {
+      throw new ForbiddenException('Licença expirada. Renove o plano para continuar.');
+    }
   }
 }
 
