@@ -51,6 +51,8 @@ export default function TicketDetailsPage() {
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<'comment'|'note'|'update'>('comment');
   const [message, setMessage] = useState('');
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const attachFileInputRef = useRef<HTMLInputElement>(null);
   const [sending, setSending] = useState(false);
   const [showEditPanel, setShowEditPanel] = useState(false);
   const [showClient, setShowClient] = useState(true);
@@ -112,6 +114,13 @@ export default function TicketDetailsPage() {
   };
 
   useEffect(() => { if (id) load(); }, [id]);
+
+  useEffect(() => {
+    if (activeTab !== 'comment') {
+      setPendingFile(null);
+      if (attachFileInputRef.current) attachFileInputRef.current.value = '';
+    }
+  }, [activeTab]);
 
   useEffect(() => {
     const toRevoke = { ...convMediaUrlsRef.current };
@@ -205,18 +214,33 @@ export default function TicketDetailsPage() {
     setSaving(false);
   };
 
-  const sendMessage = async (e:FormEvent) => {
-    // All messages stay in ticket — no forwarding to conversation/WhatsApp
-    e.preventDefault(); if (!message.trim()) return; setSending(true);
+  const sendMessage = async (e: FormEvent) => {
+    e.preventDefault();
+    const text = message.trim();
+    const file = pendingFile;
+    if (!text && !file) return;
+    if (file && activeTab !== 'comment') {
+      toast.error('Anexos só na resposta pública.');
+      return;
+    }
+    if (file && !ticket?.conversationId) {
+      toast.error('Sem conversa vinculada. Abra o Atendimento ou vincule uma conversa para enviar imagem ou áudio.');
+      return;
+    }
+    setSending(true);
     try {
-      await api.addMessage(id, { content: message, messageType: activeTab === 'note' ? 'internal' : 'comment' });
-      const refreshedMsgs: any = await api.getMessages(id, true);
-      const filteredMsgs = (Array.isArray(refreshedMsgs) ? refreshedMsgs : []).filter((m: any) =>
-        !ticket?.conversationId || (m.channel !== 'portal' && m.channel !== 'whatsapp')
-      );
-      setMessages(filteredMsgs);
+      if (file && ticket.conversationId && activeTab === 'comment') {
+        await api.addConversationMessage(ticket.conversationId, { content: text || undefined, file });
+      } else {
+        await api.addMessage(id, { content: text, messageType: activeTab === 'note' ? 'internal' : 'comment' });
+      }
+      await load();
       setMessage('');
-    } catch(e:any){ toast.error(e?.response?.data?.message||'Erro ao enviar'); }
+      setPendingFile(null);
+      if (attachFileInputRef.current) attachFileInputRef.current.value = '';
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Erro ao enviar');
+    }
     setSending(false);
   };
 
@@ -920,19 +944,85 @@ export default function TicketDetailsPage() {
                 ))}
               </div>
               <form onSubmit={sendMessage}>
+                <input
+                  ref={attachFileInputRef}
+                  type="file"
+                  accept="image/*,audio/*"
+                  style={{ display: 'none' }}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (!f) return;
+                    if (!f.type.startsWith('image/') && !f.type.startsWith('audio/')) {
+                      toast.error('Envie apenas imagem ou áudio.');
+                      e.target.value = '';
+                      return;
+                    }
+                    setPendingFile(f);
+                  }}
+                />
                 <div style={{ padding:'16px' }}>
+                  {activeTab === 'comment' && pendingFile && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, fontSize: 12, color: S.txt2 }}>
+                      <Paperclip style={{ width: 14, height: 14, flexShrink: 0 }} />
+                      <span style={{ fontWeight: 600, color: S.txt }}>{pendingFile.name}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPendingFile(null);
+                          if (attachFileInputRef.current) attachFileInputRef.current.value = '';
+                        }}
+                        style={{ background: 'none', border: 'none', color: '#DC2626', cursor: 'pointer', fontSize: 12, fontFamily: 'inherit', padding: 0 }}
+                      >
+                        remover
+                      </button>
+                    </div>
+                  )}
                   <textarea value={message} onChange={e => setMessage(e.target.value)} rows={3}
                     placeholder={activeTab==='note'?'Nota interna (visível só para a equipe)...':activeTab==='update'?'Descreva a atualização do ticket...':'Digite sua resposta para o cliente...'}
                     style={{ width:'100%', background:'#FFFFFF', border:`1px solid ${activeTab==='note' ? '#FCD34D' : activeTab==='update' ? '#C7D2FE' : '#E2E8F0'}`, outline:'none', fontSize:13, color:S.txt, fontFamily:'inherit', lineHeight:1.7, resize:'none' as const, boxSizing:'border-box' as const, minHeight:108, borderRadius:18, padding:'14px 16px', boxShadow:activeTab==='note' ? 'inset 0 1px 0 rgba(255,255,255,0.8), 0 10px 24px rgba(251,146,60,0.08)' : activeTab==='update' ? 'inset 0 1px 0 rgba(255,255,255,0.8), 0 10px 24px rgba(99,102,241,0.08)' : 'inset 0 1px 0 rgba(255,255,255,0.8), 0 10px 24px rgba(15,23,42,0.05)' }} />
                 </div>
                 <div style={{ display:'flex', alignItems:'center', gap:8, padding:'0 16px 16px' }}>
                   {[
-                    <Paperclip key="a" style={{width:14,height:14}}/>,
-                    <svg key="b" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18"/></svg>,
-                    <svg key="c" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>,
-                    <svg key="d" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>,
-                  ].map((icon, i) => (
-                    <button key={i} type="button" style={{ width:34, height:34, borderRadius:10, background:'#FFFFFF', border:`1px solid ${S.bd}`, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:S.txt2, boxShadow:'0 6px 16px rgba(15,23,42,0.04)' }}>{icon}</button>
+                    {
+                      icon: <Paperclip style={{ width: 14, height: 14 }} />,
+                      onClick: () => {
+                        if (activeTab !== 'comment') {
+                          toast.error('Use a aba «Resposta pública» para anexar imagem ou áudio.');
+                          return;
+                        }
+                        if (!ticket?.conversationId) {
+                          toast.error('Sem conversa vinculada ao ticket.');
+                          return;
+                        }
+                        attachFileInputRef.current?.click();
+                      },
+                    },
+                    { icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18"/></svg> },
+                    { icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg> },
+                    { icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg> },
+                  ].map((item, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={item.onClick}
+                      title={i === 0 ? 'Imagem ou áudio (conversa vinculada)' : undefined}
+                      style={{
+                        width: 34,
+                        height: 34,
+                        borderRadius: 10,
+                        background: '#FFFFFF',
+                        border: `1px solid ${S.bd}`,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: S.txt2,
+                        boxShadow: '0 6px 16px rgba(15,23,42,0.04)',
+                        opacity: i === 0 && activeTab !== 'comment' ? 0.45 : 1,
+                      }}
+                    >
+                      {item.icon}
+                    </button>
                   ))}
                   <div style={{ flex:1, minWidth:0 }}>
                     <div style={{ fontSize:11, color:S.txt3 }}>
@@ -940,11 +1030,32 @@ export default function TicketDetailsPage() {
                         ? 'Visivel apenas para a equipe interna.'
                         : activeTab==='update'
                           ? 'Use para registrar uma atualizacao do atendimento.'
-                          : 'Resposta publica registrada no historico do ticket.'}
+                          : ticket?.conversationId
+                            ? 'Resposta pública; pode anexar imagem ou áudio (clip). Em WhatsApp, a mídia segue para o cliente.'
+                            : 'Resposta publica registrada no historico do ticket.'}
                     </div>
                   </div>
-                  <button type="submit" disabled={sending||!message.trim()}
-                    style={{ padding:'10px 18px', background:activeTab==='note' ? '#F59E0B' : S.accent, color:'#fff', border:'none', borderRadius:12, fontSize:12, fontWeight:700, cursor:'pointer', fontFamily:'inherit', display:'flex', alignItems:'center', gap:7, opacity:!message.trim()?0.5:1, boxShadow:activeTab==='note' ? '0 14px 30px rgba(245,158,11,0.25)' : '0 14px 30px rgba(79,70,229,0.22)', transition:'background .15s' }}>
+                  <button
+                    type="submit"
+                    disabled={sending || (activeTab === 'comment' ? !message.trim() && !pendingFile : !message.trim())}
+                    style={{
+                      padding:'10px 18px',
+                      background:activeTab==='note' ? '#F59E0B' : S.accent,
+                      color:'#fff',
+                      border:'none',
+                      borderRadius:12,
+                      fontSize:12,
+                      fontWeight:700,
+                      cursor:'pointer',
+                      fontFamily:'inherit',
+                      display:'flex',
+                      alignItems:'center',
+                      gap:7,
+                      opacity: (activeTab === 'comment' ? !message.trim() && !pendingFile : !message.trim()) || sending ? 0.5 : 1,
+                      boxShadow:activeTab==='note' ? '0 14px 30px rgba(245,158,11,0.25)' : '0 14px 30px rgba(79,70,229,0.22)',
+                      transition:'background .15s',
+                    }}
+                  >
                     <Send style={{width:13,height:13}}/> {sending?'Enviando...':'Enviar resposta'}
                   </button>
                 </div>
