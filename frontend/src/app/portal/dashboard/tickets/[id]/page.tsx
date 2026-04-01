@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePortalStore } from '@/store/portal.store';
 import { portalFetch } from '@/lib/portal-fetch';
 import { useRealtimeTicket } from '@/lib/realtime';
-import { ArrowLeft, Send, User, Headphones, RefreshCw, AlertTriangle, UserCircle, MessageSquare, PhoneCall, ThumbsUp, ThumbsDown, CheckCircle, XCircle, ChevronUp } from 'lucide-react';
+import { ArrowLeft, Send, User, Headphones, RefreshCw, AlertTriangle, UserCircle, MessageSquare, PhoneCall, ThumbsUp, ThumbsDown, CheckCircle, XCircle, ChevronUp, ImagePlus } from 'lucide-react';
 
 const API_BASE = '/api/v1';
 
@@ -25,6 +25,9 @@ export default function PortalDashboardTicketDetailPage() {
   const [team, setTeam] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const attachFileInputRef = useRef<HTMLInputElement>(null);
+  const [replyError, setReplyError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [focusMsg, setFocusMsg] = useState(false);
   const [showClient, setShowClient] = useState(true);
@@ -193,16 +196,60 @@ export default function PortalDashboardTicketDetailPage() {
 
   const sendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!message.trim() || !apiTicketId) return;
+    const text = message.trim();
+    const file = pendingFile;
+    if ((!text && !file) || !apiTicketId) return;
+    const convId = ticket?.conversationId;
+    if (file && !convId) {
+      setReplyError('Este chamado não tem conversa vinculada; envie imagem ou áudio pelo chat do portal, se disponível.');
+      return;
+    }
+    setReplyError(null);
     setSending(true);
     try {
-      await portalFetch(`${API_BASE}/tickets/${apiTicketId}/messages`, {
-        method:'POST',
-        headers:{ 'Content-Type':'application/json', Authorization:`Bearer ${accessToken}` },
-        body: JSON.stringify({ content:message, messageType:'comment', channel:'portal' }),
-      });
-      setMessage(''); load();
-    } catch {}
+      if (file && convId) {
+        const fd = new FormData();
+        if (text) fd.append('content', text);
+        fd.append('file', file);
+        const res = await portalFetch(`${API_BASE}/conversations/${convId}/messages`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${accessToken}` },
+          body: fd,
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          const msg =
+            typeof data?.message === 'string'
+              ? data.message
+              : Array.isArray(data?.message)
+                ? data.message.join('; ')
+                : data?.error?.message || 'Erro ao enviar anexo';
+          throw new Error(msg);
+        }
+      } else {
+        const res = await portalFetch(`${API_BASE}/tickets/${apiTicketId}/messages`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+          body: JSON.stringify({ content: text, messageType: 'comment', channel: 'portal' }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          const msg =
+            typeof data?.message === 'string'
+              ? data.message
+              : Array.isArray(data?.message)
+                ? data.message.join('; ')
+                : 'Erro ao enviar';
+          throw new Error(msg);
+        }
+      }
+      setMessage('');
+      setPendingFile(null);
+      if (attachFileInputRef.current) attachFileInputRef.current.value = '';
+      await load();
+    } catch (err: any) {
+      setReplyError(typeof err?.message === 'string' ? err.message : 'Erro ao enviar');
+    }
     setSending(false);
   };
 
@@ -474,14 +521,81 @@ export default function PortalDashboardTicketDetailPage() {
         <div style={{ background:'#fff', border:'1px solid #E2E8F0', borderRadius:16, padding:20 }}>
           <p style={{ fontSize:12, fontWeight:700, color:'#94A3B8', letterSpacing:'0.08em', textTransform:'uppercase', margin:'0 0 12px' }}>Responder</p>
           <form onSubmit={sendMessage}>
-            <textarea value={message} onChange={e=>setMessage(e.target.value)} rows={3}
+            <input
+              ref={attachFileInputRef}
+              type="file"
+              accept="image/*,audio/*"
+              style={{ display: 'none' }}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (!f) return;
+                if (!f.type.startsWith('image/') && !f.type.startsWith('audio/')) {
+                  setReplyError('Envie apenas imagem ou áudio.');
+                  e.target.value = '';
+                  return;
+                }
+                setReplyError(null);
+                setPendingFile(f);
+              }}
+            />
+            {replyError && (
+              <p style={{ margin: '0 0 10px', fontSize: 12, color: '#DC2626' }}>{replyError}</p>
+            )}
+            {pendingFile && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, fontSize: 12, color: '#64748B' }}>
+                <span style={{ fontWeight: 600, color: '#0F172A' }}>{pendingFile.name}</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPendingFile(null);
+                    if (attachFileInputRef.current) attachFileInputRef.current.value = '';
+                  }}
+                  style={{ background: 'none', border: 'none', color: '#DC2626', cursor: 'pointer', fontSize: 12, fontFamily: 'inherit', padding: 0 }}
+                >
+                  remover
+                </button>
+              </div>
+            )}
+            <textarea
+              value={message}
+              onChange={(e) => {
+                setMessage(e.target.value);
+                if (replyError) setReplyError(null);
+              }}
+              rows={3}
               placeholder="Escreva sua mensagem..."
-              onFocus={()=>setFocusMsg(true)} onBlur={()=>setFocusMsg(false)}
-              style={{ width:'100%', padding:'12px 14px', background:focusMsg?'#fff':'#F8FAFC', border:`1.5px solid ${focusMsg?'#6366F1':'#E2E8F0'}`, borderRadius:10, color:'#0F172A', fontSize:13, outline:'none', resize:'vertical' as const, boxSizing:'border-box' as const, boxShadow:focusMsg?'0 0 0 3px rgba(99,102,241,0.1)':'none', transition:'all 0.15s' }} />
-            <div style={{ display:'flex', justifyContent:'flex-end', marginTop:10 }}>
-              <button type="submit" disabled={sending||!message.trim()}
-                style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 20px', background:'linear-gradient(135deg,#4F46E5,#6366F1)', border:'none', borderRadius:10, color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer', opacity:(!message.trim()||sending)?0.5:1, boxShadow:'0 4px 14px rgba(99,102,241,0.3)' }}>
-                <Send style={{ width:14, height:14 }} /> {sending?'Enviando...':'Enviar'}
+              onFocus={() => setFocusMsg(true)}
+              onBlur={() => setFocusMsg(false)}
+              style={{ width:'100%', padding:'12px 14px', background:focusMsg?'#fff':'#F8FAFC', border:`1.5px solid ${focusMsg?'#6366F1':'#E2E8F0'}`, borderRadius:10, color:'#0F172A', fontSize:13, outline:'none', resize:'vertical' as const, boxSizing:'border-box' as const, boxShadow:focusMsg?'0 0 0 3px rgba(99,102,241,0.1)':'none', transition:'all 0.15s' }}
+            />
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginTop:10, gap:12, flexWrap:'wrap' as const }}>
+              <button
+                type="button"
+                title="Imagem ou áudio"
+                onClick={() => attachFileInputRef.current?.click()}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '10px 14px',
+                  background: '#F1F5F9',
+                  border: '1.5px solid #E2E8F0',
+                  borderRadius: 10,
+                  color: '#475569',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                }}
+              >
+                <ImagePlus style={{ width: 16, height: 16 }} /> Imagem / áudio
+              </button>
+              <button
+                type="submit"
+                disabled={sending || (!message.trim() && !pendingFile)}
+                style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 20px', background:'linear-gradient(135deg,#4F46E5,#6366F1)', border:'none', borderRadius:10, color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer', opacity:(!message.trim() && !pendingFile) || sending ? 0.5 : 1, boxShadow:'0 4px 14px rgba(99,102,241,0.3)', marginLeft: 'auto' }}
+              >
+                <Send style={{ width:14, height:14 }} /> {sending ? 'Enviando...' : 'Enviar'}
               </button>
             </div>
           </form>
