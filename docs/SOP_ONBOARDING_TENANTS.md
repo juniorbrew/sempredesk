@@ -9,7 +9,7 @@ Cadastrar uma nova empresa (tenant) no painel master e validar que ela esta pron
 - Usuario com `role = super_admin`.
 - Ambiente em producao saudavel:
   - `docker compose ps`
-  - `curl -s http://localhost:4000/api/v1/health` retornando `status: ok`.
+  - `curl -s http://localhost:4000/api/v1/health` retornando `status: ok`, ou na raiz do repo: `BASE_URL=http://127.0.0.1:4000 bash scripts/smoke-public.sh` (ver [CHECKLIST_SEQUENCIA_POS_DEPLOY.md](./CHECKLIST_SEQUENCIA_POS_DEPLOY.md)).
 - Acesso ao painel:
   - `https://adminpanel.sempredesk.com.br/admin/tenants/new`
 
