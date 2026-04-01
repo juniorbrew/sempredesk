@@ -1045,7 +1045,7 @@ export default function AtendimentoPage() {
           if (msg._localPreviewUrl) URL.revokeObjectURL(msg._localPreviewUrl);
           return { ...real };
         }));
-        // Socket também vai entregar via 'message'; dedup por ID cuidará disso sem duplicar
+        // Socket também entrega via ticket:message / conversation:message; dedup por ID evita duplicar
       } else {
         // API não retornou objeto (caso raro: ticket sem conversationId ou meta API pura).
         // Aguarda socket substituir o otimista; reload de segurança após 1.5s.

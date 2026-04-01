@@ -820,6 +820,25 @@ export class ConversationsService {
 
     emitMsg(); // emit inicial com o status que foi salvo
 
+    if (conv.ticketId) {
+      void this.ticketsService.findOne(tenantId, conv.ticketId).then((tk) => {
+        if (!tk?.ticketNumber) return;
+        const preview =
+          saved.mediaKind === 'image'
+            ? '[Imagem]' + (content ? `: ${content.slice(0, 40)}` : '')
+            : saved.mediaKind === 'audio'
+              ? '[Áudio]'
+              : content.length > 80
+                ? `${content.slice(0, 77)}…`
+                : content || '(mensagem)';
+        this.realtimeEmitter.emitTenantTicketMessageNotify(tenantId, {
+          ticketId: conv.ticketId!,
+          ticketNumber: tk.ticketNumber,
+          content: preview,
+        });
+      });
+    }
+
     // Notifica todos os agentes do tenant sobre nova mensagem do contato (badges em tempo real)
     if (authorType === 'contact') {
       this.realtimeEmitter.emitToTenant(tenantId, 'new-message', {
@@ -911,7 +930,7 @@ export class ConversationsService {
     const msgs = await this.getMessages(tenantId, conv.id);
     for (const m of msgs) {
       await this.ticketsService.addMessage(tenantId, ticketId, m.authorId ?? conv.contactId, m.authorName, m.authorType, {
-        content: m.content, messageType: 'comment' as any, channel: conv.channel,
+        content: m.content, messageType: 'comment' as any, channel: conv.channel, skipInAppBell: true,
       });
     }
 
@@ -928,6 +947,7 @@ export class ConversationsService {
         await this.ticketsService.addMessage(tenantId, ticketId, uid, uname, 'user', {
           content: parts.join('\n'),
           messageType: 'comment' as any,
+          skipInAppBell: true,
         });
         await this.ticketsService.resolve(tenantId, ticketId, uid, uname, {
           resolutionSummary: closureData.solution.trim(),
@@ -938,6 +958,7 @@ export class ConversationsService {
         await this.ticketsService.addMessage(tenantId, ticketId, uid, uname, 'user', {
           content: closureData.internalNote.trim(),
           messageType: 'internal' as any,
+          skipInAppBell: true,
         });
       }
 

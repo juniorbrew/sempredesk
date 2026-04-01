@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Bell, X, Ticket, MessageSquare, AlertTriangle, CheckCircle } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { resolveWsBase } from '@/lib/ws-base';
+import { getSharedRealtimeSocket } from '@/lib/realtime';
 
 const STORAGE_KEY = 'app_notifications';
 const MAX = 50;
@@ -41,61 +41,68 @@ export default function NotificationBell() {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  // Socket listener
+  // Mesmo socket do PresenceProvider + realtime (sala tenant) — não desconectar no cleanup.
   useEffect(() => {
-    let socket: any;
     let mounted = true;
-    (async () => {
-      const token = localStorage.getItem('accessToken');
-      if (!token) return;
-      const base = resolveWsBase();
-      if (!base) return;
-      const { io } = await import('socket.io-client');
-      socket = io(`${base}/realtime`, {
-        path: '/socket.io',
-        transports: ['websocket', 'polling'],
-        auth: { token },
+    let socket: any;
+
+    const addNotif = (n: Omit<AppNotification, 'id' | 'read' | 'createdAt'>) => {
+      if (!mounted) return;
+      const notif: AppNotification = { ...n, id: Date.now().toString(), read: false, createdAt: new Date().toISOString() };
+      setNotifs(prev => {
+        const next = [notif, ...prev].slice(0, MAX);
+        saveStored(next);
+        return next;
       });
+    };
 
-      const addNotif = (n: Omit<AppNotification, 'id' | 'read' | 'createdAt'>) => {
-        if (!mounted) return;
-        const notif: AppNotification = { ...n, id: Date.now().toString(), read: false, createdAt: new Date().toISOString() };
-        setNotifs(prev => {
-          const next = [notif, ...prev].slice(0, MAX);
-          saveStored(next);
-          return next;
-        });
-      };
+    const onCreated = (data: any) => addNotif({
+      type: 'ticket_created',
+      title: 'Novo ticket aberto',
+      body: `${data.ticketNumber} — ${data.subject}`,
+      href: `/dashboard/tickets/${data.id}`,
+    });
 
-      socket.on('ticket:created', (data: any) => addNotif({
-        type: 'ticket_created',
-        title: 'Novo ticket aberto',
-        body: `${data.ticketNumber} — ${data.subject}`,
-        href: `/dashboard/tickets/${data.id}`,
-      }));
+    const onTicketMsg = (data: any) => addNotif({
+      type: 'ticket_message',
+      title: 'Nova mensagem no ticket',
+      body: `${data.ticketNumber ?? '—'}: ${String(data.content ?? '').slice(0, 60)}`,
+      href: `/dashboard/tickets/${data.ticketId}`,
+    });
 
-      socket.on('ticket:message', (data: any) => addNotif({
-        type: 'ticket_message',
-        title: 'Nova mensagem no ticket',
-        body: `${data.ticketNumber}: ${data.content?.slice(0, 60)}`,
-        href: `/dashboard/tickets/${data.ticketId}`,
-      }));
+    const onSla = (data: any) => addNotif({
+      type: 'sla_warning',
+      title: 'SLA em risco',
+      body: `${data.ticketNumber} — ${data.subject}`,
+      href: `/dashboard/tickets/${data.id}`,
+    });
 
-      socket.on('sla:warning', (data: any) => addNotif({
-        type: 'sla_warning',
-        title: 'SLA em risco',
-        body: `${data.ticketNumber} — ${data.subject}`,
-        href: `/dashboard/tickets/${data.id}`,
-      }));
+    const onResolved = (data: any) => addNotif({
+      type: 'ticket_resolved',
+      title: 'Ticket resolvido',
+      body: `${data.ticketNumber} — ${data.subject}`,
+      href: `/dashboard/tickets/${data.id}`,
+    });
 
-      socket.on('ticket:resolved', (data: any) => addNotif({
-        type: 'ticket_resolved',
-        title: 'Ticket resolvido',
-        body: `${data.ticketNumber} — ${data.subject}`,
-        href: `/dashboard/tickets/${data.id}`,
-      }));
+    (async () => {
+      if (!localStorage.getItem('accessToken')) return;
+      socket = await getSharedRealtimeSocket();
+      if (!mounted || !socket) return;
+      socket.on('ticket:created', onCreated);
+      socket.on('notification:ticket-message', onTicketMsg);
+      socket.on('sla:warning', onSla);
+      socket.on('ticket:resolved', onResolved);
     })();
-    return () => { mounted = false; if (socket) socket.disconnect(); };
+
+    return () => {
+      mounted = false;
+      if (socket) {
+        socket.off('ticket:created', onCreated);
+        socket.off('notification:ticket-message', onTicketMsg);
+        socket.off('sla:warning', onSla);
+        socket.off('ticket:resolved', onResolved);
+      }
+    };
   }, []);
 
   const unread = notifs.filter(n => !n.read).length;

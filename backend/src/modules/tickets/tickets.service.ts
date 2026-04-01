@@ -1281,7 +1281,7 @@ export class TicketsService {
     authorId: string,
     authorName: string,
     authorType: string,
-    dto: AddMessageDto,
+    dto: AddMessageDto & { skipInAppBell?: boolean },
   ): Promise<TicketMessage> {
     const ticket = await this.getTicketOrFail(tenantId, ticketId);
 
@@ -1320,6 +1320,14 @@ export class TicketsService {
       channel: msg.channel,
       createdAt: msg.createdAt,
     });
+    if (!dto.skipInAppBell) {
+      const text = (msg.content || '').trim();
+      this.realtimeEmitter.emitTenantTicketMessageNotify(tenantId, {
+        ticketId,
+        ticketNumber: ticket.ticketNumber,
+        content: text.length > 80 ? `${text.slice(0, 77)}…` : text || '(sem texto)',
+      });
+    }
     return msg;
   }
 

@@ -17,10 +17,11 @@ export class RealtimeEmitterService {
 
   /**
    * Emite nova mensagem para a sala do ticket (chat e WhatsApp em tempo real).
+   * Evento dedicado evita colisão com conversation:message no mesmo socket.
    */
   emitNewMessage(ticketId: string, message: Record<string, any>) {
     if (!this.server) return;
-    this.server.to(`ticket:${ticketId}`).emit('message', message);
+    this.server.to(`ticket:${ticketId}`).emit('ticket:message', message);
   }
 
   /**
@@ -28,7 +29,19 @@ export class RealtimeEmitterService {
    */
   emitNewConversationMessage(conversationId: string, message: Record<string, any>) {
     if (!this.server) return;
-    this.server.to(`conversation:${conversationId}`).emit('message', message);
+    this.server.to(`conversation:${conversationId}`).emit('conversation:message', message);
+  }
+
+  /**
+   * Notificação in-app (sino) para agentes na sala tenant — não usar o mesmo nome que
+   * ticket:message na sala ticket, para não processar broadcast como mensagem da sala atual.
+   */
+  emitTenantTicketMessageNotify(
+    tenantId: string,
+    data: { ticketId: string; ticketNumber: string; content: string },
+  ) {
+    if (!this.server) return;
+    this.server.to(`tenant:${tenantId}`).emit('notification:ticket-message', data);
   }
 
   /**

@@ -3,6 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import { useAuthStore } from '@/store/auth.store';
 import { usePresenceStore } from '@/store/presence.store';
 import { resolveWsBase } from '@/lib/ws-base';
+import { getSharedRealtimeSocket } from '@/lib/realtime';
 
 const HEARTBEAT_INTERVAL_MS = 15_000;
 const POLL_INTERVAL_MS = 10_000;
@@ -50,6 +51,9 @@ export function PresenceProvider({ children }: { children: React.ReactNode }) {
     let socket: any;
     let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
     let pollInterval: ReturnType<typeof setInterval> | null = null;
+    let onConnectJoin: (() => void) | null = null;
+    let onDisconnect: (() => void) | null = null;
+    let onPresence: ((data: { onlineIds?: string[]; statusMap?: Record<string, string> }) => void) | null = null;
 
     const loadPresence = async () => {
       try {
@@ -76,20 +80,14 @@ export function PresenceProvider({ children }: { children: React.ReactNode }) {
 
     (async () => {
       loadPresence();
-      const base = resolveWsBase();
-      if (!base) return;
-      const { io } = await import('socket.io-client');
-      socket = io(`${base}/realtime`, {
-        path: '/socket.io',
-        transports: ['websocket', 'polling'],
-        auth: { token },
-      });
+      if (!resolveWsBase()) return;
+      socket = await getSharedRealtimeSocket();
+      if (!socket) return;
       socketRef.current = socket;
 
-      socket.on('connect', () => {
+      onConnectJoin = () => {
         stopPoll();
         setIsConnected(true);
-        // Passa dados completos do usuário para o backend poder fazer clock-in automático se necessário
         const u = useAuthStore.getState().user;
         socket.emit('join-tenant', {
           tenantId,
@@ -99,23 +97,30 @@ export function PresenceProvider({ children }: { children: React.ReactNode }) {
           userRole: u?.role,
         });
         setTimeout(loadPresence, 500);
+        if (heartbeatInterval) clearInterval(heartbeatInterval);
         heartbeatInterval = setInterval(() => {
           if (socket?.connected) socket.emit('presence:heartbeat', { tenantId, userId: String(userId) });
         }, HEARTBEAT_INTERVAL_MS);
-      });
+      };
 
-      socket.on('disconnect', () => {
+      socket.on('connect', onConnectJoin);
+
+      onDisconnect = () => {
         setIsConnected(false);
         if (heartbeatInterval) {
           clearInterval(heartbeatInterval);
           heartbeatInterval = null;
         }
         startPoll();
-      });
+      };
+      socket.on('disconnect', onDisconnect);
 
-      socket.on('internal-chat:presence', (data: { onlineIds?: string[]; statusMap?: Record<string, string> }) => {
+      onPresence = (data: { onlineIds?: string[]; statusMap?: Record<string, string> }) => {
         if (data?.onlineIds) setPresence(data.onlineIds.map((id: unknown) => String(id)), data.statusMap);
-      });
+      };
+      socket.on('internal-chat:presence', onPresence);
+
+      if (socket.connected) onConnectJoin();
     })();
 
     return () => {
@@ -126,7 +131,9 @@ export function PresenceProvider({ children }: { children: React.ReactNode }) {
         const tid = tenantIdRef.current;
         const uid = userIdRef.current;
         if (tid && uid) socket.emit('leave-tenant', { tenantId: tid, userId: String(uid) });
-        socket.disconnect();
+        if (onConnectJoin) socket.off('connect', onConnectJoin);
+        if (onDisconnect) socket.off('disconnect', onDisconnect);
+        if (onPresence) socket.off('internal-chat:presence', onPresence);
       }
       setIsConnected(false);
       setPresence([], {});

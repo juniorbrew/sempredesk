@@ -40,6 +40,11 @@ async function getSharedSocket(): Promise<any | null> {
   return _sharedSocket;
 }
 
+/** Mesma conexão usada por useRealtimeTicket / useRealtimeConversation — presença deve usar esta instância. */
+export function getSharedRealtimeSocket(): Promise<any | null> {
+  return getSharedSocket();
+}
+
 // ── useRealtimeTicket ──────────────────────────────────────────────────────────
 export function useRealtimeTicket(ticketId: string | null, onMessage: (msg: any) => void) {
   const onMessageRef = useRef(onMessage);
@@ -55,14 +60,14 @@ export function useRealtimeTicket(ticketId: string | null, onMessage: (msg: any)
       if (!active || !socket) return;
       socket.emit('join-ticket', { ticketId });
       handler = (msg: any) => onMessageRef.current(msg);
-      socket.on('message', handler);
+      socket.on('ticket:message', handler);
     });
 
     return () => {
       active = false;
       if (_sharedSocket && handler) {
         _sharedSocket.emit('leave-ticket', { ticketId });
-        _sharedSocket.off('message', handler);
+        _sharedSocket.off('ticket:message', handler);
       }
     };
   }, [ticketId]);
@@ -89,14 +94,14 @@ export function useRealtimeConversation(conversationId: string | null, onMessage
       if (!active || !socket) return;
       socket.emit('join-conversation', { conversationId });
       handler = (msg: any) => onMessageRef.current(msg);
-      socket.on('message', handler);
+      socket.on('conversation:message', handler);
     });
 
     return () => {
       active = false;
       if (_sharedSocket && handler) {
         _sharedSocket.emit('leave-conversation', { conversationId });
-        _sharedSocket.off('message', handler);
+        _sharedSocket.off('conversation:message', handler);
       }
     };
   }, [conversationId]);
@@ -107,7 +112,7 @@ export function useRealtimeConversation(conversationId: string | null, onMessage
 // ── Base para futuro realtime de status ───────────────────────────────────────
 /**
  * Prepara assinatura de atualizações de status de mensagens.
- * Atualmente as atualizações chegam via evento 'message' com o mesmo ID.
+ * Atualmente as atualizações chegam via ticket:message / conversation:message com o mesmo ID.
  * No futuro, o backend pode emitir 'message-status' separadamente.
  */
 export function subscribeToMessageUpdates(

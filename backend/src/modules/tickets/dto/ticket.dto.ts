@@ -162,6 +162,7 @@ export class AddMessageDto {
   @IsString()
   @IsOptional()
   channel?: string;
+
 }
 
 export class FilterTicketsDto {

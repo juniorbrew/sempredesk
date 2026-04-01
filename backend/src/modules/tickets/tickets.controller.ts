@@ -223,7 +223,8 @@ export class TicketsController {
   addMessage(@Request() req, @Param('id') id: string, @Body() dto: AddMessageDto) {
     const isPortal = req.user?.isPortal === true;
     const authorType = isPortal ? 'contact' : 'user';
-    const dtoWithChannel = { ...dto, channel: isPortal ? 'portal' : dto.channel };
+    const { skipInAppBell: _ignore, ...safeDto } = dto as AddMessageDto & { skipInAppBell?: boolean };
+    const dtoWithChannel = { ...safeDto, channel: isPortal ? 'portal' : safeDto.channel };
     return this.ticketsService.addMessage(req.tenantId, id, req.user.id, req.user.name, authorType, dtoWithChannel);
   }
 }
