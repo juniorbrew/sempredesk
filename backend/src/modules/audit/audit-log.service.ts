@@ -36,5 +36,26 @@ export class AuditLogService {
     });
     await repository.save(entry);
   }
+
+  async listPaged(params: {
+    limit?: number;
+    offset?: number;
+    action?: string;
+    entityType?: string;
+  }) {
+    const limit = Math.min(Math.max(Number(params.limit) || 50, 1), 200);
+    const offset = Math.max(Number(params.offset) || 0, 0);
+
+    const qb = this.repo.createQueryBuilder('a').orderBy('a.created_at', 'DESC');
+    if (params.action?.trim()) {
+      qb.andWhere('a.action ILIKE :action', { action: `%${params.action.trim()}%` });
+    }
+    if (params.entityType?.trim()) {
+      qb.andWhere('a.entity_type = :entityType', { entityType: params.entityType.trim() });
+    }
+    qb.take(limit).skip(offset);
+    const [logs, total] = await qb.getManyAndCount();
+    return { logs, total, limit, offset };
+  }
 }
 

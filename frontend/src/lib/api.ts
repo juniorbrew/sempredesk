@@ -1,4 +1,5 @@
 import axios, { AxiosInstance } from 'axios';
+import { TENANT_LICENSE_BLOCKED_CODE } from './api-errors';
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL
   ? process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, '')
@@ -33,6 +34,19 @@ class ApiClient {
             } catch {
               localStorage.clear();
               window.location.href = '/auth/login';
+            }
+          }
+        }
+        if (err.response?.status === 403 && typeof window !== 'undefined') {
+          const raw = err.response?.data?.error;
+          const code = typeof raw === 'object' && raw && 'code' in raw ? (raw as { code?: string }).code : null;
+          if (code === TENANT_LICENSE_BLOCKED_CODE) {
+            const path = window.location.pathname || '';
+            if (!path.startsWith('/license-blocked')) {
+              const msg =
+                typeof raw === 'object' && raw && 'message' in raw ? String((raw as { message?: string }).message || '') : '';
+              const qs = msg ? `?reason=${encodeURIComponent(msg)}` : '';
+              window.location.replace(`/license-blocked${qs}`);
             }
           }
         }
@@ -277,6 +291,9 @@ class ApiClient {
   adminReactivateTenant = (id: string) => this.client.patch(`/admin/tenants/${id}/reactivate`);
   adminRenewLicense = (id: string, periodDays = 30) =>
     this.client.post(`/admin/tenants/${id}/renew-license`, { periodDays });
+
+  adminListAuditLogs = (params?: { limit?: number; offset?: number; action?: string; entityType?: string }) =>
+    this.client.get('/admin/audit-logs', { params });
 }
 
 export const api = new ApiClient();

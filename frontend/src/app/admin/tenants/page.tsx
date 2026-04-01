@@ -74,9 +74,10 @@ export default function AdminTenantsPage() {
     <div style={{ padding: 24 }}>
       <h1 style={{ fontSize: 24, marginBottom: 16 }}>Empresas (Tenants)</h1>
 
-      <a href="/admin/tenants/new" style={{ display: 'inline-block', marginBottom: 16 }}>
-        + Nova empresa
-      </a>
+      <div style={{ display: 'flex', gap: 16, marginBottom: 16, flexWrap: 'wrap' }}>
+        <a href="/admin/tenants/new">+ Nova empresa</a>
+        <a href="/admin/audit-logs">Auditoria</a>
+      </div>
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
         <input
