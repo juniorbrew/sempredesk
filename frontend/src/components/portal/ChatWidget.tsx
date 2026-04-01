@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { usePortalStore } from '@/store/portal.store';
 import { useRealtimeConversation } from '@/lib/realtime';
-import { MessageCircle, X, Send, Lock, ArrowLeft, CheckCircle } from 'lucide-react';
+import { MessageCircle, X, Send, Lock, ArrowLeft, CheckCircle, ImagePlus } from 'lucide-react';
 
 const API_BASE = '/api/v1';
 
@@ -64,6 +64,12 @@ export default function ChatWidget() {
   const [hasMoreMessages, setHasMoreMessages] = useState(false);
   const [loadingMoreMessages, setLoadingMoreMessages] = useState(false);
   const [input, setInput] = useState('');
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const attachFileInputRef = useRef<HTMLInputElement>(null);
+  const [messageMediaUrls, setMessageMediaUrls] = useState<Record<string, string>>({});
+  const messageMediaUrlsRef = useRef<Record<string, string>>({});
+  messageMediaUrlsRef.current = messageMediaUrls;
+  const mediaInFlightRef = useRef<Set<string>>(new Set());
   const [sending, setSending] = useState(false);
 
   // Ticket list
@@ -77,6 +83,50 @@ export default function ChatWidget() {
   const lastSendRef = useRef<number>(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatBodyRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const toRevoke = { ...messageMediaUrlsRef.current };
+    setMessageMediaUrls({});
+    mediaInFlightRef.current.clear();
+    Object.values(toRevoke).forEach((u) => URL.revokeObjectURL(u));
+  }, [conversationId]);
+
+  useEffect(() => {
+    if (!accessToken || step !== 'chat' || !conversationId) return;
+    let cancelled = false;
+    void (async () => {
+      for (const m of messages) {
+        if (!m?.id || String(m.id).startsWith('temp-')) continue;
+        if (!(m.hasMedia || m.mediaKind === 'image' || m.mediaKind === 'audio')) continue;
+        if (messageMediaUrlsRef.current[m.id] || mediaInFlightRef.current.has(String(m.id))) continue;
+        mediaInFlightRef.current.add(String(m.id));
+        try {
+          const res = await fetch(`${API_BASE}/conversations/messages/${m.id}/media`, {
+            headers: { Authorization: `Bearer ${accessToken}` },
+            credentials: 'include',
+          });
+          if (!res.ok) throw new Error('media');
+          const blob = await res.blob();
+          if (cancelled) return;
+          const url = URL.createObjectURL(blob);
+          setMessageMediaUrls((prev) => {
+            if (prev[m.id]) {
+              URL.revokeObjectURL(url);
+              return prev;
+            }
+            return { ...prev, [m.id]: url };
+          });
+        } catch {
+          /* mensagem sem ficheiro ou permissão */
+        } finally {
+          mediaInFlightRef.current.delete(String(m.id));
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [messages, accessToken, step, conversationId]);
 
   const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
 
@@ -309,29 +359,52 @@ export default function ChatWidget() {
 
   const sendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!conversationId || !input.trim() || !accessToken || closed) return;
     const text = input.trim();
+    const file = pendingFile;
+    if (!conversationId || (!text && !file) || !accessToken || closed) return;
     setInput('');
+    setPendingFile(null);
+    if (attachFileInputRef.current) attachFileInputRef.current.value = '';
     setSending(true);
     lastSendRef.current = Date.now();
     const tempId = `temp-${Date.now()}`;
+    const previewKind = file
+      ? (file.type.startsWith('audio/') ? 'audio' : 'image')
+      : null;
+    const localPreviewUrl = file ? URL.createObjectURL(file) : null;
     const newMsg = {
       id: tempId,
-      content: text,
+      content: text || (previewKind === 'image' ? '📷 Imagem' : previewKind === 'audio' ? '🎤 Áudio' : ''),
       authorType: 'contact',
       authorName: contact?.name || 'Você',
       messageType: 'comment',
       createdAt: new Date().toISOString(),
+      mediaKind: previewKind,
+      hasMedia: !!file,
+      _localPreviewUrl: localPreviewUrl,
     };
     setMessages((m) => [...m, newMsg]);
     scrollToBottom();
     try {
-      const res = await fetch(`${API_BASE}/conversations/${conversationId}/messages`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
-        credentials: 'include',
-        body: JSON.stringify({ content: text }),
-      });
+      let res: Response;
+      if (file) {
+        const fd = new FormData();
+        if (text) fd.append('content', text);
+        fd.append('file', file);
+        res = await fetch(`${API_BASE}/conversations/${conversationId}/messages`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${accessToken}` },
+          credentials: 'include',
+          body: fd,
+        });
+      } else {
+        res = await fetch(`${API_BASE}/conversations/${conversationId}/messages`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+          credentials: 'include',
+          body: JSON.stringify({ content: text }),
+        });
+      }
       const data = await res.json();
       if (!res.ok) {
         const msg = typeof data?.message === 'string' ? data.message : (typeof data?.error === 'string' ? data.error : data?.error?.message) || 'Erro ao enviar';
@@ -340,15 +413,28 @@ export default function ChatWidget() {
       const created = data?.data ?? data;
       if (created?.id) {
         setMessages((m) => {
-          // Socket may have already added the real message before API responded
+          const dropTemp = (arr: any[]) => {
+            const t = arr.find((x) => x.id === tempId);
+            if (t?._localPreviewUrl) URL.revokeObjectURL(t._localPreviewUrl);
+            return arr.filter((x) => x.id !== tempId);
+          };
           const hasReal = m.some((x) => String(x.id) === String(created.id));
-          if (hasReal) return m.filter((x) => x.id !== tempId);
-          return m.map((x) => (x.id === tempId ? { ...x, id: created.id, createdAt: created.createdAt } : x));
+          if (hasReal) return dropTemp(m);
+          return m.map((x) => {
+            if (x.id !== tempId) return x;
+            if (x._localPreviewUrl) URL.revokeObjectURL(x._localPreviewUrl);
+            return { ...created };
+          });
         });
       }
     } catch (err: any) {
-      setMessages((m) => m.filter((x: any) => x.id !== tempId));
+      setMessages((m) => {
+        const t = m.find((x: any) => x.id === tempId);
+        if (t?._localPreviewUrl) URL.revokeObjectURL(t._localPreviewUrl);
+        return m.filter((x: any) => x.id !== tempId);
+      });
       setInput(text);
+      if (file) setPendingFile(file);
       setError(errMsg(err));
     }
     setSending(false);
@@ -384,6 +470,8 @@ export default function ChatWidget() {
       setTickets([]);
       setUnreadCount(0);
       setError(null);
+      setPendingFile(null);
+      if (attachFileInputRef.current) attachFileInputRef.current.value = '';
       setForm({ departmentId: '', departmentName: '', subject: '', description: '' });
       setChatState(null, null, 'form');
     }
@@ -423,6 +511,9 @@ export default function ChatWidget() {
       authorName: msg?.authorName ?? msg?.author_name,
       messageType: msg?.messageType ?? 'comment',
       createdAt: msg?.createdAt ?? msg?.created_at,
+      mediaKind: msg?.mediaKind ?? msg?.media_kind ?? null,
+      mediaMime: msg?.mediaMime ?? msg?.media_mime ?? null,
+      hasMedia: !!(msg?.hasMedia ?? msg?.has_media ?? msg?.mediaKind ?? msg?.media_kind),
     };
     if (!n.id) return;
     setMessages((m) => {
@@ -1060,6 +1151,15 @@ export default function ChatWidget() {
                     .map((m: any) => {
                       const isSystem = m.messageType === 'system' || m.messageType === 'status_change';
                       const isMe = !isSystem && m.authorType === 'contact';
+                      const resolvedSrc = messageMediaUrls[m.id] || m._localPreviewUrl;
+                      const hidePlaceholder =
+                        !!resolvedSrc && (m.content === '📷 Imagem' || m.content === '🎤 Áudio');
+                      const showCaption = !!(m.content && !hidePlaceholder);
+                      const showMediaBlock =
+                        !!(m.hasMedia || m.mediaKind === 'image' || m.mediaKind === 'audio') &&
+                        (m.mediaKind === 'image' || m.mediaKind === 'audio');
+                      const mediaLoading =
+                        showMediaBlock && !resolvedSrc && !String(m.id).startsWith('temp-');
 
                       if (isSystem) {
                         const isTranscript = String(m.content || '').includes('Transcrição do Chat');
@@ -1124,7 +1224,38 @@ export default function ChatWidget() {
                                 {m.authorName}
                               </span>
                             )}
-                            <p style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{m.content}</p>
+                            {m.mediaKind === 'image' && resolvedSrc && (
+                              <img
+                                src={resolvedSrc}
+                                alt=""
+                                style={{
+                                  maxWidth: '100%',
+                                  maxHeight: 220,
+                                  borderRadius: 10,
+                                  display: 'block',
+                                  marginBottom: showCaption ? 8 : 0,
+                                  objectFit: 'cover',
+                                }}
+                              />
+                            )}
+                            {m.mediaKind === 'audio' && resolvedSrc && (
+                              <audio
+                                src={resolvedSrc}
+                                controls
+                                style={{
+                                  width: '100%',
+                                  maxWidth: 260,
+                                  minHeight: 38,
+                                  marginBottom: showCaption ? 8 : 0,
+                                }}
+                              />
+                            )}
+                            {mediaLoading && (
+                              <span style={{ display: 'block', fontSize: 11, opacity: 0.8, marginBottom: 6 }}>A carregar…</span>
+                            )}
+                            {showCaption && (
+                              <p style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{m.content}</p>
+                            )}
                             <span style={{ fontSize: 10, opacity: 0.75, marginTop: 4, display: 'block', textAlign: isMe ? 'right' : 'left' }}>
                               {new Date(m.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
                             </span>
@@ -1147,7 +1278,60 @@ export default function ChatWidget() {
                     flexShrink: 0,
                   }}
                 >
+                  <input
+                    ref={attachFileInputRef}
+                    type="file"
+                    accept="image/*,audio/*"
+                    style={{ display: 'none' }}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (!f) return;
+                      if (!f.type.startsWith('image/') && !f.type.startsWith('audio/')) {
+                        setError('Envie apenas imagem ou áudio.');
+                        e.target.value = '';
+                        return;
+                      }
+                      setError(null);
+                      setPendingFile(f);
+                    }}
+                  />
+                  {pendingFile && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, fontSize: 12, color: '#64748B' }}>
+                      <span style={{ fontWeight: 600, color: '#1E293B' }}>{pendingFile.name}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPendingFile(null);
+                          if (attachFileInputRef.current) attachFileInputRef.current.value = '';
+                        }}
+                        style={{ background: 'none', border: 'none', color: '#DC2626', cursor: 'pointer', fontSize: 12, fontFamily: 'inherit', padding: 0 }}
+                      >
+                        remover
+                      </button>
+                    </div>
+                  )}
                   <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                    <button
+                      type="button"
+                      title="Imagem ou áudio"
+                      disabled={!canSendInConversation}
+                      onClick={() => attachFileInputRef.current?.click()}
+                      style={{
+                        width: 42,
+                        height: 42,
+                        borderRadius: 12,
+                        border: '1.5px solid #E2E8F0',
+                        background: '#fff',
+                        color: '#475569',
+                        cursor: canSendInConversation ? 'pointer' : 'not-allowed',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <ImagePlus style={{ width: 20, height: 20 }} />
+                    </button>
                     <input
                       className="chat-input"
                       value={input}
@@ -1158,13 +1342,13 @@ export default function ChatWidget() {
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' && !e.shiftKey) {
                           e.preventDefault();
-                          if (input.trim() && !sending && canSendInConversation) sendMessage(e as any);
+                          if ((input.trim() || pendingFile) && !sending && canSendInConversation) sendMessage(e as any);
                         }
                       }}
                     />
                     <button
                       type="submit"
-                      disabled={sending || !input.trim() || !canSendInConversation}
+                      disabled={sending || (!input.trim() && !pendingFile) || !canSendInConversation}
                       style={{
                         ...btnPrimary,
                         padding: '11px 16px',
@@ -1172,7 +1356,7 @@ export default function ChatWidget() {
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        opacity: input.trim() && !sending && canSendInConversation ? 1 : 0.5,
+                        opacity: (input.trim() || pendingFile) && !sending && canSendInConversation ? 1 : 0.5,
                         flexShrink: 0,
                       }}
                     >

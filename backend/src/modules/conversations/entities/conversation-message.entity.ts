@@ -24,6 +24,17 @@ export class ConversationMessage {
   @Column({ name: 'content', type: 'text' })
   content: string;
 
+  /** image | audio quando há ficheiro (WhatsApp ou upload do agente). */
+  @Column({ name: 'media_kind', type: 'varchar', length: 16, nullable: true })
+  mediaKind: string | null;
+
+  /** Caminho relativo sob CONVERSATION_MEDIA_DIR (ex.: {tenantId}/{file}). */
+  @Column({ name: 'media_storage_key', type: 'text', nullable: true })
+  mediaStorageKey: string | null;
+
+  @Column({ name: 'media_mime', type: 'varchar', length: 128, nullable: true })
+  mediaMime: string | null;
+
   /** ID externo da mensagem no WhatsApp (Baileys key.id). Nulo para mensagens de chat/portal. */
   @Column({ name: 'external_id', nullable: true, type: 'text' })
   externalId: string | null;

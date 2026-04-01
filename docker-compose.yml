@@ -85,10 +85,12 @@ services:
       NODE_ENV: production
       ALLOWED_ORIGINS: https://suporte.sempredesk.com.br,https://cliente.sempredesk.com.br,https://adminpanel.sempredesk.com.br,http://suporte.sempredesk.com.br,http://cliente.sempredesk.com.br,http://adminpanel.sempredesk.com.br,http://77.237.236.230
       PORT: 4000
+      CONVERSATION_MEDIA_DIR: /app/uploads/conversation-media
     ports:
       - "4000:4000"
     volumes:
       - whatsapp_sessions:/app/whatsapp-sessions
+      - conversation_media:/app/uploads/conversation-media
     depends_on:
       postgres:
         condition: service_healthy
@@ -237,6 +239,7 @@ volumes:
   prometheus_data:
   grafana_data:
   whatsapp_sessions:
+  conversation_media:
 
 networks:
   default:

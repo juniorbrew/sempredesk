@@ -65,7 +65,8 @@ export class LinkTicketDto {
 
 export class AddConversationMessageDto {
   @IsString()
-  content: string;
+  @IsOptional()
+  content?: string;
 }
 
 /** Dados opcionais de encerramento formal (solução, causa raiz, etc.) — salvos como interação separada da conversa */

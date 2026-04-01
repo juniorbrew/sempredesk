@@ -19,7 +19,7 @@ const PRIORITY_LABELS: Record<string,string> = { low:'Baixa', medium:'Média', h
 
 export default function PortalDashboardTicketDetailPage() {
   const { id } = useParams();
-  const { accessToken, client } = usePortalStore();
+  const { accessToken, client, contact } = usePortalStore();
   const [ticket, setTicket] = useState<any>(null);
   const [messages, setMessages] = useState<any[]>([]);
   const [team, setTeam] = useState<any[]>([]);
@@ -33,6 +33,10 @@ export default function PortalDashboardTicketDetailPage() {
   const [satisfying, setSatisfying] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [msgMediaUrls, setMsgMediaUrls] = useState<Record<string, string>>({});
+  const msgMediaUrlsRef = useRef<Record<string, string>>({});
+  msgMediaUrlsRef.current = msgMediaUrls;
+  const msgMediaInFlightRef = useRef<Set<string>>(new Set());
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const routeTicketRef = decodeURIComponent(Array.isArray(id) ? id[0] : String(id || ''));
   const isUuidTicketRef = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(routeTicketRef);
@@ -133,6 +137,49 @@ export default function PortalDashboardTicketDetailPage() {
   };
 
   useEffect(() => { load(); }, [routeTicketRef, accessToken, client?.id]);
+
+  useEffect(() => {
+    const toRevoke = { ...msgMediaUrlsRef.current };
+    setMsgMediaUrls({});
+    msgMediaInFlightRef.current.clear();
+    Object.values(toRevoke).forEach((u) => URL.revokeObjectURL(u));
+  }, [routeTicketRef]);
+
+  useEffect(() => {
+    if (!accessToken || messages.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      for (const m of messages) {
+        if (!m?.id) continue;
+        if (!(m.hasMedia || m.mediaKind === 'image' || m.mediaKind === 'audio')) continue;
+        if (msgMediaUrlsRef.current[m.id] || msgMediaInFlightRef.current.has(String(m.id))) continue;
+        msgMediaInFlightRef.current.add(String(m.id));
+        try {
+          const res = await portalFetch(`${API_BASE}/conversations/messages/${m.id}/media`, {
+            headers: { Authorization: `Bearer ${accessToken}` },
+          });
+          if (!res.ok) throw new Error('media');
+          const blob = await res.blob();
+          if (cancelled) return;
+          const url = URL.createObjectURL(blob);
+          setMsgMediaUrls((prev) => {
+            if (prev[m.id]) {
+              URL.revokeObjectURL(url);
+              return prev;
+            }
+            return { ...prev, [m.id]: url };
+          });
+        } catch {
+          /* id de ticket_messages ou sem ficheiro */
+        } finally {
+          msgMediaInFlightRef.current.delete(String(m.id));
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [messages, accessToken]);
 
   // ── realtime: append new messages without full reload ──
   useRealtimeTicket(ticket?.id || null, (msg: any) => {
@@ -333,6 +380,14 @@ export default function PortalDashboardTicketDetailPage() {
               const ini = m.authorName?.split(' ').map((n:string)=>n[0]).join('').slice(0,2).toUpperCase()||'?';
               const isMe = m.authorName === contact?.name;
               const isWhatsappMsg = m.channel === 'whatsapp';
+              const mediaSrc = msgMediaUrls[m.id];
+              const hideMediaPlaceholder =
+                !!mediaSrc && (m.content === '📷 Imagem' || m.content === '🎤 Áudio');
+              const showMediaCaption = !!(m.content && !hideMediaPlaceholder);
+              const hasConvMedia =
+                !!(m.hasMedia || m.mediaKind === 'image' || m.mediaKind === 'audio') &&
+                (m.mediaKind === 'image' || m.mediaKind === 'audio');
+              const convMediaLoading = hasConvMedia && !mediaSrc;
               const msgIndex = mainMessages.findIndex((x:any) => x.id === m.id);
               const msgNum = msgIndex >= 0 ? total - msgIndex : null;
 
@@ -363,7 +418,18 @@ export default function PortalDashboardTicketDetailPage() {
                         {isWhatsappMsg && <span style={{ fontSize:9, background:'#99F6E4', color:'#0D9488', padding:'2px 6px', borderRadius:20 }}>WhatsApp</span>}
                         <span style={{ fontSize:10, color:'#94A3B8', marginLeft:'auto' }}>{timeStr}</span>
                       </div>
-                      <p style={{ fontSize:13, color:'#134E4A', margin:0, whiteSpace:'pre-wrap', lineHeight:1.5 }}>{translateMsg(m.content, team)}</p>
+                      {m.mediaKind === 'image' && mediaSrc && (
+                        <img src={mediaSrc} alt="" style={{ maxWidth:'100%', maxHeight:200, borderRadius:10, display:'block', marginBottom: showMediaCaption ? 8 : 0, objectFit:'cover' }} />
+                      )}
+                      {m.mediaKind === 'audio' && mediaSrc && (
+                        <audio src={mediaSrc} controls style={{ width:'100%', maxWidth:240, minHeight:36, marginBottom: showMediaCaption ? 8 : 0 }} />
+                      )}
+                      {convMediaLoading && (
+                        <span style={{ display:'block', fontSize:11, opacity:0.8, marginBottom:6 }}>A carregar…</span>
+                      )}
+                      {showMediaCaption && (
+                        <p style={{ fontSize:13, color:'#134E4A', margin:0, whiteSpace:'pre-wrap', lineHeight:1.5 }}>{translateMsg(m.content, team)}</p>
+                      )}
                     </div>
                   </div>
                 );
@@ -383,7 +449,18 @@ export default function PortalDashboardTicketDetailPage() {
                       {isWhatsappMsg && <span style={{ fontSize:9, background:'#CCFBF1', color:'#0F766E', padding:'2px 6px', borderRadius:20 }}>WhatsApp</span>}
                       <span style={{ fontSize:10, color:'#94A3B8', marginLeft:'auto' }}>{timeStr}</span>
                     </div>
-                    <p style={{ fontSize:13, color:'#312E81', margin:0, whiteSpace:'pre-wrap', lineHeight:1.5 }}>{translateMsg(m.content, team)}</p>
+                    {m.mediaKind === 'image' && mediaSrc && (
+                      <img src={mediaSrc} alt="" style={{ maxWidth:'100%', maxHeight:200, borderRadius:10, display:'block', marginBottom: showMediaCaption ? 8 : 0, objectFit:'cover' }} />
+                    )}
+                    {m.mediaKind === 'audio' && mediaSrc && (
+                      <audio src={mediaSrc} controls style={{ width:'100%', maxWidth:240, minHeight:36, marginBottom: showMediaCaption ? 8 : 0 }} />
+                    )}
+                    {convMediaLoading && (
+                      <span style={{ display:'block', fontSize:11, opacity:0.8, marginBottom:6 }}>A carregar…</span>
+                    )}
+                    {showMediaCaption && (
+                      <p style={{ fontSize:13, color:'#312E81', margin:0, whiteSpace:'pre-wrap', lineHeight:1.5 }}>{translateMsg(m.content, team)}</p>
+                    )}
                   </div>
                 </div>
               );

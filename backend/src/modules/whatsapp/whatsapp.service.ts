@@ -23,6 +23,9 @@ export interface NormalizedWhatsappMessage {
   timestamp?: Date;
   senderName?: string;
   resolvedDigits?: string | null;
+  /** Mídia já gravada em disco (Baileys). */
+  media?: { kind: 'image' | 'audio'; storageKey: string; mime: string } | null;
+  isLid?: boolean;
 }
 
 @Injectable()
@@ -88,8 +91,8 @@ export class WhatsappService {
     // Don't truncate LID-format numbers (from @lid JIDs) — keep full identifier
     // Only truncate if it looks like a real phone number (starts with country code)
 
-    const text = msg.text?.trim();
-    if (!text) return { created: false, reason: 'EMPTY_MESSAGE' };
+    const text = msg.text?.trim() ?? '';
+    if (!text && !msg.media) return { created: false, reason: 'EMPTY_MESSAGE' };
 
     // For Meta webhook messages, run chatbot here (Baileys runs it in whatsapp.module.ts)
     let resolvedDepartment = department;
@@ -114,7 +117,7 @@ export class WhatsappService {
     // Detecta se é um identificador LID (não é número de telefone real)
     // LIDs são identificadores internos do WhatsApp — 14+ dígitos ou flag explícita do Baileys
     const rawFromDigits = msg.from.replace(/\D/g, '');
-    const isLid = (msg as any).isLid === true || rawFromDigits.length >= 14;
+    const isLid = msg.isLid === true || (msg as any).isLid === true || rawFromDigits.length >= 14;
     const normalizedWhatsapp = normalizeWhatsappNumber(wa) || wa;
     this.logWhatsappResolution({
       scope: 'contact-resolution',
@@ -281,8 +284,8 @@ export class WhatsappService {
     }
 
     // CNPJ auto-detection: só executa se chatbot não identificou cliente e contato não tem cliente
-    if (!chatbotClientId && !contact.clientId) {
-      const cnpjDetectado = detectCnpjInText(text ?? '');
+    if (!chatbotClientId && !contact.clientId && text) {
+      const cnpjDetectado = detectCnpjInText(text);
       if (cnpjDetectado) {
         this.logger.log(`CNPJ detectado em mensagem do contato ${contact.id}: ${cnpjDetectado}`);
         try {
@@ -325,13 +328,16 @@ export class WhatsappService {
       stage: 'before-conversation-resolution',
     });
 
+    const firstPreview =
+      text ||
+      (msg.media?.kind === 'image' ? '[Imagem]' : msg.media?.kind === 'audio' ? '[Áudio]' : '');
     const { conversation, ticket, ticketCreated } = await this.conversationsService.getOrCreateForContact(
       tenantId,
       resolvedClientId,
       contact.id,
       ConversationChannel.WHATSAPP,
       {
-        firstMessage: text,
+        firstMessage: firstPreview,
         contactName: contact.name || contact.email || wa,
         department: resolvedDepartment,
         autoCreateTicket: true,
@@ -358,9 +364,12 @@ export class WhatsappService {
       contact.id,
       contact.name || contact.email || wa,
       'contact',
-      text,
+      text || (msg.media?.kind === 'image' ? '📷 Imagem' : msg.media?.kind === 'audio' ? '🎤 Áudio' : ''),
       {
         initialExternalId: msg.messageId?.trim() || null,
+        mediaKind: msg.media?.kind ?? null,
+        mediaStorageKey: msg.media?.storageKey ?? null,
+        mediaMime: msg.media?.mime ?? null,
       },
     );
 

@@ -43,6 +43,8 @@ export class BaileysService {
   private intentionalDisconnects = new Set<string>();
   private reconnectAttempts = new Map<string, number>(); // tenantId -> attempt count
   private readonly sessionsDir = process.env.WHATSAPP_SESSIONS_DIR || '/app/whatsapp-sessions';
+  /** Mídia recebida/enviada nas conversas (imagens/áudio WhatsApp). */
+  private readonly conversationMediaDir = process.env.CONVERSATION_MEDIA_DIR || path.join(process.cwd(), 'uploads', 'conversation-media');
 
   // ── Rate limiting de envio ──────────────────────────────────────────────────
   // Fila por tenant: serializa envios e impõe delay mínimo entre mensagens
@@ -131,6 +133,33 @@ export class BaileysService {
     if (!fs.existsSync(this.sessionsDir)) {
       fs.mkdirSync(this.sessionsDir, { recursive: true });
     }
+    if (!fs.existsSync(this.conversationMediaDir)) {
+      fs.mkdirSync(this.conversationMediaDir, { recursive: true });
+    }
+  }
+
+  private extForMime(mime?: string | null): string {
+    const m = (mime || '').toLowerCase();
+    if (m.includes('png')) return 'png';
+    if (m.includes('webp')) return 'webp';
+    if (m.includes('jpeg') || m.includes('jpg')) return 'jpg';
+    if (m.includes('ogg')) return 'ogg';
+    if (m.includes('mpeg') || m.includes('mp3')) return 'mp3';
+    if (m.includes('mp4') || m.includes('m4a') || m.includes('aac')) return 'm4a';
+    if (m.includes('opus')) return 'opus';
+    return 'bin';
+  }
+
+  /** Grava buffer recebido do WhatsApp e devolve chave relativa a CONVERSATION_MEDIA_DIR. */
+  private saveInboundMedia(tenantId: string, waMessageId: string, kind: 'image' | 'audio', buffer: Buffer, mime: string): string {
+    const dir = path.join(this.conversationMediaDir, tenantId);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const ext = this.extForMime(mime);
+    const safeId = String(waMessageId || 'msg').replace(/[^\w.-]/g, '_');
+    const fname = `${safeId}.${ext}`;
+    const full = path.join(dir, fname);
+    fs.writeFileSync(full, buffer);
+    return path.posix.join(tenantId, fname);
   }
 
   private onMessageCallback: ((
@@ -141,6 +170,7 @@ export class BaileysService {
     senderName?: string,
     isLid?: boolean,
     resolvedDigits?: string | null,
+    media?: { kind: 'image' | 'audio'; storageKey: string; mime: string } | null,
   ) => void) | null = null;
 
   setMessageHandler(cb: (
@@ -151,6 +181,7 @@ export class BaileysService {
     senderName?: string,
     isLid?: boolean,
     resolvedDigits?: string | null,
+    media?: { kind: 'image' | 'audio'; storageKey: string; mime: string } | null,
   ) => void) {
     this.onMessageCallback = cb;
   }
@@ -429,11 +460,57 @@ export class BaileysService {
         const remoteJid: string = msg.key.remoteJid || '';
         // Skip group messages (@g.us) and status broadcasts
         if (remoteJid.includes('@g.us') || remoteJid === 'status@broadcast') return;
-        const text = msg.message?.conversation
+        let text =
+          msg.message?.conversation
           || msg.message?.extendedTextMessage?.text
           || msg.message?.imageMessage?.caption
-          || msg.message?.videoMessage?.caption;
-        if (!text) return;
+          || msg.message?.videoMessage?.caption
+          || '';
+        let media: { kind: 'image' | 'audio'; storageKey: string; mime: string } | null = null;
+        const img = msg.message?.imageMessage;
+        const aud = msg.message?.audioMessage;
+        if (img) {
+          try {
+            const dl = await import('@whiskeysockets/baileys');
+            const downloadMediaMessage = (dl as any).downloadMediaMessage ?? (dl as any).default?.downloadMediaMessage;
+            if (typeof downloadMediaMessage === 'function') {
+              const buffer = (await downloadMediaMessage(
+                msg,
+                'buffer',
+                {},
+                { logger: pinoLogger, reuploadRequest: sock.updateMediaMessage },
+              )) as Buffer;
+              const mime = String(img.mimetype || 'image/jpeg');
+              const storageKey = this.saveInboundMedia(tenantId, msg.key.id!, 'image', buffer, mime);
+              media = { kind: 'image', storageKey, mime };
+              if (!text) text = '📷 Imagem';
+            }
+          } catch (e: any) {
+            this.logger.warn(`[INBOUND] Falha ao descarregar imagem: ${e?.message}`);
+            if (!text) text = '📷 Imagem (erro ao obter ficheiro)';
+          }
+        } else if (aud) {
+          try {
+            const dl = await import('@whiskeysockets/baileys');
+            const downloadMediaMessage = (dl as any).downloadMediaMessage ?? (dl as any).default?.downloadMediaMessage;
+            if (typeof downloadMediaMessage === 'function') {
+              const buffer = (await downloadMediaMessage(
+                msg,
+                'buffer',
+                {},
+                { logger: pinoLogger, reuploadRequest: sock.updateMediaMessage },
+              )) as Buffer;
+              const mime = String(aud.mimetype || 'audio/ogg; codecs=opus');
+              const storageKey = this.saveInboundMedia(tenantId, msg.key.id!, 'audio', buffer, mime);
+              media = { kind: 'audio', storageKey, mime };
+              if (!text) text = '🎤 Áudio';
+            }
+          } catch (e: any) {
+            this.logger.warn(`[INBOUND] Falha ao descarregar áudio: ${e?.message}`);
+            if (!text) text = '🎤 Áudio (erro ao obter ficheiro)';
+          }
+        }
+        if (!text.trim() && !media) return;
         // Strip all JID suffixes: @s.whatsapp.net, @lid, @c.us
         const isLid = remoteJid.endsWith('@lid');
         const from = remoteJid.replace(/@s\.whatsapp\.net|@lid|@c\.us/g, '').trim();
@@ -458,8 +535,8 @@ export class BaileysService {
           this.logger.warn(`Skipping message from unrecognized JID format: ${remoteJid}`);
           return;
         }
-        this.logger.log(`Incoming WhatsApp message from ${from} (JID: ${remoteJid}, lid=${isLid}, resolved=${resolvedDigits ?? 'none'})`);
-        this.onMessageCallback?.(tenantId, from, text, msg.key.id, msg.pushName || undefined, isLid, resolvedDigits);
+        this.logger.log(`Incoming WhatsApp message from ${from} (JID: ${remoteJid}, lid=${isLid}, resolved=${resolvedDigits ?? 'none'}, media=${media?.kind ?? 'none'})`);
+        this.onMessageCallback?.(tenantId, from, text, msg.key.id, msg.pushName || undefined, isLid, resolvedDigits, media);
       });
 
       // Presença do contato: repassa "digitando..." ao frontend via WebSocket
@@ -642,6 +719,71 @@ export class BaileysService {
       });
     } catch (error: any) {
       this.logger.error(`[OUTBOUND] Falha ao enviar para "${to}" (tenant ${tenantId}): ${error?.message}`, error?.stack);
+      return { success: false, error: error?.message };
+    }
+  }
+
+  /** Envia imagem ou áudio (ficheiro local) via Baileys. */
+  async sendMedia(
+    tenantId: string,
+    to: string,
+    kind: 'image' | 'audio',
+    filePath: string,
+    opts?: { caption?: string; mime?: string },
+  ): Promise<SendMessageResult> {
+    const sock = this.sessions.get(tenantId);
+    if (!sock) {
+      return { success: false, error: 'Nenhuma sessão Baileys ativa' };
+    }
+    if (!fs.existsSync(filePath)) {
+      return { success: false, error: 'Ficheiro de mídia não encontrado' };
+    }
+    const buffer = fs.readFileSync(filePath);
+    try {
+      let digits = to.replace(/\D/g, '');
+      if (digits.length >= 14) {
+        const jid = `${digits}@lid`;
+        return await this.enqueueOutbound(tenantId, async () => {
+          const payload =
+            kind === 'image'
+              ? { image: buffer, caption: opts?.caption || undefined }
+              : {
+                  audio: buffer,
+                  mimetype: opts?.mime || 'audio/mpeg',
+                  ptt: !!(opts?.mime && (opts.mime.includes('ogg') || opts.mime.includes('opus'))),
+                };
+          const result = await sock.sendMessage(jid, payload as any);
+          const messageId = result?.key?.id ?? null;
+          return { success: true as const, jid, messageId };
+        });
+      }
+      if (digits.length <= 11 && !digits.startsWith('55')) {
+        digits = `55${digits}`;
+      }
+      let jid = `${digits}@s.whatsapp.net`;
+      try {
+        const candidates = this.buildPhoneCandidateJids(digits);
+        const check: Array<{ exists: boolean; jid: string }> = await sock.onWhatsApp(...candidates);
+        const found = check?.find((r) => r.exists);
+        if (found?.jid) jid = found.jid;
+      } catch {
+        /* usa JID estimado */
+      }
+      return await this.enqueueOutbound(tenantId, async () => {
+        const payload =
+          kind === 'image'
+            ? { image: buffer, caption: opts?.caption || undefined }
+            : {
+                audio: buffer,
+                mimetype: opts?.mime || 'audio/mpeg',
+                ptt: !!(opts?.mime && (opts.mime.includes('ogg') || opts.mime.includes('opus'))),
+              };
+        const result = await sock.sendMessage(jid, payload as any);
+        const messageId = result?.key?.id ?? null;
+        return { success: true as const, jid, messageId };
+      });
+    } catch (error: any) {
+      this.logger.error(`[OUTBOUND-MEDIA] Falha tenant ${tenantId}: ${error?.message}`);
       return { success: false, error: error?.message };
     }
   }

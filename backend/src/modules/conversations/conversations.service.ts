@@ -1,4 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as crypto from 'crypto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull } from 'typeorm';
 import { Conversation, ConversationChannel, ConversationStatus, ConversationInitiatedBy } from './entities/conversation.entity';
@@ -11,6 +14,9 @@ import { RealtimeEmitterService } from '../realtime/realtime-emitter.service';
 @Injectable()
 export class ConversationsService {
   private readonly logger = new Logger(ConversationsService.name);
+
+  private readonly mediaRoot =
+    process.env.CONVERSATION_MEDIA_DIR || path.join(process.cwd(), 'uploads', 'conversation-media');
 
   private logConversationResolution(payload: Record<string, unknown>) {
     this.logger.log(JSON.stringify(payload));
@@ -41,8 +47,22 @@ export class ConversationsService {
   }
 
   /** Dispatcher de envio outbound (WhatsApp/Baileys) — registrado pelo WhatsappModule.onModuleInit */
-  private outboundSender: ((tenantId: string, toWhatsapp: string, text: string) => Promise<{ success: boolean; jid?: string | null; messageId?: string | null; error?: string } | boolean>) | null = null;
-  setOutboundSender(fn: (tenantId: string, toWhatsapp: string, text: string) => Promise<{ success: boolean; jid?: string | null; messageId?: string | null; error?: string } | boolean>) {
+  private outboundSender:
+    | ((
+        tenantId: string,
+        toWhatsapp: string,
+        payload:
+          | string
+          | { kind: 'image' | 'audio'; filePath: string; caption?: string; mime?: string },
+      ) => Promise<{ success: boolean; jid?: string | null; messageId?: string | null; error?: string } | boolean>)
+    | null = null;
+  setOutboundSender(
+    fn: (
+      tenantId: string,
+      toWhatsapp: string,
+      payload: string | { kind: 'image' | 'audio'; filePath: string; caption?: string; mime?: string },
+    ) => Promise<{ success: boolean; jid?: string | null; messageId?: string | null; error?: string } | boolean>,
+  ) {
     this.outboundSender = fn;
   }
 
@@ -101,7 +121,61 @@ export class ConversationsService {
     private readonly ticketsService: TicketsService,
     private readonly customersService: CustomersService,
     private readonly realtimeEmitter: RealtimeEmitterService,
-  ) {}
+  ) {
+    if (!fs.existsSync(this.mediaRoot)) {
+      fs.mkdirSync(this.mediaRoot, { recursive: true });
+    }
+  }
+
+  /** Stream de ficheiro de mensagem (imagem/áudio) — valida tenant e metadados. */
+  async getMessageMediaStream(
+    tenantId: string,
+    messageId: string,
+    opts?: { portalContactId?: string },
+  ): Promise<{ stream: fs.ReadStream; mime: string }> {
+    const msg = await this.msgRepo.findOne({ where: { id: messageId, tenantId } });
+    if (!msg?.mediaStorageKey || !msg.mediaMime) {
+      throw new NotFoundException('Mídia não encontrada');
+    }
+    if (opts?.portalContactId) {
+      const conv = await this.convRepo.findOne({ where: { id: msg.conversationId, tenantId } });
+      if (!conv || conv.contactId !== opts.portalContactId) {
+        throw new NotFoundException('Mídia não encontrada');
+      }
+    }
+    const filePath = path.join(this.mediaRoot, msg.mediaStorageKey);
+    if (!fs.existsSync(filePath)) {
+      throw new NotFoundException('Ficheiro ausente');
+    }
+    return { stream: fs.createReadStream(filePath), mime: msg.mediaMime };
+  }
+
+  /** Grava upload do agente e devolve chaves para gravar na mensagem. */
+  persistAgentMediaBuffer(
+    tenantId: string,
+    buffer: Buffer,
+    mime: string,
+    kind: 'image' | 'audio',
+  ): { storageKey: string; mime: string } {
+    const m = (mime || '').toLowerCase();
+    let ext = 'bin';
+    if (kind === 'image') {
+      if (m.includes('png')) ext = 'png';
+      else if (m.includes('webp')) ext = 'webp';
+      else ext = 'jpg';
+    } else {
+      if (m.includes('ogg')) ext = 'ogg';
+      else if (m.includes('mpeg') || m.includes('mp3')) ext = 'mp3';
+      else if (m.includes('mp4') || m.includes('m4a')) ext = 'm4a';
+      else ext = 'm4a';
+    }
+    const dir = path.join(this.mediaRoot, tenantId);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const fname = `agent-${crypto.randomUUID()}.${ext}`;
+    const full = path.join(dir, fname);
+    fs.writeFileSync(full, buffer);
+    return { storageKey: path.posix.join(tenantId, fname), mime: mime || (kind === 'image' ? 'image/jpeg' : 'audio/mpeg') };
+  }
 
   /**
    * Builds or creates a conversation for a contact without creating tickets automatically.
@@ -663,7 +737,14 @@ export class ConversationsService {
     authorName: string,
     authorType: 'contact' | 'user',
     content: string,
-    opts?: { skipOutbound?: boolean; initialWhatsappStatus?: string; initialExternalId?: string | null },
+    opts?: {
+      skipOutbound?: boolean;
+      initialWhatsappStatus?: string;
+      initialExternalId?: string | null;
+      mediaKind?: 'image' | 'audio' | null;
+      mediaStorageKey?: string | null;
+      mediaMime?: string | null;
+    },
   ): Promise<ConversationMessage> {
     const conv = await this.findOne(tenantId, conversationId);
     if (conv.status === ConversationStatus.CLOSED) {
@@ -692,8 +773,9 @@ export class ConversationsService {
       authorName,
       authorType,
       content,
-      // Status e externalId iniciais fornecidos pelo chamador
-      // (ex: sendReplyFromTicket já enviou via Baileys e tem o messageId)
+      mediaKind: opts?.mediaKind ?? null,
+      mediaStorageKey: opts?.mediaStorageKey ?? null,
+      mediaMime: opts?.mediaMime ?? null,
       whatsappStatus: opts?.initialWhatsappStatus ?? null,
       externalId: extId ?? null,
     });
@@ -725,6 +807,9 @@ export class ConversationsService {
         createdAt: saved.createdAt,
         whatsappStatus: statusOverride ?? saved.whatsappStatus,
         externalId: saved.externalId ?? null,
+        mediaKind: saved.mediaKind ?? null,
+        mediaMime: saved.mediaMime ?? null,
+        hasMedia: !!(saved.mediaKind && saved.mediaStorageKey),
       };
       this.realtimeEmitter.emitNewConversationMessage(conversationId, payload);
       if (conv.ticketId) {
@@ -740,7 +825,14 @@ export class ConversationsService {
         conversationId: conv.id,
         channel: conv.channel,
         contactName: authorName,
-        preview: content.length > 80 ? content.slice(0, 77) + '…' : content,
+        preview:
+          saved.mediaKind === 'image'
+            ? '[Imagem]' + (content ? `: ${content.slice(0, 40)}` : '')
+            : saved.mediaKind === 'audio'
+              ? '[Áudio]'
+              : content.length > 80
+                ? content.slice(0, 77) + '…'
+                : content,
       });
     }
 
@@ -750,7 +842,20 @@ export class ConversationsService {
       try {
         const contact = await this.customersService.findContactById(tenantId, conv.contactId);
         if (contact?.whatsapp) {
-          const raw = await this.outboundSender(tenantId, contact.whatsapp, content);
+          const absMedia =
+            opts?.mediaKind && opts?.mediaStorageKey
+              ? path.join(this.mediaRoot, opts.mediaStorageKey)
+              : null;
+          const outboundPayload =
+            opts?.mediaKind && absMedia && fs.existsSync(absMedia)
+              ? {
+                  kind: opts.mediaKind,
+                  filePath: absMedia,
+                  caption: content || undefined,
+                  mime: opts.mediaMime || undefined,
+                }
+              : content;
+          const raw = await this.outboundSender(tenantId, contact.whatsapp, outboundPayload as any);
           const sendResult = typeof raw === 'boolean' ? { success: raw } : raw;
           if (sendResult.success) {
             const externalId = sendResult.messageId ?? null;
@@ -969,6 +1074,9 @@ export class ConversationsService {
       createdAt: msg.createdAt,
       whatsappStatus: newStatus,
       externalId: msg.externalId ?? null,
+      mediaKind: msg.mediaKind ?? null,
+      mediaMime: msg.mediaMime ?? null,
+      hasMedia: !!(msg.mediaKind && msg.mediaStorageKey),
     };
     this.realtimeEmitter.emitNewConversationMessage(msg.conversationId, payload);
     if (conv?.ticketId) {

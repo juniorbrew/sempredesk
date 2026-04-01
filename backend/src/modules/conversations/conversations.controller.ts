@@ -1,4 +1,6 @@
-import { Body, Controller, Get, Post, Param, Query, UseGuards, BadRequestException, Request, Put } from '@nestjs/common';
+import { Body, Controller, Get, Post, Param, Query, UseGuards, BadRequestException, Request, Put, UseInterceptors, UploadedFile, StreamableFile } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { ConversationsService } from './conversations.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
@@ -79,6 +81,21 @@ export class ConversationsController {
     return this.conversationsService.findByClient(tenantId, clientId, ch);
   }
 
+  /** Imagem ou áudio associado a uma mensagem da conversa (agente ou portal). */
+  @UseGuards(JwtAuthGuard)
+  @Get('messages/:messageId/media')
+  async getMessageMedia(
+    @Request() req: any,
+    @TenantId() tenantId: string,
+    @Param('messageId') messageId: string,
+  ): Promise<StreamableFile> {
+    const portalId = req.user?.isPortal ? String(req.user.id) : undefined;
+    const { stream, mime } = await this.conversationsService.getMessageMediaStream(tenantId, messageId, {
+      portalContactId: portalId,
+    });
+    return new StreamableFile(stream, { type: mime, disposition: `inline; filename="media-${messageId}"` });
+  }
+
   @UseGuards(JwtAuthGuard)
   @Get(':id')
   async findOne(@TenantId() tenantId: string, @Param('id') id: string) {
@@ -142,10 +159,45 @@ export class ConversationsController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: 16 * 1024 * 1024 },
+    }),
+  )
   @Post(':id/messages')
-  async addMessage(@Request() req: any, @TenantId() tenantId: string, @Param('id') id: string, @Body() dto: AddConversationMessageDto) {
+  async addMessage(
+    @Request() req: any,
+    @TenantId() tenantId: string,
+    @Param('id') id: string,
+    @Body() dto: AddConversationMessageDto,
+    @UploadedFile() file?: any,
+  ) {
     const isPortal = req.user?.isPortal === true;
     const authorType = isPortal ? 'contact' : 'user';
-    return this.conversationsService.addMessage(tenantId, id, req.user.id, req.user.name, authorType, dto.content);
+    const contentRaw = (dto.content ?? '').trim();
+    let mediaKind: 'image' | 'audio' | null = null;
+    let mediaStorageKey: string | null = null;
+    let mediaMime: string | null = null;
+    if (file?.buffer?.length) {
+      const mime = file.mimetype || '';
+      if (mime.startsWith('image/')) mediaKind = 'image';
+      else if (mime.startsWith('audio/')) mediaKind = 'audio';
+      else throw new BadRequestException('Envie uma imagem ou um áudio (tipos suportados: image/*, audio/*).');
+      const saved = this.conversationsService.persistAgentMediaBuffer(tenantId, file.buffer, mime, mediaKind);
+      mediaStorageKey = saved.storageKey;
+      mediaMime = saved.mime;
+    }
+    const display =
+      contentRaw ||
+      (mediaKind === 'image' ? '📷 Imagem' : mediaKind === 'audio' ? '🎤 Áudio' : '');
+    if (!display && !mediaKind) {
+      throw new BadRequestException('Mensagem vazia ou ficheiro em falta.');
+    }
+    return this.conversationsService.addMessage(tenantId, id, req.user.id, req.user.name, authorType, display, {
+      mediaKind,
+      mediaStorageKey,
+      mediaMime,
+    });
   }
 }

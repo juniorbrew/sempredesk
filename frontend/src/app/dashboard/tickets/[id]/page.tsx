@@ -1,5 +1,5 @@
 'use client';
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useRealtimeTicket } from '@/lib/realtime';
@@ -58,6 +58,10 @@ export default function TicketDetailsPage() {
   const [showUpdates, setShowUpdates] = useState(true);
   const [showNotes, setShowNotes] = useState(true);
   const [conversationMsgs, setConversationMsgs] = useState<any[]>([]);
+  const [convMediaUrls, setConvMediaUrls] = useState<Record<string, string>>({});
+  const convMediaUrlsRef = useRef<Record<string, string>>({});
+  convMediaUrlsRef.current = convMediaUrls;
+  const convMediaInFlightRef = useRef<Set<string>>(new Set());
   const [showConversation, setShowConversation] = useState(false);
   const [showConvFilter, setShowConvFilter] = useState(true);
   const [interactionExpanded, setInteractionExpanded] = useState(false);
@@ -91,7 +95,15 @@ export default function TicketDetailsPage() {
         try { const hist: any = await api.getTickets({ clientId: t.clientId, perPage: 6, sort: 'createdAt:desc' }); const hList = Array.isArray(hist) ? hist : hist?.data ?? hist?.items ?? []; setClientHistory(hList.filter((x: any) => x.id !== id)); } catch { setClientHistory([]); }
       }
       if (t.conversationId) {
-        try { const cMsgs: any = await api.getConversationMessages(t.conversationId); setConversationMsgs(Array.isArray(cMsgs) ? cMsgs : cMsgs?.data ?? []); } catch { setConversationMsgs([]); }
+        try {
+          const cMsgs: any = await api.getConversationMessages(t.conversationId, { limit: 100 });
+          const list = cMsgs?.messages ?? (Array.isArray(cMsgs) ? cMsgs : cMsgs?.data ?? []);
+          setConversationMsgs(Array.isArray(list) ? list : []);
+        } catch {
+          setConversationMsgs([]);
+        }
+      } else {
+        setConversationMsgs([]);
       }
       setEdit({ priority:t.priority||'medium', assignedTo:t.assignedTo||'', department:t.department||'', category:t.category||'', subcategory:t.subcategory||'', tags:Array.isArray(t.tags)?t.tags:[] });
       setContentForm({ subject:t.subject || '', description:t.description || '' });
@@ -100,6 +112,45 @@ export default function TicketDetailsPage() {
   };
 
   useEffect(() => { if (id) load(); }, [id]);
+
+  useEffect(() => {
+    const toRevoke = { ...convMediaUrlsRef.current };
+    setConvMediaUrls({});
+    convMediaInFlightRef.current.clear();
+    Object.values(toRevoke).forEach((u) => URL.revokeObjectURL(u));
+  }, [id]);
+
+  useEffect(() => {
+    if (!ticket?.conversationId || conversationMsgs.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      for (const m of conversationMsgs) {
+        if (!m?.id) continue;
+        if (!(m.hasMedia || m.mediaKind === 'image' || m.mediaKind === 'audio')) continue;
+        if (convMediaUrlsRef.current[m.id] || convMediaInFlightRef.current.has(String(m.id))) continue;
+        convMediaInFlightRef.current.add(String(m.id));
+        try {
+          const blob = await api.getConversationMessageMediaBlob(m.id);
+          if (cancelled) return;
+          const url = URL.createObjectURL(blob);
+          setConvMediaUrls((prev) => {
+            if (prev[m.id]) {
+              URL.revokeObjectURL(url);
+              return prev;
+            }
+            return { ...prev, [m.id]: url };
+          });
+        } catch {
+          /* sem ficheiro ou sem permissão */
+        } finally {
+          convMediaInFlightRef.current.delete(String(m.id));
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [conversationMsgs, ticket?.conversationId]);
 
   // ── realtime: new messages append without full reload ──
   useRealtimeTicket(id || null, (msg: any) => {
@@ -783,6 +834,13 @@ export default function TicketDetailsPage() {
                           {conversationMsgs.map((cm:any)=>{
                             const isC = cm.authorType==='contact';
                             const t = new Date(cm.createdAt).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+                            const src = convMediaUrls[cm.id];
+                            const hidePh = !!src && (cm.content === '📷 Imagem' || cm.content === '🎤 Áudio');
+                            const showCap = !!(cm.content && !hidePh);
+                            const showMedia =
+                              !!(cm.hasMedia || cm.mediaKind === 'image' || cm.mediaKind === 'audio') &&
+                              (cm.mediaKind === 'image' || cm.mediaKind === 'audio');
+                            const mediaLoading = showMedia && !src;
                             return (
                               <div key={cm.id} style={{ display:'flex', justifyContent:isC?'flex-start':'flex-end', gap:8, alignItems:'flex-end' }}>
                                 {isC && (
@@ -792,7 +850,18 @@ export default function TicketDetailsPage() {
                                 )}
                                 <div style={{ maxWidth:'72%', padding:'10px 12px', borderRadius:isC?'6px 18px 18px 18px':'18px 6px 18px 18px', background:isC?'rgba(255,255,255,0.88)':'#E0E7FF', border:`1px solid ${isC?'rgba(148,163,184,0.14)':'rgba(99,102,241,0.18)'}`, boxShadow:'0 10px 24px rgba(15,23,42,0.06)', fontSize:12, color:'#0F172A' }}>
                                   <p style={{ margin:'0 0 4px', fontWeight:700, fontSize:10, color:isC?'#475569':'#4338CA' }}>{cm.authorName}</p>
-                                  <p style={{ margin:0, whiteSpace:'pre-wrap', lineHeight:1.4 }}>{cm.content}</p>
+                                  {cm.mediaKind === 'image' && src && (
+                                    <img src={src} alt="" style={{ maxWidth:'100%', maxHeight:200, borderRadius:10, display:'block', marginBottom: showCap ? 8 : 0, objectFit:'cover' }} />
+                                  )}
+                                  {cm.mediaKind === 'audio' && src && (
+                                    <audio src={src} controls style={{ width:'100%', maxWidth:240, minHeight:36, marginBottom: showCap ? 8 : 0 }} />
+                                  )}
+                                  {mediaLoading && (
+                                    <span style={{ display:'block', fontSize:10, opacity:0.75, marginBottom:6 }}>A carregar…</span>
+                                  )}
+                                  {showCap && (
+                                    <p style={{ margin:0, whiteSpace:'pre-wrap', lineHeight:1.4 }}>{cm.content}</p>
+                                  )}
                                   <span style={{ fontSize:9, opacity:0.55, display:'block', textAlign:isC?'left':'right', marginTop:6, fontFamily:"'DM Mono',monospace" }}>{t}</span>
                                 </div>
                                 {!isC && (

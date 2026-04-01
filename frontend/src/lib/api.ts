@@ -99,7 +99,20 @@ class ApiClient {
   getConversation = (id: string) => this.client.get(`/conversations/${id}`);
   getConversationMessages = (id: string, params?: { limit?: number; before?: string }) =>
     this.client.get(`/conversations/${id}/messages`, { params });
-  addConversationMessage = (id: string, data: { content: string }) => this.client.post(`/conversations/${id}/messages`, data);
+  /** Texto JSON ou multipart com campo opcional `file` (imagem/áudio). */
+  addConversationMessage = (id: string, data: { content?: string; file?: File | null }) => {
+    if (data.file) {
+      const fd = new FormData();
+      const c = (data.content ?? '').trim();
+      if (c) fd.append('content', c);
+      fd.append('file', data.file);
+      return this.client.post(`/conversations/${id}/messages`, fd);
+    }
+    return this.client.post(`/conversations/${id}/messages`, { content: data.content ?? '' });
+  };
+  /** Blob autenticado (imagem ou áudio) para mensagem de conversa. */
+  getConversationMessageMediaBlob = (messageId: string) =>
+    this.client.get(`/conversations/messages/${messageId}/media`, { responseType: 'blob' });
   updateConversationTags = (id: string, tags: string[]) => this.client.put(`/conversations/${id}/tags`, { tags });
   getConversationsByClient = (clientId: string, channel?: string) =>
     this.client.get(`/conversations/by-client/${clientId}`, { params: channel ? { channel } : {} });

@@ -48,13 +48,32 @@ export class WhatsappModule implements OnModuleInit {
 
   async onModuleInit() {
     // Registra dispatcher de mensagens outbound (agente → contato via WhatsApp)
-    this.conversationsService.setOutboundSender(async (tenantId: string, toWhatsapp: string, text: string) => {
+    this.conversationsService.setOutboundSender(async (tenantId: string, toWhatsapp: string, payload: string | {
+      kind: 'image' | 'audio';
+      filePath: string;
+      caption?: string;
+      mime?: string;
+    }) => {
+      if (typeof payload !== 'string') {
+        if (this.baileysService) {
+          const result = await this.baileysService.sendMedia(
+            tenantId,
+            toWhatsapp,
+            payload.kind,
+            payload.filePath,
+            { caption: payload.caption, mime: payload.mime },
+          );
+          if (result.success) return result;
+        }
+        this.logger.warn('[outboundSender] Mídia só é enviada via Baileys (sessão QR).');
+        return { success: false, error: 'Mídia requer Baileys activo' };
+      }
+      const text = payload;
       if (this.baileysService) {
         const result = await this.baileysService.sendMessage(tenantId, toWhatsapp, text);
         if (result.success) return result;
         this.logger.warn(`[outboundSender] Baileys falhou (${result.error}), tentando Meta API`);
       }
-      // Fallback Meta API
       try {
         const digits = toWhatsapp.replace(/\D/g, '');
         await this.whatsappService.sendWhatsappMessage(digits, text);
@@ -88,6 +107,7 @@ export class WhatsappModule implements OnModuleInit {
       senderName?: string,
       isLid?: boolean,
       resolvedDigits?: string | null,
+      media?: { kind: 'image' | 'audio'; storageKey: string; mime: string } | null,
     ) => {
       try {
         const messageKey = `${tenantId}:${messageId}`;
@@ -147,7 +167,7 @@ export class WhatsappModule implements OnModuleInit {
         // Run through chatbot first if available
         let transferDept: string | undefined;
         let transferClientId: string | undefined;
-        if (this.chatbotService && !skipChatbot) {
+        if (this.chatbotService && !skipChatbot && String(text || '').trim()) {
           const botResult = await this.chatbotService.processMessage(tenantId, from, text, 'whatsapp', senderName);
           if (botResult.handled) {
             // Send bot replies back via Baileys
@@ -173,7 +193,7 @@ export class WhatsappModule implements OnModuleInit {
         if (!transferClientId && foundActiveConversationClientId) {
           transferClientId = foundActiveConversationClientId;
         }
-        const msg = { provider: 'generic' as const, from, text, messageId, senderName, isLid, resolvedDigits };
+        const msg = { provider: 'generic' as const, from, text, messageId, senderName, isLid, resolvedDigits, media: media ?? undefined };
         const result = await this.whatsappService.handleIncomingMessage(tenantId, msg, transferDept, transferClientId);
         this.logger.log(`Baileys message processed: tenantId=${tenantId} from=${from} result=${JSON.stringify(result)}`);
       } catch (err) {

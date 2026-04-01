@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useLayoutEffect, useState, useCallback, useRef, memo } from 'react';
+import { useEffect, useLayoutEffect, useState, useCallback, useRef, memo, type ReactNode } from 'react';
 import { api } from '@/lib/api';
 import Link from 'next/link';
 import { useRealtimeConversation, useRealtimeTicket, useRealtimeTenantNewMessages, useRealtimeConversationClosed, useRealtimeTicketAssigned, useRealtimeContactTyping, emitTypingPresence, subscribeContactPresence } from '@/lib/realtime';
@@ -150,11 +150,31 @@ function HighlightText({ text, query }: { text: string; query: string }) {
 
 // ── MessageItem (memoizado) ───────────────────────────────────────────────────
 /** Item individual de mensagem — memoizado para evitar re-render ao digitar */
-const MessageItem = memo(function MessageItem({ m, isWhatsapp, highlight }: { m: any; isWhatsapp: boolean; highlight?: string }) {
+const MessageItem = memo(function MessageItem({
+  m,
+  isWhatsapp,
+  highlight,
+  mediaUrl,
+}: {
+  m: any;
+  isWhatsapp: boolean;
+  highlight?: string;
+  mediaUrl?: string | null;
+}) {
   const isContact = m.authorType === 'contact';
   const isSystem  = m.messageType === 'system';
   const t = new Date(m.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
   const col = avatarColor(m.authorName || '?');
+  const localPreview = m._localPreviewUrl as string | undefined;
+  const resolvedMediaSrc = mediaUrl || localPreview || null;
+  const showMedia =
+    (m.hasMedia || m.mediaKind === 'image' || m.mediaKind === 'audio') &&
+    (m.mediaKind === 'image' || m.mediaKind === 'audio');
+  const mediaLoading =
+    showMedia && !resolvedMediaSrc && !m._optimistic;
+  const hidePlaceholderCaption =
+    !!resolvedMediaSrc && (m.content === '📷 Imagem' || m.content === '🎤 Áudio');
+  const showCaption = !!(m.content && !hidePlaceholderCaption);
 
   // Constantes de estilo (idênticas ao S da tela pai)
   const accent = '#4F46E5';
@@ -194,9 +214,40 @@ const MessageItem = memo(function MessageItem({ m, isWhatsapp, highlight }: { m:
           opacity: m._optimistic ? 0.75 : 1,
           transition: 'opacity 0.2s',
         }}>
-          <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>
-            {highlight ? <HighlightText text={m.content || ''} query={highlight} /> : m.content}
-          </p>
+          {m.mediaKind === 'image' && resolvedMediaSrc && (
+            <img
+              src={resolvedMediaSrc}
+              alt=""
+              style={{
+                maxWidth: '100%',
+                maxHeight: 280,
+                borderRadius: 12,
+                display: 'block',
+                marginBottom: showCaption ? 8 : 0,
+                objectFit: 'cover',
+              }}
+            />
+          )}
+          {m.mediaKind === 'audio' && resolvedMediaSrc && (
+            <audio
+              src={resolvedMediaSrc}
+              controls
+              style={{
+                width: '100%',
+                maxWidth: 280,
+                minHeight: 40,
+                marginBottom: showCaption ? 8 : 0,
+              }}
+            />
+          )}
+          {mediaLoading && (
+            <p style={{ margin: '0 0 8px', fontSize: 12, opacity: 0.85 }}>A carregar…</p>
+          )}
+          {showCaption && (
+            <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>
+              {highlight ? <HighlightText text={m.content || ''} query={highlight} /> : m.content}
+            </p>
+          )}
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 5 }}>
             <span style={{ fontSize: 10, color: isContact ? txt3 : 'rgba(255,255,255,.6)' }}>{t}</span>
             {!isContact && <MessageStatusIcon status={m.whatsappStatus} isWhatsapp={isWhatsapp} />}
@@ -235,6 +286,9 @@ export default function AtendimentoPage() {
   const [showTagDropdown, setShowTagDropdown] = useState(false);
   const tagDropdownRef = useRef<HTMLDivElement>(null);
   const [input, setInput] = useState('');
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const attachFileInputRef = useRef<HTMLInputElement>(null);
+  const [messageMediaUrls, setMessageMediaUrls] = useState<Record<string, string>>({});
   const [sending, setSending] = useState(false);
   const [showLinkModal, setShowLinkModal] = useState(false);
   const [linkTicketSearch, setLinkTicketSearch] = useState('');
@@ -301,6 +355,9 @@ export default function AtendimentoPage() {
   const selectedRef = useRef<any>(null);
   selectedRef.current = selected;
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const messageMediaUrlsRef = useRef<Record<string, string>>({});
+  messageMediaUrlsRef.current = messageMediaUrls;
+  const mediaInFlightRef = useRef<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true); // true = usuário está perto do fim da lista
@@ -911,25 +968,39 @@ export default function AtendimentoPage() {
   const sendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     const text = input.trim();
-    if (!text || !selected?.id) return;
+    const file = pendingFile;
+    if ((!text && !file) || !selected?.id) return;
     const ticketId = isTicketType ? (selected.ticketId || selected.id?.replace?.(/^ticket:/, '')) : selected?.ticketId;
     const channel = selected?.channel || 'whatsapp';
     const isPortalNoTicket = channel === 'portal' && !ticketId && !isTicketType;
     const isConvNoTicket = !isTicketType && !ticketId && !!selected?.id;
     if (!isPortalNoTicket && !isConvNoTicket && !ticketId && !isTicketType) return;
 
+    const whatsappConvId = !isTicketType
+      ? selected.id
+      : (currentTicket?.conversationId ?? selected?.conversationId ?? null);
+
     // Mensagem otimista: aparece imediatamente antes da resposta da API
     const tempId = `_opt_${Date.now()}`;
+    const previewKind = file
+      ? (file.type.startsWith('audio/') ? 'audio' : 'image')
+      : null;
+    const localPreviewUrl = file ? URL.createObjectURL(file) : null;
     setMessages(m => [...m, {
       id: tempId,
       authorType: 'user',
       authorName: 'Você',
-      content: text,
+      content: text || (previewKind === 'image' ? '📷 Imagem' : previewKind === 'audio' ? '🎤 Áudio' : ''),
       createdAt: new Date().toISOString(),
       whatsappStatus: channel === 'whatsapp' ? 'sending' : null,
       _optimistic: true,
+      mediaKind: previewKind,
+      hasMedia: !!file,
+      _localPreviewUrl: localPreviewUrl,
     }]);
     setInput('');
+    setPendingFile(null);
+    if (attachFileInputRef.current) attachFileInputRef.current.value = '';
     setSending(true);
 
     // Cancela "agente digitando" ao enviar
@@ -941,9 +1012,24 @@ export default function AtendimentoPage() {
 
     try {
       let res: any;
-      if (isTicketType && ticketId) res = await api.addMessage(ticketId, { content: text, messageType: 'comment' });
-      else if (channel === 'whatsapp' && ticketId) res = await api.sendWhatsappFromTicket(ticketId, text);
-      else res = await api.addConversationMessage(selected.id, { content: text });
+      if (file) {
+        const convTarget =
+          channel === 'whatsapp'
+            ? whatsappConvId
+            : (!isTicketType ? selected.id : null);
+        if (!convTarget) {
+          throw new Error('Conversa não encontrada para enviar ficheiro.');
+        }
+        res = await api.addConversationMessage(convTarget, { content: text || undefined, file });
+      } else if (isTicketType && ticketId) {
+        res = await api.addMessage(ticketId, { content: text, messageType: 'comment' });
+      } else if (channel === 'whatsapp' && whatsappConvId) {
+        res = await api.addConversationMessage(whatsappConvId, { content: text });
+      } else if (channel === 'whatsapp' && ticketId) {
+        res = await api.sendWhatsappFromTicket(ticketId, text);
+      } else {
+        res = await api.addConversationMessage(selected.id, { content: text });
+      }
 
       // Extrai objeto de mensagem da resposta da API (vários formatos possíveis)
       // sendWhatsappFromTicket agora retorna { success, message: { id, ... } }
@@ -954,7 +1040,11 @@ export default function AtendimentoPage() {
 
       if (real?.id) {
         // Substitui otimista pelo objeto real em-place — sem flash, sem reload
-        setMessages(m => m.map(msg => msg.id === tempId ? { ...real } : msg));
+        setMessages(m => m.map(msg => {
+          if (msg.id !== tempId) return msg;
+          if (msg._localPreviewUrl) URL.revokeObjectURL(msg._localPreviewUrl);
+          return { ...real };
+        }));
         // Socket também vai entregar via 'message'; dedup por ID cuidará disso sem duplicar
       } else {
         // API não retornou objeto (caso raro: ticket sem conversationId ou meta API pura).
@@ -975,8 +1065,12 @@ export default function AtendimentoPage() {
       }
     } catch (e: any) {
       // Marca mensagem otimista como erro em vez de removê-la
-      setMessages(m => m.map(msg => msg.id === tempId ? { ...msg, whatsappStatus: 'error', _optimistic: false } : msg));
-      showToast((e as any)?.response?.data?.message || 'Erro ao enviar', 'error');
+      setMessages(m => m.map(msg => {
+        if (msg.id !== tempId) return msg;
+        if (msg._localPreviewUrl) URL.revokeObjectURL(msg._localPreviewUrl);
+        return { ...msg, whatsappStatus: 'error', _optimistic: false, _localPreviewUrl: undefined };
+      }));
+      showToast((e as any)?.response?.data?.message || (e as Error)?.message || 'Erro ao enviar', 'error');
     }
     setSending(false);
     inputRef.current?.focus();
@@ -1047,6 +1141,44 @@ export default function AtendimentoPage() {
 
 
   useEffect(() => { if (selected) loadChat(selected); else setMessages([]); }, [selected?.id]);
+
+  useEffect(() => {
+    const toRevoke = { ...messageMediaUrlsRef.current };
+    setMessageMediaUrls({});
+    mediaInFlightRef.current.clear();
+    Object.values(toRevoke).forEach((u) => URL.revokeObjectURL(u));
+  }, [selected?.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      for (const m of messages) {
+        if (!m?.id || m._optimistic || String(m.id).startsWith('_opt')) continue;
+        if (!(m.hasMedia || m.mediaKind === 'image' || m.mediaKind === 'audio')) continue;
+        if (messageMediaUrlsRef.current[m.id] || mediaInFlightRef.current.has(String(m.id))) continue;
+        mediaInFlightRef.current.add(String(m.id));
+        try {
+          const blob = await api.getConversationMessageMediaBlob(m.id);
+          if (cancelled) return;
+          const url = URL.createObjectURL(blob);
+          setMessageMediaUrls((prev) => {
+            if (prev[m.id]) {
+              URL.revokeObjectURL(url);
+              return prev;
+            }
+            return { ...prev, [m.id]: url };
+          });
+        } catch {
+          /* ignora — mensagem antiga ou sem ficheiro */
+        } finally {
+          mediaInFlightRef.current.delete(String(m.id));
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [messages]);
   useEffect(() => { api.getTags({ active: true }).then((r: any) => setAvailableTags(r?.data ?? r ?? [])).catch(() => setAvailableTags([])); }, []);
   useEffect(() => {
     api.getRootCauses({ active: true })
@@ -1722,7 +1854,7 @@ export default function AtendimentoPage() {
                             id={`msg-${m.id}`}
                             style={isCurrentMatch ? { borderRadius: 14, outline: '2px solid #FDE68A', outlineOffset: 3 } : undefined}
                           >
-                            <MessageItem m={m} isWhatsapp={isWhatsapp} highlight={msgSearchQuery.trim() || undefined} />
+                            <MessageItem m={m} isWhatsapp={isWhatsapp} highlight={msgSearchQuery.trim() || undefined} mediaUrl={messageMediaUrls[m.id] ?? null} />
                           </div>
                         );
                       })}
@@ -1769,15 +1901,31 @@ export default function AtendimentoPage() {
               {!isClosed && (
                 <div style={{ borderTop: S.border, background: S.bg, padding: 0, flexShrink: 0 }}>
                   {/* Toolbar */}
-                  <div style={{ display: 'flex', gap: 2, padding: '10px 16px 8px', borderBottom: S.border }}>
+                  <div style={{ display: 'flex', gap: 2, padding: '10px 16px 8px', borderBottom: S.border, flexWrap: 'wrap', alignItems: 'center' }}>
+                    <input
+                      ref={attachFileInputRef}
+                      type="file"
+                      accept="image/*,audio/*"
+                      style={{ display: 'none' }}
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (!f) return;
+                        if (!f.type.startsWith('image/') && !f.type.startsWith('audio/')) {
+                          showToast('Envie apenas imagem ou áudio.', 'error');
+                          e.target.value = '';
+                          return;
+                        }
+                        setPendingFile(f);
+                      }}
+                    />
                     {[
                       { label: 'Arquivo', icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg> },
-                      { label: 'Imagem', icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg> },
+                      { label: 'Imagem / áudio', icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>, onClick: () => attachFileInputRef.current?.click() },
                       { label: 'Resposta rápida', icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg> },
                       { label: 'Nota interna', icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> },
                       { label: 'Macro', icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg> },
-                    ].map(({ label, icon }) => (
-                      <button key={label} type="button"
+                    ].map(({ label, icon, onClick }: { label: string; icon: ReactNode; onClick?: () => void }) => (
+                      <button key={label} type="button" onClick={onClick}
                         style={{ padding: '5px 10px', borderRadius: 7, background: 'transparent', border: 'none', fontSize: 12, color: S.txt2, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, fontFamily: 'inherit', transition: 'background .1s' }}>
                         {icon}{label}
                       </button>
@@ -1785,6 +1933,19 @@ export default function AtendimentoPage() {
                     {/* Emoji picker real */}
                     <EmojiPicker onSelect={insertEmoji} position="top" />
                   </div>
+                  {pendingFile && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 16px 8px', fontSize: 12, color: S.txt2 }}>
+                      <span style={{ fontWeight: 500, color: S.txt }}>{pendingFile.name}</span>
+                      <span>({(pendingFile.size / 1024).toFixed(0)} KB)</span>
+                      <button
+                        type="button"
+                        onClick={() => { setPendingFile(null); if (attachFileInputRef.current) attachFileInputRef.current.value = ''; }}
+                        style={{ background: 'none', border: 'none', color: '#DC2626', cursor: 'pointer', fontSize: 12, fontFamily: 'inherit', padding: '0 4px' }}
+                      >
+                        remover
+                      </button>
+                    </div>
+                  )}
                   <form onSubmit={sendMessage}>
                     <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, padding: '12px 16px' }}>
                       <textarea
@@ -1820,11 +1981,11 @@ export default function AtendimentoPage() {
                           transition: 'border-color .15s',
                         }}
                       />
-                      <button type="submit" disabled={sending || !canSend || !input.trim()}
+                      <button type="submit" disabled={sending || !canSend || (!input.trim() && !pendingFile)}
                         style={{
                           width: 40, height: 40, borderRadius: 11, border: 'none',
-                          background: sending || !canSend || !input.trim() ? '#E2E8F0' : S.accent,
-                          cursor: sending || !canSend || !input.trim() ? 'not-allowed' : 'pointer',
+                          background: sending || !canSend || (!input.trim() && !pendingFile) ? '#E2E8F0' : S.accent,
+                          cursor: sending || !canSend || (!input.trim() && !pendingFile) ? 'not-allowed' : 'pointer',
                           display: 'flex', alignItems: 'center', justifyContent: 'center',
                           flexShrink: 0, transition: 'background .15s',
                         }}>
