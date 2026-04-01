@@ -49,6 +49,30 @@ echo | openssl s_client -connect cliente.sempredesk.com.br:443 -servername clien
 
 ---
 
+## 5) Deploy CI falhou — rede ou nome de container em conflito
+
+Mensagens típicas: `network with name suporte_network already exists`, `container name ... already in use`.
+
+Na VPS, como utilizador com acesso ao Docker:
+
+```bash
+cd /opt/suporte-tecnico
+docker compose down --remove-orphans || true
+sleep 2
+for c in suporte_postgres suporte_redis suporte_rabbitmq suporte_backend suporte_frontend suporte_nginx suporte_certbot suporte_prometheus suporte_grafana suporte_node_exporter suporte_postgres_exporter suporte_redis_exporter; do
+  docker stop "$c" 2>/dev/null || true
+  docker rm -f "$c" 2>/dev/null || true
+done
+for id in $(docker ps -aq --filter "label=com.docker.compose.project=suporte-tecnico" 2>/dev/null); do docker rm -f "$id" 2>/dev/null || true; done
+for id in $(docker ps -aq --filter "name=suporte" 2>/dev/null); do docker rm -f "$id" 2>/dev/null || true; done
+docker network rm suporte_network 2>/dev/null || true
+docker compose up -d
+```
+
+Depois confirmar `docker compose ps` e o smoke (§3).
+
+---
+
 ## Fluxo do projecto
 
 LOCAL → GITHUB → VPS (deploy via Actions + `git` na VPS).
