@@ -74,6 +74,8 @@ No painel de listagem (`/admin/tenants`):
 
 ## 8) Licenca expirada ou tenant suspenso (suporte ao cliente)
 
+**Runbook rápido (checklist + macros):** [RUNBOOK_BLOQUEIO_LICENCA.md](./RUNBOOK_BLOQUEIO_LICENCA.md)
+
 ### 8.1 O que o utilizador ve
 
 - **Painel da equipa** (`suporte.*`): ao usar o sistema, o browser pode ir para `/license-blocked?from=staff&reason=...`.

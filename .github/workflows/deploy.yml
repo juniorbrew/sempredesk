@@ -53,6 +53,13 @@ jobs:
             echo "Derrubando todos os containers do compose..."
             docker compose down --remove-orphans
 
+            # Nomes fixos (container_name) podem ficar presos se o container foi criado fora deste compose
+            # ou se o down falhou parcialmente — rm -f evita "Conflict ... already in use" no up.
+            echo "Liberando nomes de container suporte_*..."
+            for c in suporte_postgres suporte_redis suporte_rabbitmq suporte_backend suporte_frontend suporte_nginx suporte_certbot suporte_prometheus suporte_grafana suporte_node_exporter suporte_postgres_exporter suporte_redis_exporter; do
+              docker rm -f "$c" 2>/dev/null || true
+            done
+
             echo "Subindo containers..."
             docker compose up -d
 
