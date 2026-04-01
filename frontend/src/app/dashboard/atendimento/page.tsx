@@ -1013,12 +1013,13 @@ export default function AtendimentoPage() {
     try {
       let res: any;
       if (file) {
-        const convTarget =
-          channel === 'whatsapp'
-            ? whatsappConvId
-            : (!isTicketType ? selected.id : null);
+        // Sempre POST em /conversations/:conversationId/messages — precisamos do UUID da conversa.
+        // Linha "ticket" no inbox: id pode ser ticket:...; usar conversationId do ticket carregado.
+        const convTarget = !isTicketType
+          ? selected.id
+          : (currentTicket?.conversationId ?? selected?.conversationId ?? null);
         if (!convTarget) {
-          throw new Error('Conversa não encontrada para enviar ficheiro.');
+          throw new Error('Conversa não encontrada para enviar ficheiro. Vincule ou abra a conversa do ticket.');
         }
         res = await api.addConversationMessage(convTarget, { content: text || undefined, file });
       } else if (isTicketType && ticketId) {
