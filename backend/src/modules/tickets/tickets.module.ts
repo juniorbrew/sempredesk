@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Ticket, TicketMessage } from './entities/ticket.entity';
+import { TicketReplyAttachment } from './entities/ticket-reply-attachment.entity';
 import { TicketsService } from './tickets.service';
 import { TicketSatisfactionService } from './ticket-satisfaction.service';
 import { TicketsController } from './tickets.controller';
@@ -22,7 +23,7 @@ import { TicketAssignmentService } from '../ticket-assignment/ticket-assignment.
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Ticket, TicketMessage]),
+    TypeOrmModule.forFeature([Ticket, TicketMessage, TicketReplyAttachment]),
     PermissionsModule,
     ContractsModule,
     CustomersModule,

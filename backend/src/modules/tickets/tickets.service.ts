@@ -1,10 +1,14 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, IsNull, EntityManager } from 'typeorm';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as crypto from 'crypto';
 import { Cron } from '@nestjs/schedule';
 import {
   Ticket, TicketMessage, TicketStatus, TicketPriority, TicketOrigin, MessageType,
 } from './entities/ticket.entity';
+import { TicketReplyAttachment } from './entities/ticket-reply-attachment.entity';
 import { TicketSatisfactionService } from './ticket-satisfaction.service';
 import {
   CreateTicketDto,
@@ -39,15 +43,45 @@ const STATUS_LABELS_PT: Record<string, string> = {
   cancelled: 'Cancelado',
 };
 
+/** Anexo de resposta pública do ticket: não incluir áudio/vídeo como ficheiro de ticket. */
+const TICKET_ATTACHMENT_MIME_EXACT = new Set([
+  'application/pdf',
+  'application/zip',
+  'application/x-zip-compressed',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+]);
+
+function isAllowedTicketAttachmentMime(mimeRaw: string): boolean {
+  const mime = (mimeRaw || '').toLowerCase().split(';')[0].trim();
+  if (!mime) return false;
+  if (mime.startsWith('audio/') || mime.startsWith('video/')) return false;
+  if (TICKET_ATTACHMENT_MIME_EXACT.has(mime)) return true;
+  if (mime === 'text/plain') return true;
+  if (mime === 'image/jpeg' || mime === 'image/png' || mime === 'image/webp' || mime === 'image/gif') return true;
+  return false;
+}
+
 @Injectable()
 export class TicketsService {
   private readonly logger = new Logger(TicketsService.name);
+
+  private readonly ticketAttachmentRoot =
+    process.env.TICKET_REPLY_MEDIA_DIR || path.join(process.cwd(), 'uploads', 'ticket-reply-media');
+
+  /** POST /tickets/:id/attachments — pasta dedicada (TICKET_ATTACHMENTS_DIR). */
+  private readonly ticketAttachmentsItem4Root =
+    process.env.TICKET_ATTACHMENTS_DIR || path.join(process.cwd(), 'uploads', 'ticket-attachments');
 
   constructor(
     @InjectRepository(Ticket)
     private readonly ticketRepo: Repository<Ticket>,
     @InjectRepository(TicketMessage)
     private readonly messageRepo: Repository<TicketMessage>,
+    @InjectRepository(TicketReplyAttachment)
+    private readonly ticketReplyAttachmentRepo: Repository<TicketReplyAttachment>,
     private readonly contractsService: ContractsService,
     private readonly ticketSettingsService: TicketSettingsService,
     private readonly alertsService: AlertsService,
@@ -118,6 +152,157 @@ export class TicketsService {
     const ticket = await this.ticketRepo.findOne({ where: { id, tenantId } });
     if (!ticket) throw new NotFoundException('Ticket não encontrado');
     return ticket;
+  }
+
+  private async getTicketOrFailWithManager(em: EntityManager, tenantId: string, id: string): Promise<Ticket> {
+    const ticket = await em.findOne(Ticket, { where: { id, tenantId } });
+    if (!ticket) throw new NotFoundException('Ticket não encontrado');
+    return ticket;
+  }
+
+  private async registerSystemMessageWithManager(
+    em: EntityManager,
+    tenantId: string,
+    ticketId: string,
+    authorId: string,
+    authorName: string,
+    content: string,
+    messageType: MessageType = MessageType.STATUS_CHANGE,
+  ): Promise<void> {
+    const messageRepo = em.getRepository(TicketMessage);
+    await messageRepo.save(
+      messageRepo.create({
+        tenantId,
+        ticketId,
+        authorId,
+        authorType: 'user',
+        authorName,
+        messageType,
+        content,
+      }),
+    );
+  }
+
+  /**
+   * Validação antes de resolver ticket ao encerrar atendimento (WhatsApp sem empresa).
+   * Executar antes da transação de encerramento da conversa.
+   */
+  async assertTicketReadyForFormalResolutionFromConversation(tenantId: string, ticketId: string): Promise<void> {
+    const ticket = await this.getTicketOrFail(tenantId, ticketId);
+    await this.ensureCustomerLinkedBeforeClosing(tenantId, ticket);
+  }
+
+  /**
+   * Horas de contrato + email + webhook após resolução persistida na transação de encerramento da conversa.
+   * Não invoca closeConversationFn (a conversa já está a ser fechada pelo caller).
+   */
+  async runPostResolveSideEffectsAfterConversationCloseTransaction(tenantId: string, ticketId: string): Promise<void> {
+    const saved = await this.getTicketOrFail(tenantId, ticketId);
+    if (saved.contractId && saved.timeSpentMin != null && saved.timeSpentMin > 0) {
+      await this.contractsService.consumeHours(tenantId, saved.contractId, saved.timeSpentMin);
+    }
+    if (this.emailSvc && saved.contactId) {
+      try {
+        const contactRows = await this.ticketRepo.manager.query(
+          'SELECT email FROM contacts WHERE id = $1 AND tenant_id = $2 LIMIT 1',
+          [saved.contactId, tenantId],
+        );
+        const settingsRows = await this.ticketRepo.manager.query(
+          'SELECT ticket_resolved_notify FROM tenant_settings WHERE tenant_id = $1 LIMIT 1',
+          [tenantId],
+        );
+        if (contactRows[0]?.email && settingsRows[0]?.ticket_resolved_notify !== 'false') {
+          await this.emailSvc.sendTicketResolved(tenantId, contactRows[0].email, saved);
+        }
+      } catch { /* best-effort */ }
+    }
+    if (this.webhooksSvc) {
+      try {
+        await this.webhooksSvc.fire(tenantId, 'ticket.resolved', {
+          id: saved.id,
+          ticketNumber: saved.ticketNumber,
+          subject: saved.subject,
+          resolutionSummary: saved.resolutionSummary,
+        });
+      } catch { /* best-effort */ }
+    }
+  }
+
+  /**
+   * Insere mensagem no ticket dentro de uma transação (sem realtime).
+   * Usado ao transcrever conversa no encerramento atómico.
+   */
+  async addMessageTransactional(
+    em: EntityManager,
+    tenantId: string,
+    ticketId: string,
+    authorId: string,
+    authorName: string,
+    authorType: string,
+    dto: AddMessageDto & { skipInAppBell?: boolean },
+  ): Promise<TicketMessage> {
+    const ticketRepo = em.getRepository(Ticket);
+    const messageRepo = em.getRepository(TicketMessage);
+    const ticket = await this.getTicketOrFailWithManager(em, tenantId, ticketId);
+
+    if (!ticket.firstResponseAt && authorType !== 'contact') {
+      ticket.firstResponseAt = new Date();
+      await ticketRepo.save(ticket);
+    }
+    if (authorType === 'contact' && ticket.status === TicketStatus.WAITING_CLIENT) {
+      ticket.status = TicketStatus.IN_PROGRESS;
+      await ticketRepo.save(ticket);
+    }
+
+    const entity = messageRepo.create({
+      tenantId,
+      ticketId,
+      authorId,
+      authorType,
+      authorName,
+      messageType: dto.messageType || MessageType.COMMENT,
+      content: dto.content,
+      attachments: dto.attachments,
+      channel: dto.channel ?? undefined,
+    });
+    const saved = await messageRepo.save(entity);
+    return Array.isArray(saved) ? saved[0] : saved;
+  }
+
+  /**
+   * Marca ticket resolvido e regista mensagem de sistema — só DB, dentro da transação de encerramento da conversa.
+   */
+  async applyResolveTicketInConversationCloseTransaction(
+    em: EntityManager,
+    tenantId: string,
+    ticketId: string,
+    userId: string,
+    userName: string,
+    dto: Pick<ResolveTicketDto, 'resolutionSummary' | 'timeSpentMin'>,
+  ): Promise<Ticket> {
+    const ticketRepo = em.getRepository(Ticket);
+    const ticket = await this.getTicketOrFailWithManager(em, tenantId, ticketId);
+    if (ticket.status === TicketStatus.CANCELLED) {
+      throw new BadRequestException('Chamado cancelado não pode ser resolvido');
+    }
+    if (dto.timeSpentMin !== undefined) {
+      ticket.timeSpentMin = dto.timeSpentMin;
+    }
+    if (dto.resolutionSummary !== undefined) {
+      ticket.resolutionSummary = dto.resolutionSummary;
+    }
+    ticket.status = TicketStatus.RESOLVED;
+    ticket.resolvedAt = new Date();
+    const saved = await ticketRepo.save(ticket);
+    await this.registerSystemMessageWithManager(
+      em,
+      tenantId,
+      ticketId,
+      userId,
+      userName,
+      `Chamado resolvido${saved.resolutionSummary ? `: ${saved.resolutionSummary}` : ''}`,
+    );
+    return saved;
   }
 
   private isRealClientRecord(client?: { company_name?: string | null; trade_name?: string | null; metadata?: Record<string, any> | null } | null): boolean {
@@ -1329,6 +1514,363 @@ export class TicketsService {
       });
     }
     return msg;
+  }
+
+  /**
+   * Grava ficheiro de anexo da resposta pública (domínio ticket, não conversa).
+   * Chave relativa a TICKET_REPLY_MEDIA_DIR.
+   */
+  /**
+   * Anexos POST /tickets/:id/attachments — pasta TICKET_ATTACHMENTS_DIR, ficheiro {uuid}.{ext}.
+   */
+  private persistItem4AttachmentBuffer(
+    tenantId: string,
+    buffer: Buffer,
+    mime: string,
+  ): { storageKey: string } {
+    const m = (mime || '').toLowerCase().split(';')[0].trim();
+    const extMap: Record<string, string> = {
+      'image/jpeg': '.jpg',
+      'image/png': '.png',
+      'image/webp': '.webp',
+      'audio/ogg': '.ogg',
+      'audio/mpeg': '.mp3',
+      'audio/mp4': '.m4a',
+      'application/pdf': '.pdf',
+    };
+    const ext = extMap[m] || '.bin';
+    const dir = path.join(this.ticketAttachmentsItem4Root, tenantId);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const fname = `${crypto.randomUUID()}${ext}`;
+    const full = path.join(dir, fname);
+    fs.writeFileSync(full, buffer);
+    return { storageKey: path.posix.join(tenantId, fname) };
+  }
+
+  persistTicketAttachmentBuffer(
+    tenantId: string,
+    buffer: Buffer,
+    originalName: string | undefined,
+    mime: string,
+  ): { storageKey: string } {
+    const safeBase = path.basename(originalName || 'file').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120);
+    const extFromName = path.extname(safeBase);
+    const ext = extFromName || '.bin';
+    const dir = path.join(this.ticketAttachmentRoot, tenantId);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const fname = `ticket-${crypto.randomUUID()}${ext}`;
+    const full = path.join(dir, fname);
+    fs.writeFileSync(full, buffer);
+    return { storageKey: path.posix.join(tenantId, fname) };
+  }
+
+  /**
+   * Stream do ficheiro de anexo da resposta pública (domínio ticket).
+   * Valida tenant, ticket e mensagem; não usa conversa nem CONVERSATION_MEDIA_DIR.
+   */
+  async getReplyAttachmentMediaStream(
+    tenantId: string,
+    ticketId: string,
+    attachmentId: string,
+    opts?: { isPortal?: boolean },
+  ): Promise<{ stream: fs.ReadStream; mime: string; originalFilename: string | null }> {
+    const att = await this.ticketReplyAttachmentRepo.findOne({
+      where: { id: attachmentId, tenantId },
+      relations: ['ticketMessage'],
+    });
+    if (!att?.ticketMessage) {
+      throw new NotFoundException('Anexo não encontrado');
+    }
+    const msg = att.ticketMessage;
+    if (msg.tenantId !== tenantId || msg.ticketId !== ticketId) {
+      throw new NotFoundException('Anexo não encontrado');
+    }
+    if (opts?.isPortal && msg.messageType === MessageType.INTERNAL) {
+      throw new NotFoundException('Anexo não encontrado');
+    }
+    const storageKey = (att.storageKey || '').trim();
+    if (!storageKey || storageKey.includes('..') || path.isAbsolute(storageKey)) {
+      throw new NotFoundException('Anexo não encontrado');
+    }
+    if (!storageKey.startsWith(`${tenantId}/`)) {
+      throw new NotFoundException('Anexo não encontrado');
+    }
+    const filePath = path.join(this.ticketAttachmentRoot, ...storageKey.split('/'));
+    const rootResolved = path.resolve(this.ticketAttachmentRoot);
+    const fileResolved = path.resolve(filePath);
+    if (!fileResolved.startsWith(rootResolved + path.sep) && fileResolved !== rootResolved) {
+      throw new NotFoundException('Anexo não encontrado');
+    }
+    if (!fs.existsSync(filePath)) {
+      throw new NotFoundException('Ficheiro ausente');
+    }
+    const mime = (att.mime || 'application/octet-stream').split(';')[0].trim() || 'application/octet-stream';
+    return {
+      stream: fs.createReadStream(filePath),
+      mime,
+      originalFilename: att.originalFilename,
+    };
+  }
+
+  /** ticket_id do anexo (ACL portal antes de servir o ficheiro). */
+  async getTicketReplyAttachmentTicketId(tenantId: string, attachmentId: string): Promise<string> {
+    const att = await this.ticketReplyAttachmentRepo.findOne({
+      where: { id: attachmentId, tenantId },
+      select: ['id', 'ticketId'],
+    });
+    if (!att) throw new NotFoundException('Anexo não encontrado');
+    return att.ticketId;
+  }
+
+  /**
+   * Stream do anexo gravado em TICKET_ATTACHMENTS_DIR (POST /tickets/:id/attachments).
+   */
+  async getItem4AttachmentMediaStream(
+    tenantId: string,
+    attachmentId: string,
+    opts?: { isPortal?: boolean },
+  ): Promise<{ stream: fs.ReadStream; mime: string; originalFilename: string | null }> {
+    const att = await this.ticketReplyAttachmentRepo.findOne({
+      where: { id: attachmentId, tenantId },
+      relations: ['ticketMessage'],
+    });
+    if (!att?.ticketMessage) {
+      throw new NotFoundException('Anexo não encontrado');
+    }
+    const msg = att.ticketMessage;
+    if (msg.tenantId !== tenantId || msg.ticketId !== att.ticketId) {
+      throw new NotFoundException('Anexo não encontrado');
+    }
+    if (opts?.isPortal && msg.messageType === MessageType.INTERNAL) {
+      throw new NotFoundException('Anexo não encontrado');
+    }
+    const storageKey = (att.storageKey || '').trim();
+    if (!storageKey || storageKey.includes('..') || path.isAbsolute(storageKey)) {
+      throw new NotFoundException('Anexo não encontrado');
+    }
+    if (!storageKey.startsWith(`${tenantId}/`)) {
+      throw new NotFoundException('Anexo não encontrado');
+    }
+    const filePath = path.join(this.ticketAttachmentsItem4Root, ...storageKey.split('/'));
+    const rootResolved = path.resolve(this.ticketAttachmentsItem4Root);
+    const fileResolved = path.resolve(filePath);
+    if (!fileResolved.startsWith(rootResolved + path.sep) && fileResolved !== rootResolved) {
+      throw new NotFoundException('Anexo não encontrado');
+    }
+    if (!fs.existsSync(filePath)) {
+      throw new NotFoundException('Ficheiro ausente');
+    }
+    const mime = (att.mime || 'application/octet-stream').split(';')[0].trim() || 'application/octet-stream';
+    return {
+      stream: fs.createReadStream(filePath),
+      mime,
+      originalFilename: att.originalFilename,
+    };
+  }
+
+  /**
+   * Resposta pública com um anexo (multipart). Não usa conversationId.
+   * Áudio e vídeo são rejeitados; imagem/PDF/Office/zip/texto permitidos conforme whitelist.
+   */
+  async addPublicReplyWithAttachment(
+    tenantId: string,
+    ticketId: string,
+    authorId: string,
+    authorName: string,
+    authorType: string,
+    opts: {
+      content?: string;
+      buffer: Buffer;
+      originalFilename?: string;
+      mime: string;
+      channel?: string;
+      skipInAppBell?: boolean;
+    },
+  ): Promise<{ message: TicketMessage; attachment: TicketReplyAttachment }> {
+    const ticket = await this.getTicketOrFail(tenantId, ticketId);
+    const mime = (opts.mime || '').trim();
+    if (!isAllowedTicketAttachmentMime(mime)) {
+      throw new BadRequestException(
+        'Tipo de ficheiro não permitido para anexo de ticket (áudio/vídeo não são aceites; use imagem, PDF, Office ou ZIP).',
+      );
+    }
+    if (!opts.buffer?.length) {
+      throw new BadRequestException('Ficheiro vazio.');
+    }
+
+    const { storageKey } = this.persistTicketAttachmentBuffer(
+      tenantId,
+      opts.buffer,
+      opts.originalFilename,
+      mime,
+    );
+    const label = path.basename(opts.originalFilename || 'anexo').slice(0, 200);
+    const text = (opts.content ?? '').trim();
+    const displayContent = text || `📎 ${label}`;
+
+    if (!ticket.firstResponseAt && authorType !== 'contact') {
+      ticket.firstResponseAt = new Date();
+      await this.ticketRepo.save(ticket);
+    }
+    if (authorType === 'contact' && ticket.status === TicketStatus.WAITING_CLIENT) {
+      ticket.status = TicketStatus.IN_PROGRESS;
+      await this.ticketRepo.save(ticket);
+    }
+
+    const result = await this.messageRepo.manager.transaction(async (em) => {
+      const msg = em.create(TicketMessage, {
+        tenantId,
+        ticketId,
+        authorId,
+        authorType,
+        authorName,
+        messageType: MessageType.COMMENT,
+        content: displayContent,
+        attachments: [],
+        channel: opts.channel ?? undefined,
+      });
+      const savedMsg = await em.save(TicketMessage, msg);
+      const att = em.create(TicketReplyAttachment, {
+        tenantId,
+        ticketId,
+        ticketMessageId: savedMsg.id,
+        storageKey,
+        mime: mime || null,
+        sizeBytes: String(opts.buffer.length),
+        originalFilename: opts.originalFilename || label || null,
+      });
+      const savedAtt = await em.save(TicketReplyAttachment, att);
+      savedMsg.attachments = [
+        {
+          id: savedAtt.id,
+          kind: 'ticket_reply_file',
+          mime: savedAtt.mime,
+          filename: savedAtt.originalFilename,
+        },
+      ];
+      await em.save(TicketMessage, savedMsg);
+      return { message: savedMsg, attachment: savedAtt };
+    });
+
+    const { message: msg, attachment: savedAtt } = result;
+    this.realtimeEmitter.emitNewMessage(ticketId, {
+      id: msg.id,
+      ticketId: msg.ticketId,
+      authorId: msg.authorId,
+      authorType: msg.authorType,
+      authorName: msg.authorName,
+      messageType: msg.messageType,
+      content: msg.content,
+      attachments: msg.attachments,
+      channel: msg.channel,
+      createdAt: msg.createdAt,
+    });
+    if (!opts.skipInAppBell) {
+      const preview = displayContent.length > 80 ? `${displayContent.slice(0, 77)}…` : displayContent;
+      this.realtimeEmitter.emitTenantTicketMessageNotify(tenantId, {
+        ticketId,
+        ticketNumber: ticket.ticketNumber,
+        content: preview || '(anexo)',
+      });
+    }
+    return { message: msg, attachment: savedAtt };
+  }
+
+  /**
+   * Anexo via POST /tickets/:id/attachments — ficheiro em TICKET_ATTACHMENTS_DIR; magic bytes validados no controller.
+   */
+  async addTicketAttachmentItem4(
+    tenantId: string,
+    ticketId: string,
+    authorId: string,
+    authorName: string,
+    authorType: string,
+    opts: {
+      content?: string;
+      buffer: Buffer;
+      originalFilename?: string;
+      mime: string;
+      channel?: string;
+      skipInAppBell?: boolean;
+    },
+  ): Promise<{ message: TicketMessage; attachment: TicketReplyAttachment }> {
+    const ticket = await this.getTicketOrFail(tenantId, ticketId);
+    const mime = (opts.mime || '').trim();
+    if (!opts.buffer?.length) {
+      throw new BadRequestException('Ficheiro vazio.');
+    }
+
+    const { storageKey } = this.persistItem4AttachmentBuffer(tenantId, opts.buffer, mime);
+    const label = path.basename(opts.originalFilename || 'anexo').slice(0, 200);
+    const text = (opts.content ?? '').trim();
+    const displayContent = text || `📎 ${label}`;
+
+    if (!ticket.firstResponseAt && authorType !== 'contact') {
+      ticket.firstResponseAt = new Date();
+      await this.ticketRepo.save(ticket);
+    }
+    if (authorType === 'contact' && ticket.status === TicketStatus.WAITING_CLIENT) {
+      ticket.status = TicketStatus.IN_PROGRESS;
+      await this.ticketRepo.save(ticket);
+    }
+
+    const result = await this.messageRepo.manager.transaction(async (em) => {
+      const msg = em.create(TicketMessage, {
+        tenantId,
+        ticketId,
+        authorId,
+        authorType,
+        authorName,
+        messageType: MessageType.COMMENT,
+        content: displayContent,
+        attachments: [],
+        channel: opts.channel ?? undefined,
+      });
+      const savedMsg = await em.save(TicketMessage, msg);
+      const att = em.create(TicketReplyAttachment, {
+        tenantId,
+        ticketId,
+        ticketMessageId: savedMsg.id,
+        storageKey,
+        mime: mime || null,
+        sizeBytes: String(opts.buffer.length),
+        originalFilename: opts.originalFilename || label || null,
+      });
+      const savedAtt = await em.save(TicketReplyAttachment, att);
+      savedMsg.attachments = [
+        {
+          id: savedAtt.id,
+          kind: 'ticket_reply_file',
+          mime: savedAtt.mime,
+          filename: savedAtt.originalFilename,
+        },
+      ];
+      await em.save(TicketMessage, savedMsg);
+      return { message: savedMsg, attachment: savedAtt };
+    });
+
+    const { message: msg, attachment: savedAtt } = result;
+    this.realtimeEmitter.emitNewMessage(ticketId, {
+      id: msg.id,
+      ticketId: msg.ticketId,
+      authorId: msg.authorId,
+      authorType: msg.authorType,
+      authorName: msg.authorName,
+      messageType: msg.messageType,
+      content: msg.content,
+      attachments: msg.attachments,
+      channel: msg.channel,
+      createdAt: msg.createdAt,
+    });
+    if (!opts.skipInAppBell) {
+      const preview = displayContent.length > 80 ? `${displayContent.slice(0, 77)}…` : displayContent;
+      this.realtimeEmitter.emitTenantTicketMessageNotify(tenantId, {
+        ticketId,
+        ticketNumber: ticket.ticketNumber,
+        content: preview || '(anexo)',
+      });
+    }
+    return { message: msg, attachment: savedAtt };
   }
 
   async getMessages(tenantId: string, ticketId: string, includeInternal = true): Promise<TicketMessage[]> {

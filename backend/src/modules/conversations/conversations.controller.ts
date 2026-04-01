@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Post, Param, Query, UseGuards, BadRequestException, Request, Put, UseInterceptors, UploadedFile, StreamableFile } from '@nestjs/common';
+import { validateFileSignature } from '../../common/utils/validate-file-signature.util';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { ConversationsService } from './conversations.service';
@@ -184,6 +185,9 @@ export class ConversationsController {
       if (mime.startsWith('image/')) mediaKind = 'image';
       else if (mime.startsWith('audio/')) mediaKind = 'audio';
       else throw new BadRequestException('Envie uma imagem ou um áudio (tipos suportados: image/*, audio/*).');
+      if (!validateFileSignature(file.buffer, mime)) {
+        throw new BadRequestException('Tipo de arquivo não permitido');
+      }
       const saved = this.conversationsService.persistAgentMediaBuffer(tenantId, file.buffer, mime, mediaKind);
       mediaStorageKey = saved.storageKey;
       mediaMime = saved.mime;

@@ -1,8 +1,12 @@
 import { TenantId } from '../../common/decorators/tenant-id.decorator';
 import {
   Controller, Get, Post, Put, Body, Param, Query,
-  UseGuards, Request, BadRequestException, NotFoundException,
+  UseGuards, Request, BadRequestException, NotFoundException, UnprocessableEntityException,
+  UseInterceptors, UploadedFile,
+  StreamableFile,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
@@ -19,6 +23,8 @@ import {
   CancelTicketDto,
 } from './dto/ticket.dto';
 import { TicketOrigin } from './entities/ticket.entity';
+import { validateFileSignature } from '../../common/utils/file-signature.util';
+import { validateFileSignature as validateStrictFileSignature } from '../../common/utils/validate-file-signature.util';
 
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('tickets')
@@ -131,6 +137,40 @@ export class TicketsController {
     return this.ticketsService.findByNumberForClient(tenantId, number.trim(), cid);
   }
 
+  /** Download de anexo criado via POST /tickets/:id/attachments (TICKET_ATTACHMENTS_DIR). */
+  @Get('attachments/:attachmentId')
+  @RequirePermission('ticket.view')
+  async getTicketAttachmentItem4(
+    @Request() req: any,
+    @TenantId() tenantId: string,
+    @Param('attachmentId') attachmentId: string,
+  ): Promise<StreamableFile> {
+    if (req.user?.isPortal === true) {
+      const ticketId = await this.ticketsService.getTicketReplyAttachmentTicketId(tenantId, attachmentId);
+      const ticket = await this.ticketsService.findOne(tenantId, ticketId);
+      if (ticket.clientId) {
+        const canAccess = await this.customersService.canContactAccessTicket(
+          tenantId,
+          req.user.id,
+          ticket.clientId,
+          ticket.contactId ?? null,
+          !!req.user.isPrimary,
+        );
+        if (!canAccess) throw new NotFoundException('Ticket não encontrado');
+      }
+    }
+    const { stream, mime, originalFilename } = await this.ticketsService.getItem4AttachmentMediaStream(
+      tenantId,
+      attachmentId,
+      { isPortal: req.user?.isPortal === true },
+    );
+    const safeBase = (originalFilename || 'anexo').replace(/["\r\n]/g, '_').slice(0, 200);
+    return new StreamableFile(stream, {
+      type: mime,
+      disposition: `inline; filename="${safeBase}"`,
+    });
+  }
+
   @Get(':id')
   @RequirePermission('ticket.view')
   async findOne(@Request() req: any, @TenantId() tenantId: string, @Param('id') id: string) {
@@ -158,6 +198,56 @@ export class TicketsController {
   @RequirePermission('ticket.edit_content')
   updateContent(@Request() req, @Param('id') id: string, @Body() dto: UpdateTicketContentDto) {
     return this.ticketsService.updateContent(req.tenantId, id, req.user.id, req.user.name, dto);
+  }
+
+  @Post(':id/attachments')
+  @RequirePermission('ticket.reply')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: 16 * 1024 * 1024 },
+    }),
+  )
+  async addTicketAttachmentItem4(
+    @Request() req: any,
+    @TenantId() tenantId: string,
+    @Param('id') id: string,
+    @Body('content') content: string | undefined,
+    @UploadedFile() file?: { buffer?: Buffer; mimetype?: string; originalname?: string; size?: number },
+  ) {
+    if (!file?.buffer?.length) {
+      throw new BadRequestException('Envie o ficheiro no campo file.');
+    }
+    if (!validateStrictFileSignature(file.buffer, file.mimetype || '')) {
+      throw new BadRequestException('Tipo de arquivo não permitido');
+    }
+    const ticket = await this.ticketsService.findOne(tenantId, id);
+    if (req.user?.isPortal === true && ticket.clientId) {
+      const canAccess = await this.customersService.canContactAccessTicket(
+        tenantId,
+        req.user.id,
+        ticket.clientId,
+        ticket.contactId ?? null,
+        !!req.user.isPrimary,
+      );
+      if (!canAccess) throw new NotFoundException('Ticket não encontrado');
+    }
+    const isPortal = req.user?.isPortal === true;
+    const authorType = isPortal ? 'contact' : 'user';
+    return this.ticketsService.addTicketAttachmentItem4(
+      tenantId,
+      id,
+      req.user.id,
+      req.user.name,
+      authorType,
+      {
+        content: content ?? undefined,
+        buffer: file.buffer,
+        originalFilename: file.originalname,
+        mime: file.mimetype || '',
+        channel: isPortal ? 'portal' : undefined,
+      },
+    );
   }
 
   @Post(':id/assign')
@@ -216,6 +306,98 @@ export class TicketsController {
       }
     }
     return this.ticketsService.getMessages(tenantId, id, withInternal);
+  }
+
+  /**
+   * Download/stream do anexo de resposta pública (tabela ticket_reply_attachments).
+   * Não reutiliza GET /conversations/messages/:id/media.
+   */
+  @Get(':id/reply-attachments/:attachmentId/media')
+  @RequirePermission('ticket.view')
+  async getReplyAttachmentMedia(
+    @Request() req: any,
+    @TenantId() tenantId: string,
+    @Param('id') id: string,
+    @Param('attachmentId') attachmentId: string,
+  ): Promise<StreamableFile> {
+    const ticket = await this.ticketsService.findOne(tenantId, id);
+    if (req.user?.isPortal === true && ticket.clientId) {
+      const canAccess = await this.customersService.canContactAccessTicket(
+        tenantId,
+        req.user.id,
+        ticket.clientId,
+        ticket.contactId ?? null,
+        !!req.user.isPrimary,
+      );
+      if (!canAccess) {
+        throw new NotFoundException('Ticket não encontrado');
+      }
+    }
+    const { stream, mime, originalFilename } = await this.ticketsService.getReplyAttachmentMediaStream(
+      tenantId,
+      id,
+      attachmentId,
+      { isPortal: req.user?.isPortal === true },
+    );
+    const safeBase = (originalFilename || 'anexo').replace(/["\r\n]/g, '_').slice(0, 200);
+    return new StreamableFile(stream, {
+      type: mime,
+      disposition: `inline; filename="${safeBase}"`,
+    });
+  }
+
+  /**
+   * Resposta pública com anexo (domínio ticket). Não usa conversa nem conversationId.
+   * Multipart: campo `file` + opcional `content`. Áudio/vídeo não permitidos.
+   */
+  @Post(':id/messages/attachment')
+  @RequirePermission('ticket.reply')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: 16 * 1024 * 1024 },
+    }),
+  )
+  async addPublicReplyAttachment(
+    @Request() req: any,
+    @TenantId() tenantId: string,
+    @Param('id') id: string,
+    @Body('content') content: string | undefined,
+    @UploadedFile() file?: { buffer?: Buffer; mimetype?: string; originalname?: string; size?: number },
+  ) {
+    if (!file?.buffer?.length) {
+      throw new BadRequestException('Envie o ficheiro no campo file.');
+    }
+    if (!validateFileSignature(file.buffer, file.mimetype || '')) {
+      throw new UnprocessableEntityException('O conteúdo do ficheiro não corresponde ao tipo declarado.');
+    }
+    const ticket = await this.ticketsService.findOne(tenantId, id);
+    if (req.user?.isPortal === true && ticket.clientId) {
+      const canAccess = await this.customersService.canContactAccessTicket(
+        tenantId,
+        req.user.id,
+        ticket.clientId,
+        ticket.contactId ?? null,
+        !!req.user.isPrimary,
+      );
+      if (!canAccess) throw new NotFoundException('Ticket não encontrado');
+    }
+    const isPortal = req.user?.isPortal === true;
+    const authorType = isPortal ? 'contact' : 'user';
+    return this.ticketsService.addPublicReplyWithAttachment(
+      tenantId,
+      id,
+      req.user.id,
+      req.user.name,
+      authorType,
+      {
+        content: content ?? undefined,
+        buffer: file.buffer,
+        originalFilename: file.originalname,
+        mime: file.mimetype || '',
+        channel: isPortal ? 'portal' : undefined,
+      },
+    );
   }
 
   @Post(':id/messages')

@@ -3,12 +3,12 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, IsNull } from 'typeorm';
+import { DataSource, Repository, IsNull } from 'typeorm';
 import { Conversation, ConversationChannel, ConversationStatus, ConversationInitiatedBy } from './entities/conversation.entity';
 import { ConversationMessage } from './entities/conversation-message.entity';
 import { TicketsService } from '../tickets/tickets.service';
 import { CustomersService } from '../customers/customers.service';
-import { TicketOrigin } from '../tickets/entities/ticket.entity';
+import { TicketMessage, TicketOrigin } from '../tickets/entities/ticket.entity';
 import { RealtimeEmitterService } from '../realtime/realtime-emitter.service';
 
 @Injectable()
@@ -118,6 +118,7 @@ export class ConversationsService {
     private readonly convRepo: Repository<Conversation>,
     @InjectRepository(ConversationMessage)
     private readonly msgRepo: Repository<ConversationMessage>,
+    private readonly dataSource: DataSource,
     private readonly ticketsService: TicketsService,
     private readonly customersService: CustomersService,
     private readonly realtimeEmitter: RealtimeEmitterService,
@@ -907,6 +908,7 @@ export class ConversationsService {
    * - Se não tiver ticket: cria ticket e migra mensagens do conversation_messages.
    * - Se tiver ticket: migra mensagens do conversation_messages para o ticket existente.
    * - closureData: quando fornecido e keepTicketOpen=false, adiciona encerramento formal como interação separada.
+   * Transcrição + atualização do ticket + conversa CLOSED: uma única transação (queryRunner); realtime e efeitos externos após commit.
    */
   async close(
     tenantId: string,
@@ -922,62 +924,155 @@ export class ConversationsService {
       return conv;
     }
 
-    let ticketId = conv.ticketId;
+    const ticketId = conv.ticketId;
 
     if (!ticketId) throw new BadRequestException('Conversa sem ticket vinculado nao pode ser encerrada.');
 
-    // 1. Copiar mensagens da conversa para o ticket (transcrição do chat)
-    const msgs = await this.getMessages(tenantId, conv.id);
-    for (const m of msgs) {
-      await this.ticketsService.addMessage(tenantId, ticketId, m.authorId ?? conv.contactId, m.authorName, m.authorType, {
-        content: m.content, messageType: 'comment' as any, channel: conv.channel, skipInAppBell: true,
+    const willResolveFormally = !keepTicketOpen && !!closureData?.solution?.trim();
+    if (willResolveFormally) {
+      await this.ticketsService.assertTicketReadyForFormalResolutionFromConversation(tenantId, ticketId);
+    }
+
+    const messagesToEmitRealtime: TicketMessage[] = [];
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      const em = queryRunner.manager;
+
+      const convLocked = await em.findOne(Conversation, { where: { tenantId, id } });
+      if (!convLocked) {
+        throw new NotFoundException('Conversa não encontrada');
+      }
+      if (convLocked.status === ConversationStatus.CLOSED) {
+        await queryRunner.rollbackTransaction();
+        return convLocked;
+      }
+
+      const msgsTx = await em.find(ConversationMessage, {
+        where: { tenantId, conversationId: id },
+        order: { createdAt: 'ASC' },
+      });
+
+      for (const m of msgsTx) {
+        const transcriptAtt = m.mediaStorageKey
+          ? [{ mediaKind: m.mediaKind, mediaStorageKey: m.mediaStorageKey, mediaMime: m.mediaMime }]
+          : null;
+        const savedMsg = await this.ticketsService.addMessageTransactional(
+          em,
+          tenantId,
+          ticketId,
+          m.authorId ?? convLocked.contactId,
+          m.authorName,
+          m.authorType,
+          {
+            content: m.content,
+            messageType: 'comment' as any,
+            channel: convLocked.channel,
+            skipInAppBell: true,
+            attachments: transcriptAtt,
+          },
+        );
+        messagesToEmitRealtime.push(savedMsg);
+      }
+
+      if (!keepTicketOpen) {
+        const uid = userId ?? 'system';
+        const uname = userName ?? 'Sistema';
+
+        if (closureData?.solution?.trim()) {
+          const parts: string[] = ['--- ENCERRAMENTO DO ATENDIMENTO ---', `Solução aplicada: ${closureData.solution.trim()}`];
+          if (closureData.rootCause?.trim()) parts.push(`Causa raiz: ${closureData.rootCause.trim()}`);
+          if (closureData.timeSpentMin != null && closureData.timeSpentMin > 0) parts.push(`Tempo gasto: ${closureData.timeSpentMin} min`);
+          if (closureData.complexity != null && closureData.complexity > 0) parts.push(`Complexidade: ${closureData.complexity}/5`);
+          const closureMsg = await this.ticketsService.addMessageTransactional(
+            em,
+            tenantId,
+            ticketId,
+            uid,
+            uname,
+            'user',
+            {
+              content: parts.join('\n'),
+              messageType: 'comment' as any,
+              skipInAppBell: true,
+            },
+          );
+          messagesToEmitRealtime.push(closureMsg);
+
+          await this.ticketsService.applyResolveTicketInConversationCloseTransaction(
+            em,
+            tenantId,
+            ticketId,
+            uid,
+            uname,
+            {
+              resolutionSummary: closureData.solution.trim(),
+              timeSpentMin: closureData.timeSpentMin,
+            },
+          );
+        }
+
+        if (closureData?.internalNote?.trim()) {
+          const internalMsg = await this.ticketsService.addMessageTransactional(
+            em,
+            tenantId,
+            ticketId,
+            uid,
+            uname,
+            'user',
+            {
+              content: closureData.internalNote.trim(),
+              messageType: 'internal' as any,
+              skipInAppBell: true,
+            },
+          );
+          messagesToEmitRealtime.push(internalMsg);
+        }
+      }
+
+      convLocked.status = ConversationStatus.CLOSED;
+      await em.getRepository(Conversation).save(convLocked);
+
+      await queryRunner.commitTransaction();
+    } catch (err) {
+      await queryRunner.rollbackTransaction();
+      throw err;
+    } finally {
+      await queryRunner.release();
+    }
+
+    for (const msg of messagesToEmitRealtime) {
+      this.realtimeEmitter.emitNewMessage(ticketId, {
+        id: msg.id,
+        ticketId: msg.ticketId,
+        authorId: msg.authorId,
+        authorType: msg.authorType,
+        authorName: msg.authorName,
+        messageType: msg.messageType,
+        content: msg.content,
+        attachments: msg.attachments,
+        channel: msg.channel,
+        createdAt: msg.createdAt,
       });
     }
 
-    if (!keepTicketOpen) {
-      const uid = userId ?? 'system';
-      const uname = userName ?? 'Sistema';
-
-      // 2. Encerramento formal: adicionar como interação separada da conversa
-      if (closureData?.solution?.trim()) {
-        const parts: string[] = ['--- ENCERRAMENTO DO ATENDIMENTO ---', `Solução aplicada: ${closureData.solution.trim()}`];
-        if (closureData.rootCause?.trim()) parts.push(`Causa raiz: ${closureData.rootCause.trim()}`);
-        if (closureData.timeSpentMin != null && closureData.timeSpentMin > 0) parts.push(`Tempo gasto: ${closureData.timeSpentMin} min`);
-        if (closureData.complexity != null && closureData.complexity > 0) parts.push(`Complexidade: ${closureData.complexity}/5`);
-        await this.ticketsService.addMessage(tenantId, ticketId, uid, uname, 'user', {
-          content: parts.join('\n'),
-          messageType: 'comment' as any,
-          skipInAppBell: true,
-        });
-        await this.ticketsService.resolve(tenantId, ticketId, uid, uname, {
-          resolutionSummary: closureData.solution.trim(),
-          timeSpentMin: closureData.timeSpentMin,
-        });
-      }
-      if (closureData?.internalNote?.trim()) {
-        await this.ticketsService.addMessage(tenantId, ticketId, uid, uname, 'user', {
-          content: closureData.internalNote.trim(),
-          messageType: 'internal' as any,
-          skipInAppBell: true,
-        });
-      }
-
-      // Ticket permanece como "resolvido" — cliente tem 7 dias para confirmar no portal.
-      // O cron autoCloseResolvedTickets fecha automaticamente após esse prazo.
+    if (willResolveFormally) {
+      await this.ticketsService.runPostResolveSideEffectsAfterConversationCloseTransaction(tenantId, ticketId);
     }
-
-    conv.status = ConversationStatus.CLOSED;
-    await this.convRepo.save(conv);
 
     // Notifica todos os agentes do tenant que esta conversa foi encerrada
     // O frontend remove do inbox ativo sem precisar de polling
-    this.realtimeEmitter.emitToTenant(tenantId, 'conversation:closed', { conversationId: conv.id });
+    this.realtimeEmitter.emitToTenant(tenantId, 'conversation:closed', { conversationId: id });
 
     // WhatsApp: ao encerrar o atendimento formalmente, dispara avaliação ao cliente.
     // Se o atendimento não foi encerrado (keepTicketOpen), apenas reseta a sessão.
-    if (conv.channel === ConversationChannel.WHATSAPP && this.chatbotService) {
-      const contact = conv.contactId
-        ? await this.customersService.findContactById(tenantId, conv.contactId).catch(() => null)
+    const convAfter = await this.findOne(tenantId, id);
+    if (convAfter.channel === ConversationChannel.WHATSAPP && this.chatbotService) {
+      const contact = convAfter.contactId
+        ? await this.customersService.findContactById(tenantId, convAfter.contactId).catch(() => null)
         : null;
       const identifier =
         (contact as any)?.metadata?.whatsappLid
@@ -986,7 +1081,7 @@ export class ConversationsService {
 
       if (identifier) {
         const deveAvaliar = !keepTicketOpen && !!ticketId && !!this.outboundSender;
-        console.log(`[ConversationsService.close] conversation=${conv.id} ticket=${ticketId ?? 'none'} identifier=${identifier} keepTicketOpen=${!!keepTicketOpen} shouldRate=${deveAvaliar}`);
+        console.log(`[ConversationsService.close] conversation=${id} ticket=${ticketId ?? 'none'} identifier=${identifier} keepTicketOpen=${!!keepTicketOpen} shouldRate=${deveAvaliar}`);
         if (deveAvaliar) {
           const sender = this.outboundSender!;
           await this.chatbotService.initiateRating(tenantId, identifier, ticketId!, 'whatsapp', async (text) => {
@@ -998,7 +1093,7 @@ export class ConversationsService {
       }
     }
 
-    return conv;
+    return convAfter;
   }
 
   async updateLastMessageAt(tenantId: string, conversationId: string) {
