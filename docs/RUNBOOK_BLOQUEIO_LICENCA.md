@@ -2,6 +2,8 @@
 
 Documento para **operador de suporte** (5–10 min). Detalhes completos: [SOP_ONBOARDING_TENANTS.md](./SOP_ONBOARDING_TENANTS.md) §8.
 
+Mapeamento **`reasonKey`** → causa e acção: [MAPEAMENTO_BLOQUEIO_LICENCA.md](./MAPEAMENTO_BLOQUEIO_LICENCA.md).
+
 Após deploy / validação de produção: [CHECKLIST_SEQUENCIA_POS_DEPLOY.md](./CHECKLIST_SEQUENCIA_POS_DEPLOY.md).
 
 ---

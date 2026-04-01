@@ -55,6 +55,8 @@ function LicenseBlockedContent() {
     [searchParams],
   );
 
+  const reasonKey = useMemo(() => searchParams.get('rk')?.trim() || '', [searchParams]);
+
   const irPortalLogin = useCallback(() => {
     clearSession();
     window.location.href = '/portal/login';
@@ -95,6 +97,11 @@ function LicenseBlockedContent() {
         <h1 style={{ fontSize: 22, margin: '0 0 8px', fontWeight: 700 }}>{titulo}</h1>
         <p style={{ margin: '0 0 8px', fontSize: 14, color: '#94a3b8', lineHeight: 1.45 }}>{subtitulo}</p>
         <p style={{ margin: '0 0 24px', lineHeight: 1.55, color: '#cbd5e1', fontSize: 15 }}>{reason}</p>
+        {reasonKey ? (
+          <p style={{ margin: '-16px 0 20px', fontSize: 11, color: '#64748b', fontFamily: 'ui-monospace, monospace' }}>
+            Ref. suporte: {reasonKey}
+          </p>
+        ) : null}
 
         {fromPortal ? (
           <>

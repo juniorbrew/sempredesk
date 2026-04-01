@@ -43,10 +43,12 @@ class ApiClient {
           if (code === TENANT_LICENSE_BLOCKED_CODE) {
             const path = window.location.pathname || '';
             if (!path.startsWith('/license-blocked')) {
-              const msg =
-                typeof raw === 'object' && raw && 'message' in raw ? String((raw as { message?: string }).message || '') : '';
+              const errObj = typeof raw === 'object' && raw ? (raw as { message?: string; reasonKey?: string }) : null;
+              const msg = errObj?.message != null ? String(errObj.message) : '';
+              const rk = errObj?.reasonKey != null ? String(errObj.reasonKey) : '';
               const q = new URLSearchParams();
               if (msg) q.set('reason', msg);
+              if (rk) q.set('rk', rk);
               if (path.startsWith('/portal')) q.set('from', 'portal');
               else q.set('from', 'staff');
               window.location.replace(`/license-blocked?${q.toString()}`);

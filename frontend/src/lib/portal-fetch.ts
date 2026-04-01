@@ -7,7 +7,7 @@ import { TENANT_LICENSE_BLOCKED_CODE } from './api-errors';
 export async function portalFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const res = await fetch(input, init);
   if (res.status === 403 && typeof window !== 'undefined') {
-    let data: { error?: { code?: string; message?: string } | string } | null = null;
+    let data: { error?: { code?: string; message?: string; reasonKey?: string } | string } | null = null;
     try {
       data = await res.clone().json();
     } catch {
@@ -16,11 +16,12 @@ export async function portalFetch(input: RequestInfo | URL, init?: RequestInit):
     const err = data?.error;
     const code = typeof err === 'object' && err && 'code' in err ? (err as { code?: string }).code : null;
     if (code === TENANT_LICENSE_BLOCKED_CODE && !window.location.pathname.startsWith('/license-blocked')) {
-      const msg = typeof err === 'object' && err && typeof (err as { message?: string }).message === 'string'
-        ? (err as { message: string }).message
-        : '';
+      const e = typeof err === 'object' && err ? (err as { message?: string; reasonKey?: string }) : null;
+      const msg = e?.message != null ? String(e.message) : '';
+      const rk = e?.reasonKey != null ? String(e.reasonKey) : '';
       const q = new URLSearchParams();
       if (msg) q.set('reason', msg);
+      if (rk) q.set('rk', rk);
       q.set('from', 'portal');
       window.location.replace(`/license-blocked?${q.toString()}`);
       throw new Error('PORTAL_LICENSE_BLOCKED');

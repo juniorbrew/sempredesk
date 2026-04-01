@@ -3,7 +3,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { TenantLicense } from './tenant-license.entity';
 import { Tenant } from '../tenants/tenant.entity';
-import { TENANT_LICENSE_BLOCKED_CODE } from './tenant-license.constants';
+import {
+  TENANT_LICENSE_BLOCKED_CODE,
+  TENANT_LICENSE_BLOCK_REASON_KEY,
+} from './tenant-license.constants';
 
 @Injectable()
 export class TenantLicenseService {
@@ -86,12 +89,14 @@ export class TenantLicenseService {
       throw new ForbiddenException({
         message: 'Empresa inválida',
         code: TENANT_LICENSE_BLOCKED_CODE,
+        reasonKey: TENANT_LICENSE_BLOCK_REASON_KEY.INVALID_TENANT,
       });
     }
     if (tenant.status === 'suspended') {
       throw new ForbiddenException({
         message: 'Esta empresa está suspensa. Contacte o suporte SempreDesk.',
         code: TENANT_LICENSE_BLOCKED_CODE,
+        reasonKey: TENANT_LICENSE_BLOCK_REASON_KEY.TENANT_SUSPENDED,
       });
     }
 
@@ -103,12 +108,14 @@ export class TenantLicenseService {
       throw new ForbiddenException({
         message: 'Licença inativa. Contacte o suporte SempreDesk.',
         code: TENANT_LICENSE_BLOCKED_CODE,
+        reasonKey: TENANT_LICENSE_BLOCK_REASON_KEY.LICENSE_INACTIVE,
       });
     }
     if (lic.expiresAt && new Date(lic.expiresAt).getTime() < Date.now()) {
       throw new ForbiddenException({
         message: 'Licença expirada. Renove o plano para continuar.',
         code: TENANT_LICENSE_BLOCKED_CODE,
+        reasonKey: TENANT_LICENSE_BLOCK_REASON_KEY.LICENSE_EXPIRED,
       });
     }
   }

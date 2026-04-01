@@ -76,11 +76,13 @@ No painel de listagem (`/admin/tenants`):
 
 **Runbook rápido (checklist + macros):** [RUNBOOK_BLOQUEIO_LICENCA.md](./RUNBOOK_BLOQUEIO_LICENCA.md)
 
+**Chave técnica `rk` (reasonKey):** [MAPEAMENTO_BLOQUEIO_LICENCA.md](./MAPEAMENTO_BLOQUEIO_LICENCA.md)
+
 ### 8.1 O que o utilizador ve
 
-- **Painel da equipa** (`suporte.*`): ao usar o sistema, o browser pode ir para `/license-blocked?from=staff&reason=...`.
+- **Painel da equipa** (`suporte.*`): ao usar o sistema, o browser pode ir para `/license-blocked?from=staff&reason=...&rk=...`.
 - **Portal do cliente** (`cliente.*`): mesmo fluxo com `from=portal` na URL.
-- A mensagem em `reason` vem da API (ex.: licenca expirada, empresa suspensa).
+- A mensagem em `reason` vem da API (ex.: licenca expirada, empresa suspensa). O parametro `rk` identifica o motivo de forma estável para suporte (ex.: `LICENSE_EXPIRED`).
 
 ### 8.2 O que verificar (interno)
 
