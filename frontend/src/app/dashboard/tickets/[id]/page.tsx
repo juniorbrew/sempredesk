@@ -2,7 +2,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
-import { useRealtimeTicket } from '@/lib/realtime';
+import { useRealtimeTicket, useRealtimeConversation } from '@/lib/realtime';
 import { useAuthStore, hasPermission } from '@/store/auth.store';
 import toast from 'react-hot-toast';
 import { ArrowLeft, RotateCw, Tag, Clock, AlertTriangle, Lock, Send, Paperclip, CheckCircle2, XCircle, X, ChevronDown, Save, RefreshCw, User, UserCircle, Headphones, Building2, MessageSquare, PhoneCall, ThumbsUp, ThumbsDown, ChevronUp, Ticket as TicketIcon, CalendarClock, CalendarCheck, Pencil } from 'lucide-react';
@@ -161,15 +161,50 @@ export default function TicketDetailsPage() {
     };
   }, [conversationMsgs, ticket?.conversationId]);
 
-  // ── realtime: new messages append without full reload ──
+  const linkedConvIdRef = useRef<string | null>(null);
+  linkedConvIdRef.current = ticket?.conversationId ?? null;
+
+  // ── realtime: fio do ticket (sem duplicar mensagens da conversa vinculada) ──
   useRealtimeTicket(id || null, (msg: any) => {
     if (!msg) return;
-    setMessages(prev => {
+    const linked = linkedConvIdRef.current;
+    if (linked && msg.conversationId != null && String(msg.conversationId) === String(linked)) {
+      return;
+    }
+    setMessages((prev) => {
       const exists = prev.some((x: any) => String(x.id) === String(msg.id));
-      if (exists) return prev.map((x: any) => String(x.id) === String(msg.id) ? { ...x, ...msg } : x);
-      // Same channel filter as load(): exclude portal/whatsapp if ticket has conversationId
+      if (exists) return prev.map((x: any) => (String(x.id) === String(msg.id) ? { ...x, ...msg } : x));
       if (msg.channel === 'portal' || msg.channel === 'whatsapp') return prev;
       return [...prev, msg];
+    });
+  });
+
+  // ── realtime: transcrição da conversa (incl. mídia e status WhatsApp) ──
+  useRealtimeConversation(ticket?.conversationId ?? null, (msg: any) => {
+    if (!msg?.id) return;
+    const linked = linkedConvIdRef.current;
+    if (!linked || msg.conversationId == null || String(msg.conversationId) !== String(linked)) return;
+    setConversationMsgs((prev) => {
+      const n = {
+        id: msg.id,
+        authorId: msg.authorId,
+        authorType: msg.authorType,
+        authorName: msg.authorName,
+        content: msg.content,
+        createdAt: msg.createdAt,
+        externalId: msg.externalId ?? null,
+        whatsappStatus: msg.whatsappStatus ?? null,
+        mediaKind: msg.mediaKind ?? null,
+        mediaMime: msg.mediaMime ?? null,
+        hasMedia: !!(msg.hasMedia ?? msg.mediaKind),
+      };
+      const exists = prev.some((x: any) => String(x.id) === String(n.id));
+      if (exists) {
+        return prev.map((x: any) => (String(x.id) === String(n.id) ? { ...x, ...n } : x));
+      }
+      return [...prev, n].sort(
+        (a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+      );
     });
   });
 
