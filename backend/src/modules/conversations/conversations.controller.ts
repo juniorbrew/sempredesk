@@ -1,7 +1,10 @@
 import { Body, Controller, Get, Post, Param, Query, UseGuards, BadRequestException, Request, Put, UseInterceptors, UploadedFile, StreamableFile } from '@nestjs/common';
+import * as fs from 'fs';
+import * as path from 'path';
 import { validateFileSignature } from '../../common/utils/validate-file-signature.util';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { memoryStorage } from 'multer';
+import { conversationMediaDiskStorage } from '../../common/utils/multer-disk-storage.util';
+import { readFilePrefixSync } from '../../common/utils/read-file-prefix.util';
 import { ConversationsService } from './conversations.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
@@ -162,7 +165,7 @@ export class ConversationsController {
   @UseGuards(JwtAuthGuard)
   @UseInterceptors(
     FileInterceptor('file', {
-      storage: memoryStorage(),
+      storage: conversationMediaDiskStorage(),
       limits: { fileSize: 16 * 1024 * 1024 },
     }),
   )
@@ -172,7 +175,7 @@ export class ConversationsController {
     @TenantId() tenantId: string,
     @Param('id') id: string,
     @Body() dto: AddConversationMessageDto,
-    @UploadedFile() file?: any,
+    @UploadedFile() file?: { path?: string; mimetype?: string; size?: number },
   ) {
     const isPortal = req.user?.isPortal === true;
     const authorType = isPortal ? 'contact' : 'user';
@@ -180,17 +183,23 @@ export class ConversationsController {
     let mediaKind: 'image' | 'audio' | null = null;
     let mediaStorageKey: string | null = null;
     let mediaMime: string | null = null;
-    if (file?.buffer?.length) {
+    if (file?.path && (file.size ?? 0) > 0) {
       const mime = file.mimetype || '';
       if (mime.startsWith('image/')) mediaKind = 'image';
       else if (mime.startsWith('audio/')) mediaKind = 'audio';
       else throw new BadRequestException('Envie uma imagem ou um áudio (tipos suportados: image/*, audio/*).');
-      if (!validateFileSignature(file.buffer, mime)) {
+      const head = readFilePrefixSync(file.path, 12);
+      if (!validateFileSignature(head, mime)) {
+        try {
+          fs.unlinkSync(file.path);
+        } catch {
+          /* ignore */
+        }
         throw new BadRequestException('Tipo de arquivo não permitido');
       }
-      const saved = this.conversationsService.persistAgentMediaBuffer(tenantId, file.buffer, mime, mediaKind);
-      mediaStorageKey = saved.storageKey;
-      mediaMime = saved.mime;
+      const fname = path.basename(file.path);
+      mediaStorageKey = path.posix.join(tenantId, fname);
+      mediaMime = mime || (mediaKind === 'image' ? 'image/jpeg' : 'audio/mpeg');
     }
     const display =
       contentRaw ||

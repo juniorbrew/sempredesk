@@ -3,7 +3,6 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, IsNull, EntityManager } from 'typeorm';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as crypto from 'crypto';
 import { Cron } from '@nestjs/schedule';
 import {
   Ticket, TicketMessage, TicketStatus, TicketPriority, TicketOrigin, MessageType,
@@ -1516,52 +1515,30 @@ export class TicketsService {
     return msg;
   }
 
-  /**
-   * Grava ficheiro de anexo da resposta pública (domínio ticket, não conversa).
-   * Chave relativa a TICKET_REPLY_MEDIA_DIR.
-   */
-  /**
-   * Anexos POST /tickets/:id/attachments — pasta TICKET_ATTACHMENTS_DIR, ficheiro {uuid}.{ext}.
-   */
-  private persistItem4AttachmentBuffer(
-    tenantId: string,
-    buffer: Buffer,
-    mime: string,
-  ): { storageKey: string } {
-    const m = (mime || '').toLowerCase().split(';')[0].trim();
-    const extMap: Record<string, string> = {
-      'image/jpeg': '.jpg',
-      'image/png': '.png',
-      'image/webp': '.webp',
-      'audio/ogg': '.ogg',
-      'audio/mpeg': '.mp3',
-      'audio/mp4': '.m4a',
-      'application/pdf': '.pdf',
-    };
-    const ext = extMap[m] || '.bin';
-    const dir = path.join(this.ticketAttachmentsItem4Root, tenantId);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    const fname = `${crypto.randomUUID()}${ext}`;
-    const full = path.join(dir, fname);
-    fs.writeFileSync(full, buffer);
-    return { storageKey: path.posix.join(tenantId, fname) };
+  /** Ficheiro já em disco sob root; devolve tamanho em bytes. */
+  private attachmentFileOnDiskSizeBytes(root: string, tenantId: string, storageKey: string): number {
+    const sk = (storageKey || '').trim();
+    if (!sk || sk.includes('..') || path.isAbsolute(sk)) {
+      throw new BadRequestException('Chave de storage inválida');
+    }
+    if (!sk.startsWith(`${tenantId}/`)) {
+      throw new BadRequestException('Chave de storage inválida');
+    }
+    const full = path.join(root, ...sk.split('/'));
+    const rootResolved = path.resolve(root);
+    const fileResolved = path.resolve(full);
+    if (!fileResolved.startsWith(rootResolved + path.sep) && fileResolved !== rootResolved) {
+      throw new BadRequestException('Chave de storage inválida');
+    }
+    if (!fs.existsSync(full)) {
+      throw new BadRequestException('Ficheiro ausente');
+    }
+    return fs.statSync(full).size;
   }
 
-  persistTicketAttachmentBuffer(
-    tenantId: string,
-    buffer: Buffer,
-    originalName: string | undefined,
-    mime: string,
-  ): { storageKey: string } {
-    const safeBase = path.basename(originalName || 'file').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120);
-    const extFromName = path.extname(safeBase);
-    const ext = extFromName || '.bin';
-    const dir = path.join(this.ticketAttachmentRoot, tenantId);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    const fname = `ticket-${crypto.randomUUID()}${ext}`;
-    const full = path.join(dir, fname);
-    fs.writeFileSync(full, buffer);
-    return { storageKey: path.posix.join(tenantId, fname) };
+  /** Evita ficheiro órfão em disco quando o MIME não passa na whitelist (multer já gravou o ficheiro). */
+  isPublicReplyAttachmentMimeAllowed(mimeRaw: string): boolean {
+    return isAllowedTicketAttachmentMime((mimeRaw || '').trim());
   }
 
   /**
@@ -1680,7 +1657,7 @@ export class TicketsService {
     authorType: string,
     opts: {
       content?: string;
-      buffer: Buffer;
+      storageKey: string;
       originalFilename?: string;
       mime: string;
       channel?: string;
@@ -1694,16 +1671,15 @@ export class TicketsService {
         'Tipo de ficheiro não permitido para anexo de ticket (áudio/vídeo não são aceites; use imagem, PDF, Office ou ZIP).',
       );
     }
-    if (!opts.buffer?.length) {
+    const storageKey = (opts.storageKey || '').trim();
+    if (!storageKey) {
+      throw new BadRequestException('Ficheiro vazio.');
+    }
+    const sizeBytes = this.attachmentFileOnDiskSizeBytes(this.ticketAttachmentRoot, tenantId, storageKey);
+    if (sizeBytes <= 0) {
       throw new BadRequestException('Ficheiro vazio.');
     }
 
-    const { storageKey } = this.persistTicketAttachmentBuffer(
-      tenantId,
-      opts.buffer,
-      opts.originalFilename,
-      mime,
-    );
     const label = path.basename(opts.originalFilename || 'anexo').slice(0, 200);
     const text = (opts.content ?? '').trim();
     const displayContent = text || `📎 ${label}`;
@@ -1736,7 +1712,7 @@ export class TicketsService {
         ticketMessageId: savedMsg.id,
         storageKey,
         mime: mime || null,
-        sizeBytes: String(opts.buffer.length),
+        sizeBytes: String(sizeBytes),
         originalFilename: opts.originalFilename || label || null,
       });
       const savedAtt = await em.save(TicketReplyAttachment, att);
@@ -1787,7 +1763,7 @@ export class TicketsService {
     authorType: string,
     opts: {
       content?: string;
-      buffer: Buffer;
+      storageKey: string;
       originalFilename?: string;
       mime: string;
       channel?: string;
@@ -1796,11 +1772,15 @@ export class TicketsService {
   ): Promise<{ message: TicketMessage; attachment: TicketReplyAttachment }> {
     const ticket = await this.getTicketOrFail(tenantId, ticketId);
     const mime = (opts.mime || '').trim();
-    if (!opts.buffer?.length) {
+    const storageKey = (opts.storageKey || '').trim();
+    if (!storageKey) {
+      throw new BadRequestException('Ficheiro vazio.');
+    }
+    const sizeBytes = this.attachmentFileOnDiskSizeBytes(this.ticketAttachmentsItem4Root, tenantId, storageKey);
+    if (sizeBytes <= 0) {
       throw new BadRequestException('Ficheiro vazio.');
     }
 
-    const { storageKey } = this.persistItem4AttachmentBuffer(tenantId, opts.buffer, mime);
     const label = path.basename(opts.originalFilename || 'anexo').slice(0, 200);
     const text = (opts.content ?? '').trim();
     const displayContent = text || `📎 ${label}`;
@@ -1833,7 +1813,7 @@ export class TicketsService {
         ticketMessageId: savedMsg.id,
         storageKey,
         mime: mime || null,
-        sizeBytes: String(opts.buffer.length),
+        sizeBytes: String(sizeBytes),
         originalFilename: opts.originalFilename || label || null,
       });
       const savedAtt = await em.save(TicketReplyAttachment, att);

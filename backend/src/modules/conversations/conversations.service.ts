@@ -1,7 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as crypto from 'crypto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository, IsNull } from 'typeorm';
 import { Conversation, ConversationChannel, ConversationStatus, ConversationInitiatedBy } from './entities/conversation.entity';
@@ -149,33 +148,6 @@ export class ConversationsService {
       throw new NotFoundException('Ficheiro ausente');
     }
     return { stream: fs.createReadStream(filePath), mime: msg.mediaMime };
-  }
-
-  /** Grava upload do agente e devolve chaves para gravar na mensagem. */
-  persistAgentMediaBuffer(
-    tenantId: string,
-    buffer: Buffer,
-    mime: string,
-    kind: 'image' | 'audio',
-  ): { storageKey: string; mime: string } {
-    const m = (mime || '').toLowerCase();
-    let ext = 'bin';
-    if (kind === 'image') {
-      if (m.includes('png')) ext = 'png';
-      else if (m.includes('webp')) ext = 'webp';
-      else ext = 'jpg';
-    } else {
-      if (m.includes('ogg')) ext = 'ogg';
-      else if (m.includes('mpeg') || m.includes('mp3')) ext = 'mp3';
-      else if (m.includes('mp4') || m.includes('m4a')) ext = 'm4a';
-      else ext = 'm4a';
-    }
-    const dir = path.join(this.mediaRoot, tenantId);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    const fname = `agent-${crypto.randomUUID()}.${ext}`;
-    const full = path.join(dir, fname);
-    fs.writeFileSync(full, buffer);
-    return { storageKey: path.posix.join(tenantId, fname), mime: mime || (kind === 'image' ? 'image/jpeg' : 'audio/mpeg') };
   }
 
   /**

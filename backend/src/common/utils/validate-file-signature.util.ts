@@ -1,5 +1,6 @@
 /**
- * Validação estrita: só MIME listados; buffer mínimo 8 bytes.
+ * Validação estrita: só MIME listados.
+ * Chamadores devem passar pelo menos 12 bytes (WebP e audio/mp4 exigem).
  */
 
 function matchesPrefix(buf: Buffer, prefix: number[]): boolean {
@@ -24,7 +25,17 @@ export function validateFileSignature(buffer: Buffer, declaredMime: string): boo
     case 'image/png':
       return matchesPrefix(buffer, [0x89, 0x50, 0x4e, 0x47]);
     case 'image/webp':
-      return matchesPrefix(buffer, [0x52, 0x49, 0x46, 0x46]);
+      return (
+        buffer.length >= 12 &&
+        buffer[0] === 0x52 &&
+        buffer[1] === 0x49 &&
+        buffer[2] === 0x46 &&
+        buffer[3] === 0x46 &&
+        buffer[8] === 0x57 &&
+        buffer[9] === 0x45 &&
+        buffer[10] === 0x42 &&
+        buffer[11] === 0x50
+      );
     case 'audio/ogg':
       return matchesPrefix(buffer, [0x4f, 0x67, 0x67, 0x53]);
     case 'audio/mpeg':

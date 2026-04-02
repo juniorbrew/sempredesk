@@ -9,6 +9,9 @@ import { ArrowLeft, Send, User, Headphones, RefreshCw, AlertTriangle, UserCircle
 
 const API_BASE = '/api/v1';
 
+const TICKET_REPLY_FILE_ACCEPT =
+  'image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.txt,application/pdf,text/plain,application/zip,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
 const STATUS_LABELS: Record<string,string> = { open:'Aberto', in_progress:'Em andamento', waiting_client:'Aguardando', resolved:'Resolvido', closed:'Fechado', cancelled:'Cancelado' };
 const STATUS_STYLE: Record<string,{ bg:string; color:string; dot:string }> = {
   open:{ bg:'#DBEAFE', color:'#1D4ED8', dot:'#3B82F6' }, in_progress:{ bg:'#FEF9C3', color:'#854D0E', dot:'#F59E0B' },
@@ -40,6 +43,10 @@ export default function PortalDashboardTicketDetailPage() {
   const msgMediaUrlsRef = useRef<Record<string, string>>({});
   msgMediaUrlsRef.current = msgMediaUrls;
   const msgMediaInFlightRef = useRef<Set<string>>(new Set());
+  const [ticketReplyAttachUrls, setTicketReplyAttachUrls] = useState<Record<string, string>>({});
+  const ticketReplyAttachUrlsRef = useRef<Record<string, string>>({});
+  ticketReplyAttachUrlsRef.current = ticketReplyAttachUrls;
+  const ticketReplyInflightRef = useRef<Set<string>>(new Set());
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const routeTicketRef = decodeURIComponent(Array.isArray(id) ? id[0] : String(id || ''));
   const isUuidTicketRef = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(routeTicketRef);
@@ -145,46 +152,80 @@ export default function PortalDashboardTicketDetailPage() {
 
   useEffect(() => {
     const toRevoke = { ...msgMediaUrlsRef.current };
+    const toRevokeTr = { ...ticketReplyAttachUrlsRef.current };
     setMsgMediaUrls({});
+    setTicketReplyAttachUrls({});
     msgMediaInFlightRef.current.clear();
+    ticketReplyInflightRef.current.clear();
     Object.values(toRevoke).forEach((u) => URL.revokeObjectURL(u));
+    Object.values(toRevokeTr).forEach((u) => URL.revokeObjectURL(u));
   }, [routeTicketRef]);
 
   useEffect(() => {
-    if (!accessToken || messages.length === 0) return;
+    if (!accessToken || messages.length === 0 || !apiTicketId) return;
     let cancelled = false;
     void (async () => {
       for (const m of messages) {
         if (!m?.id) continue;
-        if (!(m.hasMedia || m.mediaKind === 'image' || m.mediaKind === 'audio')) continue;
-        if (msgMediaUrlsRef.current[m.id] || msgMediaInFlightRef.current.has(String(m.id))) continue;
-        msgMediaInFlightRef.current.add(String(m.id));
-        try {
-          const res = await portalFetch(`${API_BASE}/conversations/messages/${m.id}/media`, {
-            headers: { Authorization: `Bearer ${accessToken}` },
-          });
-          if (!res.ok) throw new Error('media');
-          const blob = await res.blob();
-          if (cancelled) return;
-          const url = URL.createObjectURL(blob);
-          setMsgMediaUrls((prev) => {
-            if (prev[m.id]) {
-              URL.revokeObjectURL(url);
-              return prev;
-            }
-            return { ...prev, [m.id]: url };
-          });
-        } catch {
-          /* id de ticket_messages ou sem ficheiro */
-        } finally {
-          msgMediaInFlightRef.current.delete(String(m.id));
+        if (m.hasMedia || m.mediaKind === 'image' || m.mediaKind === 'audio') {
+          if (msgMediaUrlsRef.current[m.id] || msgMediaInFlightRef.current.has(`c:${m.id}`)) continue;
+          msgMediaInFlightRef.current.add(`c:${m.id}`);
+          try {
+            const res = await portalFetch(`${API_BASE}/conversations/messages/${m.id}/media`, {
+              headers: { Authorization: `Bearer ${accessToken}` },
+            });
+            if (!res.ok) throw new Error('media');
+            const blob = await res.blob();
+            if (cancelled) return;
+            const url = URL.createObjectURL(blob);
+            setMsgMediaUrls((prev) => {
+              if (prev[m.id]) {
+                URL.revokeObjectURL(url);
+                return prev;
+              }
+              return { ...prev, [m.id]: url };
+            });
+          } catch {
+            /* mensagem sem mídia de conversa ou sem permissão */
+          } finally {
+            msgMediaInFlightRef.current.delete(`c:${m.id}`);
+          }
+        }
+
+        const atts = Array.isArray(m.attachments) ? m.attachments : [];
+        for (const a of atts) {
+          if (a?.kind !== 'ticket_reply_file' || !a?.id) continue;
+          const aid = String(a.id);
+          if (ticketReplyAttachUrlsRef.current[aid] || ticketReplyInflightRef.current.has(aid)) continue;
+          ticketReplyInflightRef.current.add(aid);
+          try {
+            const res = await portalFetch(
+              `${API_BASE}/tickets/${apiTicketId}/reply-attachments/${aid}/media`,
+              { headers: { Authorization: `Bearer ${accessToken}` } },
+            );
+            if (!res.ok) throw new Error('ticket-att');
+            const blob = await res.blob();
+            if (cancelled) return;
+            const url = URL.createObjectURL(blob);
+            setTicketReplyAttachUrls((prev) => {
+              if (prev[aid]) {
+                URL.revokeObjectURL(url);
+                return prev;
+              }
+              return { ...prev, [aid]: url };
+            });
+          } catch {
+            /* sem ficheiro */
+          } finally {
+            ticketReplyInflightRef.current.delete(aid);
+          }
         }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [messages, accessToken]);
+  }, [messages, accessToken, apiTicketId]);
 
   // ── realtime: mensagens só do ticket (evita duplicar as da conversa vinculada) ──
   useRealtimeTicket(ticket?.id || null, (msg: any) => {
@@ -236,19 +277,14 @@ export default function PortalDashboardTicketDetailPage() {
     const text = message.trim();
     const file = pendingFile;
     if ((!text && !file) || !apiTicketId) return;
-    const convId = ticket?.conversationId;
-    if (file && !convId) {
-      setReplyError('Este chamado não tem conversa vinculada; envie imagem ou áudio pelo chat do portal, se disponível.');
-      return;
-    }
     setReplyError(null);
     setSending(true);
     try {
-      if (file && convId) {
+      if (file) {
         const fd = new FormData();
         if (text) fd.append('content', text);
         fd.append('file', file);
-        const res = await portalFetch(`${API_BASE}/conversations/${convId}/messages`, {
+        const res = await portalFetch(`${API_BASE}/tickets/${apiTicketId}/messages/attachment`, {
           method: 'POST',
           headers: { Authorization: `Bearer ${accessToken}` },
           body: fd,
@@ -302,6 +338,40 @@ export default function PortalDashboardTicketDetailPage() {
       await load();
     } catch {}
     setSatisfying(false);
+  };
+
+  const renderTicketReplyAttachments = (m: any) => {
+    const list = (Array.isArray(m.attachments) ? m.attachments : []).filter(
+      (a: any) => a?.kind === 'ticket_reply_file' && a?.id,
+    );
+    if (!list.length) return null;
+    return (
+      <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {list.map((a: any) => {
+          const src = ticketReplyAttachUrls[String(a.id)];
+          const mime = String(a.mime || '').toLowerCase();
+          return (
+            <div key={String(a.id)}>
+              {!src && <span style={{ fontSize: 11, opacity: 0.75 }}>A carregar anexo…</span>}
+              {src && mime.startsWith('image/') && (
+                <img src={src} alt="" style={{ maxWidth: '100%', maxHeight: 200, borderRadius: 10, display: 'block', objectFit: 'cover' }} />
+              )}
+              {src && !mime.startsWith('image/') && (
+                <a
+                  href={src}
+                  target="_blank"
+                  rel="noreferrer"
+                  download={a.filename || 'anexo'}
+                  style={{ fontSize: 12, fontWeight: 600, color: '#4F46E5', textDecoration: 'underline' }}
+                >
+                  {mime.includes('pdf') ? 'Abrir PDF' : `Download: ${a.filename || 'anexo'}`}
+                </a>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
   };
 
   if (loading) return (
@@ -511,6 +581,7 @@ export default function PortalDashboardTicketDetailPage() {
                       {convMediaLoading && (
                         <span style={{ display:'block', fontSize:11, opacity:0.8, marginBottom:6 }}>A carregar…</span>
                       )}
+                      {renderTicketReplyAttachments(m)}
                       {showMediaCaption && (
                         <p style={{ fontSize:13, color:'#134E4A', margin:0, whiteSpace:'pre-wrap', lineHeight:1.5 }}>{translateMsg(m.content, team)}</p>
                       )}
@@ -542,6 +613,7 @@ export default function PortalDashboardTicketDetailPage() {
                     {convMediaLoading && (
                       <span style={{ display:'block', fontSize:11, opacity:0.8, marginBottom:6 }}>A carregar…</span>
                     )}
+                    {renderTicketReplyAttachments(m)}
                     {showMediaCaption && (
                       <p style={{ fontSize:13, color:'#312E81', margin:0, whiteSpace:'pre-wrap', lineHeight:1.5 }}>{translateMsg(m.content, team)}</p>
                     )}
@@ -561,13 +633,13 @@ export default function PortalDashboardTicketDetailPage() {
             <input
               ref={attachFileInputRef}
               type="file"
-              accept="image/*,audio/*"
+              accept={TICKET_REPLY_FILE_ACCEPT}
               style={{ display: 'none' }}
               onChange={(e) => {
                 const f = e.target.files?.[0];
                 if (!f) return;
-                if (!f.type.startsWith('image/') && !f.type.startsWith('audio/')) {
-                  setReplyError('Envie apenas imagem ou áudio.');
+                if (f.type.startsWith('audio/') || f.type.startsWith('video/')) {
+                  setReplyError('Anexo do chamado não aceita áudio nem vídeo. Use o chat do portal, se disponível, para esse tipo de ficheiro.');
                   e.target.value = '';
                   return;
                 }
@@ -608,7 +680,7 @@ export default function PortalDashboardTicketDetailPage() {
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginTop:10, gap:12, flexWrap:'wrap' as const }}>
               <button
                 type="button"
-                title="Imagem ou áudio"
+                title="Anexar ficheiro (imagem, PDF, documento…)"
                 onClick={() => attachFileInputRef.current?.click()}
                 style={{
                   display: 'inline-flex',
@@ -625,7 +697,7 @@ export default function PortalDashboardTicketDetailPage() {
                   fontFamily: 'inherit',
                 }}
               >
-                <ImagePlus style={{ width: 16, height: 16 }} /> Imagem / áudio
+                <ImagePlus style={{ width: 16, height: 16 }} /> Anexar ficheiro
               </button>
               <button
                 type="submit"

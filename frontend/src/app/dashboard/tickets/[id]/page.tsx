@@ -33,6 +33,10 @@ const MESSAGE_TYPE_LABELS: Record<string,string> = {
 
 const inp = { width:'100%', padding:'8px 12px', background:'#F8FAFC', border:'1.5px solid #E2E8F0', borderRadius:8, color:'#0F172A', fontSize:13, outline:'none', boxSizing:'border-box' as const };
 
+/** Alinhado ao backend: imagem/PDF/Office/ZIP/texto; sem áudio/vídeo (isso continua na conversa / WhatsApp). */
+const TICKET_REPLY_FILE_ACCEPT =
+  'image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.txt,application/pdf,text/plain,application/zip,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
 export default function TicketDetailsPage() {
   const params = useParams();
   const router = useRouter();
@@ -64,6 +68,10 @@ export default function TicketDetailsPage() {
   const convMediaUrlsRef = useRef<Record<string, string>>({});
   convMediaUrlsRef.current = convMediaUrls;
   const convMediaInFlightRef = useRef<Set<string>>(new Set());
+  const [ticketReplyAttachUrls, setTicketReplyAttachUrls] = useState<Record<string, string>>({});
+  const ticketReplyAttachUrlsRef = useRef<Record<string, string>>({});
+  ticketReplyAttachUrlsRef.current = ticketReplyAttachUrls;
+  const ticketReplyInflightRef = useRef<Set<string>>(new Set());
   const [showConversation, setShowConversation] = useState(false);
   const [showConvFilter, setShowConvFilter] = useState(true);
   const [interactionExpanded, setInteractionExpanded] = useState(false);
@@ -124,9 +132,13 @@ export default function TicketDetailsPage() {
 
   useEffect(() => {
     const toRevoke = { ...convMediaUrlsRef.current };
+    const toRevokeTicket = { ...ticketReplyAttachUrlsRef.current };
     setConvMediaUrls({});
+    setTicketReplyAttachUrls({});
     convMediaInFlightRef.current.clear();
+    ticketReplyInflightRef.current.clear();
     Object.values(toRevoke).forEach((u) => URL.revokeObjectURL(u));
+    Object.values(toRevokeTicket).forEach((u) => URL.revokeObjectURL(u));
   }, [id]);
 
   useEffect(() => {
@@ -160,6 +172,42 @@ export default function TicketDetailsPage() {
       cancelled = true;
     };
   }, [conversationMsgs, ticket?.conversationId]);
+
+  /** Anexos de resposta pública (ticket_reply_file) — GET /tickets/.../reply-attachments/.../media */
+  useEffect(() => {
+    if (!id) return;
+    let cancelled = false;
+    void (async () => {
+      for (const m of messages) {
+        const atts = Array.isArray(m?.attachments) ? m.attachments : [];
+        for (const a of atts) {
+          if (a?.kind !== 'ticket_reply_file' || !a?.id) continue;
+          const aid = String(a.id);
+          if (ticketReplyAttachUrlsRef.current[aid] || ticketReplyInflightRef.current.has(aid)) continue;
+          ticketReplyInflightRef.current.add(aid);
+          try {
+            const blob = await api.getTicketReplyAttachmentBlob(id, aid);
+            if (cancelled) return;
+            const url = URL.createObjectURL(blob);
+            setTicketReplyAttachUrls((prev) => {
+              if (prev[aid]) {
+                URL.revokeObjectURL(url);
+                return prev;
+              }
+              return { ...prev, [aid]: url };
+            });
+          } catch {
+            /* sem ficheiro ou sem permissão */
+          } finally {
+            ticketReplyInflightRef.current.delete(aid);
+          }
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [messages, id]);
 
   const linkedConvIdRef = useRef<string | null>(null);
   linkedConvIdRef.current = ticket?.conversationId ?? null;
@@ -258,14 +306,10 @@ export default function TicketDetailsPage() {
       toast.error('Anexos só na resposta pública.');
       return;
     }
-    if (file && !ticket?.conversationId) {
-      toast.error('Sem conversa vinculada. Abra o Atendimento ou vincule uma conversa para enviar imagem ou áudio.');
-      return;
-    }
     setSending(true);
     try {
-      if (file && ticket.conversationId && activeTab === 'comment') {
-        await api.addConversationMessage(ticket.conversationId, { content: text || undefined, file });
+      if (file && activeTab === 'comment') {
+        await api.addTicketPublicReplyAttachment(id, { content: text || undefined, file });
       } else {
         await api.addMessage(id, { content: text, messageType: activeTab === 'note' ? 'internal' : 'comment' });
       }
@@ -852,6 +896,32 @@ export default function TicketDetailsPage() {
                       </div>
                       <div style={{ fontSize:13, color:S.txt, lineHeight:1.75, background:cardBg, borderRadius:18, padding:'14px 16px', border:`1px solid ${cardBorder}`, boxShadow:shadow }}>
                         <p style={{ margin:0, whiteSpace:'pre-wrap' }}>{resolveContent(m.content)}</p>
+                        {Array.isArray(m.attachments) &&
+                          m.attachments.filter((a: any) => a?.kind === 'ticket_reply_file' && a?.id).map((a: any) => {
+                            const src = ticketReplyAttachUrls[String(a.id)];
+                            const mime = String(a.mime || '').toLowerCase();
+                            return (
+                              <div key={String(a.id)} style={{ marginTop: 10 }}>
+                                {!src && (
+                                  <span style={{ fontSize: 11, color: S.txt3 }}>A carregar anexo…</span>
+                                )}
+                                {src && mime.startsWith('image/') && (
+                                  <img src={src} alt="" style={{ maxWidth: '100%', maxHeight: 220, borderRadius: 10, display: 'block', objectFit: 'cover' }} />
+                                )}
+                                {src && !mime.startsWith('image/') && (
+                                  <a
+                                    href={src}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    download={a.filename || 'anexo'}
+                                    style={{ fontSize: 12, fontWeight: 600, color: S.accent, textDecoration: 'underline' }}
+                                  >
+                                    {mime.includes('pdf') ? 'Abrir PDF' : `Download: ${a.filename || 'anexo'}`}
+                                  </a>
+                                )}
+                              </div>
+                            );
+                          })}
                       </div>
                       {group.events.length > 0 && showUpdates && (
                         <div style={{ marginTop:10, display:'flex', flexDirection:'column', gap:8 }}>
@@ -982,13 +1052,13 @@ export default function TicketDetailsPage() {
                 <input
                   ref={attachFileInputRef}
                   type="file"
-                  accept="image/*,audio/*"
+                  accept={TICKET_REPLY_FILE_ACCEPT}
                   style={{ display: 'none' }}
                   onChange={(e) => {
                     const f = e.target.files?.[0];
                     if (!f) return;
-                    if (!f.type.startsWith('image/') && !f.type.startsWith('audio/')) {
-                      toast.error('Envie apenas imagem ou áudio.');
+                    if (f.type.startsWith('audio/') || f.type.startsWith('video/')) {
+                      toast.error('Anexo do ticket não aceita áudio nem vídeo. Use a conversa vinculada (transcrição) ou o Atendimento para mídia WhatsApp.');
                       e.target.value = '';
                       return;
                     }
@@ -1022,11 +1092,7 @@ export default function TicketDetailsPage() {
                       icon: <Paperclip style={{ width: 14, height: 14 }} />,
                       onClick: () => {
                         if (activeTab !== 'comment') {
-                          toast.error('Use a aba «Resposta pública» para anexar imagem ou áudio.');
-                          return;
-                        }
-                        if (!ticket?.conversationId) {
-                          toast.error('Sem conversa vinculada ao ticket.');
+                          toast.error('Use a aba «Resposta pública» para anexar ficheiro.');
                           return;
                         }
                         attachFileInputRef.current?.click();
@@ -1040,7 +1106,7 @@ export default function TicketDetailsPage() {
                       key={i}
                       type="button"
                       onClick={item.onClick}
-                      title={i === 0 ? 'Imagem ou áudio (conversa vinculada)' : undefined}
+                      title={i === 0 ? 'Anexar ficheiro ao ticket (imagem, PDF, Office…)' : undefined}
                       style={{
                         width: 34,
                         height: 34,
@@ -1065,9 +1131,7 @@ export default function TicketDetailsPage() {
                         ? 'Visivel apenas para a equipe interna.'
                         : activeTab==='update'
                           ? 'Use para registrar uma atualizacao do atendimento.'
-                          : ticket?.conversationId
-                            ? 'Resposta pública; pode anexar imagem ou áudio (clip). Em WhatsApp, a mídia segue para o cliente.'
-                            : 'Resposta publica registrada no historico do ticket.'}
+                          : 'Resposta pública: texto no histórico do ticket; clip envia anexo (imagem, PDF, Office, ZIP). Imagem/áudio na conversa WhatsApp permanece na secção «Conversa» ou no Atendimento.'}
                     </div>
                   </div>
                   <button

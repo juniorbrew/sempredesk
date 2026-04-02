@@ -5,8 +5,11 @@ import {
   UseInterceptors, UploadedFile,
   StreamableFile,
 } from '@nestjs/common';
+import * as fs from 'fs';
+import * as path from 'path';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { memoryStorage } from 'multer';
+import { ticketItem4AttachmentsDiskStorage, ticketReplyMediaDiskStorage } from '../../common/utils/multer-disk-storage.util';
+import { readFilePrefixSync } from '../../common/utils/read-file-prefix.util';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
@@ -204,7 +207,7 @@ export class TicketsController {
   @RequirePermission('ticket.reply')
   @UseInterceptors(
     FileInterceptor('file', {
-      storage: memoryStorage(),
+      storage: ticketItem4AttachmentsDiskStorage(),
       limits: { fileSize: 16 * 1024 * 1024 },
     }),
   )
@@ -213,12 +216,18 @@ export class TicketsController {
     @TenantId() tenantId: string,
     @Param('id') id: string,
     @Body('content') content: string | undefined,
-    @UploadedFile() file?: { buffer?: Buffer; mimetype?: string; originalname?: string; size?: number },
+    @UploadedFile() file?: { path?: string; mimetype?: string; originalname?: string; size?: number },
   ) {
-    if (!file?.buffer?.length) {
+    if (!file?.path || (file.size ?? 0) <= 0) {
       throw new BadRequestException('Envie o ficheiro no campo file.');
     }
-    if (!validateStrictFileSignature(file.buffer, file.mimetype || '')) {
+    const head = readFilePrefixSync(file.path, 12);
+    if (!validateStrictFileSignature(head, file.mimetype || '')) {
+      try {
+        fs.unlinkSync(file.path);
+      } catch {
+        /* ignore */
+      }
       throw new BadRequestException('Tipo de arquivo não permitido');
     }
     const ticket = await this.ticketsService.findOne(tenantId, id);
@@ -234,6 +243,7 @@ export class TicketsController {
     }
     const isPortal = req.user?.isPortal === true;
     const authorType = isPortal ? 'contact' : 'user';
+    const storageKey = path.posix.join(tenantId, path.basename(file.path));
     return this.ticketsService.addTicketAttachmentItem4(
       tenantId,
       id,
@@ -242,7 +252,7 @@ export class TicketsController {
       authorType,
       {
         content: content ?? undefined,
-        buffer: file.buffer,
+        storageKey,
         originalFilename: file.originalname,
         mime: file.mimetype || '',
         channel: isPortal ? 'portal' : undefined,
@@ -354,7 +364,7 @@ export class TicketsController {
   @RequirePermission('ticket.reply')
   @UseInterceptors(
     FileInterceptor('file', {
-      storage: memoryStorage(),
+      storage: ticketReplyMediaDiskStorage(),
       limits: { fileSize: 16 * 1024 * 1024 },
     }),
   )
@@ -363,13 +373,29 @@ export class TicketsController {
     @TenantId() tenantId: string,
     @Param('id') id: string,
     @Body('content') content: string | undefined,
-    @UploadedFile() file?: { buffer?: Buffer; mimetype?: string; originalname?: string; size?: number },
+    @UploadedFile() file?: { path?: string; mimetype?: string; originalname?: string; size?: number },
   ) {
-    if (!file?.buffer?.length) {
+    if (!file?.path || (file.size ?? 0) <= 0) {
       throw new BadRequestException('Envie o ficheiro no campo file.');
     }
-    if (!validateFileSignature(file.buffer, file.mimetype || '')) {
+    const head = readFilePrefixSync(file.path, 64);
+    if (!validateFileSignature(head, file.mimetype || '')) {
+      try {
+        fs.unlinkSync(file.path);
+      } catch {
+        /* ignore */
+      }
       throw new UnprocessableEntityException('O conteúdo do ficheiro não corresponde ao tipo declarado.');
+    }
+    if (!this.ticketsService.isPublicReplyAttachmentMimeAllowed(file.mimetype || '')) {
+      try {
+        fs.unlinkSync(file.path);
+      } catch {
+        /* ignore */
+      }
+      throw new BadRequestException(
+        'Tipo de ficheiro não permitido para anexo de ticket (áudio/vídeo não são aceites; use imagem, PDF, Office ou ZIP).',
+      );
     }
     const ticket = await this.ticketsService.findOne(tenantId, id);
     if (req.user?.isPortal === true && ticket.clientId) {
@@ -384,6 +410,7 @@ export class TicketsController {
     }
     const isPortal = req.user?.isPortal === true;
     const authorType = isPortal ? 'contact' : 'user';
+    const storageKey = path.posix.join(tenantId, path.basename(file.path));
     return this.ticketsService.addPublicReplyWithAttachment(
       tenantId,
       id,
@@ -392,7 +419,7 @@ export class TicketsController {
       authorType,
       {
         content: content ?? undefined,
-        buffer: file.buffer,
+        storageKey,
         originalFilename: file.originalname,
         mime: file.mimetype || '',
         channel: isPortal ? 'portal' : undefined,

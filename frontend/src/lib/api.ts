@@ -86,6 +86,17 @@ class ApiClient {
   ticketStats = () => this.client.get('/tickets/stats');
   getMessages = (id: string, includeInternal = true) => this.client.get(`/tickets/${id}/messages`, { params: { includeInternal } });
   addMessage = (id: string, data: any) => this.client.post(`/tickets/${id}/messages`, data);
+  /** Resposta pública com ficheiro (multipart). Domínio ticket — não usa conversa. */
+  addTicketPublicReplyAttachment = (ticketId: string, data: { content?: string; file: File }) => {
+    const fd = new FormData();
+    const c = (data.content ?? '').trim();
+    if (c) fd.append('content', c);
+    fd.append('file', data.file);
+    return this.client.post(`/tickets/${ticketId}/messages/attachment`, fd);
+  };
+  /** Blob do anexo gravado em ticket_reply_attachments. */
+  getTicketReplyAttachmentBlob = (ticketId: string, attachmentId: string) =>
+    this.client.get(`/tickets/${ticketId}/reply-attachments/${attachmentId}/media`, { responseType: 'blob' });
   sendWhatsappFromTicket = (ticketId: string, text: string) =>
     this.client.post('/webhooks/whatsapp/send-from-ticket', { ticketId, text });
   checkWhatsappNumber = (phone: string) =>
