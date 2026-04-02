@@ -113,26 +113,27 @@ export class StorageCleanupService {
     let deleted = 0;
     let bytes = 0;
 
-    if (!fs.existsSync(root)) return { deleted, bytes };
+    const rootExists = await fs.promises.access(root).then(() => true).catch(() => false);
+    if (!rootExists) return { deleted, bytes };
 
     // Estrutura esperada: root/{tenantId}/{filename}
-    let tenantDirs: string[];
+    let tenantDirs: fs.Dirent[];
     try {
-      tenantDirs = fs
-        .readdirSync(root, { withFileTypes: true })
-        .filter((e) => e.isDirectory())
-        .map((e) => e.name);
+      tenantDirs = (await fs.promises.readdir(root, { withFileTypes: true }))
+        .filter((e) => e.isDirectory());
     } catch (err) {
       this.logger.error(`[cleanup] Erro ao listar ${root}: ${(err as Error).message}`);
       return { deleted, bytes };
     }
 
-    for (const tenantId of tenantDirs) {
+    for (const entry of tenantDirs) {
+      const tenantId = entry.name;
       const tenantPath = path.join(root, tenantId);
 
       let files: fs.Dirent[];
       try {
-        files = fs.readdirSync(tenantPath, { withFileTypes: true }).filter((e) => e.isFile());
+        files = (await fs.promises.readdir(tenantPath, { withFileTypes: true }))
+          .filter((e) => e.isFile());
       } catch {
         continue;
       }
@@ -145,19 +146,15 @@ export class StorageCleanupService {
 
         const filePath = path.join(tenantPath, f.name);
 
-        let stat: fs.Stats;
-        try {
-          stat = fs.statSync(filePath);
-        } catch {
-          continue;
-        }
+        const stat = await fs.promises.stat(filePath).catch(() => null);
+        if (!stat) continue;
 
         // Dentro do grace period → pode ser um upload em curso
         if (now - stat.mtimeMs < minAgeMs) continue;
 
         try {
           const size = stat.size;
-          fs.unlinkSync(filePath);
+          await fs.promises.unlink(filePath);
           deleted++;
           bytes += size;
           this.logger.warn(

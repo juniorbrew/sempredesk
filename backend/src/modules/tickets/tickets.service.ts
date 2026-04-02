@@ -1521,7 +1521,7 @@ export class TicketsService {
   }
 
   /** Ficheiro já em disco sob root; devolve tamanho em bytes. */
-  private attachmentFileOnDiskSizeBytes(root: string, tenantId: string, storageKey: string): number {
+  private async attachmentFileOnDiskSizeBytes(root: string, tenantId: string, storageKey: string): Promise<number> {
     const sk = (storageKey || '').trim();
     if (!sk || sk.includes('..') || path.isAbsolute(sk)) {
       throw new BadRequestException('Chave de storage inválida');
@@ -1535,10 +1535,11 @@ export class TicketsService {
     if (!fileResolved.startsWith(rootResolved + path.sep) && fileResolved !== rootResolved) {
       throw new BadRequestException('Chave de storage inválida');
     }
-    if (!fs.existsSync(full)) {
+    const stat = await fs.promises.stat(full).catch(() => null);
+    if (!stat) {
       throw new BadRequestException('Ficheiro ausente');
     }
-    return fs.statSync(full).size;
+    return stat.size;
   }
 
   /** Evita ficheiro órfão em disco quando o MIME não passa na whitelist (multer já gravou o ficheiro). */
@@ -1583,9 +1584,9 @@ export class TicketsService {
     if (!fileResolved.startsWith(rootResolved + path.sep) && fileResolved !== rootResolved) {
       throw new NotFoundException('Anexo não encontrado');
     }
-    if (!fs.existsSync(filePath)) {
+    await fs.promises.access(filePath).catch(() => {
       throw new NotFoundException('Ficheiro ausente');
-    }
+    });
     const mime = (att.mime || 'application/octet-stream').split(';')[0].trim() || 'application/octet-stream';
     return {
       stream: fs.createReadStream(filePath),
@@ -1639,9 +1640,9 @@ export class TicketsService {
     if (!fileResolved.startsWith(rootResolved + path.sep) && fileResolved !== rootResolved) {
       throw new NotFoundException('Anexo não encontrado');
     }
-    if (!fs.existsSync(filePath)) {
+    await fs.promises.access(filePath).catch(() => {
       throw new NotFoundException('Ficheiro ausente');
-    }
+    });
     const mime = (att.mime || 'application/octet-stream').split(';')[0].trim() || 'application/octet-stream';
     return {
       stream: fs.createReadStream(filePath),
@@ -1680,7 +1681,7 @@ export class TicketsService {
     if (!storageKey) {
       throw new BadRequestException('Ficheiro vazio.');
     }
-    const sizeBytes = this.attachmentFileOnDiskSizeBytes(this.ticketAttachmentRoot, tenantId, storageKey);
+    const sizeBytes = await this.attachmentFileOnDiskSizeBytes(this.ticketAttachmentRoot, tenantId, storageKey);
     if (sizeBytes <= 0) {
       throw new BadRequestException('Ficheiro vazio.');
     }
@@ -1781,7 +1782,7 @@ export class TicketsService {
     if (!storageKey) {
       throw new BadRequestException('Ficheiro vazio.');
     }
-    const sizeBytes = this.attachmentFileOnDiskSizeBytes(this.ticketAttachmentsItem4Root, tenantId, storageKey);
+    const sizeBytes = await this.attachmentFileOnDiskSizeBytes(this.ticketAttachmentsItem4Root, tenantId, storageKey);
     if (sizeBytes <= 0) {
       throw new BadRequestException('Ficheiro vazio.');
     }

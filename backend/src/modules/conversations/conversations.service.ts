@@ -144,9 +144,9 @@ export class ConversationsService {
       }
     }
     const filePath = path.join(this.mediaRoot, msg.mediaStorageKey);
-    if (!fs.existsSync(filePath)) {
+    await fs.promises.access(filePath).catch(() => {
       throw new NotFoundException('Ficheiro ausente');
-    }
+    });
     return { stream: fs.createReadStream(filePath), mime: msg.mediaMime };
   }
 
@@ -840,7 +840,7 @@ export class ConversationsService {
               ? path.join(this.mediaRoot, opts.mediaStorageKey)
               : null;
           const outboundPayload =
-            opts?.mediaKind && absMedia && fs.existsSync(absMedia)
+            opts?.mediaKind && absMedia && await fs.promises.access(absMedia).then(() => true).catch(() => false)
               ? {
                   kind: opts.mediaKind,
                   filePath: absMedia,

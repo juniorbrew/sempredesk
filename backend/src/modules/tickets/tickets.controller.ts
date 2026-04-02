@@ -227,11 +227,7 @@ export class TicketsController {
     }
     const head = readFilePrefixSync(file.path, 12);
     if (!validateStrictFileSignature(head, file.mimetype || '')) {
-      try {
-        fs.unlinkSync(file.path);
-      } catch {
-        /* ignore */
-      }
+      await fs.promises.unlink(file.path).catch(() => {});
       throw new BadRequestException('Tipo de arquivo não permitido');
     }
     const ticket = await this.ticketsService.findOne(tenantId, id);
@@ -386,19 +382,11 @@ export class TicketsController {
     }
     const head = readFilePrefixSync(file.path, 64);
     if (!validateFileSignature(head, file.mimetype || '')) {
-      try {
-        fs.unlinkSync(file.path);
-      } catch {
-        /* ignore */
-      }
+      await fs.promises.unlink(file.path).catch(() => {});
       throw new UnprocessableEntityException('O conteúdo do ficheiro não corresponde ao tipo declarado.');
     }
     if (!this.ticketsService.isPublicReplyAttachmentMimeAllowed(file.mimetype || '')) {
-      try {
-        fs.unlinkSync(file.path);
-      } catch {
-        /* ignore */
-      }
+      await fs.promises.unlink(file.path).catch(() => {});
       throw new BadRequestException(
         'Tipo de ficheiro não permitido para anexo de ticket (áudio/vídeo não são aceites; use imagem, PDF, Office ou ZIP).',
       );

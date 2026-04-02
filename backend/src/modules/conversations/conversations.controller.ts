@@ -193,11 +193,7 @@ export class ConversationsController {
       else throw new BadRequestException('Envie uma imagem ou um áudio (tipos suportados: image/*, audio/*).');
       const head = readFilePrefixSync(file.path, 12);
       if (!validateFileSignature(head, mime)) {
-        try {
-          fs.unlinkSync(file.path);
-        } catch {
-          /* ignore */
-        }
+        await fs.promises.unlink(file.path).catch(() => {});
         throw new BadRequestException('Tipo de arquivo não permitido');
       }
       const fname = path.basename(file.path);
