@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Post, Param, Query, UseGuards, BadRequestException, Request, Put, UseInterceptors, UploadedFile, StreamableFile } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
+import { Throttle } from '@nestjs/throttler';
 import { validateFileSignature } from '../../common/utils/validate-file-signature.util';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { conversationMediaDiskStorage } from '../../common/utils/multer-disk-storage.util';
@@ -8,6 +9,7 @@ import { readFilePrefixSync } from '../../common/utils/read-file-prefix.util';
 import { ConversationsService } from './conversations.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
+import { UploadThrottlerGuard } from '../../common/guards/upload-throttler.guard';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 import { TenantId } from '../../common/decorators/tenant-id.decorator';
 import { StartConversationDto, StartAgentConversationDto, CreateTicketForConversationDto, LinkTicketDto, AddConversationMessageDto, CloseConversationDto, UpdateConversationTagsDto } from './dto/conversation.dto';
@@ -162,7 +164,8 @@ export class ConversationsController {
     return this.conversationsService.getMessages(tenantId, id);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, UploadThrottlerGuard)
+  @Throttle({ upload: { limit: parseInt(process.env.UPLOAD_RATE_LIMIT ?? '30', 10) || 30, ttl: 60_000 } })
   @UseInterceptors(
     FileInterceptor('file', {
       storage: conversationMediaDiskStorage(),

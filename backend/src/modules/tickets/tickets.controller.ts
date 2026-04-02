@@ -7,11 +7,13 @@ import {
 } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
+import { Throttle } from '@nestjs/throttler';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ticketItem4AttachmentsDiskStorage, ticketReplyMediaDiskStorage } from '../../common/utils/multer-disk-storage.util';
 import { readFilePrefixSync } from '../../common/utils/read-file-prefix.util';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
+import { UploadThrottlerGuard } from '../../common/guards/upload-throttler.guard';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 import { TicketsService } from './tickets.service';
 import { CustomersService } from '../customers/customers.service';
@@ -205,6 +207,8 @@ export class TicketsController {
 
   @Post(':id/attachments')
   @RequirePermission('ticket.reply')
+  @UseGuards(UploadThrottlerGuard)
+  @Throttle({ upload: { limit: parseInt(process.env.UPLOAD_RATE_LIMIT ?? '30', 10) || 30, ttl: 60_000 } })
   @UseInterceptors(
     FileInterceptor('file', {
       storage: ticketItem4AttachmentsDiskStorage(),
@@ -362,6 +366,8 @@ export class TicketsController {
    */
   @Post(':id/messages/attachment')
   @RequirePermission('ticket.reply')
+  @UseGuards(UploadThrottlerGuard)
+  @Throttle({ upload: { limit: parseInt(process.env.UPLOAD_RATE_LIMIT ?? '30', 10) || 30, ttl: 60_000 } })
   @UseInterceptors(
     FileInterceptor('file', {
       storage: ticketReplyMediaDiskStorage(),

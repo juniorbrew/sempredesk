@@ -67,7 +67,14 @@ import { StorageModule } from './modules/storage/storage.module';
       inject: [ConfigService],
     }),
 
-    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
+    ThrottlerModule.forRoot([
+      { name: 'default', ttl: 60_000, limit: 300 },
+      {
+        name: 'upload',
+        ttl: 60_000,
+        limit: parseInt(process.env.UPLOAD_RATE_LIMIT ?? '30', 10) || 30,
+      },
+    ]),
     ScheduleModule.forRoot(),
 
     HealthModule,
