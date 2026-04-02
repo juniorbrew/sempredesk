@@ -354,6 +354,11 @@ export default function AtendimentoPage() {
 
   const selectedRef = useRef<any>(null);
   selectedRef.current = selected;
+  // Espelho de conversations para acesso em callbacks sem criar dependência de closure
+  const conversationsRef = useRef<any[]>([]);
+  conversationsRef.current = conversations;
+  // Guard contra burst de reloads quando várias mensagens chegam para conversa nova
+  const reloadPendingRef = useRef(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messageMediaUrlsRef = useRef<Record<string, string>>({});
   messageMediaUrlsRef.current = messageMediaUrls;
@@ -1307,13 +1312,25 @@ export default function AtendimentoPage() {
     // Incrementa badge
     setUnreadCounts(p => ({ ...p, [msg.conversationId]: (p[msg.conversationId] || 0) + 1 }));
 
-    // Sobe conversa para o topo da lista e atualiza prévia
-    setConversations(prev => {
-      const idx = prev.findIndex((c: any) => String(c.id) === String(msg.conversationId));
-      if (idx < 0) return prev;
-      const updated = { ...prev[idx], lastMessage: msg.preview, lastMessageAt: new Date().toISOString() };
-      return [updated, ...prev.slice(0, idx), ...prev.slice(idx + 1)];
-    });
+    // Sobe conversa para o topo da lista e atualiza prévia.
+    // Se a conversa ainda não está na lista (nova entrada via WhatsApp), recarrega silenciosamente.
+    // O lado-efeito (loadConversations) fica fora do updater para manter o idioma React correto;
+    // o guard reloadPendingRef evita múltiplos requests em caso de burst de mensagens.
+    const currentList = conversationsRef.current;
+    const idx = currentList.findIndex((c: any) => String(c.id) === String(msg.conversationId));
+    if (idx < 0) {
+      if (!reloadPendingRef.current) {
+        reloadPendingRef.current = true;
+        loadConversations(false, true).finally(() => { reloadPendingRef.current = false; });
+      }
+    } else {
+      setConversations(prev => {
+        const i = prev.findIndex((c: any) => String(c.id) === String(msg.conversationId));
+        if (i < 0) return prev;
+        const updated = { ...prev[i], lastMessage: msg.preview, lastMessageAt: new Date().toISOString() };
+        return [updated, ...prev.slice(0, i), ...prev.slice(i + 1)];
+      });
+    }
 
     // Som de notificação via Web Audio API (sem arquivos externos)
     try {

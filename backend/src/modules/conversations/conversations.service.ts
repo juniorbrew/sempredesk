@@ -622,13 +622,16 @@ export class ConversationsService {
     if (hasTicket === 'yes') qb.andWhere('c.ticket_id IS NOT NULL');
     if (hasTicket === 'no') qb.andWhere('c.ticket_id IS NULL');
 
-    // Filtro por agente: sem ticket (fila livre) OU ticket atribuído a este agente
+    // Filtro por agente: sem ticket (fila livre) OU ticket sem responsável (qualquer agente pode pegar)
+    // OU ticket já atribuído a este agente.
+    // Tickets com conversation_id têm origin whatsapp/portal — devem ser visíveis na fila aberta
+    // enquanto não tiverem um agente designado, independentemente de quem está a ver o inbox.
     if (agentId) {
       qb.andWhere(
         `(c.ticket_id IS NULL OR EXISTS (
           SELECT 1 FROM tickets t_ag
           WHERE t_ag.id::text = c.ticket_id::text
-            AND t_ag.assigned_to = :agentId
+            AND (t_ag.assigned_to IS NULL OR t_ag.assigned_to = :agentId)
         ))`,
         { agentId },
       );

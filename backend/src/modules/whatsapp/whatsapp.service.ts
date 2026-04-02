@@ -307,12 +307,33 @@ export class WhatsappService {
       }
     }
 
-    // clientId: prioriza o identificado pelo chatbot (CNPJ), depois o já vinculado ao contato
+    // clientId: prioriza o identificado pelo chatbot (CNPJ), depois o já vinculado ao contato,
+    // e por último o resolvido pelo identificador WhatsApp (telefone/LID).
     let resolvedClientId: string | null = chatbotClientId ?? null;
     if (!resolvedClientId) {
-      const resolution = await this.customersService.resolveClientForSupportIdentifier(tenantId, wa);
-      if (resolution.mode === 'single') {
-        resolvedClientId = resolution.clientId;
+      if (contact.clientId) {
+        // Contato já vinculado a um cliente — usa directamente sem consulta adicional.
+        resolvedClientId = contact.clientId;
+      } else {
+        const resolution = await this.customersService.resolveClientForSupportIdentifier(tenantId, wa);
+        if (resolution.mode === 'single') {
+          resolvedClientId = resolution.clientId;
+          // Vincular o contato ao cliente identificado pelo identificador WhatsApp.
+          // Evita que chamadas futuras (e criação do ticket) falhem por incompatibilidade
+          // entre o contato resolvido por LID e o cliente resolvido pelo mesmo número.
+          try {
+            await this.customersService.linkContactToClient(tenantId, contact.id, resolvedClientId);
+            contact = { ...contact, clientId: resolvedClientId };
+            this.logger.log(
+              `[whatsapp] Contato ${contact.id} vinculado automaticamente ao cliente ${resolvedClientId} via resolveIdentifier`,
+            );
+          } catch (e) {
+            this.logger.warn(
+              `[whatsapp] Falha ao vincular contato ${contact.id} ao cliente ${resolvedClientId}: ${(e as Error).message}`,
+            );
+            // Não bloquear — o ticket ainda pode ser criado com a correção defensiva
+          }
+        }
       }
     }
     this.logWhatsappResolution({

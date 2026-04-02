@@ -496,6 +496,11 @@ export class TicketsService {
     const r = rows[0];
     if (r.contact_client_id === clientId) return;
 
+    // Contato ainda não vinculado a nenhum cliente (ingresso por WhatsApp/LID antes de
+    // ser associado). Pertence ao tenant → pode ser usado em tickets de qualquer cliente
+    // deste tenant. O vínculo definitivo é feito durante o ingresso da mensagem WhatsApp.
+    if (!r.contact_client_id) return;
+
     if (r.contact_network_id && r.target_network_id && r.contact_network_id === r.target_network_id) {
       return;
     }
@@ -1578,18 +1583,33 @@ export class TicketsService {
     if (!storageKey.startsWith(`${tenantId}/`)) {
       throw new NotFoundException('Anexo não encontrado');
     }
-    const filePath = path.join(this.ticketAttachmentRoot, ...storageKey.split('/'));
-    const rootResolved = path.resolve(this.ticketAttachmentRoot);
-    const fileResolved = path.resolve(filePath);
-    if (!fileResolved.startsWith(rootResolved + path.sep) && fileResolved !== rootResolved) {
-      throw new NotFoundException('Anexo não encontrado');
+
+    // Anexos podem estar em dois diretórios dependendo do endpoint de upload usado:
+    //   TICKET_REPLY_MEDIA_DIR  → POST /tickets/:id/messages/attachment (resposta pública)
+    //   TICKET_ATTACHMENTS_DIR  → POST /tickets/:id/attachments (item4 / gestão de ticket)
+    // Ambos registam o mesmo kind='ticket_reply_file' e o frontend usa este endpoint para os dois.
+    // Tentamos o diretório primário primeiro; se não encontrar, tentamos o secundário.
+    const roots = [this.ticketAttachmentRoot, this.ticketAttachmentsItem4Root];
+    let resolvedFilePath: string | null = null;
+    for (const root of roots) {
+      const candidate = path.join(root, ...storageKey.split('/'));
+      const rootResolved = path.resolve(root);
+      const fileResolved = path.resolve(candidate);
+      if (!fileResolved.startsWith(rootResolved + path.sep) && fileResolved !== rootResolved) {
+        continue; // path traversal — ignorar
+      }
+      const exists = await fs.promises.access(candidate).then(() => true).catch(() => false);
+      if (exists) {
+        resolvedFilePath = candidate;
+        break;
+      }
     }
-    await fs.promises.access(filePath).catch(() => {
+    if (!resolvedFilePath) {
       throw new NotFoundException('Ficheiro ausente');
-    });
+    }
     const mime = (att.mime || 'application/octet-stream').split(';')[0].trim() || 'application/octet-stream';
     return {
-      stream: fs.createReadStream(filePath),
+      stream: fs.createReadStream(resolvedFilePath),
       mime,
       originalFilename: att.originalFilename,
     };
