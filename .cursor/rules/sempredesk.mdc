@@ -10,6 +10,10 @@ alwaysApply: true
 Seguir sempre este caminho:
 LOCAL -> GITHUB -> VPS
 
+## Caminho na VPS (produção)
+- Raiz do repositório no servidor: **`/opt/suporte-tecnico`**
+- Comandos de deploy (`git pull`, `docker compose`, migrations SQL, `ls` em volumes) devem ser indicados **sempre** a partir deste diretório (ex.: `cd /opt/suporte-tecnico` antes de `docker compose ...`).
+
 ## Regras críticas
 - respeitar arquitetura multiempresa
 - nunca misturar dados entre empresas

@@ -783,6 +783,13 @@ export class TicketsService {
       }
     }
 
+    /** Criado pelo painel (agente) sem responsável: atribui ao criador — evita sumir da lista quando não há ticket.view_all. */
+    if (authorType === 'user' && !ticketSaved.assignedTo) {
+      ticketSaved.assignedTo = userId;
+      ticketSaved.status = TicketStatus.IN_PROGRESS;
+      await this.ticketRepo.save(ticketSaved);
+    }
+
     // Registrar no histórico: atribuição, classificação (dept/cat/subcat) — para tickets criados no atendimento
     if (ticketSaved.assignedTo) {
       const techName = await this.getUserName(tenantId, ticketSaved.assignedTo);
@@ -908,10 +915,8 @@ export class TicketsService {
     }
     if (origin) {
       qb.andWhere('t.origin = :origin', { origin });
-    } else {
-      // Inbox de atendimento mostra apenas canais de contato do cliente.
-      qb.andWhere('t.origin IN (:...inboxOrigins)', { inboxOrigins: ['whatsapp', 'portal'] });
     }
+    // Sem `origin`: listagem geral inclui internal/email/phone — tickets criados no painel usam origin internal.
     if (priority) qb.andWhere('t.priority = :priority', { priority });
     if (assignedTo) qb.andWhere('t.assigned_to = :assignedTo', { assignedTo });
     if (clientId && contactId) {
