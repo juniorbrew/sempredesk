@@ -42,6 +42,7 @@ import { TicketAssignmentService } from './modules/ticket-assignment/ticket-assi
 import { AttendanceService } from './modules/attendance/attendance.service';
 import { AuditLogModule } from './modules/audit/audit-log.module';
 import { SaasModule } from './modules/saas/saas.module';
+import { StorageModule } from './modules/storage/storage.module';
 
 @Module({
   imports: [
@@ -102,6 +103,7 @@ import { SaasModule } from './modules/saas/saas.module';
     ContactValidationModule,
     AuditLogModule,
     SaasModule,
+    StorageModule,
   ],
 })
 export class AppModule implements NestModule, OnModuleInit {
