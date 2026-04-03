@@ -56,3 +56,7 @@ audits/
 # Coverage
 coverage/
 .nyc_output/
+
+# Relatórios gerados e infra SSL
+*.pdf
+certbot/
