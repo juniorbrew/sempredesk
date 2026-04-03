@@ -488,13 +488,13 @@ export class TicketsService {
                 SELECT 1
                   FROM contact_customers cc
                  WHERE cc.tenant_id = $1
-                   AND cc.contact_id = $2
-                   AND cc.client_id = $3
+                   AND cc.contact_id = $2::text
+                   AND cc.client_id = $3::text
               ) AS linked_to_target
        FROM contacts c
        LEFT JOIN clients cl ON cl.id = c.client_id
-       LEFT JOIN clients target ON target.id = $3 AND target.tenant_id = $1
-       WHERE c.tenant_id = $1 AND c.id = $2`,
+       LEFT JOIN clients target ON target.id = $3::uuid AND target.tenant_id = $1
+       WHERE c.tenant_id = $1 AND c.id = $2::uuid`,
       [tenantId, contactId, clientId],
     );
 

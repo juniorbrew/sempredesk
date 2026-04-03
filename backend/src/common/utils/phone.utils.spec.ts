@@ -1,4 +1,4 @@
-import { normalizeWhatsappNumber } from './phone.utils';
+import { brPhoneWithout9, normalizeWhatsappNumber, restoreBrNinthDigit } from './phone.utils';
 
 describe('normalizeWhatsappNumber', () => {
   it('deve remover máscara e retornar somente dígitos', () => {
@@ -49,5 +49,33 @@ describe('normalizeWhatsappNumber', () => {
 
   it('número com 16 dígitos deve ser preservado', () => {
     expect(normalizeWhatsappNumber('5511999998888001')).toBe('5511999998888001');
+  });
+});
+
+describe('restoreBrNinthDigit', () => {
+  it('insere 9 após DDD em celular BR com 12 dígitos (formato legado WA)', () => {
+    expect(restoreBrNinthDigit('557381377942')).toBe('5573981377942');
+  });
+
+  it('não altera número já com 13 dígitos', () => {
+    expect(restoreBrNinthDigit('5573981377942')).toBe('5573981377942');
+  });
+
+  it('não altera LID / identificador longo', () => {
+    expect(restoreBrNinthDigit('55123456789012345')).toBe('55123456789012345');
+  });
+
+  it('não insere 9 em padrão que parece fixo (1º dígito após DDD < 6)', () => {
+    expect(restoreBrNinthDigit('557334214567')).toBe('557334214567');
+  });
+});
+
+describe('brPhoneWithout9', () => {
+  it('remove 9 após DDD quando há 13 dígitos e o 9 está na posição esperada', () => {
+    expect(brPhoneWithout9('5573981377942')).toBe('557381377942');
+  });
+
+  it('retorna null se não for 55 com 13 dígitos e 9 móvel', () => {
+    expect(brPhoneWithout9('557381377942')).toBeNull();
   });
 });

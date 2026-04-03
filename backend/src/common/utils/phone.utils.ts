@@ -27,3 +27,28 @@ export function normalizeWhatsappNumber(value: string | null | undefined): strin
   if (!digits) return '';
   return digits;
 }
+
+/**
+ * JIDs BR legados vêm com 12 dígitos (55 + DDD + 8), sem o 9 após o DDD.
+ * Se o primeiro dígito da assinante for 6–9 (padrão de celular), insere o 9.
+ * Não altera LIDs longos, números já com 13 dígitos nem linhas fixas (ex.: 3xxx).
+ */
+export function restoreBrNinthDigit(digits: string): string {
+  if (!digits || !/^\d+$/.test(digits)) return digits || '';
+  if (!digits.startsWith('55') || digits.length !== 12) return digits;
+  const firstAfterDdd = digits.charAt(4);
+  if (firstAfterDdd >= '6' && firstAfterDdd <= '9') {
+    return `${digits.slice(0, 4)}9${digits.slice(4)}`;
+  }
+  return digits;
+}
+
+/**
+ * Variante sem o 9 após o DDD (12 dígitos) para bater com cadastros antigos.
+ */
+export function brPhoneWithout9(digits: string): string | null {
+  if (!digits || !/^\d+$/.test(digits)) return null;
+  if (!digits.startsWith('55') || digits.length !== 13) return null;
+  if (digits.charAt(4) !== '9') return null;
+  return digits.slice(0, 4) + digits.slice(5);
+}

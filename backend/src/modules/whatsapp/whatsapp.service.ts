@@ -12,7 +12,7 @@ import { ChatbotService } from '../chatbot/chatbot.service';
 import { TicketOrigin } from '../tickets/entities/ticket.entity';
 import { ConversationChannel } from '../conversations/entities/conversation.entity';
 import { detectCnpjInText, normalizeCnpj } from '../../common/utils/cnpj.utils';
-import { normalizeWhatsappNumber } from '../../common/utils/phone.utils';
+import { normalizeWhatsappNumber, restoreBrNinthDigit } from '../../common/utils/phone.utils';
 
 export interface NormalizedWhatsappMessage {
   provider: 'generic' | 'meta';
@@ -88,6 +88,9 @@ export class WhatsappService {
 
   async handleIncomingMessage(tenantId: string, msg: NormalizedWhatsappMessage, department?: string, chatbotClientId?: string) {
     let wa = (msg.resolvedDigits || msg.from).replace(/\D/g, '');
+    // BR: PN resolvido de @lid ou JID legado pode vir com 12 dígitos sem o 9 após o DDD.
+    // restoreBrNinthDigit é no-op para LIDs longos e números já com 13 dígitos.
+    wa = restoreBrNinthDigit(wa);
     // Don't truncate LID-format numbers (from @lid JIDs) — keep full identifier
     // Only truncate if it looks like a real phone number (starts with country code)
 
@@ -150,7 +153,8 @@ export class WhatsappService {
           normalizeWhatsappNumber(msg.resolvedDigits),
         );
         if (canMaterializeTrustedResolvedContact) {
-          const resolvedPhone = normalizeWhatsappNumber(msg.resolvedDigits as string) || msg.resolvedDigits!;
+          let resolvedPhone = normalizeWhatsappNumber(msg.resolvedDigits as string) || msg.resolvedDigits!;
+          resolvedPhone = restoreBrNinthDigit(resolvedPhone);
           this.logger.log(
             `Materializando contato canônico para identificador técnico ${msg.from} usando resolvedDigits=${resolvedPhone} e clientId=${chatbotClientId}`,
           );
@@ -634,7 +638,8 @@ export class WhatsappService {
         stage: 'after-contact-resolution',
       });
     } else if (dto.phone) {
-      const digits = dto.phone.replace(/\D/g, '');
+      let digits = dto.phone.replace(/\D/g, '');
+      digits = restoreBrNinthDigit(digits);
       const normalizedPhone = normalizeWhatsappNumber(digits) || digits;
       const outboundTechnicalInput = dto.phone.includes('@') || normalizedPhone.length >= 14;
       const canonicalContact = await this.customersService.resolveCanonicalWhatsappContact(tenantId, {
@@ -737,9 +742,10 @@ export class WhatsappService {
       numberExists = check.exists;
       resolvedJid = check.jid;
       if (check.exists) {
-        const resolvedDigits = normalizeWhatsappNumber(
+        const resolvedDigitsRaw = normalizeWhatsappNumber(
           check.normalized || check.jid?.replace(/@s\.whatsapp\.net|@lid|@c\.us/g, '') || '',
         ) || null;
+        const resolvedDigits = resolvedDigitsRaw ? restoreBrNinthDigit(resolvedDigitsRaw) : null;
         const resolvedLid = check.jid?.endsWith('@lid')
           ? (normalizeWhatsappNumber(check.jid.replace(/@lid$/i, '')) || check.jid.replace(/@lid$/i, ''))
           : null;

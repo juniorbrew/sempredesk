@@ -14,6 +14,7 @@ import { PermissionsModule } from '../permissions/permissions.module';
 import { RealtimeModule } from '../realtime/realtime.module';
 import { ChatbotModule } from '../chatbot/chatbot.module';
 import { ChatbotService } from '../chatbot/chatbot.service';
+import { restoreBrNinthDigit } from '../../common/utils/phone.utils';
 
 @Module({
   imports: [
@@ -125,7 +126,7 @@ export class WhatsappModule implements OnModuleInit {
         }
 
         let skipChatbot = false;
-        const wa = String(from).replace(/\D/g, '');
+        const wa = restoreBrNinthDigit(String(from).replace(/\D/g, ''));
         const normalizedWhatsapp = wa;
         let foundContactIds: string[] = [];
         let canonicalContactId: string | null = null;

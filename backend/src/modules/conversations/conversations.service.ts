@@ -734,15 +734,15 @@ export class ConversationsService {
 
     const qb = this.msgRepo
       .createQueryBuilder('m')
-      .where('m.conversationId = :convId', { convId: conv.id })
-      .andWhere('m.tenantId = :tenantId', { tenantId })
-      .orderBy('m.createdAt', 'DESC')
+      .where('m.conversation_id = :convId', { convId: conv.id })
+      .andWhere('m.tenant_id = :tenantId', { tenantId })
+      .orderBy('m.created_at', 'DESC')
       .take(limit + 1); // busca um a mais para saber se há próxima página
 
     if (opts.before) {
       const ref = await this.msgRepo.findOne({ where: { id: opts.before, tenantId } });
       if (ref) {
-        qb.andWhere('m.createdAt < :refDate', { refDate: ref.createdAt });
+        qb.andWhere('m.created_at < :refDate', { refDate: ref.createdAt });
       }
     }
 

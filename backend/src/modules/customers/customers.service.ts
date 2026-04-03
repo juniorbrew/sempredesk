@@ -9,7 +9,7 @@ import {
 } from './dto/customer.dto';
 import { PaginationDto } from '../../common/dto/pagination.dto';
 import { normalizeCnpj, validateCnpj as validateCnpjUtil } from '../../common/utils/cnpj.utils';
-import { normalizeWhatsappNumber } from '../../common/utils/phone.utils';
+import { brPhoneWithout9, normalizeWhatsappNumber, restoreBrNinthDigit } from '../../common/utils/phone.utils';
 
 export type ResolveCanonicalWhatsappContactResult = {
   contact: Contact | null;
@@ -34,6 +34,33 @@ export class CustomersService {
 
   private logContactCreateAudit(payload: Record<string, unknown>) {
     this.logger.log(JSON.stringify(payload));
+  }
+
+  /** Tenta 55+12 / 55+13 com e sem 9º dígito para reaproveitar contatos antigos. */
+  private brWhatsappLookupVariants(normalized: string): string[] {
+    const out: string[] = [];
+    const seen = new Set<string>();
+    const push = (v: string) => {
+      if (!v || seen.has(v)) return;
+      seen.add(v);
+      out.push(v);
+    };
+    push(normalized);
+    const restored = restoreBrNinthDigit(normalized);
+    if (restored !== normalized) push(restored);
+    const without9 = brPhoneWithout9(normalized);
+    if (without9) push(without9);
+    return out;
+  }
+
+  private mergeContactQueryChunks(chunks: Contact[][]): Contact[] {
+    const byId = new Map<string, Contact>();
+    for (const rows of chunks) {
+      for (const c of rows) {
+        if (!byId.has(c.id)) byId.set(c.id, c);
+      }
+    }
+    return [...byId.values()];
   }
 
   private isTechnicalWhatsappIdentifier(value?: string | null, rawValue?: string | null): boolean {
@@ -894,10 +921,14 @@ export class CustomersService {
     const lid = opts.lid ? (normalizeWhatsappNumber(opts.lid) || opts.lid) : null;
     const rawWhatsapp = opts.rawWhatsapp ?? null;
 
-    const [whatsappMatches, lidMatches, jidMatches, resolvedDigitsMatches] = await Promise.all([
-      normalizedWhatsapp
-        ? this.buildWhatsappContactsQuery(tenantId, normalizedWhatsapp, true).getMany()
-        : Promise.resolve([] as Contact[]),
+    const brVariants = normalizedWhatsapp ? this.brWhatsappLookupVariants(normalizedWhatsapp) : [];
+
+    const [whatsappChunks, lidMatches, jidMatches, resolvedChunks] = await Promise.all([
+      brVariants.length
+        ? Promise.all(
+          brVariants.map((variant) => this.buildWhatsappContactsQuery(tenantId, variant, true).getMany()),
+        )
+        : Promise.resolve([] as Contact[][]),
       lid
         ? this.contacts.createQueryBuilder('ct')
           .leftJoinAndSelect('ct.client', 'client')
@@ -918,17 +949,24 @@ export class CustomersService {
           .addOrderBy('ct.created_at', 'ASC')
           .getMany()
         : Promise.resolve([] as Contact[]),
-      normalizedWhatsapp
-        ? this.contacts.createQueryBuilder('ct')
-          .leftJoinAndSelect('ct.client', 'client')
-          .where('ct.tenant_id = :tenantId', { tenantId })
-          .andWhere("ct.metadata->>'whatsappResolvedDigits' = :normalizedWhatsapp", { normalizedWhatsapp })
-          .orderBy("ct.status = 'active'", 'DESC')
-          .addOrderBy('ct.is_primary', 'DESC')
-          .addOrderBy('ct.created_at', 'ASC')
-          .getMany()
-        : Promise.resolve([] as Contact[]),
+      brVariants.length
+        ? Promise.all(
+          brVariants.map((variant) =>
+            this.contacts.createQueryBuilder('ct')
+              .leftJoinAndSelect('ct.client', 'client')
+              .where('ct.tenant_id = :tenantId', { tenantId })
+              .andWhere("ct.metadata->>'whatsappResolvedDigits' = :variant", { variant })
+              .orderBy("ct.status = 'active'", 'DESC')
+              .addOrderBy('ct.is_primary', 'DESC')
+              .addOrderBy('ct.created_at', 'ASC')
+              .getMany(),
+          ),
+        )
+        : Promise.resolve([] as Contact[][]),
     ]);
+
+    const whatsappMatches = this.mergeContactQueryChunks(whatsappChunks);
+    const resolvedDigitsMatches = this.mergeContactQueryChunks(resolvedChunks);
 
     const candidateMap = new Map<string, Contact>();
     for (const contact of [...whatsappMatches, ...lidMatches, ...jidMatches, ...resolvedDigitsMatches]) {
@@ -1097,7 +1135,14 @@ export class CustomersService {
       stage: 'before-findContactByWhatsappOrLid',
     });
 
-    let [contact] = await this.buildWhatsappContactsQuery(tenantId, normalized, true).getMany();
+    let contact: Contact | null = null;
+    for (const variant of this.brWhatsappLookupVariants(normalized)) {
+      const [found] = await this.buildWhatsappContactsQuery(tenantId, variant, true).getMany();
+      if (found) {
+        contact = found;
+        break;
+      }
+    }
     if (contact) {
       this.logContactResolution({
         scope: 'contact-resolution',
@@ -1115,17 +1160,20 @@ export class CustomersService {
       return contact;
     }
 
-    contact = await this.contacts.createQueryBuilder('ct')
-      .leftJoinAndSelect('ct.client', 'client')
-      .where('ct.tenant_id = :tenantId', { tenantId })
-      .andWhere(
-        "(ct.whatsapp = :normalized OR ct.metadata->>'whatsappLid' = :normalized)",
-        { normalized },
-      )
-      .orderBy("ct.status = 'active'", 'DESC')
-      .addOrderBy('ct.is_primary', 'DESC')
-      .addOrderBy('ct.created_at', 'ASC')
-      .getOne();
+    for (const variant of this.brWhatsappLookupVariants(normalized)) {
+      contact = await this.contacts.createQueryBuilder('ct')
+        .leftJoinAndSelect('ct.client', 'client')
+        .where('ct.tenant_id = :tenantId', { tenantId })
+        .andWhere(
+          "(ct.whatsapp = :normalized OR ct.metadata->>'whatsappLid' = :normalized)",
+          { normalized: variant },
+        )
+        .orderBy("ct.status = 'active'", 'DESC')
+        .addOrderBy('ct.is_primary', 'DESC')
+        .addOrderBy('ct.created_at', 'ASC')
+        .getOne();
+      if (contact) break;
+    }
 
     this.logContactResolution({
       scope: 'contact-resolution',
