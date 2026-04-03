@@ -69,7 +69,7 @@ export function MediaLightbox({
         position: 'fixed',
         inset: 0,
         zIndex: 100000,
-        background: 'rgba(15,23,42,0.88)',
+        background: 'var(--media-lightbox-backdrop, rgba(15,23,42,0.88))',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -112,7 +112,7 @@ export function MediaLightbox({
                 maxHeight: 'calc(92vh - 72px)',
                 objectFit: 'contain',
                 borderRadius: 10,
-                boxShadow: '0 24px 48px rgba(0,0,0,0.35)',
+                boxShadow: 'var(--media-lightbox-media-shadow, 0 24px 48px rgba(0,0,0,0.35))',
               }}
             />
           ) : (
@@ -127,7 +127,7 @@ export function MediaLightbox({
                 maxHeight: 'calc(92vh - 72px)',
                 borderRadius: 10,
                 background: '#000',
-                boxShadow: '0 24px 48px rgba(0,0,0,0.35)',
+                boxShadow: 'var(--media-lightbox-media-shadow, 0 24px 48px rgba(0,0,0,0.35))',
               }}
             />
           )}
@@ -138,9 +138,9 @@ export function MediaLightbox({
             onClick={onClose}
             style={{
               ...btnBase,
-              background: 'rgba(255,255,255,0.10)',
-              color: '#fff',
-              border: '1.5px solid rgba(255,255,255,0.22)',
+              background: 'var(--media-lightbox-btn-secondary-bg, rgba(255,255,255,0.10))',
+              color: 'var(--media-lightbox-btn-secondary-color, #fff)',
+              border: '1.5px solid var(--media-lightbox-btn-secondary-border, rgba(255,255,255,0.22))',
             }}
           >
             <X size={18} strokeWidth={2.25} aria-hidden />
@@ -149,7 +149,7 @@ export function MediaLightbox({
           <button
             type="button"
             onClick={openInNewTab}
-            style={{ ...btnBase, background: 'var(--color-accent)', color: '#fff' }}
+            style={{ ...btnBase, background: 'var(--color-accent, #4F46E5)', color: '#fff' }}
           >
             <ExternalLink size={18} strokeWidth={2.25} aria-hidden />
             Abrir noutro separador
@@ -260,7 +260,8 @@ export function InlineChatMedia({ src, mediaKind, imageStyle, videoStyle, videoC
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            background: 'linear-gradient(180deg, rgba(15,23,42,0.12) 0%, rgba(15,23,42,0.45) 100%)',
+            background:
+              'linear-gradient(180deg, var(--media-preview-overlay-top, rgba(15,23,42,0.12)) 0%, var(--media-preview-overlay-bottom, rgba(15,23,42,0.45)) 100%)',
             pointerEvents: 'none',
           }}
         >
@@ -271,8 +272,8 @@ export function InlineChatMedia({ src, mediaKind, imageStyle, videoStyle, videoC
               gap: 8,
               padding: '10px 16px',
               borderRadius: 999,
-              background: 'rgba(15,23,42,0.82)',
-              color: '#fff',
+              background: 'var(--media-preview-pill-bg, rgba(15,23,42,0.82))',
+              color: 'var(--media-preview-pill-color, #fff)',
               fontSize: 13,
               fontWeight: 600,
               boxShadow: '0 4px 16px rgba(0,0,0,0.35)',

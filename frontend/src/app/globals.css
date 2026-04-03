@@ -10,6 +10,16 @@
   --color-accent-hover: #4338CA;
   --color-accent-light: #EEF2FF;
   --color-accent-mid: #C7D2FE;
+  /* Lightbox / pré-visualização de mídia no chat (InlineChatMedia) */
+  --media-lightbox-backdrop: rgba(15, 23, 42, 0.88);
+  --media-lightbox-media-shadow: 0 24px 48px rgba(0, 0, 0, 0.35);
+  --media-lightbox-btn-secondary-bg: rgba(255, 255, 255, 0.1);
+  --media-lightbox-btn-secondary-color: #f8fafc;
+  --media-lightbox-btn-secondary-border: rgba(255, 255, 255, 0.22);
+  --media-preview-overlay-top: rgba(15, 23, 42, 0.12);
+  --media-preview-overlay-bottom: rgba(15, 23, 42, 0.45);
+  --media-preview-pill-bg: rgba(15, 23, 42, 0.82);
+  --media-preview-pill-color: #ffffff;
 }
 
 * { box-sizing: border-box; }
@@ -142,6 +152,18 @@ body {
 [data-theme="dark"] .btn-secondary:hover { background: #2D3748; color: #A5B4FC; }
 [data-theme="dark"] .input { background: #1E293B; border-color: rgba(255,255,255,0.12); color: #E2E8F0; }
 [data-theme="dark"] ::-webkit-scrollbar-thumb { background: #334155; }
+
+html[data-theme="dark"] {
+  --media-lightbox-backdrop: rgba(2, 6, 23, 0.94);
+  --media-lightbox-media-shadow: 0 24px 48px rgba(0, 0, 0, 0.55);
+  --media-lightbox-btn-secondary-bg: rgba(30, 41, 59, 0.95);
+  --media-lightbox-btn-secondary-color: #e2e8f0;
+  --media-lightbox-btn-secondary-border: rgba(148, 163, 184, 0.35);
+  --media-preview-overlay-top: rgba(2, 6, 23, 0.22);
+  --media-preview-overlay-bottom: rgba(2, 6, 23, 0.58);
+  --media-preview-pill-bg: rgba(15, 23, 42, 0.92);
+  --media-preview-pill-color: #f1f5f9;
+}
 
 /* ── Mobile sidebar overlay ─────────────────────────────── */
 .sidebar-overlay {
