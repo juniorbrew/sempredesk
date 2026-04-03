@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Param, Query, UseGuards, BadRequestException, Request, Put, UseInterceptors, UploadedFile, StreamableFile } from '@nestjs/common';
+import { Body, Controller, Get, Post, Param, Query, UseGuards, BadRequestException, Request, Put, UseInterceptors, UploadedFile, StreamableFile, Logger } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
 import { Throttle } from '@nestjs/throttler';
@@ -11,6 +11,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { UploadThrottlerGuard } from '../../common/guards/upload-throttler.guard';
 import { StorageQuotaGuard } from '../../common/guards/storage-quota.guard';
+import { StorageQuotaService } from '../../modules/storage/storage-quota.service';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 import { TenantId } from '../../common/decorators/tenant-id.decorator';
 import { StartConversationDto, StartAgentConversationDto, CreateTicketForConversationDto, LinkTicketDto, AddConversationMessageDto, CloseConversationDto, UpdateConversationTagsDto } from './dto/conversation.dto';
@@ -18,7 +19,12 @@ import { ConversationChannel } from './entities/conversation.entity';
 
 @Controller('conversations')
 export class ConversationsController {
-  constructor(private readonly conversationsService: ConversationsService) {}
+  private readonly logger = new Logger(ConversationsController.name);
+
+  constructor(
+    private readonly conversationsService: ConversationsService,
+    private readonly quotaService: StorageQuotaService,
+  ) {}
 
   /** Portal: Retorna ou cria conversa para ticket existente (aberto). Usado ao consultar ticket em andamento. */
   @UseGuards(JwtAuthGuard)
@@ -215,10 +221,20 @@ export class ConversationsController {
     if (!display && !mediaKind) {
       throw new BadRequestException('Mensagem vazia ou ficheiro em falta.');
     }
-    return this.conversationsService.addMessage(tenantId, id, req.user.id, req.user.name, authorType, display, {
+    const result = await this.conversationsService.addMessage(tenantId, id, req.user.id, req.user.name, authorType, display, {
       mediaKind,
       mediaStorageKey,
       mediaMime,
     });
+    if (file?.size) {
+      this.logger.log(JSON.stringify({
+        event: 'upload.conversation_media',
+        tenantId,
+        sizeBytes: file.size,
+        mime: file.mimetype,
+      }));
+      this.quotaService.invalidateCache(tenantId);
+    }
+    return result;
   }
 }

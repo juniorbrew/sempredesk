@@ -3,7 +3,7 @@ import {
   Controller, Get, Post, Put, Body, Param, Query,
   UseGuards, Request, BadRequestException, NotFoundException, UnprocessableEntityException,
   UseInterceptors, UploadedFile,
-  StreamableFile,
+  StreamableFile, Logger,
 } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -15,6 +15,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { UploadThrottlerGuard } from '../../common/guards/upload-throttler.guard';
 import { StorageQuotaGuard } from '../../common/guards/storage-quota.guard';
+import { StorageQuotaService } from '../../modules/storage/storage-quota.service';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 import { TicketsService } from './tickets.service';
 import { CustomersService } from '../customers/customers.service';
@@ -35,9 +36,12 @@ import { validateFileSignature as validateStrictFileSignature } from '../../comm
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('tickets')
 export class TicketsController {
+  private readonly logger = new Logger(TicketsController.name);
+
   constructor(
     private readonly ticketsService: TicketsService,
     private readonly customersService: CustomersService,
+    private readonly quotaService: StorageQuotaService,
   ) {}
 
   @Post()
@@ -245,7 +249,7 @@ export class TicketsController {
     const isPortal = req.user?.isPortal === true;
     const authorType = isPortal ? 'contact' : 'user';
     const storageKey = path.posix.join(tenantId, path.basename(file.path));
-    return this.ticketsService.addTicketAttachmentItem4(
+    const result = await this.ticketsService.addTicketAttachmentItem4(
       tenantId,
       id,
       req.user.id,
@@ -259,6 +263,15 @@ export class TicketsController {
         channel: isPortal ? 'portal' : undefined,
       },
     );
+    this.logger.log(JSON.stringify({
+      event: 'upload.ticket_attachment',
+      tenantId,
+      ticketId: id,
+      sizeBytes: file.size,
+      mime: file.mimetype,
+    }));
+    this.quotaService.invalidateCache(tenantId);
+    return result;
   }
 
   @Post(':id/assign')
@@ -406,7 +419,7 @@ export class TicketsController {
     const isPortal = req.user?.isPortal === true;
     const authorType = isPortal ? 'contact' : 'user';
     const storageKey = path.posix.join(tenantId, path.basename(file.path));
-    return this.ticketsService.addPublicReplyWithAttachment(
+    const result = await this.ticketsService.addPublicReplyWithAttachment(
       tenantId,
       id,
       req.user.id,
@@ -420,6 +433,15 @@ export class TicketsController {
         channel: isPortal ? 'portal' : undefined,
       },
     );
+    this.logger.log(JSON.stringify({
+      event: 'upload.ticket_reply_attachment',
+      tenantId,
+      ticketId: id,
+      sizeBytes: file.size,
+      mime: file.mimetype,
+    }));
+    this.quotaService.invalidateCache(tenantId);
+    return result;
   }
 
   @Post(':id/messages')

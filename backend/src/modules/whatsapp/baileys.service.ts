@@ -6,6 +6,7 @@ import { EventEmitter } from 'events';
 import * as path from 'path';
 import * as fs from 'fs';
 import { WhatsappConnection, WhatsappConnectionStatus, WhatsappProvider } from './entities/whatsapp-connection.entity';
+import { StorageQuotaService } from '../storage/storage-quota.service';
 
 export interface QrEvent {
   qr: string; // base64 data URL
@@ -129,6 +130,7 @@ export class BaileysService {
   constructor(
     @InjectRepository(WhatsappConnection)
     private readonly connRepo: Repository<WhatsappConnection>,
+    private readonly quotaService: StorageQuotaService,
   ) {
     if (!fs.existsSync(this.sessionsDir)) {
       fs.mkdirSync(this.sessionsDir, { recursive: true });
@@ -158,14 +160,26 @@ export class BaileysService {
   }
 
   /** Grava buffer recebido do WhatsApp e devolve chave relativa a CONVERSATION_MEDIA_DIR. */
-  private saveInboundMedia(tenantId: string, waMessageId: string, kind: 'image' | 'audio' | 'video', buffer: Buffer, mime: string): string {
+  private async saveInboundMedia(tenantId: string, waMessageId: string, kind: 'image' | 'audio' | 'video', buffer: Buffer, mime: string): Promise<string> {
+    if (await this.quotaService.isOverQuota(tenantId)) {
+      this.logger.warn(`[INBOUND] tenant=${tenantId} over storage quota — mídia ${kind} descartada`);
+      throw new Error('Cota de armazenamento excedida para este tenant');
+    }
     const dir = path.join(this.conversationMediaDir, tenantId);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    await fs.promises.mkdir(dir, { recursive: true });
     const ext = this.extForMime(mime);
     const safeId = String(waMessageId || 'msg').replace(/[^\w.-]/g, '_');
     const fname = `${safeId}.${ext}`;
     const full = path.join(dir, fname);
-    fs.writeFileSync(full, buffer);
+    await fs.promises.writeFile(full, buffer);
+    this.logger.log(JSON.stringify({
+      event: 'upload.whatsapp_inbound_media',
+      tenantId,
+      kind,
+      sizeBytes: buffer.byteLength,
+      mime,
+    }));
+    this.quotaService.invalidateCache(tenantId);
     return path.posix.join(tenantId, fname);
   }
 
@@ -497,7 +511,7 @@ export class BaileysService {
                 { logger: pinoLogger, reuploadRequest: sock.updateMediaMessage },
               )) as Buffer;
               const mime = String(img.mimetype || 'image/jpeg');
-              const storageKey = this.saveInboundMedia(tenantId, msg.key.id!, 'image', buffer, mime);
+              const storageKey = await this.saveInboundMedia(tenantId, msg.key.id!, 'image', buffer, mime);
               media = { kind: 'image', storageKey, mime };
               if (!text) text = '📷 Imagem';
             }
@@ -517,7 +531,7 @@ export class BaileysService {
                 { logger: pinoLogger, reuploadRequest: sock.updateMediaMessage },
               )) as Buffer;
               const mime = String(vid.mimetype || 'video/mp4');
-              const storageKey = this.saveInboundMedia(tenantId, msg.key.id!, 'video', buffer, mime);
+              const storageKey = await this.saveInboundMedia(tenantId, msg.key.id!, 'video', buffer, mime);
               media = { kind: 'video', storageKey, mime };
               if (!text) text = '📹 Vídeo';
             }
@@ -537,7 +551,7 @@ export class BaileysService {
                 { logger: pinoLogger, reuploadRequest: sock.updateMediaMessage },
               )) as Buffer;
               const mime = String(aud.mimetype || 'audio/ogg; codecs=opus');
-              const storageKey = this.saveInboundMedia(tenantId, msg.key.id!, 'audio', buffer, mime);
+              const storageKey = await this.saveInboundMedia(tenantId, msg.key.id!, 'audio', buffer, mime);
               media = { kind: 'audio', storageKey, mime };
               if (!text) text = '🎤 Áudio';
             }
@@ -558,7 +572,7 @@ export class BaileysService {
                 { logger: pinoLogger, reuploadRequest: sock.updateMediaMessage },
               )) as Buffer;
               const mime = docMime || 'video/mp4';
-              const storageKey = this.saveInboundMedia(tenantId, msg.key.id!, 'video', buffer, mime);
+              const storageKey = await this.saveInboundMedia(tenantId, msg.key.id!, 'video', buffer, mime);
               media = { kind: 'video', storageKey, mime };
               if (!text) text = '📹 Vídeo';
             }
@@ -579,7 +593,7 @@ export class BaileysService {
                 { logger: pinoLogger, reuploadRequest: sock.updateMediaMessage },
               )) as Buffer;
               const mime = docMime || 'image/jpeg';
-              const storageKey = this.saveInboundMedia(tenantId, msg.key.id!, 'image', buffer, mime);
+              const storageKey = await this.saveInboundMedia(tenantId, msg.key.id!, 'image', buffer, mime);
               media = { kind: 'image', storageKey, mime };
               if (!text) text = '📷 Imagem';
             }
