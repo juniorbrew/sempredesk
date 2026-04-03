@@ -24,7 +24,7 @@ export interface NormalizedWhatsappMessage {
   senderName?: string;
   resolvedDigits?: string | null;
   /** Mídia já gravada em disco (Baileys). */
-  media?: { kind: 'image' | 'audio'; storageKey: string; mime: string } | null;
+  media?: { kind: 'image' | 'audio' | 'video'; storageKey: string; mime: string } | null;
   isLid?: boolean;
 }
 
@@ -351,7 +351,13 @@ export class WhatsappService {
 
     const firstPreview =
       text ||
-      (msg.media?.kind === 'image' ? '[Imagem]' : msg.media?.kind === 'audio' ? '[Áudio]' : '');
+      (msg.media?.kind === 'image'
+        ? '[Imagem]'
+        : msg.media?.kind === 'audio'
+          ? '[Áudio]'
+          : msg.media?.kind === 'video'
+            ? '[Vídeo]'
+            : '');
     const { conversation, ticket, ticketCreated } = await this.conversationsService.getOrCreateForContact(
       tenantId,
       resolvedClientId,
@@ -385,7 +391,14 @@ export class WhatsappService {
       contact.id,
       contact.name || contact.email || wa,
       'contact',
-      text || (msg.media?.kind === 'image' ? '📷 Imagem' : msg.media?.kind === 'audio' ? '🎤 Áudio' : ''),
+      text ||
+        (msg.media?.kind === 'image'
+          ? '📷 Imagem'
+          : msg.media?.kind === 'audio'
+            ? '🎤 Áudio'
+            : msg.media?.kind === 'video'
+              ? '📹 Vídeo'
+              : ''),
       {
         initialExternalId: msg.messageId?.trim() || null,
         mediaKind: msg.media?.kind ?? null,

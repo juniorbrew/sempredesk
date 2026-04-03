@@ -49,7 +49,7 @@ export class WhatsappModule implements OnModuleInit {
   async onModuleInit() {
     // Registra dispatcher de mensagens outbound (agente → contato via WhatsApp)
     this.conversationsService.setOutboundSender(async (tenantId: string, toWhatsapp: string, payload: string | {
-      kind: 'image' | 'audio';
+      kind: 'image' | 'audio' | 'video';
       filePath: string;
       caption?: string;
       mime?: string;
@@ -107,7 +107,7 @@ export class WhatsappModule implements OnModuleInit {
       senderName?: string,
       isLid?: boolean,
       resolvedDigits?: string | null,
-      media?: { kind: 'image' | 'audio'; storageKey: string; mime: string } | null,
+      media?: { kind: 'image' | 'audio' | 'video'; storageKey: string; mime: string } | null,
     ) => {
       try {
         const messageKey = `${tenantId}:${messageId}`;

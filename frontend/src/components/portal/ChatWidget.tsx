@@ -97,7 +97,7 @@ export default function ChatWidget() {
     void (async () => {
       for (const m of messages) {
         if (!m?.id || String(m.id).startsWith('temp-')) continue;
-        if (!(m.hasMedia || m.mediaKind === 'image' || m.mediaKind === 'audio')) continue;
+        if (!(m.hasMedia || m.mediaKind === 'image' || m.mediaKind === 'audio' || m.mediaKind === 'video')) continue;
         if (messageMediaUrlsRef.current[m.id] || mediaInFlightRef.current.has(String(m.id))) continue;
         mediaInFlightRef.current.add(String(m.id));
         try {
@@ -369,12 +369,18 @@ export default function ChatWidget() {
     lastSendRef.current = Date.now();
     const tempId = `temp-${Date.now()}`;
     const previewKind = file
-      ? (file.type.startsWith('audio/') ? 'audio' : 'image')
+      ? (file.type.startsWith('audio/')
+          ? 'audio'
+          : file.type.startsWith('video/')
+            ? 'video'
+            : 'image')
       : null;
     const localPreviewUrl = file ? URL.createObjectURL(file) : null;
     const newMsg = {
       id: tempId,
-      content: text || (previewKind === 'image' ? '📷 Imagem' : previewKind === 'audio' ? '🎤 Áudio' : ''),
+      content:
+        text ||
+        (previewKind === 'image' ? '📷 Imagem' : previewKind === 'audio' ? '🎤 Áudio' : previewKind === 'video' ? '📹 Vídeo' : ''),
       authorType: 'contact',
       authorName: contact?.name || 'Você',
       messageType: 'comment',
@@ -1153,11 +1159,12 @@ export default function ChatWidget() {
                       const isMe = !isSystem && m.authorType === 'contact';
                       const resolvedSrc = messageMediaUrls[m.id] || m._localPreviewUrl;
                       const hidePlaceholder =
-                        !!resolvedSrc && (m.content === '📷 Imagem' || m.content === '🎤 Áudio');
+                        !!resolvedSrc &&
+                        (m.content === '📷 Imagem' || m.content === '🎤 Áudio' || m.content === '📹 Vídeo');
                       const showCaption = !!(m.content && !hidePlaceholder);
                       const showMediaBlock =
-                        !!(m.hasMedia || m.mediaKind === 'image' || m.mediaKind === 'audio') &&
-                        (m.mediaKind === 'image' || m.mediaKind === 'audio');
+                        !!(m.hasMedia || m.mediaKind === 'image' || m.mediaKind === 'audio' || m.mediaKind === 'video') &&
+                        (m.mediaKind === 'image' || m.mediaKind === 'audio' || m.mediaKind === 'video');
                       const mediaLoading =
                         showMediaBlock && !resolvedSrc && !String(m.id).startsWith('temp-');
 
@@ -1250,6 +1257,23 @@ export default function ChatWidget() {
                                 }}
                               />
                             )}
+                            {m.mediaKind === 'video' && resolvedSrc && (
+                              <video
+                                src={resolvedSrc}
+                                controls
+                                playsInline
+                                style={{
+                                  width: '100%',
+                                  maxWidth: 300,
+                                  maxHeight: 220,
+                                  borderRadius: 10,
+                                  display: 'block',
+                                  marginBottom: showCaption ? 8 : 0,
+                                  objectFit: 'contain',
+                                  background: '#000',
+                                }}
+                              />
+                            )}
                             {mediaLoading && (
                               <span style={{ display: 'block', fontSize: 11, opacity: 0.8, marginBottom: 6 }}>A carregar…</span>
                             )}
@@ -1281,13 +1305,18 @@ export default function ChatWidget() {
                   <input
                     ref={attachFileInputRef}
                     type="file"
-                    accept="image/*,audio/*"
+                    accept="image/*,audio/*,video/mp4"
                     style={{ display: 'none' }}
                     onChange={(e) => {
                       const f = e.target.files?.[0];
                       if (!f) return;
-                      if (!f.type.startsWith('image/') && !f.type.startsWith('audio/')) {
-                        setError('Envie apenas imagem ou áudio.');
+                      const ok =
+                        f.type.startsWith('image/') ||
+                        f.type.startsWith('audio/') ||
+                        f.type === 'video/mp4' ||
+                        f.type.startsWith('video/mp4;');
+                      if (!ok) {
+                        setError('Envie imagem, áudio ou vídeo MP4.');
                         e.target.value = '';
                         return;
                       }

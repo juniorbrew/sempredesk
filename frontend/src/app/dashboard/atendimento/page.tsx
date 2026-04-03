@@ -168,12 +168,13 @@ const MessageItem = memo(function MessageItem({
   const localPreview = m._localPreviewUrl as string | undefined;
   const resolvedMediaSrc = mediaUrl || localPreview || null;
   const showMedia =
-    (m.hasMedia || m.mediaKind === 'image' || m.mediaKind === 'audio') &&
-    (m.mediaKind === 'image' || m.mediaKind === 'audio');
+    (m.hasMedia || m.mediaKind === 'image' || m.mediaKind === 'audio' || m.mediaKind === 'video') &&
+    (m.mediaKind === 'image' || m.mediaKind === 'audio' || m.mediaKind === 'video');
   const mediaLoading =
     showMedia && !resolvedMediaSrc && !m._optimistic;
   const hidePlaceholderCaption =
-    !!resolvedMediaSrc && (m.content === '📷 Imagem' || m.content === '🎤 Áudio');
+    !!resolvedMediaSrc &&
+    (m.content === '📷 Imagem' || m.content === '🎤 Áudio' || m.content === '📹 Vídeo');
   const showCaption = !!(m.content && !hidePlaceholderCaption);
 
   // Constantes de estilo (idênticas ao S da tela pai)
@@ -237,6 +238,23 @@ const MessageItem = memo(function MessageItem({
                 maxWidth: 280,
                 minHeight: 40,
                 marginBottom: showCaption ? 8 : 0,
+              }}
+            />
+          )}
+          {m.mediaKind === 'video' && resolvedMediaSrc && (
+            <video
+              src={resolvedMediaSrc}
+              controls
+              playsInline
+              style={{
+                width: '100%',
+                maxWidth: 320,
+                maxHeight: 280,
+                borderRadius: 12,
+                display: 'block',
+                marginBottom: showCaption ? 8 : 0,
+                objectFit: 'contain',
+                background: '#000',
               }}
             />
           )}
@@ -988,14 +1006,20 @@ export default function AtendimentoPage() {
     // Mensagem otimista: aparece imediatamente antes da resposta da API
     const tempId = `_opt_${Date.now()}`;
     const previewKind = file
-      ? (file.type.startsWith('audio/') ? 'audio' : 'image')
+      ? (file.type.startsWith('audio/')
+          ? 'audio'
+          : file.type.startsWith('video/')
+            ? 'video'
+            : 'image')
       : null;
     const localPreviewUrl = file ? URL.createObjectURL(file) : null;
     setMessages(m => [...m, {
       id: tempId,
       authorType: 'user',
       authorName: 'Você',
-      content: text || (previewKind === 'image' ? '📷 Imagem' : previewKind === 'audio' ? '🎤 Áudio' : ''),
+      content:
+        text ||
+        (previewKind === 'image' ? '📷 Imagem' : previewKind === 'audio' ? '🎤 Áudio' : previewKind === 'video' ? '📹 Vídeo' : ''),
       createdAt: new Date().toISOString(),
       whatsappStatus: channel === 'whatsapp' ? 'sending' : null,
       _optimistic: true,
@@ -1160,7 +1184,7 @@ export default function AtendimentoPage() {
     void (async () => {
       for (const m of messages) {
         if (!m?.id || m._optimistic || String(m.id).startsWith('_opt')) continue;
-        if (!(m.hasMedia || m.mediaKind === 'image' || m.mediaKind === 'audio')) continue;
+        if (!(m.hasMedia || m.mediaKind === 'image' || m.mediaKind === 'audio' || m.mediaKind === 'video')) continue;
         if (messageMediaUrlsRef.current[m.id] || mediaInFlightRef.current.has(String(m.id))) continue;
         mediaInFlightRef.current.add(String(m.id));
         try {
@@ -1382,17 +1406,21 @@ export default function AtendimentoPage() {
 
   // ── styles (shared) ──
   const S = {
-    border: '1px solid rgba(0,0,0,.07)',
-    border2: '1px solid rgba(0,0,0,.12)',
-    txt: '#111118',
-    txt2: '#6B6B80',
-    txt3: '#A8A8BE',
+    border: '1px solid rgba(15,23,42,.08)',
+    border2: '1px solid rgba(15,23,42,.12)',
+    txt: '#0F172A',
+    txt2: '#475569',
+    txt3: '#94A3B8',
     bg: '#FFFFFF',
-    bg2: '#F8F8FB',
-    bg3: '#F1F1F6',
-    accent: '#4F46E5',
-    accentLight: '#EEF2FF',
-    accentMid: '#C7D2FE',
+    bg2: '#F8FAFC',
+    bg3: '#EEF2FF',
+    accent: '#1D4ED8',
+    accentLight: '#DBEAFE',
+    accentMid: '#93C5FD',
+    panel: 'linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(248,250,252,0.98) 100%)',
+    chatBg: 'linear-gradient(180deg, #F8FAFC 0%, #EEF2FF 100%)',
+    shadow: '0 18px 45px rgba(15,23,42,.08)',
+    shadowSoft: '0 10px 24px rgba(15,23,42,.06)',
   } as const;
 
   // ── render ────────────────────────────────────────────────────────────────
@@ -1400,28 +1428,31 @@ export default function AtendimentoPage() {
     <>
 
       {/* ── Main layout ── */}
-      <div style={{ margin: 0, height: 'calc(100vh - 44px)', display: 'flex', overflow: 'hidden', background: S.bg3 }}>
+      <div style={{ margin: 0, height: 'calc(100vh - 44px)', display: 'flex', overflow: 'hidden', background: 'linear-gradient(135deg, #E0E7FF 0%, #F8FAFC 45%, #FEF3C7 100%)' }}>
 
         {/* ══════════ CONVERSATION LIST (310px) ══════════ */}
-        <div style={{ width: 310, background: S.bg, borderRight: S.border, display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
+        <div style={{ width: 326, background: S.panel, borderRight: S.border, display: 'flex', flexDirection: 'column', flexShrink: 0, boxShadow: S.shadowSoft, backdropFilter: 'blur(18px)' }}>
 
           {/* Header */}
-          <div style={{ padding: '16px 16px 12px', borderBottom: S.border, flexShrink: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-              <span style={{ fontSize: 15, fontWeight: 600, color: S.txt }}>Atendimento</span>
+          <div style={{ padding: '18px 16px 14px', borderBottom: S.border, flexShrink: 0, background: 'linear-gradient(180deg, rgba(255,255,255,0.95) 0%, rgba(241,245,249,0.92) 100%)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+              <div>
+                <span style={{ display: 'block', fontSize: 17, fontWeight: 800, color: S.txt, letterSpacing: '-0.02em' }}>Atendimento</span>
+                <span style={{ display: 'block', marginTop: 3, fontSize: 11, color: S.txt2 }}>Inbox unificado com contexto de conversa, ticket e empresa</span>
+              </div>
               <div style={{ display: 'flex', gap: 6 }}>
                 <button onClick={openStartModal} title="Nova conversa"
-                  style={{ width: 30, height: 30, borderRadius: 8, border: S.border2, background: S.bg2, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <Plus size={14} color={S.txt2} strokeWidth={1.6} />
+                  style={{ width: 34, height: 34, borderRadius: 10, border: `1px solid ${S.accentMid}`, background: 'linear-gradient(135deg, #EFF6FF, #DBEAFE)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 8px 20px rgba(29,78,216,.12)' }}>
+                  <Plus size={15} color={S.accent} strokeWidth={1.9} />
                 </button>
                 <button onClick={() => loadConversations(false, true)} title="Atualizar"
-                  style={{ width: 30, height: 30, borderRadius: 8, border: S.border2, background: S.bg2, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  style={{ width: 34, height: 34, borderRadius: 10, border: S.border2, background: '#FFFFFF', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <RefreshCw size={14} color={S.txt2} strokeWidth={1.6} />
                 </button>
               </div>
             </div>
             {/* Search */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: S.bg2, border: S.border, borderRadius: 9, padding: '7px 11px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(255,255,255,.9)', border: S.border, borderRadius: 12, padding: '9px 12px', boxShadow: 'inset 0 1px 0 rgba(255,255,255,.7)' }}>
               <Search size={13} color={S.txt3} strokeWidth={1.6} style={{ flexShrink: 0 }} />
               <input
                 value={search}
@@ -1433,37 +1464,35 @@ export default function AtendimentoPage() {
           </div>
 
           {/* Channel tabs */}
-          <div style={{ display: 'flex', gap: 0, padding: '10px 12px 0', borderBottom: S.border, flexShrink: 0 }}>
+          <div style={{ display: 'flex', gap: 4, padding: '12px 12px 10px', borderBottom: S.border, flexShrink: 0, background: 'rgba(248,250,252,.85)' }}>
             {([['all','Todos'],['whatsapp','WhatsApp']] as const).map(([ch, label]) => (
               <button key={ch} onClick={() => { setChannelFilter(ch); if (filter === 'no_ticket') setFilter('all'); }}
                 style={{
-                  padding: '6px 12px 8px', borderRadius: 0, fontSize: 12, fontWeight: 500, cursor: 'pointer',
+                  padding: '7px 12px', borderRadius: 999, fontSize: 12, fontWeight: 600, cursor: 'pointer',
                   color: channelFilter === ch && filter !== 'no_ticket' ? S.accent : S.txt2,
-                  background: 'transparent', border: 'none',
-                  borderBottom: `2px solid ${channelFilter === ch && filter !== 'no_ticket' ? S.accent : 'transparent'}`,
-                  marginBottom: -1, whiteSpace: 'nowrap', transition: 'color .15s', fontFamily: 'inherit',
+                  background: channelFilter === ch && filter !== 'no_ticket' ? S.accentLight : 'transparent', border: 'none',
+                  whiteSpace: 'nowrap', transition: 'all .15s', fontFamily: 'inherit',
                 }}>
                 {label}
               </button>
             ))}
             <button onClick={() => { setFilter('no_ticket'); setChannelFilter('all'); }}
               style={{
-                padding: '6px 12px 8px', borderRadius: 0, fontSize: 12, fontWeight: 500, cursor: 'pointer',
+                padding: '7px 12px', borderRadius: 999, fontSize: 12, fontWeight: 600, cursor: 'pointer',
                 color: filter === 'no_ticket' ? S.accent : S.txt2,
-                background: 'transparent', border: 'none',
-                borderBottom: `2px solid ${filter === 'no_ticket' ? S.accent : 'transparent'}`,
-                marginBottom: -1, whiteSpace: 'nowrap', transition: 'color .15s', fontFamily: 'inherit',
+                background: filter === 'no_ticket' ? S.accentLight : 'transparent', border: 'none',
+                whiteSpace: 'nowrap', transition: 'all .15s', fontFamily: 'inherit',
               }}>
               Sem ticket
             </button>
           </div>
 
           {/* Filter chips */}
-          <div style={{ display: 'flex', gap: 6, padding: '10px 12px', borderBottom: availableTags.length > 0 ? 'none' : S.border, flexShrink: 0 }}>
+          <div style={{ display: 'flex', gap: 6, padding: '10px 12px', borderBottom: availableTags.length > 0 ? 'none' : S.border, flexShrink: 0, background: 'rgba(255,255,255,.78)' }}>
             {([['all','Em aberto'],['closed','Encerradas'],['linked','Vinculadas']] as const).map(([f, label]) => (
               <button key={f} onClick={() => setFilter(f)}
                 style={{
-                  padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 500, cursor: 'pointer',
+                  padding: '5px 11px', borderRadius: 999, fontSize: 11, fontWeight: 600, cursor: 'pointer',
                   color: filter === f ? S.accent : S.txt2,
                   background: filter === f ? S.accentLight : 'transparent',
                   border: `1px solid ${filter === f ? S.accentMid : 'rgba(0,0,0,.12)'}`,
@@ -1558,15 +1587,17 @@ export default function AtendimentoPage() {
           )}
 
           {/* List */}
-          <div style={{ flex: 1, overflowY: 'auto', padding: '0 8px 8px' }}>
+          <div style={{ flex: 1, overflowY: 'auto', padding: '10px 10px 12px' }}>
             {loading ? (
               <div style={{ padding: 32, textAlign: 'center', color: S.txt3, fontSize: 13 }}>
                 <div className="animate-spin w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full" style={{ margin: '0 auto 10px' }} />
                 Carregando...
               </div>
             ) : filteredConversations.length === 0 ? (
-              <div style={{ padding: 32, textAlign: 'center', color: S.txt3, fontSize: 13 }}>
-                <MessageSquare style={{ width: 28, height: 28, margin: '0 auto 10px', opacity: 0.3 }} />
+              <div style={{ padding: 36, textAlign: 'center', color: S.txt3, fontSize: 13, background: 'rgba(255,255,255,.68)', border: S.border, borderRadius: 18, boxShadow: S.shadowSoft }}>
+                <div style={{ width: 56, height: 56, margin: '0 auto 14px', borderRadius: 18, background: 'linear-gradient(135deg, #DBEAFE, #E0E7FF)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <MessageSquare style={{ width: 26, height: 26, opacity: 0.75, color: S.accent }} />
+                </div>
                 <p style={{ margin: 0, fontWeight: 600 }}>
                   {filter === 'no_ticket' ? 'Nenhuma sem ticket' : filter === 'linked' ? 'Nenhuma vinculada' : filter === 'closed' ? 'Nenhuma encerrada' : 'Nenhuma conversa ativa'}
                 </p>
@@ -1590,20 +1621,21 @@ export default function AtendimentoPage() {
                 return (
                   <button key={c.id} onClick={() => { setSelected(c); if (c?.id) setUnreadCounts(p => { const n = { ...p }; delete n[c.id]; return n; }); }}
                     style={{
-                      width: '100%', padding: 10, borderRadius: 10, border: 'none',
-                      background: isSelected ? S.accentLight : 'transparent',
+                      width: '100%', padding: 12, borderRadius: 16, border: isSelected ? `1px solid ${S.accentMid}` : '1px solid rgba(255,255,255,.35)',
+                      background: isSelected ? 'linear-gradient(135deg, #EFF6FF, #FFFFFF)' : 'rgba(255,255,255,.72)',
                       cursor: 'pointer', textAlign: 'left', transition: 'background .1s',
-                      display: 'flex', gap: 10, alignItems: 'flex-start', marginBottom: 2, fontFamily: 'inherit',
+                      display: 'flex', gap: 10, alignItems: 'flex-start', marginBottom: 8, fontFamily: 'inherit',
+                      boxShadow: isSelected ? '0 12px 28px rgba(29,78,216,.10)' : '0 6px 20px rgba(15,23,42,.04)',
                     }}>
                     <div style={{ position: 'relative', flexShrink: 0 }}>
-                      <div style={{ width: 38, height: 38, borderRadius: '50%', background: isClo ? '#E2E8F0' : col, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 13, fontWeight: 600 }}>
+                      <div style={{ width: 40, height: 40, borderRadius: 14, background: isClo ? '#E2E8F0' : col, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 13, fontWeight: 700 }}>
                         {dispName !== '—' ? initials(dispName) : <MessageSquare size={14} />}
                       </div>
                       <ChannelDot channel={ch} />
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 4, marginBottom: 3 }}>
-                        <span style={{ fontSize: 13, fontWeight: 600, color: isClo ? S.txt3 : S.txt, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: isClo ? S.txt3 : S.txt, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {dispName}
                         </span>
                         <span style={{ fontSize: 10, color: S.txt3, flexShrink: 0, paddingTop: 1 }}>{timeAgo(c.lastMessageAt || c.createdAt)}</span>
@@ -1667,16 +1699,21 @@ export default function AtendimentoPage() {
         </div>
 
         {/* ══════════ CHAT AREA (flex-1) ══════════ */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: S.bg, minWidth: 0 }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: S.chatBg, minWidth: 0 }}>
           {!selected ? (
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, color: S.txt3 }}>
-              <MessageSquare size={40} strokeWidth={1.2} style={{ opacity: 0.3 }} />
-              <p style={{ fontSize: 14, fontWeight: 500, color: S.txt2, margin: 0 }}>Selecione uma conversa</p>
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, color: S.txt3 }}>
+              <div style={{ width: 76, height: 76, borderRadius: 24, background: 'linear-gradient(135deg, #DBEAFE, #FEF3C7)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: S.shadow }}>
+                <MessageSquare size={34} strokeWidth={1.5} style={{ opacity: 0.85, color: S.accent }} />
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <p style={{ fontSize: 16, fontWeight: 700, color: S.txt2, margin: 0 }}>Selecione uma conversa</p>
+                <p style={{ fontSize: 13, color: S.txt3, margin: '6px 0 0' }}>O painel central vai mostrar histórico, ticket e contexto da empresa do atendimento.</p>
+              </div>
             </div>
           ) : (
             <>
               {/* Chat header */}
-              <div style={{ position: 'relative', padding: '14px 20px', borderBottom: S.border, background: S.bg, flexShrink: 0 }}>
+              <div style={{ position: 'relative', padding: '18px 22px 16px', borderBottom: S.border, background: 'linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(248,250,252,0.95) 100%)', flexShrink: 0, boxShadow: '0 8px 22px rgba(15,23,42,.04)' }}>
                 {/* Barra de progresso discreta ao trocar de conversa */}
                 {loadingChat && (
                   <div className="animate-pulse" style={{
@@ -1688,17 +1725,17 @@ export default function AtendimentoPage() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
                   {/* Avatar */}
                   <div style={{ position: 'relative', flexShrink: 0 }}>
-                    <div style={{ width: 40, height: 40, borderRadius: '50%', background: avatarColor(selected.contactName || customerName(selected.clientId) || '?'), display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 14, fontWeight: 600 }}>
+                    <div style={{ width: 46, height: 46, borderRadius: 16, background: avatarColor(selected.contactName || customerName(selected.clientId) || '?'), display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 15, fontWeight: 700, boxShadow: '0 10px 20px rgba(15,23,42,.12)' }}>
                       {initials(selected.contactName || customerName(selected.clientId) || '?')}
                     </div>
                     <ChannelDot channel={selected.channel || 'whatsapp'} />
                   </div>
                   {/* Info */}
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 15, fontWeight: 600, color: S.txt }}>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: S.txt, letterSpacing: '-0.02em' }}>
                       {contactName(selected.contactId) !== '—' ? contactName(selected.contactId) : messages.find((m: any) => m.authorType === 'contact')?.authorName || selected.contactName || '—'}
                     </div>
-                    <div style={{ fontSize: 11, color: S.txt2, display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                    <div style={{ fontSize: 11, color: S.txt2, display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 600, padding: '1px 7px', borderRadius: 5, background: isWhatsapp ? '#DCFCE7' : '#EEF2FF', color: isWhatsapp ? '#15803D' : S.accent }}>
                         {isWhatsapp ? <Phone size={9} /> : <Globe size={9} />}
                         {isWhatsapp ? 'WhatsApp' : 'Portal'}
@@ -1731,29 +1768,29 @@ export default function AtendimentoPage() {
                     </button>
                     {hasTicket && (
                       <Link href={`/dashboard/tickets/${selected.ticketId}`} target="_blank"
-                        style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 12px', borderRadius: 8, background: S.accentLight, border: `1px solid ${S.accentMid}`, color: S.accent, fontSize: 12, fontWeight: 600, textDecoration: 'none', fontFamily: "'DM Mono', monospace" }}>
+                        style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 999, background: S.accentLight, border: `1px solid ${S.accentMid}`, color: S.accent, fontSize: 12, fontWeight: 700, textDecoration: 'none', fontFamily: "'DM Mono', monospace" }}>
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v2z"/></svg>
                         {currentTicket?.ticketNumber ?? selected?.ticketNumber ?? '—'}
                       </Link>
                     )}
                     {!hasTicket && !isPortalNoTicket && (
                       <button onClick={handleCreateTicket} disabled={creatingTicket}
-                        style={{ padding: '6px 14px', borderRadius: 8, border: 'none', background: S.accent, color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' }}>
+                        style={{ padding: '7px 14px', borderRadius: 999, border: 'none', background: `linear-gradient(135deg, ${S.accent}, #3B82F6)`, color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit', boxShadow: '0 10px 20px rgba(29,78,216,.18)' }}>
                         <Plus size={13} /> Criar Ticket
                       </button>
                     )}
                     <button onClick={() => { setShowLinkModal(true); setLinkTicketSearch(''); setLinkTickets([]); }}
-                      style={{ padding: '6px 14px', borderRadius: 8, border: S.border2, background: S.bg2, color: S.txt, fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' }}>
+                      style={{ padding: '7px 14px', borderRadius: 999, border: S.border2, background: '#FFFFFF', color: S.txt, fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' }}>
                       <Link2 size={13} /> Vincular ticket
                     </button>
                     <button onClick={openTransferModal}
-                      style={{ padding: '6px 14px', borderRadius: 8, border: S.border2, background: S.bg2, color: S.txt, fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' }}>
+                      style={{ padding: '7px 14px', borderRadius: 999, border: S.border2, background: '#FFFFFF', color: S.txt, fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' }}>
                       Transferir
                     </button>
                     {!isClosed && (hasTicket || isPortalNoTicket) && (
                       <button onClick={openEndFlow} disabled={!canCloseTicket || customerLinkRequired}
                         title={customerLinkRequired ? 'Defina a empresa antes de encerrar' : undefined}
-                        style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid #FECACA', background: customerLinkRequired ? '#FFF1F2' : '#FEF2F2', color: '#DC2626', fontSize: 12, fontWeight: 600, cursor: (!canCloseTicket || customerLinkRequired) ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit', opacity: (!canCloseTicket || customerLinkRequired) ? 0.6 : 1 }}>
+                        style={{ padding: '7px 14px', borderRadius: 999, border: '1px solid #FECACA', background: customerLinkRequired ? '#FFF1F2' : '#FEF2F2', color: '#DC2626', fontSize: 12, fontWeight: 700, cursor: (!canCloseTicket || customerLinkRequired) ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit', opacity: (!canCloseTicket || customerLinkRequired) ? 0.6 : 1 }}>
                         Encerrar
                       </button>
                     )}
@@ -1923,13 +1960,18 @@ export default function AtendimentoPage() {
                     <input
                       ref={attachFileInputRef}
                       type="file"
-                      accept="image/*,audio/*"
+                      accept="image/*,audio/*,video/mp4"
                       style={{ display: 'none' }}
                       onChange={(e) => {
                         const f = e.target.files?.[0];
                         if (!f) return;
-                        if (!f.type.startsWith('image/') && !f.type.startsWith('audio/')) {
-                          showToast('Envie apenas imagem ou áudio.', 'error');
+                        const ok =
+                          f.type.startsWith('image/') ||
+                          f.type.startsWith('audio/') ||
+                          f.type === 'video/mp4' ||
+                          f.type.startsWith('video/mp4;');
+                        if (!ok) {
+                          showToast('Envie imagem, áudio ou vídeo MP4.', 'error');
                           e.target.value = '';
                           return;
                         }
@@ -1938,7 +1980,7 @@ export default function AtendimentoPage() {
                     />
                     {[
                       { label: 'Arquivo', icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg> },
-                      { label: 'Imagem / áudio', icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>, onClick: () => attachFileInputRef.current?.click() },
+                      { label: 'Imagem / áudio / vídeo', icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>, onClick: () => attachFileInputRef.current?.click() },
                       { label: 'Resposta rápida', icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg> },
                       { label: 'Nota interna', icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> },
                       { label: 'Macro', icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg> },

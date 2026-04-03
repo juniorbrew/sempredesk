@@ -55,6 +55,30 @@ export function validateFileSignature(buffer: Buffer, declaredMime: string): boo
       const brand = buffer.slice(8, 12).toString('ascii');
       return brand === 'M4A ' || brand === 'mp42' || brand === 'isom' || brand === 'mp41';
     }
+    case 'video/mp4': {
+      if (buffer.length < 12) return false;
+      const ftyp =
+        buffer[4] === 0x66 &&
+        buffer[5] === 0x74 &&
+        buffer[6] === 0x79 &&
+        buffer[7] === 0x70;
+      if (!ftyp) return false;
+      const brand = buffer.slice(8, 12).toString('ascii');
+      const videoBrands = [
+        'isom',
+        'iso2',
+        'mp41',
+        'mp42',
+        'avc1',
+        'M4V ',
+        'msdh',
+        'dash',
+        'mp71',
+        '3gp4',
+        '3gg6',
+      ];
+      return videoBrands.includes(brand);
+    }
     case 'application/pdf':
       return matchesPrefix(buffer, [0x25, 0x50, 0x44, 0x46]);
     default:

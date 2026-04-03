@@ -26,7 +26,13 @@ export function conversationMediaDiskStorage() {
       else if (mime.startsWith('image/')) ext = 'jpg';
       else if (mime.includes('ogg')) ext = 'ogg';
       else if (mime.includes('mpeg') || mime.includes('mp3')) ext = 'mp3';
-      else if (mime.startsWith('audio/')) ext = 'm4a';
+      else if (mime.startsWith('video/')) {
+        if (mime.includes('mp4')) ext = 'mp4';
+        else if (mime.includes('webm')) ext = 'webm';
+        else if (mime.includes('quicktime')) ext = 'mov';
+        else if (mime.includes('3gpp')) ext = '3gp';
+        else ext = 'mp4';
+      } else if (mime.startsWith('audio/')) ext = 'm4a';
       cb(null, `agent-${crypto.randomUUID()}.${ext}`);
     },
   });

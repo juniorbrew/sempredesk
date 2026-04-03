@@ -52,14 +52,14 @@ export class ConversationsService {
         toWhatsapp: string,
         payload:
           | string
-          | { kind: 'image' | 'audio'; filePath: string; caption?: string; mime?: string },
+          | { kind: 'image' | 'audio' | 'video'; filePath: string; caption?: string; mime?: string },
       ) => Promise<{ success: boolean; jid?: string | null; messageId?: string | null; error?: string } | boolean>)
     | null = null;
   setOutboundSender(
     fn: (
       tenantId: string,
       toWhatsapp: string,
-      payload: string | { kind: 'image' | 'audio'; filePath: string; caption?: string; mime?: string },
+      payload: string | { kind: 'image' | 'audio' | 'video'; filePath: string; caption?: string; mime?: string },
     ) => Promise<{ success: boolean; jid?: string | null; messageId?: string | null; error?: string } | boolean>,
   ) {
     this.outboundSender = fn;
@@ -717,7 +717,7 @@ export class ConversationsService {
       skipOutbound?: boolean;
       initialWhatsappStatus?: string;
       initialExternalId?: string | null;
-      mediaKind?: 'image' | 'audio' | null;
+      mediaKind?: 'image' | 'audio' | 'video' | null;
       mediaStorageKey?: string | null;
       mediaMime?: string | null;
     },
@@ -804,7 +804,9 @@ export class ConversationsService {
             ? '[Imagem]' + (content ? `: ${content.slice(0, 40)}` : '')
             : saved.mediaKind === 'audio'
               ? '[Áudio]'
-              : content.length > 80
+              : saved.mediaKind === 'video'
+                ? '[Vídeo]' + (content ? `: ${content.slice(0, 40)}` : '')
+                : content.length > 80
                 ? `${content.slice(0, 77)}…`
                 : content || '(mensagem)';
         this.realtimeEmitter.emitTenantTicketMessageNotify(tenantId, {
@@ -826,7 +828,9 @@ export class ConversationsService {
             ? '[Imagem]' + (content ? `: ${content.slice(0, 40)}` : '')
             : saved.mediaKind === 'audio'
               ? '[Áudio]'
-              : content.length > 80
+              : saved.mediaKind === 'video'
+                ? '[Vídeo]' + (content ? `: ${content.slice(0, 40)}` : '')
+                : content.length > 80
                 ? content.slice(0, 77) + '…'
                 : content,
       });

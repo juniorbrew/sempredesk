@@ -183,14 +183,20 @@ export class ConversationsController {
     const isPortal = req.user?.isPortal === true;
     const authorType = isPortal ? 'contact' : 'user';
     const contentRaw = (dto.content ?? '').trim();
-    let mediaKind: 'image' | 'audio' | null = null;
+    let mediaKind: 'image' | 'audio' | 'video' | null = null;
     let mediaStorageKey: string | null = null;
     let mediaMime: string | null = null;
     if (file?.path && (file.size ?? 0) > 0) {
       const mime = file.mimetype || '';
       if (mime.startsWith('image/')) mediaKind = 'image';
       else if (mime.startsWith('audio/')) mediaKind = 'audio';
-      else throw new BadRequestException('Envie uma imagem ou um áudio (tipos suportados: image/*, audio/*).');
+      else if (mime === 'video/mp4' || mime.startsWith('video/mp4;')) mediaKind = 'video';
+      else if (mime.startsWith('video/'))
+        throw new BadRequestException('Para vídeo no WhatsApp use MP4 (video/mp4).');
+      else
+        throw new BadRequestException(
+          'Envie uma imagem, um áudio ou um vídeo MP4 (tipos: image/*, audio/*, video/mp4).',
+        );
       const head = readFilePrefixSync(file.path, 12);
       if (!validateFileSignature(head, mime)) {
         await fs.promises.unlink(file.path).catch(() => {});
@@ -198,11 +204,13 @@ export class ConversationsController {
       }
       const fname = path.basename(file.path);
       mediaStorageKey = path.posix.join(tenantId, fname);
-      mediaMime = mime || (mediaKind === 'image' ? 'image/jpeg' : 'audio/mpeg');
+      mediaMime =
+        mime ||
+        (mediaKind === 'image' ? 'image/jpeg' : mediaKind === 'audio' ? 'audio/mpeg' : mediaKind === 'video' ? 'video/mp4' : null);
     }
     const display =
       contentRaw ||
-      (mediaKind === 'image' ? '📷 Imagem' : mediaKind === 'audio' ? '🎤 Áudio' : '');
+      (mediaKind === 'image' ? '📷 Imagem' : mediaKind === 'audio' ? '🎤 Áudio' : mediaKind === 'video' ? '📹 Vídeo' : '');
     if (!display && !mediaKind) {
       throw new BadRequestException('Mensagem vazia ou ficheiro em falta.');
     }

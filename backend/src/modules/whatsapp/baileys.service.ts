@@ -139,7 +139,14 @@ export class BaileysService {
   }
 
   private extForMime(mime?: string | null): string {
-    const m = (mime || '').toLowerCase();
+    const m = (mime || '').toLowerCase().split(';')[0].trim();
+    if (m.startsWith('video/')) {
+      if (m.includes('webm')) return 'webm';
+      if (m.includes('quicktime')) return 'mov';
+      if (m.includes('3gpp')) return '3gp';
+      if (m.includes('mp4')) return 'mp4';
+      return 'mp4';
+    }
     if (m.includes('png')) return 'png';
     if (m.includes('webp')) return 'webp';
     if (m.includes('jpeg') || m.includes('jpg')) return 'jpg';
@@ -151,7 +158,7 @@ export class BaileysService {
   }
 
   /** Grava buffer recebido do WhatsApp e devolve chave relativa a CONVERSATION_MEDIA_DIR. */
-  private saveInboundMedia(tenantId: string, waMessageId: string, kind: 'image' | 'audio', buffer: Buffer, mime: string): string {
+  private saveInboundMedia(tenantId: string, waMessageId: string, kind: 'image' | 'audio' | 'video', buffer: Buffer, mime: string): string {
     const dir = path.join(this.conversationMediaDir, tenantId);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     const ext = this.extForMime(mime);
@@ -170,7 +177,7 @@ export class BaileysService {
     senderName?: string,
     isLid?: boolean,
     resolvedDigits?: string | null,
-    media?: { kind: 'image' | 'audio'; storageKey: string; mime: string } | null,
+    media?: { kind: 'image' | 'audio' | 'video'; storageKey: string; mime: string } | null,
   ) => void) | null = null;
 
   setMessageHandler(cb: (
@@ -181,7 +188,7 @@ export class BaileysService {
     senderName?: string,
     isLid?: boolean,
     resolvedDigits?: string | null,
-    media?: { kind: 'image' | 'audio'; storageKey: string; mime: string } | null,
+    media?: { kind: 'image' | 'audio' | 'video'; storageKey: string; mime: string } | null,
   ) => void) {
     this.onMessageCallback = cb;
   }
@@ -466,8 +473,9 @@ export class BaileysService {
           || msg.message?.imageMessage?.caption
           || msg.message?.videoMessage?.caption
           || '';
-        let media: { kind: 'image' | 'audio'; storageKey: string; mime: string } | null = null;
+        let media: { kind: 'image' | 'audio' | 'video'; storageKey: string; mime: string } | null = null;
         const img = msg.message?.imageMessage;
+        const vid = msg.message?.videoMessage;
         const aud = msg.message?.audioMessage;
         if (img) {
           try {
@@ -488,6 +496,26 @@ export class BaileysService {
           } catch (e: any) {
             this.logger.warn(`[INBOUND] Falha ao descarregar imagem: ${e?.message}`);
             if (!text) text = '📷 Imagem (erro ao obter ficheiro)';
+          }
+        } else if (vid) {
+          try {
+            const dl = await import('@whiskeysockets/baileys');
+            const downloadMediaMessage = (dl as any).downloadMediaMessage ?? (dl as any).default?.downloadMediaMessage;
+            if (typeof downloadMediaMessage === 'function') {
+              const buffer = (await downloadMediaMessage(
+                msg,
+                'buffer',
+                {},
+                { logger: pinoLogger, reuploadRequest: sock.updateMediaMessage },
+              )) as Buffer;
+              const mime = String(vid.mimetype || 'video/mp4');
+              const storageKey = this.saveInboundMedia(tenantId, msg.key.id!, 'video', buffer, mime);
+              media = { kind: 'video', storageKey, mime };
+              if (!text) text = '📹 Vídeo';
+            }
+          } catch (e: any) {
+            this.logger.warn(`[INBOUND] Falha ao descarregar vídeo: ${e?.message}`);
+            if (!text) text = '📹 Vídeo (erro ao obter ficheiro)';
           }
         } else if (aud) {
           try {
@@ -723,11 +751,35 @@ export class BaileysService {
     }
   }
 
-  /** Envia imagem ou áudio (ficheiro local) via Baileys. */
+  /** Payload Baileys alinhado ao que o WhatsApp espera (imagem / áudio / vídeo). */
+  private buildBaileysMediaPayload(
+    kind: 'image' | 'audio' | 'video',
+    buffer: Buffer,
+    opts?: { caption?: string; mime?: string },
+  ): Record<string, unknown> {
+    if (kind === 'image') {
+      return { image: buffer, caption: opts?.caption || undefined };
+    }
+    if (kind === 'audio') {
+      return {
+        audio: buffer,
+        mimetype: opts?.mime || 'audio/mpeg',
+        ptt: !!(opts?.mime && (opts.mime.includes('ogg') || opts.mime.includes('opus'))),
+      };
+    }
+    return {
+      video: buffer,
+      caption: opts?.caption || undefined,
+      mimetype: opts?.mime || 'video/mp4',
+      gifPlayback: false,
+    };
+  }
+
+  /** Envia imagem, áudio ou vídeo (ficheiro local) via Baileys. */
   async sendMedia(
     tenantId: string,
     to: string,
-    kind: 'image' | 'audio',
+    kind: 'image' | 'audio' | 'video',
     filePath: string,
     opts?: { caption?: string; mime?: string },
   ): Promise<SendMessageResult> {
@@ -744,14 +796,7 @@ export class BaileysService {
       if (digits.length >= 14) {
         const jid = `${digits}@lid`;
         return await this.enqueueOutbound(tenantId, async () => {
-          const payload =
-            kind === 'image'
-              ? { image: buffer, caption: opts?.caption || undefined }
-              : {
-                  audio: buffer,
-                  mimetype: opts?.mime || 'audio/mpeg',
-                  ptt: !!(opts?.mime && (opts.mime.includes('ogg') || opts.mime.includes('opus'))),
-                };
+          const payload = this.buildBaileysMediaPayload(kind, buffer, opts);
           const result = await sock.sendMessage(jid, payload as any);
           const messageId = result?.key?.id ?? null;
           return { success: true as const, jid, messageId };
@@ -770,14 +815,7 @@ export class BaileysService {
         /* usa JID estimado */
       }
       return await this.enqueueOutbound(tenantId, async () => {
-        const payload =
-          kind === 'image'
-            ? { image: buffer, caption: opts?.caption || undefined }
-            : {
-                audio: buffer,
-                mimetype: opts?.mime || 'audio/mpeg',
-                ptt: !!(opts?.mime && (opts.mime.includes('ogg') || opts.mime.includes('opus'))),
-              };
+        const payload = this.buildBaileysMediaPayload(kind, buffer, opts);
         const result = await sock.sendMessage(jid, payload as any);
         const messageId = result?.key?.id ?? null;
         return { success: true as const, jid, messageId };

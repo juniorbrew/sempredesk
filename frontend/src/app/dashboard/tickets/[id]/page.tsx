@@ -147,7 +147,7 @@ export default function TicketDetailsPage() {
     void (async () => {
       for (const m of conversationMsgs) {
         if (!m?.id) continue;
-        if (!(m.hasMedia || m.mediaKind === 'image' || m.mediaKind === 'audio')) continue;
+        if (!(m.hasMedia || m.mediaKind === 'image' || m.mediaKind === 'audio' || m.mediaKind === 'video')) continue;
         if (convMediaUrlsRef.current[m.id] || convMediaInFlightRef.current.has(String(m.id))) continue;
         convMediaInFlightRef.current.add(String(m.id));
         try {
@@ -964,11 +964,13 @@ export default function TicketDetailsPage() {
                             const isC = cm.authorType==='contact';
                             const t = new Date(cm.createdAt).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
                             const src = convMediaUrls[cm.id];
-                            const hidePh = !!src && (cm.content === '📷 Imagem' || cm.content === '🎤 Áudio');
+                            const hidePh =
+                              !!src &&
+                              (cm.content === '📷 Imagem' || cm.content === '🎤 Áudio' || cm.content === '📹 Vídeo');
                             const showCap = !!(cm.content && !hidePh);
                             const showMedia =
-                              !!(cm.hasMedia || cm.mediaKind === 'image' || cm.mediaKind === 'audio') &&
-                              (cm.mediaKind === 'image' || cm.mediaKind === 'audio');
+                              !!(cm.hasMedia || cm.mediaKind === 'image' || cm.mediaKind === 'audio' || cm.mediaKind === 'video') &&
+                              (cm.mediaKind === 'image' || cm.mediaKind === 'audio' || cm.mediaKind === 'video');
                             const mediaLoading = showMedia && !src;
                             return (
                               <div key={cm.id} style={{ display:'flex', justifyContent:isC?'flex-start':'flex-end', gap:8, alignItems:'flex-end' }}>
@@ -984,6 +986,23 @@ export default function TicketDetailsPage() {
                                   )}
                                   {cm.mediaKind === 'audio' && src && (
                                     <audio src={src} controls style={{ width:'100%', maxWidth:240, minHeight:36, marginBottom: showCap ? 8 : 0 }} />
+                                  )}
+                                  {cm.mediaKind === 'video' && src && (
+                                    <video
+                                      src={src}
+                                      controls
+                                      playsInline
+                                      style={{
+                                        width: '100%',
+                                        maxWidth: 280,
+                                        maxHeight: 200,
+                                        borderRadius: 10,
+                                        display: 'block',
+                                        marginBottom: showCap ? 8 : 0,
+                                        objectFit: 'contain',
+                                        background: '#000',
+                                      }}
+                                    />
                                   )}
                                   {mediaLoading && (
                                     <span style={{ display:'block', fontSize:10, opacity:0.75, marginBottom:6 }}>A carregar…</span>
@@ -1131,7 +1150,7 @@ export default function TicketDetailsPage() {
                         ? 'Visivel apenas para a equipe interna.'
                         : activeTab==='update'
                           ? 'Use para registrar uma atualizacao do atendimento.'
-                          : 'Resposta pública: texto no histórico do ticket; clip envia anexo (imagem, PDF, Office, ZIP). Imagem/áudio na conversa WhatsApp permanece na secção «Conversa» ou no Atendimento.'}
+                          : 'Resposta pública: texto no histórico do ticket; clip envia anexo (imagem, PDF, Office, ZIP). Imagem, áudio e vídeo MP4 na conversa WhatsApp ficam na secção «Conversa» ou no Atendimento.'}
                     </div>
                   </div>
                   <button

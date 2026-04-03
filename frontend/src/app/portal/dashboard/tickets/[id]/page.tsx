@@ -167,7 +167,7 @@ export default function PortalDashboardTicketDetailPage() {
     void (async () => {
       for (const m of messages) {
         if (!m?.id) continue;
-        if (m.hasMedia || m.mediaKind === 'image' || m.mediaKind === 'audio') {
+        if (m.hasMedia || m.mediaKind === 'image' || m.mediaKind === 'audio' || m.mediaKind === 'video') {
           if (msgMediaUrlsRef.current[m.id] || msgMediaInFlightRef.current.has(`c:${m.id}`)) continue;
           msgMediaInFlightRef.current.add(`c:${m.id}`);
           try {
@@ -536,11 +536,12 @@ export default function PortalDashboardTicketDetailPage() {
               const isWhatsappMsg = m.channel === 'whatsapp';
               const mediaSrc = msgMediaUrls[m.id];
               const hideMediaPlaceholder =
-                !!mediaSrc && (m.content === '📷 Imagem' || m.content === '🎤 Áudio');
+                !!mediaSrc &&
+                (m.content === '📷 Imagem' || m.content === '🎤 Áudio' || m.content === '📹 Vídeo');
               const showMediaCaption = !!(m.content && !hideMediaPlaceholder);
               const hasConvMedia =
-                !!(m.hasMedia || m.mediaKind === 'image' || m.mediaKind === 'audio') &&
-                (m.mediaKind === 'image' || m.mediaKind === 'audio');
+                !!(m.hasMedia || m.mediaKind === 'image' || m.mediaKind === 'audio' || m.mediaKind === 'video') &&
+                (m.mediaKind === 'image' || m.mediaKind === 'audio' || m.mediaKind === 'video');
               const convMediaLoading = hasConvMedia && !mediaSrc;
               const msgIndex = mainMessages.findIndex((x:any) => x.id === m.id);
               const msgNum = msgIndex >= 0 ? total - msgIndex : null;
@@ -578,6 +579,23 @@ export default function PortalDashboardTicketDetailPage() {
                       {m.mediaKind === 'audio' && mediaSrc && (
                         <audio src={mediaSrc} controls style={{ width:'100%', maxWidth:240, minHeight:36, marginBottom: showMediaCaption ? 8 : 0 }} />
                       )}
+                      {m.mediaKind === 'video' && mediaSrc && (
+                        <video
+                          src={mediaSrc}
+                          controls
+                          playsInline
+                          style={{
+                            width: '100%',
+                            maxWidth: 280,
+                            maxHeight: 200,
+                            borderRadius: 10,
+                            display: 'block',
+                            marginBottom: showMediaCaption ? 8 : 0,
+                            objectFit: 'contain',
+                            background: '#000',
+                          }}
+                        />
+                      )}
                       {convMediaLoading && (
                         <span style={{ display:'block', fontSize:11, opacity:0.8, marginBottom:6 }}>A carregar…</span>
                       )}
@@ -609,6 +627,23 @@ export default function PortalDashboardTicketDetailPage() {
                     )}
                     {m.mediaKind === 'audio' && mediaSrc && (
                       <audio src={mediaSrc} controls style={{ width:'100%', maxWidth:240, minHeight:36, marginBottom: showMediaCaption ? 8 : 0 }} />
+                    )}
+                    {m.mediaKind === 'video' && mediaSrc && (
+                      <video
+                        src={mediaSrc}
+                        controls
+                        playsInline
+                        style={{
+                          width: '100%',
+                          maxWidth: 280,
+                          maxHeight: 200,
+                          borderRadius: 10,
+                          display: 'block',
+                          marginBottom: showMediaCaption ? 8 : 0,
+                          objectFit: 'contain',
+                          background: '#000',
+                        }}
+                      />
                     )}
                     {convMediaLoading && (
                       <span style={{ display:'block', fontSize:11, opacity:0.8, marginBottom:6 }}>A carregar…</span>
