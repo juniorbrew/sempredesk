@@ -9,6 +9,7 @@ import { ArrowLeft, RotateCw, Tag, Clock, AlertTriangle, Lock, Send, Paperclip, 
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { TagMultiSelect } from '@/components/ui/TagMultiSelect';
+import { InlineChatMedia } from '@/components/chat/InlineChatMedia';
 
 const STATUS_CONFIG: Record<string,{ label:string; bg:string; color:string; dot:string }> = {
   open:           { label:'Aberto',             bg:'#EEF2FF', color:'#3730A3', dot:'#4F46E5' },
@@ -982,26 +983,21 @@ export default function TicketDetailsPage() {
                                 <div style={{ maxWidth:'72%', padding:'10px 12px', borderRadius:isC?'6px 18px 18px 18px':'18px 6px 18px 18px', background:isC?'rgba(255,255,255,0.88)':'#E0E7FF', border:`1px solid ${isC?'rgba(148,163,184,0.14)':'rgba(99,102,241,0.18)'}`, boxShadow:'0 10px 24px rgba(15,23,42,0.06)', fontSize:12, color:'#0F172A' }}>
                                   <p style={{ margin:'0 0 4px', fontWeight:700, fontSize:10, color:isC?'#475569':'#4338CA' }}>{cm.authorName}</p>
                                   {cm.mediaKind === 'image' && src && (
-                                    <img src={src} alt="" style={{ maxWidth:'100%', maxHeight:200, borderRadius:10, display:'block', marginBottom: showCap ? 8 : 0, objectFit:'cover' }} />
+                                    <InlineChatMedia
+                                      src={src}
+                                      mediaKind="image"
+                                      imageStyle={{ maxHeight: 200, marginBottom: showCap ? 8 : 0, borderRadius: 10 }}
+                                    />
                                   )}
                                   {cm.mediaKind === 'audio' && src && (
                                     <audio src={src} controls style={{ width:'100%', maxWidth:240, minHeight:36, marginBottom: showCap ? 8 : 0 }} />
                                   )}
                                   {cm.mediaKind === 'video' && src && (
-                                    <video
+                                    <InlineChatMedia
                                       src={src}
-                                      controls
-                                      playsInline
-                                      style={{
-                                        width: '100%',
-                                        maxWidth: 280,
-                                        maxHeight: 200,
-                                        borderRadius: 10,
-                                        display: 'block',
-                                        marginBottom: showCap ? 8 : 0,
-                                        objectFit: 'contain',
-                                        background: '#000',
-                                      }}
+                                      mediaKind="video"
+                                      videoContainerStyle={{ marginBottom: showCap ? 8 : 0 }}
+                                      videoStyle={{ maxWidth: 280, maxHeight: 200, borderRadius: 10 }}
                                     />
                                   )}
                                   {mediaLoading && (

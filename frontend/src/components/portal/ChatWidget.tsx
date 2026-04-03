@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from 'react';
 import { usePortalStore } from '@/store/portal.store';
 import { useRealtimeConversation } from '@/lib/realtime';
 import { MessageCircle, X, Send, Lock, ArrowLeft, CheckCircle, ImagePlus } from 'lucide-react';
+import { InlineChatMedia } from '@/components/chat/InlineChatMedia';
 
 const API_BASE = '/api/v1';
 
@@ -1232,16 +1233,13 @@ export default function ChatWidget() {
                               </span>
                             )}
                             {m.mediaKind === 'image' && resolvedSrc && (
-                              <img
+                              <InlineChatMedia
                                 src={resolvedSrc}
-                                alt=""
-                                style={{
-                                  maxWidth: '100%',
+                                mediaKind="image"
+                                imageStyle={{
                                   maxHeight: 220,
-                                  borderRadius: 10,
-                                  display: 'block',
                                   marginBottom: showCaption ? 8 : 0,
-                                  objectFit: 'cover',
+                                  borderRadius: 10,
                                 }}
                               />
                             )}
@@ -1258,20 +1256,11 @@ export default function ChatWidget() {
                               />
                             )}
                             {m.mediaKind === 'video' && resolvedSrc && (
-                              <video
+                              <InlineChatMedia
                                 src={resolvedSrc}
-                                controls
-                                playsInline
-                                style={{
-                                  width: '100%',
-                                  maxWidth: 300,
-                                  maxHeight: 220,
-                                  borderRadius: 10,
-                                  display: 'block',
-                                  marginBottom: showCaption ? 8 : 0,
-                                  objectFit: 'contain',
-                                  background: '#000',
-                                }}
+                                mediaKind="video"
+                                videoContainerStyle={{ marginBottom: showCaption ? 8 : 0 }}
+                                videoStyle={{ maxWidth: 300, maxHeight: 220, borderRadius: 10 }}
                               />
                             )}
                             {mediaLoading && (

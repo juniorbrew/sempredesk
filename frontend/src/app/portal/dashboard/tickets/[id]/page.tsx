@@ -6,6 +6,7 @@ import { usePortalStore } from '@/store/portal.store';
 import { portalFetch } from '@/lib/portal-fetch';
 import { useRealtimeTicket, useRealtimeConversation } from '@/lib/realtime';
 import { ArrowLeft, Send, User, Headphones, RefreshCw, AlertTriangle, UserCircle, MessageSquare, PhoneCall, ThumbsUp, ThumbsDown, CheckCircle, XCircle, ChevronUp, ImagePlus } from 'lucide-react';
+import { InlineChatMedia } from '@/components/chat/InlineChatMedia';
 
 const API_BASE = '/api/v1';
 
@@ -574,26 +575,21 @@ export default function PortalDashboardTicketDetailPage() {
                         <span style={{ fontSize:10, color:'#94A3B8', marginLeft:'auto' }}>{timeStr}</span>
                       </div>
                       {m.mediaKind === 'image' && mediaSrc && (
-                        <img src={mediaSrc} alt="" style={{ maxWidth:'100%', maxHeight:200, borderRadius:10, display:'block', marginBottom: showMediaCaption ? 8 : 0, objectFit:'cover' }} />
+                        <InlineChatMedia
+                          src={mediaSrc}
+                          mediaKind="image"
+                          imageStyle={{ maxHeight: 200, marginBottom: showMediaCaption ? 8 : 0, borderRadius: 10 }}
+                        />
                       )}
                       {m.mediaKind === 'audio' && mediaSrc && (
                         <audio src={mediaSrc} controls style={{ width:'100%', maxWidth:240, minHeight:36, marginBottom: showMediaCaption ? 8 : 0 }} />
                       )}
                       {m.mediaKind === 'video' && mediaSrc && (
-                        <video
+                        <InlineChatMedia
                           src={mediaSrc}
-                          controls
-                          playsInline
-                          style={{
-                            width: '100%',
-                            maxWidth: 280,
-                            maxHeight: 200,
-                            borderRadius: 10,
-                            display: 'block',
-                            marginBottom: showMediaCaption ? 8 : 0,
-                            objectFit: 'contain',
-                            background: '#000',
-                          }}
+                          mediaKind="video"
+                          videoContainerStyle={{ marginBottom: showMediaCaption ? 8 : 0 }}
+                          videoStyle={{ maxWidth: 280, maxHeight: 200, borderRadius: 10 }}
                         />
                       )}
                       {convMediaLoading && (
@@ -623,26 +619,21 @@ export default function PortalDashboardTicketDetailPage() {
                       <span style={{ fontSize:10, color:'#94A3B8', marginLeft:'auto' }}>{timeStr}</span>
                     </div>
                     {m.mediaKind === 'image' && mediaSrc && (
-                      <img src={mediaSrc} alt="" style={{ maxWidth:'100%', maxHeight:200, borderRadius:10, display:'block', marginBottom: showMediaCaption ? 8 : 0, objectFit:'cover' }} />
+                      <InlineChatMedia
+                        src={mediaSrc}
+                        mediaKind="image"
+                        imageStyle={{ maxHeight: 200, marginBottom: showMediaCaption ? 8 : 0, borderRadius: 10 }}
+                      />
                     )}
                     {m.mediaKind === 'audio' && mediaSrc && (
                       <audio src={mediaSrc} controls style={{ width:'100%', maxWidth:240, minHeight:36, marginBottom: showMediaCaption ? 8 : 0 }} />
                     )}
                     {m.mediaKind === 'video' && mediaSrc && (
-                      <video
+                      <InlineChatMedia
                         src={mediaSrc}
-                        controls
-                        playsInline
-                        style={{
-                          width: '100%',
-                          maxWidth: 280,
-                          maxHeight: 200,
-                          borderRadius: 10,
-                          display: 'block',
-                          marginBottom: showMediaCaption ? 8 : 0,
-                          objectFit: 'contain',
-                          background: '#000',
-                        }}
+                        mediaKind="video"
+                        videoContainerStyle={{ marginBottom: showMediaCaption ? 8 : 0 }}
+                        videoStyle={{ maxWidth: 280, maxHeight: 200, borderRadius: 10 }}
                       />
                     )}
                     {convMediaLoading && (

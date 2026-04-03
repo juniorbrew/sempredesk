@@ -11,6 +11,7 @@ import {
 import { EmojiPicker } from '@/components/ui/EmojiPicker';
 import ContactValidationBanner, { type ResolvedData } from '@/components/atendimento/ContactValidationBanner';
 import { TagMultiSelect } from '@/components/ui/TagMultiSelect';
+import { InlineChatMedia } from '@/components/chat/InlineChatMedia';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -216,16 +217,12 @@ const MessageItem = memo(function MessageItem({
           transition: 'opacity 0.2s',
         }}>
           {m.mediaKind === 'image' && resolvedMediaSrc && (
-            <img
+            <InlineChatMedia
               src={resolvedMediaSrc}
-              alt=""
-              style={{
-                maxWidth: '100%',
+              mediaKind="image"
+              imageStyle={{
                 maxHeight: 280,
-                borderRadius: 12,
-                display: 'block',
                 marginBottom: showCaption ? 8 : 0,
-                objectFit: 'cover',
               }}
             />
           )}
@@ -242,19 +239,13 @@ const MessageItem = memo(function MessageItem({
             />
           )}
           {m.mediaKind === 'video' && resolvedMediaSrc && (
-            <video
+            <InlineChatMedia
               src={resolvedMediaSrc}
-              controls
-              playsInline
-              style={{
-                width: '100%',
+              mediaKind="video"
+              videoContainerStyle={{ marginBottom: showCaption ? 8 : 0 }}
+              videoStyle={{
                 maxWidth: 320,
                 maxHeight: 280,
-                borderRadius: 12,
-                display: 'block',
-                marginBottom: showCaption ? 8 : 0,
-                objectFit: 'contain',
-                background: '#000',
               }}
             />
           )}
