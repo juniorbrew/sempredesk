@@ -40,17 +40,38 @@ export class TenantLicenseService {
   }
 
   async getActiveLicense(tenantId: string) {
-    return this.repo.findOne({
-      where: { tenantId, status: 'active' as any },
-      order: { startedAt: 'DESC' },
-    });
+    try {
+      return await this.repo.findOne({
+        where: { tenantId, status: 'active' as any },
+        order: { startedAt: 'DESC' },
+      });
+    } catch (error) {
+      if (this.isLegacySchemaCompatibilityError(error)) return null;
+      throw error;
+    }
   }
 
   async getLatestLicense(tenantId: string) {
-    return this.repo.findOne({
-      where: { tenantId } as any,
-      order: { createdAt: 'DESC' },
-    });
+    try {
+      return await this.repo.findOne({
+        where: { tenantId } as any,
+        order: { createdAt: 'DESC' },
+      });
+    } catch (error) {
+      if (this.isLegacySchemaCompatibilityError(error)) return null;
+      throw error;
+    }
+  }
+
+  private isLegacySchemaCompatibilityError(error: any): boolean {
+    const pgCode = error?.code;
+    const message = String(error?.message || '').toLowerCase();
+    const isMissingTenantLicensesTable = pgCode === '42P01'
+      && message.includes('relation "tenant_licenses" does not exist');
+    const isKnownMissingLegacyColumn = pgCode === '42703'
+      && message.includes('column tenant.cnpj does not exist');
+
+    return isMissingTenantLicensesTable || isKnownMissingLegacyColumn;
   }
 
   async renewLicense(tenantId: string, periodDays = 30) {
@@ -84,7 +105,13 @@ export class TenantLicenseService {
    * Sem linha em tenant_licenses: não bloqueia (compatibilidade com tenants antigos).
    */
   async assertTenantOperational(tenantId: string): Promise<void> {
-    const tenant = await this.tenants.findOne({ where: { id: tenantId } });
+    const tenant = await this.tenants.findOne({
+      where: { id: tenantId },
+      select: {
+        id: true,
+        status: true,
+      },
+    });
     if (!tenant) {
       throw new ForbiddenException({
         message: 'Empresa inválida',
@@ -100,7 +127,13 @@ export class TenantLicenseService {
       });
     }
 
-    const lic = await this.getLatestLicense(tenantId);
+    let lic: TenantLicense | null = null;
+    try {
+      lic = await this.getLatestLicense(tenantId);
+    } catch (error) {
+      if (this.isLegacySchemaCompatibilityError(error)) return;
+      throw error;
+    }
     if (!lic) return;
 
     const inactive = ['suspended', 'cancelled', 'expired'];

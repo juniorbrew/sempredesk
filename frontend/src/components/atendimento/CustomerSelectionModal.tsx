@@ -142,7 +142,7 @@ export default function CustomerSelectionModal({ ticketId, contact, candidates, 
       <div style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 500, boxShadow: '0 20px 60px rgba(0,0,0,.18)', display: 'flex', flexDirection: 'column', maxHeight: 'calc(100vh - 80px)' }}>
 
         {/* Header */}
-        <div style={{ padding: '20px 24px 14px' }}>
+        <div style={{ padding: '22px 24px 16px', background: 'linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 100%)' }}>
           <h2 id="csel-title" style={{ margin: '0 0 5px', fontSize: 16, fontWeight: 700, color: '#111118' }}>Para qual empresa é este atendimento?</h2>
           {contact && (
             <p style={{ margin: 0, fontSize: 12, color: '#6B6B80' }}>
@@ -156,13 +156,13 @@ export default function CustomerSelectionModal({ ticketId, contact, candidates, 
         <div style={{ height: 1, background: 'rgba(0,0,0,.07)', flexShrink: 0 }} />
 
         {/* Abas: Sugeridas / Buscar */}
-        <div style={{ padding: '10px 16px 6px', display: 'flex', gap: 6, alignItems: 'center' }}>
+        <div style={{ padding: '12px 16px 8px', display: 'flex', gap: 6, alignItems: 'center' }}>
           <button onClick={() => { setShowSearch(false); setSearchQuery(''); setSearchResults([]); }}
-            style={{ padding: '5px 14px', borderRadius: 20, border: 'none', fontFamily: 'inherit', background: !showSearch ? '#EEF2FF' : 'transparent', color: !showSearch ? '#4F46E5' : '#6B6B80', fontWeight: !showSearch ? 600 : 500, fontSize: 12, cursor: 'pointer' }}>
+            style={{ padding: '6px 14px', borderRadius: 999, border: 'none', fontFamily: 'inherit', background: !showSearch ? '#DBEAFE' : 'transparent', color: !showSearch ? '#1D4ED8' : '#6B7280', fontWeight: !showSearch ? 700 : 500, fontSize: 12, cursor: 'pointer' }}>
             {candidates.length === 1 ? '1 sugerida' : `${candidates.length} sugeridas`}
           </button>
           <button onClick={() => setShowSearch(true)}
-            style={{ padding: '5px 14px', borderRadius: 20, border: 'none', fontFamily: 'inherit', background: showSearch ? '#EEF2FF' : 'transparent', color: showSearch ? '#4F46E5' : '#6B6B80', fontWeight: showSearch ? 600 : 500, fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
+            style={{ padding: '6px 14px', borderRadius: 999, border: 'none', fontFamily: 'inherit', background: showSearch ? '#DBEAFE' : 'transparent', color: showSearch ? '#1D4ED8' : '#6B7280', fontWeight: showSearch ? 700 : 500, fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
             <Search size={11} /> Buscar outra empresa
           </button>
         </div>
@@ -173,7 +173,7 @@ export default function CustomerSelectionModal({ ticketId, contact, candidates, 
             <Search size={13} style={{ position: 'absolute', left: 28, top: '50%', transform: 'translateY(-50%)', color: '#94A3B8', pointerEvents: 'none' }} />
             <input ref={searchRef} value={searchQuery} onChange={e => handleSearchChange(e.target.value)}
               placeholder="Nome fantasia, razão social ou CNPJ..."
-              style={{ width: '100%', padding: '9px 34px 9px 34px', borderRadius: 9, border: '1.5px solid #E2E8F0', fontSize: 13, outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }} />
+              style={{ width: '100%', padding: '10px 36px 10px 34px', borderRadius: 12, border: '1.5px solid #DBEAFE', background: '#F8FAFC', fontSize: 13, outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }} />
             {searchQuery && (
               <button onClick={() => { setSearchQuery(''); setSearchResults([]); }}
                 style={{ position: 'absolute', right: 28, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#94A3B8', padding: 2 }}>
@@ -224,11 +224,11 @@ export default function CustomerSelectionModal({ ticketId, contact, candidates, 
         {/* Footer */}
         <div style={{ padding: '14px 24px', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
           <button onClick={onCancel} disabled={loading}
-            style={{ padding: '9px 18px', borderRadius: 9, border: '1px solid rgba(0,0,0,.12)', background: '#F8F8FB', color: '#111118', fontSize: 13, fontWeight: 500, cursor: loading ? 'not-allowed' : 'pointer', fontFamily: 'inherit' }}>
+            style={{ padding: '9px 18px', borderRadius: 999, border: '1px solid rgba(0,0,0,.12)', background: '#F8FAFC', color: '#111118', fontSize: 13, fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer', fontFamily: 'inherit' }}>
             Cancelar
           </button>
           <button onClick={handleConfirm} disabled={!selectedId || loading}
-            style={{ padding: '9px 24px', borderRadius: 9, border: 'none', background: !selectedId || loading ? '#C7D2FE' : '#4F46E5', color: '#fff', fontSize: 13, fontWeight: 600, cursor: !selectedId || loading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 8, fontFamily: 'inherit', transition: 'background .12s' }}>
+            style={{ padding: '9px 24px', borderRadius: 999, border: 'none', background: !selectedId || loading ? '#BFDBFE' : 'linear-gradient(135deg, #1D4ED8, #3B82F6)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: !selectedId || loading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 8, fontFamily: 'inherit', transition: 'background .12s', boxShadow: !selectedId || loading ? 'none' : '0 10px 20px rgba(29,78,216,.18)' }}>
             {loading && <span style={{ width: 14, height: 14, border: '2px solid rgba(255,255,255,.4)', borderTopColor: '#fff', borderRadius: '50%', display: 'inline-block', animation: 'spin 0.7s linear infinite' }} />}
             Confirmar
           </button>

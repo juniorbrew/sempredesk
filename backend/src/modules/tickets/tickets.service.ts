@@ -483,7 +483,14 @@ export class TicketsService {
 
     const rows = await this.ticketRepo.manager.query(
       `SELECT c.id, c.client_id as contact_client_id, cl.network_id as contact_network_id,
-              target.network_id as target_network_id
+              target.network_id as target_network_id,
+              EXISTS(
+                SELECT 1
+                  FROM contact_customers cc
+                 WHERE cc.tenant_id = $1
+                   AND cc.contact_id = $2
+                   AND cc.client_id = $3
+              ) AS linked_to_target
        FROM contacts c
        LEFT JOIN clients cl ON cl.id = c.client_id
        LEFT JOIN clients target ON target.id = $3 AND target.tenant_id = $1
@@ -495,6 +502,7 @@ export class TicketsService {
 
     const r = rows[0];
     if (r.contact_client_id === clientId) return;
+    if (r.linked_to_target) return;
 
     // Contato ainda não vinculado a nenhum cliente (ingresso por WhatsApp/LID antes de
     // ser associado). Pertence ao tenant → pode ser usado em tickets de qualquer cliente

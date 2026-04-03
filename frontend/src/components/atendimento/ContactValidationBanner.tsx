@@ -176,9 +176,10 @@ export default function ContactValidationBanner({
       ?? 'Empresa vinculada';
     return (
       <div style={{
-        marginTop: 10, padding: '8px 14px',
-        background: '#F0FDF4', border: '1px solid #86EFAC', borderRadius: 8,
+        marginTop: 12, padding: '10px 14px',
+        background: 'linear-gradient(135deg, #F0FDF4, #ECFDF5)', border: '1px solid #86EFAC', borderRadius: 14,
         display: 'flex', alignItems: 'center', gap: 8, fontSize: 12,
+        boxShadow: '0 10px 24px rgba(22,163,74,.08)',
       }}>
         <CheckCircle2 size={14} color="#16A34A" style={{ flexShrink: 0 }} />
         <Building2 size={13} color="#16A34A" style={{ flexShrink: 0 }} />
@@ -187,7 +188,7 @@ export default function ContactValidationBanner({
         {canManageCustomerLink && (
           <button
             onClick={() => setShowLinkModal(true)}
-            style={{ marginLeft: 'auto', padding: '5px 10px', borderRadius: 7, border: '1px solid #86EFAC', background: '#fff', color: '#166534', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
+            style={{ marginLeft: 'auto', padding: '6px 11px', borderRadius: 999, border: '1px solid #86EFAC', background: '#fff', color: '#166534', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}
           >
             Alterar empresa
           </button>
@@ -199,16 +200,17 @@ export default function ContactValidationBanner({
   if (bannerState === 'resolved_skipped') {
     return (
       <div style={{
-        marginTop: 10, padding: '10px 14px',
-        background: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: 8,
+        marginTop: 12, padding: '11px 14px',
+        background: 'linear-gradient(135deg, #FFF7ED, #FFFBEB)', border: '1px solid #FED7AA', borderRadius: 14,
         display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#9A3412',
+        boxShadow: '0 10px 24px rgba(234,88,12,.08)',
       }}>
         <Building2 size={13} color="#EA580C" style={{ flexShrink: 0 }} />
         <span style={{ fontWeight: 600 }}>Empresa ainda não vinculada a este atendimento</span>
         {canManageCustomerLink && (
           <button
             onClick={() => setShowLinkModal(true)}
-            style={{ marginLeft: 'auto', padding: '5px 10px', borderRadius: 7, border: '1px solid #FDBA74', background: '#fff', color: '#C2410C', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
+            style={{ marginLeft: 'auto', padding: '6px 11px', borderRadius: 999, border: '1px solid #FDBA74', background: '#fff', color: '#C2410C', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}
           >
             Vincular agora
           </button>
@@ -220,9 +222,10 @@ export default function ContactValidationBanner({
   if (bannerState === 'multiple_customers') {
     return (
       <div style={{
-        marginTop: 10, padding: '11px 14px',
-        background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8,
+        marginTop: 12, padding: '13px 15px',
+        background: 'linear-gradient(135deg, #FFFBEB, #FFF7ED)', border: '1px solid #FDE68A', borderRadius: 16,
         fontSize: 12, color: '#92400E',
+        boxShadow: '0 12px 26px rgba(217,119,6,.08)',
       }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
           <AlertTriangle size={15} color="#D97706" style={{ flexShrink: 0, marginTop: 1 }} />
@@ -235,14 +238,14 @@ export default function ContactValidationBanner({
               <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
                 <button
                   onClick={() => setShowSelectionModal(true)}
-                  style={{ padding: '6px 14px', borderRadius: 7, border: 'none', background: '#D97706', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' }}
+                  style={{ padding: '7px 14px', borderRadius: 999, border: 'none', background: '#D97706', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit', boxShadow: '0 10px 18px rgba(217,119,6,.18)' }}
                 >
                   <Building2 size={12} />
                   Selecionar empresa
                 </button>
                 <button
                   onClick={() => setShowLinkModal(true)}
-                  style={{ padding: '6px 14px', borderRadius: 7, border: '1px solid #FCD34D', background: 'transparent', color: '#92400E', fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}
+                  style={{ padding: '7px 14px', borderRadius: 999, border: '1px solid #FCD34D', background: 'rgba(255,255,255,.78)', color: '#92400E', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
                 >
                   Buscar outra empresa
                 </button>
@@ -257,9 +260,10 @@ export default function ContactValidationBanner({
   if (bannerState === 'no_customer') {
     return (
       <div style={{
-        marginTop: 10, padding: '11px 14px',
-        background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8,
+        marginTop: 12, padding: '13px 15px',
+        background: 'linear-gradient(135deg, #FFFBEB, #FFF7ED)', border: '1px solid #FDE68A', borderRadius: 16,
         fontSize: 12, color: '#92400E',
+        boxShadow: '0 12px 26px rgba(217,119,6,.08)',
       }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
           <AlertTriangle size={15} color="#D97706" style={{ flexShrink: 0, marginTop: 1 }} />
@@ -273,7 +277,7 @@ export default function ContactValidationBanner({
                 <button
                   onClick={() => setShowLinkModal(true)}
                   aria-label="Vincular contato a uma empresa"
-                  style={{ padding: '6px 14px', borderRadius: 7, border: 'none', background: '#D97706', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' }}
+                  style={{ padding: '7px 14px', borderRadius: 999, border: 'none', background: '#D97706', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit', boxShadow: '0 10px 18px rgba(217,119,6,.18)' }}
                 >
                   <Building2 size={12} />
                   Vincular a uma empresa

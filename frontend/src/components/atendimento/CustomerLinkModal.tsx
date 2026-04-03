@@ -152,7 +152,7 @@ export default function CustomerLinkModal({ ticketId, onConfirmed, onCancel }: P
       }}>
 
         {/* Header */}
-        <div style={{ padding: '22px 24px 16px', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+        <div style={{ padding: '22px 24px 16px', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, background: 'linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 100%)' }}>
           <div>
             <h2 id="clink-title" style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 700, color: '#111118' }}>
               Vincular a uma empresa
@@ -177,8 +177,8 @@ export default function CustomerLinkModal({ ticketId, onConfirmed, onCancel }: P
 
           {/* Search input */}
           <div style={{
-            display: 'flex', alignItems: 'center', gap: 8, border: '1px solid rgba(0,0,0,.12)',
-            borderRadius: 9, padding: '9px 12px', background: '#F8F8FB',
+            display: 'flex', alignItems: 'center', gap: 8, border: '1px solid #DBEAFE',
+            borderRadius: 12, padding: '10px 12px', background: '#F8FAFC',
           }}>
             {searchLoading
               ? <span style={{ width: 14, height: 14, border: '2px solid #C7D2FE', borderTopColor: '#4F46E5', borderRadius: '50%', display: 'inline-block', flexShrink: 0, animation: 'spin 0.7s linear infinite' }} />
@@ -302,8 +302,8 @@ export default function CustomerLinkModal({ ticketId, onConfirmed, onCancel }: P
             disabled={confirmLoading}
             aria-label="Cancelar"
             style={{
-              padding: '8px 18px', borderRadius: 9, border: '1px solid rgba(0,0,0,.12)',
-              background: '#F8F8FB', color: '#111118', fontSize: 13, fontWeight: 500,
+              padding: '8px 18px', borderRadius: 999, border: '1px solid rgba(0,0,0,.12)',
+              background: '#F8FAFC', color: '#111118', fontSize: 13, fontWeight: 600,
               cursor: confirmLoading ? 'not-allowed' : 'pointer', fontFamily: 'inherit',
             }}
           >
@@ -314,12 +314,12 @@ export default function CustomerLinkModal({ ticketId, onConfirmed, onCancel }: P
             disabled={!selectedClient || confirmLoading}
             aria-label="Vincular empresa e continuar"
             style={{
-              padding: '8px 20px', borderRadius: 9, border: 'none',
-              background: !selectedClient || confirmLoading ? '#C7D2FE' : '#4F46E5',
-              color: '#fff', fontSize: 13, fontWeight: 600,
+              padding: '8px 20px', borderRadius: 999, border: 'none',
+              background: !selectedClient || confirmLoading ? '#BFDBFE' : 'linear-gradient(135deg, #1D4ED8, #3B82F6)',
+              color: '#fff', fontSize: 13, fontWeight: 700,
               cursor: !selectedClient || confirmLoading ? 'not-allowed' : 'pointer',
               display: 'flex', alignItems: 'center', gap: 8, fontFamily: 'inherit',
-              transition: 'background .12s',
+              transition: 'background .12s', boxShadow: !selectedClient || confirmLoading ? 'none' : '0 10px 20px rgba(29,78,216,.18)',
             }}
           >
             {confirmLoading && (

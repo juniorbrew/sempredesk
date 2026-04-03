@@ -13,6 +13,8 @@ import { RealtimeEmitterService } from '../realtime/realtime-emitter.service';
 @Injectable()
 export class ConversationsService {
   private readonly logger = new Logger(ConversationsService.name);
+  private conversationMessageMediaSchemaReady = false;
+  private conversationMessageMediaSchemaPromise: Promise<void> | null = null;
 
   private readonly mediaRoot =
     process.env.CONVERSATION_MEDIA_DIR || path.join(process.cwd(), 'uploads', 'conversation-media');
@@ -78,6 +80,7 @@ export class ConversationsService {
   async markConversationRead(tenantId: string, conversationId: string): Promise<void> {
     if (!this.markReadFn) return;
     try {
+      await this.ensureConversationMessageMediaSchemaReady();
       const conv = await this.convRepo.findOne({ where: { tenantId, id: conversationId } });
       if (!conv || conv.channel !== 'whatsapp' || !conv.contactId) return;
 
@@ -127,12 +130,56 @@ export class ConversationsService {
     }
   }
 
+  private async ensureConversationMessageMediaSchema(): Promise<void> {
+    await this.dataSource.query(`
+      ALTER TABLE conversation_messages
+        ADD COLUMN IF NOT EXISTS media_kind varchar(16),
+        ADD COLUMN IF NOT EXISTS media_storage_key text,
+        ADD COLUMN IF NOT EXISTS media_mime varchar(128),
+        ADD COLUMN IF NOT EXISTS external_id text,
+        ADD COLUMN IF NOT EXISTS whatsapp_status text
+    `);
+  }
+
+  private async ensureConversationMessageMediaSchemaReady(): Promise<void> {
+    if (this.conversationMessageMediaSchemaReady) return;
+    if (!this.conversationMessageMediaSchemaPromise) {
+      this.conversationMessageMediaSchemaPromise = (async () => {
+        const requiredColumns = [
+          'media_kind',
+          'media_storage_key',
+          'media_mime',
+          'external_id',
+          'whatsapp_status',
+        ];
+        const rows = await this.dataSource.query(
+          `SELECT column_name
+             FROM information_schema.columns
+            WHERE table_schema = current_schema()
+              AND table_name = 'conversation_messages'
+              AND column_name = ANY($1::text[])`,
+          [requiredColumns],
+        );
+        const existing = new Set((rows ?? []).map((row: { column_name?: string }) => row.column_name));
+        const hasAllColumns = requiredColumns.every((columnName) => existing.has(columnName));
+        if (!hasAllColumns) {
+          await this.ensureConversationMessageMediaSchema();
+        }
+        this.conversationMessageMediaSchemaReady = true;
+      })().finally(() => {
+        this.conversationMessageMediaSchemaPromise = null;
+      });
+    }
+    await this.conversationMessageMediaSchemaPromise;
+  }
+
   /** Stream de ficheiro de mensagem (imagem/áudio) — valida tenant e metadados. */
   async getMessageMediaStream(
     tenantId: string,
     messageId: string,
     opts?: { portalContactId?: string },
   ): Promise<{ stream: fs.ReadStream; mime: string }> {
+    await this.ensureConversationMessageMediaSchemaReady();
     const msg = await this.msgRepo.findOne({ where: { id: messageId, tenantId } });
     if (!msg?.mediaStorageKey || !msg.mediaMime) {
       throw new NotFoundException('Mídia não encontrada');
@@ -663,6 +710,7 @@ export class ConversationsService {
    * Retorna mensagens da conversa (chat em tempo real do portal).
    */
   async getMessages(tenantId: string, conversationId: string): Promise<ConversationMessage[]> {
+    await this.ensureConversationMessageMediaSchemaReady();
     const conv = await this.findOne(tenantId, conversationId);
     return this.msgRepo.find({
       where: { conversationId: conv.id, tenantId },
@@ -680,6 +728,7 @@ export class ConversationsService {
     conversationId: string,
     opts: { limit: number; before?: string },
   ): Promise<{ messages: ConversationMessage[]; hasMore: boolean }> {
+    await this.ensureConversationMessageMediaSchemaReady();
     const conv = await this.findOne(tenantId, conversationId);
     const limit = Math.min(opts.limit, 200);
 
@@ -722,6 +771,7 @@ export class ConversationsService {
       mediaMime?: string | null;
     },
   ): Promise<ConversationMessage> {
+    await this.ensureConversationMessageMediaSchemaReady();
     const conv = await this.findOne(tenantId, conversationId);
     if (conv.status === ConversationStatus.CLOSED) {
       throw new BadRequestException('Conversa já encerrada.');
@@ -1147,6 +1197,7 @@ export class ConversationsService {
    * Só promove o status (sent → delivered → read), nunca rebaixa.
    */
   async updateMessageStatusByExternalId(tenantId: string, externalId: string, newStatus: string): Promise<void> {
+    await this.ensureConversationMessageMediaSchemaReady();
     const STATUS_RANK: Record<string, number> = { pending: 0, queued: 0, sent: 1, delivered: 2, read: 3 };
     const msg = await this.msgRepo.findOne({ where: { tenantId, externalId } });
     if (!msg) return; // mensagem ainda não persistida ou de outro tenant
