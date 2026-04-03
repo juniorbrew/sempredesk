@@ -484,6 +484,7 @@ export class BaileysService {
           .split(';')[0]
           .trim();
         const docAsVideo = doc && docMime.startsWith('video/');
+        const docAsImage = doc && docMime.startsWith('image/');
         if (img) {
           try {
             const dl = await import('@whiskeysockets/baileys');
@@ -564,6 +565,27 @@ export class BaileysService {
           } catch (e: any) {
             this.logger.warn(`[INBOUND] Falha ao descarregar vídeo (documento): ${e?.message}`);
             if (!text) text = '📹 Vídeo (erro ao obter ficheiro)';
+          }
+        } else if (docAsImage) {
+          // Imagem enviada como documento (“Enviar como documento” / compressão sem perdas em alguns clientes)
+          try {
+            const dl = await import('@whiskeysockets/baileys');
+            const downloadMediaMessage = (dl as any).downloadMediaMessage ?? (dl as any).default?.downloadMediaMessage;
+            if (typeof downloadMediaMessage === 'function') {
+              const buffer = (await downloadMediaMessage(
+                msg,
+                'buffer',
+                {},
+                { logger: pinoLogger, reuploadRequest: sock.updateMediaMessage },
+              )) as Buffer;
+              const mime = docMime || 'image/jpeg';
+              const storageKey = this.saveInboundMedia(tenantId, msg.key.id!, 'image', buffer, mime);
+              media = { kind: 'image', storageKey, mime };
+              if (!text) text = '📷 Imagem';
+            }
+          } catch (e: any) {
+            this.logger.warn(`[INBOUND] Falha ao descarregar imagem (documento): ${e?.message}`);
+            if (!text) text = '📷 Imagem (erro ao obter ficheiro)';
           }
         }
         if (!text.trim() && !media) return;
