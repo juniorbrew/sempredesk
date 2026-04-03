@@ -15,7 +15,8 @@ import { ChatbotModule } from './modules/chatbot/chatbot.module';
 import { TicketAssignmentModule } from './modules/ticket-assignment/ticket-assignment.module';
 import { ContactValidationModule } from './modules/contact-validation/contact-validation.module';
 import { Module, MiddlewareConsumer, NestModule, OnModuleInit } from '@nestjs/common';
-import { ModuleRef } from '@nestjs/core';
+import { ModuleRef, APP_GUARD } from '@nestjs/core';
+import { TenantThrottlerGuard } from './common/guards/tenant-throttler.guard';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ThrottlerModule } from '@nestjs/throttler';
@@ -68,7 +69,11 @@ import { StorageModule } from './modules/storage/storage.module';
     }),
 
     ThrottlerModule.forRoot([
-      { name: 'default', ttl: 60_000, limit: 300 },
+      {
+        name: 'default',
+        ttl: 60_000,
+        limit: parseInt(process.env.API_RATE_LIMIT ?? '300', 10) || 300,
+      },
       {
         name: 'upload',
         ttl: 60_000,
@@ -111,6 +116,10 @@ import { StorageModule } from './modules/storage/storage.module';
     AuditLogModule,
     SaasModule,
     StorageModule,
+  ],
+  providers: [
+    // Rate limiting por tenant (não por IP) em todos os endpoints
+    { provide: APP_GUARD, useClass: TenantThrottlerGuard },
   ],
 })
 export class AppModule implements NestModule, OnModuleInit {

@@ -15,8 +15,9 @@ export function conversationMediaDiskStorage() {
         return;
       }
       const dir = path.join(mediaRoot, tenantId);
-      fs.mkdirSync(dir, { recursive: true });
-      cb(null, dir);
+      fs.promises.mkdir(dir, { recursive: true })
+        .then(() => cb(null, dir))
+        .catch((err: Error) => cb(err, ''));
     },
     filename: (_req, file, cb) => {
       const mime = (file.mimetype || '').toLowerCase();
@@ -50,8 +51,9 @@ export function ticketReplyMediaDiskStorage() {
         return;
       }
       const dir = path.join(root, tenantId);
-      fs.mkdirSync(dir, { recursive: true });
-      cb(null, dir);
+      fs.promises.mkdir(dir, { recursive: true })
+        .then(() => cb(null, dir))
+        .catch((err: Error) => cb(err, ''));
     },
     filename: (_req, file, cb) => {
       const safeBase = path
@@ -75,8 +77,9 @@ export function ticketItem4AttachmentsDiskStorage() {
         return;
       }
       const dir = path.join(root, tenantId);
-      fs.mkdirSync(dir, { recursive: true });
-      cb(null, dir);
+      fs.promises.mkdir(dir, { recursive: true })
+        .then(() => cb(null, dir))
+        .catch((err: Error) => cb(err, ''));
     },
     filename: (_req, file, cb) => {
       const m = (file.mimetype || '').toLowerCase().split(';')[0].trim();

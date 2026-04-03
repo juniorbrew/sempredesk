@@ -43,6 +43,13 @@ interface StalePresenceRow {
 export class TicketAssignmentService {
   private readonly logger = new Logger(TicketAssignmentService.name);
 
+  /** Máximo de conversas activas por agente antes de o excluir do round-robin.
+   *  0 = sem limite. Configurável via AGENT_MAX_CONVERSATIONS (padrão: 20). */
+  private readonly agentConversationCap = Math.max(
+    0,
+    parseInt(process.env.AGENT_MAX_CONVERSATIONS ?? '20', 10) || 20,
+  );
+
   constructor(
     @InjectRepository(AgentDepartment)
     private readonly agentDeptRepo: Repository<AgentDepartment>,
@@ -197,7 +204,7 @@ export class TicketAssignmentService {
       const dbOnlineSet = new Set(dbRows.map((r) => r.id));
 
       // União das duas fontes
-      const onlineEligible = eligibleIds.filter(
+      let onlineEligible = eligibleIds.filter(
         (id) => redisOnlineSet.has(id) || dbOnlineSet.has(id),
       );
 
@@ -208,9 +215,45 @@ export class TicketAssignmentService {
         return null;
       }
 
-      // 5. Ordem estável para rodízio puro (sem tiebreaker por carga)
-      //    Ordem alfabética por userId garante lista consistente entre chamadas
-      const sorted = [...onlineEligible].sort((a, b) => a.localeCompare(b));
+      // 4c. Cap de conversas activas por agente
+      //     Agentes sobre o limite são excluídos do round-robin.
+      //     Se todos estiverem sobre o cap, atribui ao menos carregado (evita starvation).
+      const loadMap = new Map<string, number>();
+      if (this.agentConversationCap > 0) {
+        const loadRows = await em.query<{ agent_id: string; conv_count: string }[]>(
+          `SELECT t.assigned_to AS agent_id, COUNT(*) AS conv_count
+             FROM conversations c
+             JOIN tickets t ON t.id::text = c.ticket_id::text
+            WHERE c.tenant_id = $1
+              AND t.assigned_to = ANY($2::text[])
+              AND c.status = 'active'
+            GROUP BY t.assigned_to`,
+          [tenantId, onlineEligible],
+        );
+        for (const r of loadRows) loadMap.set(r.agent_id, parseInt(r.conv_count, 10));
+
+        const underCap = onlineEligible.filter(
+          (id) => (loadMap.get(id) ?? 0) < this.agentConversationCap,
+        );
+        if (underCap.length === 0) {
+          // Todos sobre o cap: fallback para o menos carregado
+          onlineEligible = [...onlineEligible].sort(
+            (a, b) => (loadMap.get(a) ?? 0) - (loadMap.get(b) ?? 0),
+          );
+          this.logger.warn(
+            `[getNextAgent] dept="${deptKey}": todos os ${onlineEligible.length} agente(s) ` +
+            `online acima do cap (${this.agentConversationCap}), a atribuir ao menos carregado`,
+          );
+        } else {
+          onlineEligible = underCap;
+        }
+      }
+
+      // 5. Ordem estável para rodízio: carga crescente, depois alfabética como tiebreaker
+      const sorted = [...onlineEligible].sort((a, b) => {
+        const loadDiff = (loadMap.get(a) ?? 0) - (loadMap.get(b) ?? 0);
+        return loadDiff !== 0 ? loadDiff : a.localeCompare(b);
+      });
 
       // 6. Avança ponteiro circular sobre a lista ordenada
       const lastId = queue?.last_assigned_user_id ?? null;
