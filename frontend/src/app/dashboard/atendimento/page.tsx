@@ -6,7 +6,7 @@ import { useRealtimeConversation, useRealtimeTicket, useRealtimeTenantNewMessage
 import { useAuthStore, hasPermission } from '@/store/auth.store';
 import {
   MessageSquare, Send, Phone, RefreshCw, Lock, ExternalLink, Plus, Link2, Globe,
-  Check, Search, X, CheckCircle2, User, Mail, MapPin, Building2, Hash, Tag,
+  Check, Search, X, CheckCircle2, User, Mail, MapPin, Building2, Hash, Tag, Edit2,
   Paperclip, Image as ImageIcon, Mic, Video,
 } from 'lucide-react';
 import { EmojiPicker } from '@/components/ui/EmojiPicker';
@@ -813,6 +813,17 @@ export default function AtendimentoPage() {
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [transferAgentId, setTransferAgentId] = useState('');
   const [transferLoading, setTransferLoading] = useState(false);
+  const [showEditContactModal, setShowEditContactModal] = useState(false);
+  const [loadingEditContact, setLoadingEditContact] = useState(false);
+  const [savingEditContact, setSavingEditContact] = useState(false);
+  const [editContactForm, setEditContactForm] = useState({
+    id: '',
+    clientId: '',
+    name: '',
+    email: '',
+    phone: '',
+    whatsapp: '',
+  });
 
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
   const [hasMoreMsgs, setHasMoreMsgs] = useState(false);
@@ -870,6 +881,127 @@ export default function AtendimentoPage() {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3500);
   };
+
+  const applyUpdatedContactLocally = useCallback((updatedContact: any, clientId: string) => {
+    if (!updatedContact?.id) return;
+
+    setContacts((prev) => {
+      const exists = prev.some((contact: any) => contact.id === updatedContact.id);
+      if (!exists) return prev;
+      return prev.map((contact: any) => contact.id === updatedContact.id ? { ...contact, ...updatedContact } : contact);
+    });
+
+    if (clientId && contactsCacheRef.current[clientId]) {
+      contactsCacheRef.current[clientId] = {
+        ...contactsCacheRef.current[clientId],
+        data: contactsCacheRef.current[clientId].data.map((contact: any) =>
+          contact.id === updatedContact.id ? { ...contact, ...updatedContact } : contact,
+        ),
+        ts: Date.now(),
+      };
+    }
+
+    singleContactCacheRef.current[updatedContact.id] = {
+      data: {
+        ...(singleContactCacheRef.current[updatedContact.id]?.data ?? {}),
+        ...updatedContact,
+      },
+      ts: Date.now(),
+    };
+
+    setConversations((prev) => prev.map((conversation: any) =>
+      conversation.contactId === updatedContact.id
+        ? { ...conversation, contactName: updatedContact.name || conversation.contactName }
+        : conversation,
+    ));
+
+    setSelected((prev: any) => prev && prev.contactId === updatedContact.id
+      ? { ...prev, contactName: updatedContact.name || prev.contactName }
+      : prev,
+    );
+  }, []);
+
+  const openEditContactModal = useCallback(async () => {
+    const contactId = selected?.contactId || currentTicket?.contactId;
+    if (!contactId) {
+      showToast('Nenhum contato encontrado para este atendimento.', 'error');
+      return;
+    }
+
+    setLoadingEditContact(true);
+    try {
+      let sourceContact = contacts.find((contact: any) => contact.id === contactId) || null;
+      if (!sourceContact) {
+        const fetched: any = await api.getContactById(contactId);
+        sourceContact = fetched?.data ?? fetched;
+      }
+
+      if (!sourceContact?.id) {
+        showToast('Nao foi possivel carregar os dados do contato.', 'error');
+        return;
+      }
+
+      setEditContactForm({
+        id: sourceContact.id,
+        clientId: sourceContact.clientId || selected?.clientId || currentTicket?.clientId || '',
+        name: sourceContact.name || '',
+        email: sourceContact.email || '',
+        phone: sourceContact.phone || '',
+        whatsapp: sourceContact.whatsapp || '',
+      });
+      setShowEditContactModal(true);
+    } catch (e: any) {
+      showToast(e?.response?.data?.message || 'Erro ao carregar contato', 'error');
+    } finally {
+      setLoadingEditContact(false);
+    }
+  }, [contacts, currentTicket?.clientId, currentTicket?.contactId, selected?.clientId, selected?.contactId]);
+
+  const saveEditedContact = useCallback(async () => {
+    if (!editContactForm.id) return;
+    const trimmedName = editContactForm.name.trim();
+    if (!trimmedName) {
+      showToast('Nome do contato é obrigatório.', 'error');
+      return;
+    }
+
+    setSavingEditContact(true);
+    try {
+      let resolvedClientId = editContactForm.clientId;
+      if (!resolvedClientId) {
+        const fetched: any = await api.getContactById(editContactForm.id);
+        const fetchedContact = fetched?.data ?? fetched;
+        resolvedClientId = fetchedContact?.clientId || '';
+      }
+
+      if (!resolvedClientId) {
+        showToast('Nao foi possivel identificar o cliente do contato.', 'error');
+        return;
+      }
+
+      const payload = {
+        name: trimmedName,
+        email: editContactForm.email.trim(),
+        phone: editContactForm.phone.trim(),
+        whatsapp: editContactForm.whatsapp.trim(),
+      };
+
+      const updated: any = await api.updateContact(resolvedClientId, editContactForm.id, payload);
+      const updatedContact = {
+        ...(contacts.find((contact: any) => contact.id === editContactForm.id) || {}),
+        ...(updated?.data ?? updated),
+        clientId: resolvedClientId,
+      };
+
+      applyUpdatedContactLocally(updatedContact, resolvedClientId);
+      setShowEditContactModal(false);
+      showToast('Contato atualizado com sucesso.');
+    } catch (e: any) {
+      showToast(e?.response?.data?.message || 'Erro ao salvar contato', 'error');
+    } finally {
+      setSavingEditContact(false);
+    }
+  }, [applyUpdatedContactLocally, contacts, editContactForm]);
 
   const scrollToBottom = useCallback((smooth = true) => {
     const el = scrollContainerRef.current;
@@ -2663,10 +2795,32 @@ export default function AtendimentoPage() {
                 {/* INFORMAÇÕES */}
                 {customer && (
                   <div style={{ padding: '14px 16px', borderBottom: S.border }}>
-                    {secTitle('Informações')}
+                    {secTitle('Informacoes', contact ? (
+                      <button
+                        type="button"
+                        onClick={() => void openEditContactModal()}
+                        disabled={loadingEditContact}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          fontSize: 11,
+                          color: S.accent,
+                          fontWeight: 700,
+                          border: 'none',
+                          background: 'transparent',
+                          cursor: loadingEditContact ? 'wait' : 'pointer',
+                          fontFamily: 'inherit',
+                        }}
+                      >
+                        <Edit2 size={12} />
+                        {loadingEditContact ? 'Carregando...' : 'Editar'}
+                      </button>
+                    ) : undefined)}
                     {field('Empresa', <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140, display: 'block' }}>{customer.tradeName || customer.companyName || '—'}</span>)}
                     {customer.networkName && field('Rede', customer.networkName)}
                     {customer.cnpj && field('CNPJ', <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11 }}>{customer.cnpj}</span>)}
+                    {contact?.phone && field('Telefone', <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11 }}>{formatWhatsApp(contact.phone)}</span>)}
                     {contact?.whatsapp && field('WhatsApp', <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11 }}>{formatWhatsApp(contact.whatsapp)}</span>)}
                     {contact?.email && field('E-mail', <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140, display: 'block', color: S.accent }}>{contact.email}</span>)}
                     {customer.city && field('Cidade', `${customer.city}${customer.state ? `, ${customer.state}` : ''}`)}
@@ -2737,6 +2891,114 @@ export default function AtendimentoPage() {
         </div>
       </div>
 
+      {showEditContactModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15,23,42,0.55)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10001,
+            padding: 16,
+          }}
+          onClick={() => !savingEditContact && setShowEditContactModal(false)}
+        >
+          <div
+            style={{
+              width: '100%',
+              maxWidth: 520,
+              background: '#fff',
+              borderRadius: 18,
+              boxShadow: '0 24px 64px rgba(15,23,42,.22)',
+              overflow: 'hidden',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 20px', borderBottom: '1px solid #E5E7EB' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ width: 38, height: 38, borderRadius: 12, background: '#EEF2FF', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <User size={17} color="#4F46E5" />
+                </div>
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: '#111827' }}>Editar contato</div>
+                  <div style={{ fontSize: 12, color: '#6B7280' }}>Atualize nome, e-mail, telefone e WhatsApp sem sair do atendimento.</div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => !savingEditContact && setShowEditContactModal(false)}
+                style={{ width: 32, height: 32, borderRadius: 10, border: 'none', background: '#F3F4F6', color: '#6B7280', cursor: savingEditContact ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <form onSubmit={(e) => { e.preventDefault(); void saveEditedContact(); }}>
+              <div style={{ padding: 20, display: 'grid', gap: 14 }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>Nome</label>
+                  <input
+                    value={editContactForm.name}
+                    onChange={(e) => setEditContactForm((prev) => ({ ...prev, name: e.target.value }))}
+                    placeholder="Nome do contato"
+                    autoFocus
+                    style={{ width: '100%', height: 42, borderRadius: 10, border: '1.5px solid #E5E7EB', padding: '0 12px', fontSize: 14, color: '#111827', outline: 'none', boxSizing: 'border-box' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>E-mail</label>
+                  <input
+                    value={editContactForm.email}
+                    onChange={(e) => setEditContactForm((prev) => ({ ...prev, email: e.target.value }))}
+                    placeholder="email@empresa.com"
+                    style={{ width: '100%', height: 42, borderRadius: 10, border: '1.5px solid #E5E7EB', padding: '0 12px', fontSize: 14, color: '#111827', outline: 'none', boxSizing: 'border-box' }}
+                  />
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>Telefone</label>
+                    <input
+                      value={editContactForm.phone}
+                      onChange={(e) => setEditContactForm((prev) => ({ ...prev, phone: e.target.value }))}
+                      placeholder="Telefone"
+                      style={{ width: '100%', height: 42, borderRadius: 10, border: '1.5px solid #E5E7EB', padding: '0 12px', fontSize: 14, color: '#111827', outline: 'none', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>WhatsApp</label>
+                    <input
+                      value={editContactForm.whatsapp}
+                      onChange={(e) => setEditContactForm((prev) => ({ ...prev, whatsapp: e.target.value }))}
+                      placeholder="WhatsApp"
+                      style={{ width: '100%', height: 42, borderRadius: 10, border: '1.5px solid #E5E7EB', padding: '0 12px', fontSize: 14, color: '#111827', outline: 'none', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, padding: '16px 20px', borderTop: '1px solid #E5E7EB', background: '#F9FAFB' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowEditContactModal(false)}
+                  disabled={savingEditContact}
+                  style={{ padding: '10px 14px', borderRadius: 10, border: '1px solid #D1D5DB', background: '#fff', color: '#374151', fontSize: 13, fontWeight: 600, cursor: savingEditContact ? 'not-allowed' : 'pointer', fontFamily: 'inherit' }}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingEditContact || !editContactForm.name.trim()}
+                  style={{ padding: '10px 14px', borderRadius: 10, border: 'none', background: savingEditContact || !editContactForm.name.trim() ? '#CBD5E1' : S.accent, color: '#fff', fontSize: 13, fontWeight: 700, cursor: savingEditContact || !editContactForm.name.trim() ? 'not-allowed' : 'pointer', fontFamily: 'inherit' }}
+                >
+                  {savingEditContact ? 'Salvando...' : 'Salvar contato'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
       {/* ══════════ TOAST ══════════ */}
       {toast && (
         <div style={{ position: 'fixed', bottom: 28, left: '50%', transform: 'translateX(-50%)', background: toast.type === 'success' ? '#16A34A' : '#DC2626', color: '#fff', padding: '12px 24px', borderRadius: 12, fontSize: 14, fontWeight: 600, boxShadow: '0 4px 20px rgba(0,0,0,0.2)', zIndex: 10002, whiteSpace: 'nowrap', animation: 'fadeUp 0.2s ease-out' }}>
