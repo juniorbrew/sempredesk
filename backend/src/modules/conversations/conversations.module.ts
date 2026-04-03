@@ -8,6 +8,7 @@ import { TicketsModule } from '../tickets/tickets.module';
 import { CustomersModule } from '../customers/customers.module';
 import { RealtimeModule } from '../realtime/realtime.module';
 import { PermissionsModule } from '../permissions/permissions.module';
+import { StorageQuotaGuard } from '../../common/guards/storage-quota.guard';
 
 @Module({
   imports: [
@@ -17,7 +18,7 @@ import { PermissionsModule } from '../permissions/permissions.module';
     RealtimeModule,
     PermissionsModule,
   ],
-  providers: [ConversationsService],
+  providers: [ConversationsService, StorageQuotaGuard],
   controllers: [ConversationsController],
   exports: [ConversationsService],
 })

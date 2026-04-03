@@ -10,6 +10,7 @@ import { ConversationsService } from './conversations.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { UploadThrottlerGuard } from '../../common/guards/upload-throttler.guard';
+import { StorageQuotaGuard } from '../../common/guards/storage-quota.guard';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 import { TenantId } from '../../common/decorators/tenant-id.decorator';
 import { StartConversationDto, StartAgentConversationDto, CreateTicketForConversationDto, LinkTicketDto, AddConversationMessageDto, CloseConversationDto, UpdateConversationTagsDto } from './dto/conversation.dto';
@@ -164,7 +165,7 @@ export class ConversationsController {
     return this.conversationsService.getMessages(tenantId, id);
   }
 
-  @UseGuards(JwtAuthGuard, UploadThrottlerGuard)
+  @UseGuards(JwtAuthGuard, StorageQuotaGuard, UploadThrottlerGuard)
   @Throttle({ upload: { limit: parseInt(process.env.UPLOAD_RATE_LIMIT ?? '30', 10) || 30, ttl: 60_000 } })
   @UseInterceptors(
     FileInterceptor('file', {

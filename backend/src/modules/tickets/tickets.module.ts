@@ -20,6 +20,7 @@ import { EmailService } from '../email/email.service';
 import { WebhooksService } from '../webhooks/webhooks.service';
 import { RoutingRulesService } from '../routing-rules/routing-rules.service';
 import { TicketAssignmentService } from '../ticket-assignment/ticket-assignment.service';
+import { StorageQuotaGuard } from '../../common/guards/storage-quota.guard';
 
 @Module({
   imports: [
@@ -35,7 +36,7 @@ import { TicketAssignmentService } from '../ticket-assignment/ticket-assignment.
     RoutingRulesModule,
     TicketAssignmentModule,
   ],
-  providers: [TicketsService, TicketSatisfactionService],
+  providers: [TicketsService, TicketSatisfactionService, StorageQuotaGuard],
   controllers: [TicketsController, InboundEmailController],
   exports: [TicketsService, TicketSatisfactionService],
 })
