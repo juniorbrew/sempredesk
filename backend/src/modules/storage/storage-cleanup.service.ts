@@ -18,8 +18,9 @@ import * as path from 'path';
  *   TICKET_ATTACHMENTS_DIR  → ticket_reply_attachments.storage_key
  *
  * Variáveis de ambiente:
- *   CLEANUP_ORPHAN_MIN_AGE_HOURS  (padrão: 24) — grace period antes de apagar
- *   CLEANUP_CRON                  (padrão: domingo 03:00)
+ *   CLEANUP_ORPHAN_MIN_AGE_HOURS        (padrão: 24) — grace period antes de apagar órfãos
+ *   CONVERSATION_MEDIA_RETENTION_DAYS   (padrão: 90) — retenção de média de conversas
+ *   CLEANUP_CRON                        (padrão: domingo 03:00)
  */
 @Injectable()
 export class StorageCleanupService {
@@ -42,15 +43,21 @@ export class StorageCleanupService {
     parseInt(process.env.CLEANUP_ORPHAN_MIN_AGE_HOURS ?? '24', 10) || 24,
   );
 
+  private readonly conversationMediaRetentionDays = Math.max(
+    1,
+    parseInt(process.env.CONVERSATION_MEDIA_RETENTION_DAYS ?? '90', 10) || 90,
+  );
+
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
   ) {}
 
-  /** Domingo às 03:00 (horário do servidor). */
+  /** Domingo às 03:00 — órfãos + retenção de conversation-media. */
   @Cron('0 3 * * 0')
   async runWeeklyCleanup(): Promise<void> {
     await this.run();
+    await this.runRetentionCleanup();
   }
 
   /** Pode ser invocado manualmente (ex.: via script ou teste). */
@@ -87,6 +94,89 @@ export class StorageCleanupService {
 
     this.logger.log(
       `[cleanup] Concluído — ${deleted} ficheiro(s) removido(s), ` +
+      `${(bytes / 1024).toFixed(1)} KB libertados`,
+    );
+
+    return { deleted, bytes };
+  }
+
+  /**
+   * Remove ficheiros de conversation-media mais antigos que
+   * CONVERSATION_MEDIA_RETENTION_DAYS (padrão 90 dias) e limpa
+   * media_storage_key no DB para evitar links quebrados no frontend.
+   *
+   * Processa em lotes de 200 para não saturar memória.
+   */
+  async runRetentionCleanup(): Promise<{ deleted: number; bytes: number }> {
+    const retentionDays = this.conversationMediaRetentionDays;
+    this.logger.log(
+      `[retention] Início — retenção conversation-media: ${retentionDays} dias`,
+    );
+
+    let deleted = 0;
+    let bytes = 0;
+    const batchSize = 200;
+    let offset = 0;
+
+    while (true) {
+      const rows: Array<{ id: string; media_storage_key: string }> =
+        await this.dataSource.query(
+          `SELECT id, media_storage_key
+           FROM conversation_messages
+           WHERE media_storage_key IS NOT NULL
+             AND created_at < NOW() - INTERVAL '${retentionDays} days'
+           ORDER BY created_at ASC
+           LIMIT ${batchSize} OFFSET ${offset}`,
+        );
+
+      if (rows.length === 0) break;
+
+      const expiredIds: string[] = [];
+
+      for (const { id, media_storage_key } of rows) {
+        // Normalizar e proteger contra path traversal
+        const normalised = path.normalize(media_storage_key).replace(/^(\.\.(\/|\\|$))+/, '');
+        const filePath = path.join(this.conversationMediaRoot, normalised);
+
+        if (!filePath.startsWith(path.resolve(this.conversationMediaRoot) + path.sep)) {
+          this.logger.warn(`[retention] Chave suspeita ignorada: ${media_storage_key}`);
+          expiredIds.push(id);
+          continue;
+        }
+
+        const stat = await fs.promises.stat(filePath).catch(() => null);
+        if (stat) {
+          try {
+            await fs.promises.unlink(filePath);
+            bytes += stat.size;
+            deleted++;
+            this.logger.debug(`[retention] Removido: ${media_storage_key} (${stat.size} B)`);
+          } catch (err) {
+            this.logger.error(
+              `[retention] Erro ao remover ${filePath}: ${(err as Error).message}`,
+            );
+            continue;
+          }
+        }
+        // Ficheiro já não existe (removido anteriormente ou nunca chegou) — limpar DB na mesma
+        expiredIds.push(id);
+      }
+
+      if (expiredIds.length > 0) {
+        await this.dataSource.query(
+          `UPDATE conversation_messages
+           SET media_storage_key = NULL
+           WHERE id = ANY($1)`,
+          [expiredIds],
+        );
+      }
+
+      offset += rows.length;
+      if (rows.length < batchSize) break;
+    }
+
+    this.logger.log(
+      `[retention] Concluído — ${deleted} ficheiro(s) removido(s), ` +
       `${(bytes / 1024).toFixed(1)} KB libertados`,
     );
 
