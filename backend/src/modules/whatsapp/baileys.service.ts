@@ -472,11 +472,18 @@ export class BaileysService {
           || msg.message?.extendedTextMessage?.text
           || msg.message?.imageMessage?.caption
           || msg.message?.videoMessage?.caption
+          || msg.message?.documentMessage?.caption
           || '';
         let media: { kind: 'image' | 'audio' | 'video'; storageKey: string; mime: string } | null = null;
         const img = msg.message?.imageMessage;
         const vid = msg.message?.videoMessage;
         const aud = msg.message?.audioMessage;
+        const doc = msg.message?.documentMessage;
+        const docMime = String(doc?.mimetype || '')
+          .toLowerCase()
+          .split(';')[0]
+          .trim();
+        const docAsVideo = doc && docMime.startsWith('video/');
         if (img) {
           try {
             const dl = await import('@whiskeysockets/baileys');
@@ -536,6 +543,27 @@ export class BaileysService {
           } catch (e: any) {
             this.logger.warn(`[INBOUND] Falha ao descarregar áudio: ${e?.message}`);
             if (!text) text = '🎤 Áudio (erro ao obter ficheiro)';
+          }
+        } else if (docAsVideo) {
+          // Vídeo enviado como documento (comum em alguns clientes / “Enviar como documento”)
+          try {
+            const dl = await import('@whiskeysockets/baileys');
+            const downloadMediaMessage = (dl as any).downloadMediaMessage ?? (dl as any).default?.downloadMediaMessage;
+            if (typeof downloadMediaMessage === 'function') {
+              const buffer = (await downloadMediaMessage(
+                msg,
+                'buffer',
+                {},
+                { logger: pinoLogger, reuploadRequest: sock.updateMediaMessage },
+              )) as Buffer;
+              const mime = docMime || 'video/mp4';
+              const storageKey = this.saveInboundMedia(tenantId, msg.key.id!, 'video', buffer, mime);
+              media = { kind: 'video', storageKey, mime };
+              if (!text) text = '📹 Vídeo';
+            }
+          } catch (e: any) {
+            this.logger.warn(`[INBOUND] Falha ao descarregar vídeo (documento): ${e?.message}`);
+            if (!text) text = '📹 Vídeo (erro ao obter ficheiro)';
           }
         }
         if (!text.trim() && !media) return;
