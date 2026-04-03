@@ -7,6 +7,7 @@ import { useAuthStore, hasPermission } from '@/store/auth.store';
 import {
   MessageSquare, Send, Phone, RefreshCw, Lock, ExternalLink, Plus, Link2, Globe,
   Check, Search, X, CheckCircle2, User, Mail, MapPin, Building2, Hash, Tag,
+  Paperclip, Image as ImageIcon, Mic, Video,
 } from 'lucide-react';
 import { EmojiPicker } from '@/components/ui/EmojiPicker';
 import ContactValidationBanner, { type ResolvedData } from '@/components/atendimento/ContactValidationBanner';
@@ -268,6 +269,270 @@ const MessageItem = memo(function MessageItem({
 });
 
 // ── main component ────────────────────────────────────────────────────────────
+type AttachmentKind = 'image' | 'audio' | 'video';
+
+type ChatComposerProps = {
+  accentColor: string;
+  borderColor: string;
+  backgroundColor: string;
+  inputBackgroundColor: string;
+  textColor: string;
+  mutedTextColor: string;
+  canSend: boolean;
+  isSending: boolean;
+  isWhatsapp: boolean;
+  inputValue: string;
+  pendingFile: File | null;
+  attachFileInputRef: React.RefObject<HTMLInputElement>;
+  inputRef: React.RefObject<HTMLTextAreaElement>;
+  onSubmit: (e: React.FormEvent) => void;
+  onInputChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
+  onInputKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+  onPendingFileChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onRemovePendingFile: () => void;
+  onInsertEmoji: (emoji: string) => void;
+};
+
+function ChatComposer({
+  accentColor,
+  borderColor,
+  backgroundColor,
+  inputBackgroundColor,
+  textColor,
+  mutedTextColor,
+  canSend,
+  isSending,
+  isWhatsapp,
+  inputValue,
+  pendingFile,
+  attachFileInputRef,
+  inputRef,
+  onSubmit,
+  onInputChange,
+  onInputKeyDown,
+  onPendingFileChange,
+  onRemovePendingFile,
+  onInsertEmoji,
+}: ChatComposerProps) {
+  const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
+  const attachmentMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!showAttachmentMenu) return;
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (!attachmentMenuRef.current?.contains(event.target as Node)) {
+        setShowAttachmentMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [showAttachmentMenu]);
+
+  const openFilePicker = useCallback((kind: AttachmentKind) => {
+    const input = attachFileInputRef.current;
+    if (!input) return;
+    input.accept =
+      kind === 'image'
+        ? 'image/*'
+        : kind === 'audio'
+          ? 'audio/*'
+          : 'video/mp4';
+    input.click();
+    setShowAttachmentMenu(false);
+  }, [attachFileInputRef]);
+
+  const attachmentOptions: Array<{ kind: AttachmentKind; label: string; icon: ReactNode; description: string }> = [
+    { kind: 'image', label: 'Imagem', icon: <ImageIcon size={15} strokeWidth={2} />, description: 'Enviar imagem' },
+    { kind: 'audio', label: 'Audio', icon: <Mic size={15} strokeWidth={2} />, description: 'Enviar audio' },
+    { kind: 'video', label: 'Video MP4', icon: <Video size={15} strokeWidth={2} />, description: 'Enviar video MP4' },
+  ];
+
+  return (
+    <div style={{ borderTop: borderColor, background: backgroundColor, padding: 0, flexShrink: 0 }}>
+      <input
+        ref={attachFileInputRef}
+        type="file"
+        accept="image/*,audio/*,video/mp4"
+        style={{ display: 'none' }}
+        onChange={onPendingFileChange}
+      />
+      <form onSubmit={onSubmit}>
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, padding: '12px 16px' }}>
+          <div ref={attachmentMenuRef} style={{ position: 'relative', flexShrink: 0 }}>
+            <button
+              type="button"
+              onClick={() => setShowAttachmentMenu((open) => !open)}
+              disabled={!canSend || isSending}
+              title="Anexos"
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 11,
+                border: '1px solid rgba(0,0,0,.08)',
+                background: !canSend || isSending ? '#F1F5F9' : '#F8FAFC',
+                color: !canSend || isSending ? '#94A3B8' : mutedTextColor,
+                cursor: !canSend || isSending ? 'not-allowed' : 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: 'background .15s, border-color .15s',
+              }}
+            >
+              <Paperclip size={16} strokeWidth={2} />
+            </button>
+
+            {showAttachmentMenu && (
+              <div
+                style={{
+                  position: 'absolute',
+                  bottom: 48,
+                  left: 0,
+                  minWidth: 210,
+                  padding: 8,
+                  borderRadius: 14,
+                  background: '#FFFFFF',
+                  border: '1px solid rgba(0,0,0,.08)',
+                  boxShadow: '0 18px 42px rgba(15,23,42,.18)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 4,
+                  zIndex: 20,
+                }}
+              >
+                {attachmentOptions.map((option) => (
+                  <button
+                    key={option.kind}
+                    type="button"
+                    onClick={() => openFilePicker(option.kind)}
+                    style={{
+                      border: 'none',
+                      background: 'transparent',
+                      borderRadius: 10,
+                      padding: '9px 10px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 10,
+                      textAlign: 'left',
+                      color: textColor,
+                      fontFamily: 'inherit',
+                    }}
+                  >
+                    <span
+                      style={{
+                        width: 28,
+                        height: 28,
+                        borderRadius: 9,
+                        background: '#EEF2FF',
+                        color: accentColor,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                      }}
+                    >
+                      {option.icon}
+                    </span>
+                    <span style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                      <span style={{ fontSize: 13, fontWeight: 600 }}>{option.label}</span>
+                      <span style={{ fontSize: 11, color: mutedTextColor }}>{option.description}</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div style={{ flex: 1, minWidth: 0 }}>
+            {pendingFile && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 0 8px', fontSize: 12, color: mutedTextColor }}>
+                <span
+                  style={{
+                    maxWidth: 'calc(100% - 90px)',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    fontWeight: 500,
+                    color: textColor,
+                  }}
+                >
+                  {pendingFile.name}
+                </span>
+                <span>({((pendingFile?.size ?? 0) / 1024).toFixed(0)} KB)</span>
+                <button
+                  type="button"
+                  onClick={onRemovePendingFile}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#DC2626',
+                    cursor: 'pointer',
+                    fontSize: 12,
+                    fontFamily: 'inherit',
+                    padding: '0 4px',
+                    marginLeft: 'auto',
+                  }}
+                >
+                  remover
+                </button>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10 }}>
+              <textarea
+                ref={inputRef}
+                value={inputValue}
+                onChange={onInputChange}
+                onKeyDown={onInputKeyDown}
+                placeholder={canSend ? (isWhatsapp ? 'Mensagem WhatsApp... (Enter para enviar)' : 'Digite sua mensagem...') : 'Conversa indisponivel para envio'}
+                disabled={!canSend}
+                rows={1}
+                style={{
+                  flex: 1,
+                  background: canSend ? inputBackgroundColor : '#F8F8FB',
+                  border: '1px solid rgba(0,0,0,.12)',
+                  borderRadius: 12,
+                  padding: '10px 14px',
+                  fontSize: 13,
+                  color: textColor,
+                  outline: 'none',
+                  resize: 'none',
+                  fontFamily: 'inherit',
+                  lineHeight: 1.5,
+                  minHeight: 44,
+                  maxHeight: 120,
+                  opacity: canSend ? 1 : 0.6,
+                  transition: 'border-color .15s',
+                }}
+              />
+              <EmojiPicker onSelect={onInsertEmoji} position="top" />
+              <button
+                type="submit"
+                disabled={isSending || !canSend || (!inputValue.trim() && !pendingFile)}
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 11,
+                  border: 'none',
+                  background: isSending || !canSend || (!inputValue.trim() && !pendingFile) ? '#E2E8F0' : accentColor,
+                  cursor: isSending || !canSend || (!inputValue.trim() && !pendingFile) ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                  transition: 'background .15s',
+                }}
+              >
+                <Send size={16} color="#fff" strokeWidth={2} />
+              </button>
+            </div>
+          </div>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 export default function AtendimentoPage() {
   const { user } = useAuthStore();
   const [conversations, setConversations] = useState<any[]>([]);
@@ -1112,6 +1377,51 @@ export default function AtendimentoPage() {
     });
   };
 
+  const handlePendingFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    const ok =
+      f.type.startsWith('image/') ||
+      f.type.startsWith('audio/') ||
+      f.type === 'video/mp4' ||
+      f.type.startsWith('video/mp4;');
+    if (!ok) {
+      showToast('Envie imagem, audio ou video MP4.', 'error');
+      e.target.value = '';
+      return;
+    }
+    setPendingFile(f);
+  };
+
+  const clearPendingFile = () => {
+    setPendingFile(null);
+    if (attachFileInputRef.current) attachFileInputRef.current.value = '';
+  };
+
+  const handleComposerInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInput(e.target.value);
+    e.target.style.height = 'auto';
+    e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
+    if (selected?.channel === 'whatsapp' && contacts[0]?.whatsapp && user?.tenantId) {
+      if (!agentIsTypingRef.current) {
+        agentIsTypingRef.current = true;
+        emitTypingPresence(contacts[0].whatsapp, user.tenantId, true);
+      }
+      if (agentTypingTimeoutRef.current) clearTimeout(agentTypingTimeoutRef.current);
+      agentTypingTimeoutRef.current = setTimeout(() => {
+        agentIsTypingRef.current = false;
+        emitTypingPresence(contacts[0].whatsapp, user.tenantId, false);
+      }, 4000);
+    }
+  };
+
+  const handleComposerKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage(e as unknown as React.FormEvent);
+    }
+  };
+
   // ── derived ──
   const hasTicket = !!selected?.ticketId || isTicketType;
   const isClosed = selected?.status === 'closed';
@@ -1945,106 +2255,27 @@ export default function AtendimentoPage() {
 
               {/* Input */}
               {!isClosed && (
-                <div style={{ borderTop: S.border, background: S.bg, padding: 0, flexShrink: 0 }}>
-                  {/* Toolbar */}
-                  <div style={{ display: 'flex', gap: 2, padding: '10px 16px 8px', borderBottom: S.border, flexWrap: 'wrap', alignItems: 'center' }}>
-                    <input
-                      ref={attachFileInputRef}
-                      type="file"
-                      accept="image/*,audio/*,video/mp4"
-                      style={{ display: 'none' }}
-                      onChange={(e) => {
-                        const f = e.target.files?.[0];
-                        if (!f) return;
-                        const ok =
-                          f.type.startsWith('image/') ||
-                          f.type.startsWith('audio/') ||
-                          f.type === 'video/mp4' ||
-                          f.type.startsWith('video/mp4;');
-                        if (!ok) {
-                          showToast('Envie imagem, áudio ou vídeo MP4.', 'error');
-                          e.target.value = '';
-                          return;
-                        }
-                        setPendingFile(f);
-                      }}
-                    />
-                    {[
-                      { label: 'Arquivo', icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg> },
-                      { label: 'Imagem / áudio / vídeo', icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>, onClick: () => attachFileInputRef.current?.click() },
-                      { label: 'Resposta rápida', icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg> },
-                      { label: 'Nota interna', icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> },
-                      { label: 'Macro', icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg> },
-                    ].map(({ label, icon, onClick }: { label: string; icon: ReactNode; onClick?: () => void }) => (
-                      <button key={label} type="button" onClick={onClick}
-                        style={{ padding: '5px 10px', borderRadius: 7, background: 'transparent', border: 'none', fontSize: 12, color: S.txt2, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, fontFamily: 'inherit', transition: 'background .1s' }}>
-                        {icon}{label}
-                      </button>
-                    ))}
-                    {/* Emoji picker real */}
-                    <EmojiPicker onSelect={insertEmoji} position="top" />
-                  </div>
-                  {pendingFile && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 16px 8px', fontSize: 12, color: S.txt2 }}>
-                      <span style={{ fontWeight: 500, color: S.txt }}>{pendingFile.name}</span>
-                      <span>({(pendingFile.size / 1024).toFixed(0)} KB)</span>
-                      <button
-                        type="button"
-                        onClick={() => { setPendingFile(null); if (attachFileInputRef.current) attachFileInputRef.current.value = ''; }}
-                        style={{ background: 'none', border: 'none', color: '#DC2626', cursor: 'pointer', fontSize: 12, fontFamily: 'inherit', padding: '0 4px' }}
-                      >
-                        remover
-                      </button>
-                    </div>
-                  )}
-                  <form onSubmit={sendMessage}>
-                    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, padding: '12px 16px' }}>
-                      <textarea
-                        ref={inputRef}
-                        value={input}
-                        onChange={(e) => {
-                          setInput(e.target.value);
-                          e.target.style.height = 'auto';
-                          e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
-                          // Indicador "agente digitando" para conversas WhatsApp
-                          if (isWhatsapp && contacts[0]?.whatsapp && user?.tenantId) {
-                            if (!agentIsTypingRef.current) {
-                              agentIsTypingRef.current = true;
-                              emitTypingPresence(contacts[0].whatsapp, user.tenantId, true);
-                            }
-                            // Auto-stop após 4s sem digitar
-                            if (agentTypingTimeoutRef.current) clearTimeout(agentTypingTimeoutRef.current);
-                            agentTypingTimeoutRef.current = setTimeout(() => {
-                              agentIsTypingRef.current = false;
-                              emitTypingPresence(contacts[0].whatsapp, user.tenantId, false);
-                            }, 4000);
-                          }
-                        }}
-                        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(e as any); } }}
-                        placeholder={canSend ? (isWhatsapp ? 'Mensagem WhatsApp... (Enter para enviar)' : 'Digite sua mensagem...') : 'Conversa indisponível para envio'}
-                        disabled={!canSend}
-                        rows={1}
-                        style={{
-                          flex: 1, background: canSend ? S.bg2 : '#F8F8FB', border: `1px solid rgba(0,0,0,.12)`,
-                          borderRadius: 12, padding: '10px 14px', fontSize: 13, color: S.txt,
-                          outline: 'none', resize: 'none', fontFamily: 'inherit', lineHeight: 1.5,
-                          minHeight: 44, maxHeight: 120, opacity: canSend ? 1 : 0.6,
-                          transition: 'border-color .15s',
-                        }}
-                      />
-                      <button type="submit" disabled={sending || !canSend || (!input.trim() && !pendingFile)}
-                        style={{
-                          width: 40, height: 40, borderRadius: 11, border: 'none',
-                          background: sending || !canSend || (!input.trim() && !pendingFile) ? '#E2E8F0' : S.accent,
-                          cursor: sending || !canSend || (!input.trim() && !pendingFile) ? 'not-allowed' : 'pointer',
-                          display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          flexShrink: 0, transition: 'background .15s',
-                        }}>
-                        <Send size={16} color="#fff" strokeWidth={2} />
-                      </button>
-                    </div>
-                  </form>
-                </div>
+                  <ChatComposer
+                    accentColor={S.accent}
+                    borderColor={S.border}
+                    backgroundColor={S.bg}
+                    inputBackgroundColor={S.bg2}
+                    textColor={S.txt}
+                    mutedTextColor={S.txt2}
+                    canSend={canSend}
+                    isSending={sending}
+                    isWhatsapp={isWhatsapp}
+                    inputValue={input}
+                    pendingFile={pendingFile}
+                    attachFileInputRef={attachFileInputRef}
+                    inputRef={inputRef}
+                    onSubmit={sendMessage}
+                    onInputChange={handleComposerInputChange}
+                    onInputKeyDown={handleComposerKeyDown}
+                    onPendingFileChange={handlePendingFileChange}
+                    onRemovePendingFile={clearPendingFile}
+                    onInsertEmoji={insertEmoji}
+                  />
               )}
               {isClosed && (
                 <div style={{ borderTop: S.border, background: S.bg2, padding: '12px 20px', flexShrink: 0, textAlign: 'center', fontSize: 12, color: S.txt3 }}>
