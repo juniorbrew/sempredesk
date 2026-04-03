@@ -281,6 +281,7 @@ type ChatComposerProps = {
   canSend: boolean;
   isSending: boolean;
   isWhatsapp: boolean;
+  conversationScopeKey: string;
   inputValue: string;
   pendingFile: File | null;
   attachFileInputRef: React.RefObject<HTMLInputElement>;
@@ -289,6 +290,7 @@ type ChatComposerProps = {
   onInputChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
   onInputKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
   onPendingFileChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onRecordedAudio: (file: File) => void;
   onRemovePendingFile: () => void;
   onInsertEmoji: (emoji: string) => void;
 };
@@ -303,6 +305,7 @@ function ChatComposer({
   canSend,
   isSending,
   isWhatsapp,
+  conversationScopeKey,
   inputValue,
   pendingFile,
   attachFileInputRef,
@@ -311,11 +314,20 @@ function ChatComposer({
   onInputChange,
   onInputKeyDown,
   onPendingFileChange,
+  onRecordedAudio,
   onRemovePendingFile,
   onInsertEmoji,
 }: ChatComposerProps) {
   const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const [recordingError, setRecordingError] = useState('');
   const attachmentMenuRef = useRef<HTMLDivElement>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const shouldSaveRecordingRef = useRef(false);
 
   useEffect(() => {
     if (!showAttachmentMenu) return;
@@ -327,6 +339,59 @@ function ChatComposer({
     document.addEventListener('mousedown', handleOutsideClick);
     return () => document.removeEventListener('mousedown', handleOutsideClick);
   }, [showAttachmentMenu]);
+
+  const clearRecordingTimer = useCallback(() => {
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+  }, []);
+
+  const stopMediaStream = useCallback(() => {
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      mediaStreamRef.current = null;
+    }
+  }, []);
+
+  const resetRecordingState = useCallback(() => {
+    clearRecordingTimer();
+    setIsRecording(false);
+    setRecordingSeconds(0);
+  }, [clearRecordingTimer]);
+
+  const disposeRecorder = useCallback(() => {
+    if (mediaRecorderRef.current) {
+      mediaRecorderRef.current.ondataavailable = null;
+      mediaRecorderRef.current.onstop = null;
+      mediaRecorderRef.current.onerror = null;
+      mediaRecorderRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => () => {
+    shouldSaveRecordingRef.current = false;
+    audioChunksRef.current = [];
+    resetRecordingState();
+    stopMediaStream();
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    } else {
+      disposeRecorder();
+    }
+  }, [disposeRecorder, resetRecordingState, stopMediaStream]);
+
+  useEffect(() => {
+    shouldSaveRecordingRef.current = false;
+    audioChunksRef.current = [];
+    resetRecordingState();
+    stopMediaStream();
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    } else {
+      disposeRecorder();
+    }
+  }, [conversationScopeKey, disposeRecorder, resetRecordingState, stopMediaStream]);
 
   const openFilePicker = useCallback((kind: AttachmentKind) => {
     const input = attachFileInputRef.current;
@@ -341,11 +406,108 @@ function ChatComposer({
     setShowAttachmentMenu(false);
   }, [attachFileInputRef]);
 
+  const finalizeRecording = useCallback((saveRecording: boolean) => {
+    shouldSaveRecordingRef.current = saveRecording;
+    if (!mediaRecorderRef.current || mediaRecorderRef.current.state === 'inactive') {
+      audioChunksRef.current = [];
+      resetRecordingState();
+      stopMediaStream();
+      disposeRecorder();
+      return;
+    }
+    mediaRecorderRef.current.stop();
+  }, [disposeRecorder, resetRecordingState, stopMediaStream]);
+
+  const stopRecording = useCallback(() => {
+    finalizeRecording(true);
+  }, [finalizeRecording]);
+
+  const startRecording = useCallback(async () => {
+    if (isRecording || !canSend || isSending || pendingFile) return;
+    if (typeof window === 'undefined' || typeof navigator === 'undefined') return;
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      setRecordingError('O navegador atual nao suporta gravacao de audio.');
+      return;
+    }
+
+    try {
+      setRecordingError('');
+      setShowAttachmentMenu(false);
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
+      audioChunksRef.current = [];
+
+      const mimeType = [
+        'audio/webm;codecs=opus',
+        'audio/webm',
+        'audio/mp4',
+      ].find((candidate) => MediaRecorder.isTypeSupported(candidate));
+
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      mediaRecorderRef.current = recorder;
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) audioChunksRef.current.push(event.data);
+      };
+
+      recorder.onstop = () => {
+        const shouldSave = shouldSaveRecordingRef.current;
+        shouldSaveRecordingRef.current = false;
+        resetRecordingState();
+        stopMediaStream();
+        disposeRecorder();
+
+        const audioBlob = audioChunksRef.current.length > 0
+          ? new Blob(audioChunksRef.current, { type: recorder.mimeType || 'audio/webm' })
+          : null;
+        audioChunksRef.current = [];
+
+        if (!shouldSave) return;
+
+        if (!audioBlob || audioBlob.size === 0) {
+          setRecordingError('Nao foi possivel capturar o audio gravado.');
+          return;
+        }
+
+        const extension = recorder.mimeType.includes('mp4') ? 'm4a' : 'webm';
+        const file = new File([audioBlob], `gravacao-${Date.now()}.${extension}`, {
+          type: recorder.mimeType || audioBlob.type || 'audio/webm',
+        });
+        onRecordedAudio(file);
+      };
+
+      recorder.onerror = () => {
+        shouldSaveRecordingRef.current = false;
+        setRecordingError('Ocorreu um erro durante a gravacao do audio.');
+        audioChunksRef.current = [];
+        resetRecordingState();
+        stopMediaStream();
+        disposeRecorder();
+      };
+
+      recorder.start();
+      setIsRecording(true);
+      setRecordingSeconds(0);
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingSeconds((current) => current + 1);
+      }, 1000);
+    } catch {
+      shouldSaveRecordingRef.current = false;
+      audioChunksRef.current = [];
+      resetRecordingState();
+      stopMediaStream();
+      disposeRecorder();
+      setRecordingError('Nao foi possivel acessar o microfone.');
+    }
+  }, [canSend, disposeRecorder, isRecording, isSending, onRecordedAudio, pendingFile, resetRecordingState, stopMediaStream]);
+
   const attachmentOptions: Array<{ kind: AttachmentKind; label: string; icon: ReactNode; description: string }> = [
     { kind: 'image', label: 'Imagem', icon: <ImageIcon size={15} strokeWidth={2} />, description: 'Enviar imagem' },
     { kind: 'audio', label: 'Audio', icon: <Mic size={15} strokeWidth={2} />, description: 'Enviar audio' },
     { kind: 'video', label: 'Video MP4', icon: <Video size={15} strokeWidth={2} />, description: 'Enviar video MP4' },
   ];
+  const recordingLabel = `${String(Math.floor(recordingSeconds / 60)).padStart(2, '0')}:${String(recordingSeconds % 60).padStart(2, '0')}`;
+  const canUseMicrophone = canSend && !isSending && !pendingFile;
 
   return (
     <div style={{ borderTop: borderColor, background: backgroundColor, padding: 0, flexShrink: 0 }}>
@@ -362,16 +524,16 @@ function ChatComposer({
             <button
               type="button"
               onClick={() => setShowAttachmentMenu((open) => !open)}
-              disabled={!canSend || isSending}
+              disabled={!canSend || isSending || isRecording}
               title="Anexos"
               style={{
                 width: 40,
                 height: 40,
                 borderRadius: 11,
                 border: '1px solid rgba(0,0,0,.08)',
-                background: !canSend || isSending ? '#F1F5F9' : '#F8FAFC',
-                color: !canSend || isSending ? '#94A3B8' : mutedTextColor,
-                cursor: !canSend || isSending ? 'not-allowed' : 'pointer',
+                background: !canSend || isSending || isRecording ? '#F1F5F9' : '#F8FAFC',
+                color: !canSend || isSending || isRecording ? '#94A3B8' : mutedTextColor,
+                cursor: !canSend || isSending || isRecording ? 'not-allowed' : 'pointer',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -444,6 +606,25 @@ function ChatComposer({
           </div>
 
           <div style={{ flex: 1, minWidth: 0 }}>
+            {recordingError && (
+              <div style={{ padding: '0 0 8px', fontSize: 12, color: '#DC2626' }}>
+                {recordingError}
+              </div>
+            )}
+            {isRecording && (
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '0 0 8px',
+                fontSize: 12,
+                color: textColor,
+              }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#DC2626', flexShrink: 0 }} />
+                <span style={{ fontWeight: 600 }}>Gravando audio</span>
+                <span style={{ color: mutedTextColor }}>{recordingLabel}</span>
+              </div>
+            )}
             {pendingFile && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 0 8px', fontSize: 12, color: mutedTextColor }}>
                 <span
@@ -458,7 +639,7 @@ function ChatComposer({
                 >
                   {pendingFile.name}
                 </span>
-                <span>({((pendingFile?.size ?? 0) / 1024).toFixed(0)} KB)</span>
+                <span>{pendingFile.type.startsWith('audio/') ? 'Audio gravado' : `(${((pendingFile?.size ?? 0) / 1024).toFixed(0)} KB)`}</span>
                 <button
                   type="button"
                   onClick={onRemovePendingFile}
@@ -479,17 +660,39 @@ function ChatComposer({
             )}
 
             <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10 }}>
+              <button
+                type="button"
+                onClick={isRecording ? stopRecording : startRecording}
+                disabled={(!isRecording && !canUseMicrophone) || isSending}
+                title={isRecording ? 'Parar gravacao' : 'Gravar audio'}
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 11,
+                  border: '1px solid rgba(0,0,0,.08)',
+                  background: isRecording ? '#FEE2E2' : ((!canUseMicrophone || isSending) ? '#F1F5F9' : '#F8FAFC'),
+                  color: isRecording ? '#DC2626' : ((!canUseMicrophone || isSending) ? '#94A3B8' : mutedTextColor),
+                  cursor: ((!isRecording && !canUseMicrophone) || isSending) ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                  transition: 'background .15s, border-color .15s',
+                }}
+              >
+                <Mic size={16} strokeWidth={2} />
+              </button>
               <textarea
                 ref={inputRef}
                 value={inputValue}
                 onChange={onInputChange}
                 onKeyDown={onInputKeyDown}
                 placeholder={canSend ? (isWhatsapp ? 'Mensagem WhatsApp... (Enter para enviar)' : 'Digite sua mensagem...') : 'Conversa indisponivel para envio'}
-                disabled={!canSend}
+                disabled={!canSend || isRecording}
                 rows={1}
                 style={{
                   flex: 1,
-                  background: canSend ? inputBackgroundColor : '#F8F8FB',
+                  background: canSend && !isRecording ? inputBackgroundColor : '#F8F8FB',
                   border: '1px solid rgba(0,0,0,.12)',
                   borderRadius: 12,
                   padding: '10px 14px',
@@ -501,21 +704,21 @@ function ChatComposer({
                   lineHeight: 1.5,
                   minHeight: 44,
                   maxHeight: 120,
-                  opacity: canSend ? 1 : 0.6,
+                  opacity: canSend && !isRecording ? 1 : 0.6,
                   transition: 'border-color .15s',
                 }}
               />
               <EmojiPicker onSelect={onInsertEmoji} position="top" />
               <button
                 type="submit"
-                disabled={isSending || !canSend || (!inputValue.trim() && !pendingFile)}
+                disabled={isSending || isRecording || !canSend || (!inputValue.trim() && !pendingFile)}
                 style={{
                   width: 40,
                   height: 40,
                   borderRadius: 11,
                   border: 'none',
-                  background: isSending || !canSend || (!inputValue.trim() && !pendingFile) ? '#E2E8F0' : accentColor,
-                  cursor: isSending || !canSend || (!inputValue.trim() && !pendingFile) ? 'not-allowed' : 'pointer',
+                  background: isSending || isRecording || !canSend || (!inputValue.trim() && !pendingFile) ? '#E2E8F0' : accentColor,
+                  cursor: isSending || isRecording || !canSend || (!inputValue.trim() && !pendingFile) ? 'not-allowed' : 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -1393,6 +1596,11 @@ export default function AtendimentoPage() {
     setPendingFile(f);
   };
 
+  const handleRecordedAudio = (file: File) => {
+    setPendingFile(file);
+    if (attachFileInputRef.current) attachFileInputRef.current.value = '';
+  };
+
   const clearPendingFile = () => {
     setPendingFile(null);
     if (attachFileInputRef.current) attachFileInputRef.current.value = '';
@@ -2265,6 +2473,7 @@ export default function AtendimentoPage() {
                     canSend={canSend}
                     isSending={sending}
                     isWhatsapp={isWhatsapp}
+                    conversationScopeKey={selected?.id || currentTicket?.id || 'no-conversation'}
                     inputValue={input}
                     pendingFile={pendingFile}
                     attachFileInputRef={attachFileInputRef}
@@ -2273,6 +2482,7 @@ export default function AtendimentoPage() {
                     onInputChange={handleComposerInputChange}
                     onInputKeyDown={handleComposerKeyDown}
                     onPendingFileChange={handlePendingFileChange}
+                    onRecordedAudio={handleRecordedAudio}
                     onRemovePendingFile={clearPendingFile}
                     onInsertEmoji={insertEmoji}
                   />
