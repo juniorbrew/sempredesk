@@ -133,14 +133,23 @@ export function MediaLightbox({
           )}
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, justifyContent: 'center' }}>
-          <button type="button" onClick={onClose} style={{ ...btnBase, background: '#F1F5F9', color: '#0F172A' }}>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              ...btnBase,
+              background: 'rgba(255,255,255,0.10)',
+              color: '#fff',
+              border: '1.5px solid rgba(255,255,255,0.22)',
+            }}
+          >
             <X size={18} strokeWidth={2.25} aria-hidden />
             Fechar
           </button>
           <button
             type="button"
             onClick={openInNewTab}
-            style={{ ...btnBase, background: '#4F46E5', color: '#fff' }}
+            style={{ ...btnBase, background: 'var(--color-accent)', color: '#fff' }}
           >
             <ExternalLink size={18} strokeWidth={2.25} aria-hidden />
             Abrir noutro separador
