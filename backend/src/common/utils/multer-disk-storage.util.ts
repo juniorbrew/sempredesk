@@ -3,10 +3,36 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 import { diskStorage } from 'multer';
 
-/** Upload de mídia em conversa → CONVERSATION_MEDIA_DIR/{tenantId}/agent-{uuid}.{ext} */
+// ── Roots exportados ─────────────────────────────────────────────────────────
+// Usados pelos controllers para calcular storageKey relativo ao root
+// sem repetir a lógica de env var.
+
+export const CONVERSATION_MEDIA_ROOT =
+  process.env.CONVERSATION_MEDIA_DIR || path.join(process.cwd(), 'uploads', 'conversation-media');
+
+export const TICKET_REPLY_MEDIA_ROOT =
+  process.env.TICKET_REPLY_MEDIA_DIR || path.join(process.cwd(), 'uploads', 'ticket-reply-media');
+
+export const TICKET_ATTACHMENTS_ROOT =
+  process.env.TICKET_ATTACHMENTS_DIR || path.join(process.cwd(), 'uploads', 'ticket-attachments');
+
+/**
+ * Converte o caminho absoluto retornado pelo multer em storage key
+ * relativa ao root (formato: `{tenantId}/{YYYY-MM}/{filename}`).
+ */
+export function filePathToStorageKey(root: string, filePath: string): string {
+  return path.relative(root, filePath).split(path.sep).join('/');
+}
+
+/** Retorna o mês corrente no formato YYYY-MM. */
+function currentYearMonth(): string {
+  return new Date().toISOString().slice(0, 7);
+}
+
+// ── Disk storages ─────────────────────────────────────────────────────────────
+
+/** Upload de mídia em conversa → CONVERSATION_MEDIA_DIR/{tenantId}/{YYYY-MM}/agent-{uuid}.{ext} */
 export function conversationMediaDiskStorage() {
-  const mediaRoot =
-    process.env.CONVERSATION_MEDIA_DIR || path.join(process.cwd(), 'uploads', 'conversation-media');
   return diskStorage({
     destination: (req: any, _file, cb) => {
       const tenantId = req.tenantId as string | undefined;
@@ -14,7 +40,7 @@ export function conversationMediaDiskStorage() {
         cb(new Error('Sem tenant'), '');
         return;
       }
-      const dir = path.join(mediaRoot, tenantId);
+      const dir = path.join(CONVERSATION_MEDIA_ROOT, tenantId, currentYearMonth());
       fs.promises.mkdir(dir, { recursive: true })
         .then(() => cb(null, dir))
         .catch((err: Error) => cb(err, ''));
@@ -39,10 +65,8 @@ export function conversationMediaDiskStorage() {
   });
 }
 
-/** POST /tickets/:id/messages/attachment → TICKET_REPLY_MEDIA_DIR/{tenantId}/ticket-{uuid}{ext} */
+/** POST /tickets/:id/messages/attachment → TICKET_REPLY_MEDIA_DIR/{tenantId}/{YYYY-MM}/ticket-{uuid}{ext} */
 export function ticketReplyMediaDiskStorage() {
-  const root =
-    process.env.TICKET_REPLY_MEDIA_DIR || path.join(process.cwd(), 'uploads', 'ticket-reply-media');
   return diskStorage({
     destination: (req: any, _file, cb) => {
       const tenantId = req.tenantId as string | undefined;
@@ -50,7 +74,7 @@ export function ticketReplyMediaDiskStorage() {
         cb(new Error('Sem tenant'), '');
         return;
       }
-      const dir = path.join(root, tenantId);
+      const dir = path.join(TICKET_REPLY_MEDIA_ROOT, tenantId, currentYearMonth());
       fs.promises.mkdir(dir, { recursive: true })
         .then(() => cb(null, dir))
         .catch((err: Error) => cb(err, ''));
@@ -65,10 +89,8 @@ export function ticketReplyMediaDiskStorage() {
   });
 }
 
-/** POST /tickets/:id/attachments → TICKET_ATTACHMENTS_DIR/{tenantId}/{uuid}.{ext} */
+/** POST /tickets/:id/attachments → TICKET_ATTACHMENTS_DIR/{tenantId}/{YYYY-MM}/{uuid}.{ext} */
 export function ticketItem4AttachmentsDiskStorage() {
-  const root =
-    process.env.TICKET_ATTACHMENTS_DIR || path.join(process.cwd(), 'uploads', 'ticket-attachments');
   return diskStorage({
     destination: (req: any, _file, cb) => {
       const tenantId = req.tenantId as string | undefined;
@@ -76,7 +98,7 @@ export function ticketItem4AttachmentsDiskStorage() {
         cb(new Error('Sem tenant'), '');
         return;
       }
-      const dir = path.join(root, tenantId);
+      const dir = path.join(TICKET_ATTACHMENTS_ROOT, tenantId, currentYearMonth());
       fs.promises.mkdir(dir, { recursive: true })
         .then(() => cb(null, dir))
         .catch((err: Error) => cb(err, ''));

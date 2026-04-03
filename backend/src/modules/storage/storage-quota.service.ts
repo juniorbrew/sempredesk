@@ -84,12 +84,16 @@ export class StorageQuotaService {
     try {
       const entries = await fs.promises.readdir(dir, { withFileTypes: true });
       await Promise.all(
-        entries
-          .filter((e) => e.isFile())
-          .map(async (e) => {
-            const stat = await fs.promises.stat(path.join(dir, e.name)).catch(() => null);
+        entries.map(async (e) => {
+          const fullPath = path.join(dir, e.name);
+          if (e.isFile()) {
+            const stat = await fs.promises.stat(fullPath).catch(() => null);
             if (stat) total += stat.size;
-          }),
+          } else if (e.isDirectory()) {
+            // Suporta {tenantId}/{YYYY-MM}/ sem profundidade arbitrária
+            total += await this.sumDir(fullPath);
+          }
+        }),
       );
     } catch (err) {
       this.logger.error(`[quota] erro ao medir ${dir}: ${(err as Error).message}`);

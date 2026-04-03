@@ -9,7 +9,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Throttle } from '@nestjs/throttler';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ticketItem4AttachmentsDiskStorage, ticketReplyMediaDiskStorage } from '../../common/utils/multer-disk-storage.util';
+import { ticketItem4AttachmentsDiskStorage, ticketReplyMediaDiskStorage, TICKET_ATTACHMENTS_ROOT, TICKET_REPLY_MEDIA_ROOT, filePathToStorageKey } from '../../common/utils/multer-disk-storage.util';
 import { readFilePrefixSync } from '../../common/utils/read-file-prefix.util';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
@@ -248,7 +248,7 @@ export class TicketsController {
     }
     const isPortal = req.user?.isPortal === true;
     const authorType = isPortal ? 'contact' : 'user';
-    const storageKey = path.posix.join(tenantId, path.basename(file.path));
+    const storageKey = filePathToStorageKey(TICKET_ATTACHMENTS_ROOT, file.path);
     const result = await this.ticketsService.addTicketAttachmentItem4(
       tenantId,
       id,
@@ -418,7 +418,7 @@ export class TicketsController {
     }
     const isPortal = req.user?.isPortal === true;
     const authorType = isPortal ? 'contact' : 'user';
-    const storageKey = path.posix.join(tenantId, path.basename(file.path));
+    const storageKey = filePathToStorageKey(TICKET_REPLY_MEDIA_ROOT, file.path);
     const result = await this.ticketsService.addPublicReplyWithAttachment(
       tenantId,
       id,

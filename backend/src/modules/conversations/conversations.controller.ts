@@ -4,7 +4,7 @@ import * as path from 'path';
 import { Throttle } from '@nestjs/throttler';
 import { validateFileSignature } from '../../common/utils/validate-file-signature.util';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { conversationMediaDiskStorage } from '../../common/utils/multer-disk-storage.util';
+import { conversationMediaDiskStorage, CONVERSATION_MEDIA_ROOT, filePathToStorageKey } from '../../common/utils/multer-disk-storage.util';
 import { readFilePrefixSync } from '../../common/utils/read-file-prefix.util';
 import { ConversationsService } from './conversations.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -209,8 +209,7 @@ export class ConversationsController {
         await fs.promises.unlink(file.path).catch(() => {});
         throw new BadRequestException('Tipo de arquivo não permitido');
       }
-      const fname = path.basename(file.path);
-      mediaStorageKey = path.posix.join(tenantId, fname);
+      mediaStorageKey = filePathToStorageKey(CONVERSATION_MEDIA_ROOT, file.path);
       mediaMime =
         mime ||
         (mediaKind === 'image' ? 'image/jpeg' : mediaKind === 'audio' ? 'audio/mpeg' : mediaKind === 'video' ? 'video/mp4' : null);

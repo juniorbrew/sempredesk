@@ -165,7 +165,8 @@ export class BaileysService {
       this.logger.warn(`[INBOUND] tenant=${tenantId} over storage quota — mídia ${kind} descartada`);
       throw new Error('Cota de armazenamento excedida para este tenant');
     }
-    const dir = path.join(this.conversationMediaDir, tenantId);
+    const yyyyMM = new Date().toISOString().slice(0, 7);
+    const dir = path.join(this.conversationMediaDir, tenantId, yyyyMM);
     await fs.promises.mkdir(dir, { recursive: true });
     const ext = this.extForMime(mime);
     const safeId = String(waMessageId || 'msg').replace(/[^\w.-]/g, '_');
@@ -180,7 +181,7 @@ export class BaileysService {
       mime,
     }));
     this.quotaService.invalidateCache(tenantId);
-    return path.posix.join(tenantId, fname);
+    return path.posix.join(tenantId, yyyyMM, fname);
   }
 
   private onMessageCallback: ((

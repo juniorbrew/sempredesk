@@ -206,59 +206,61 @@ export class StorageCleanupService {
     const rootExists = await fs.promises.access(root).then(() => true).catch(() => false);
     if (!rootExists) return { deleted, bytes };
 
-    // Estrutura esperada: root/{tenantId}/{filename}
-    let tenantDirs: fs.Dirent[];
-    try {
-      tenantDirs = (await fs.promises.readdir(root, { withFileTypes: true }))
-        .filter((e) => e.isDirectory());
-    } catch (err) {
-      this.logger.error(`[cleanup] Erro ao listar ${root}: ${(err as Error).message}`);
-      return { deleted, bytes };
-    }
+    // Coleta todos os arquivos recursivamente (suporta flat e {tenantId}/{YYYY-MM}/)
+    const files = await this.listFilesUnderRoot(root, root);
 
-    for (const entry of tenantDirs) {
-      const tenantId = entry.name;
-      const tenantPath = path.join(root, tenantId);
+    for (const { filePath, storageKey } of files) {
+      if (validKeys.has(storageKey)) continue;
 
-      let files: fs.Dirent[];
+      const stat = await fs.promises.stat(filePath).catch(() => null);
+      if (!stat) continue;
+      if (now - stat.mtimeMs < minAgeMs) continue;
+
       try {
-        files = (await fs.promises.readdir(tenantPath, { withFileTypes: true }))
-          .filter((e) => e.isFile());
-      } catch {
-        continue;
-      }
-
-      for (const f of files) {
-        const storageKey = `${tenantId}/${f.name}`;
-
-        // Tem registo válido no DB → não é órfão
-        if (validKeys.has(storageKey)) continue;
-
-        const filePath = path.join(tenantPath, f.name);
-
-        const stat = await fs.promises.stat(filePath).catch(() => null);
-        if (!stat) continue;
-
-        // Dentro do grace period → pode ser um upload em curso
-        if (now - stat.mtimeMs < minAgeMs) continue;
-
-        try {
-          const size = stat.size;
-          await fs.promises.unlink(filePath);
-          deleted++;
-          bytes += size;
-          this.logger.warn(
-            `[cleanup] Removido: ${storageKey} ` +
-            `(${size} B, ${Math.round((now - stat.mtimeMs) / 3_600_000)}h atrás)`,
-          );
-        } catch (err) {
-          this.logger.error(
-            `[cleanup] Erro ao remover ${filePath}: ${(err as Error).message}`,
-          );
-        }
+        const size = stat.size;
+        await fs.promises.unlink(filePath);
+        deleted++;
+        bytes += size;
+        this.logger.warn(
+          `[cleanup] Removido: ${storageKey} ` +
+          `(${size} B, ${Math.round((now - stat.mtimeMs) / 3_600_000)}h atrás)`,
+        );
+      } catch (err) {
+        this.logger.error(
+          `[cleanup] Erro ao remover ${filePath}: ${(err as Error).message}`,
+        );
       }
     }
 
     return { deleted, bytes };
+  }
+
+  /**
+   * Lista recursivamente todos os arquivos abaixo de `dir`,
+   * calculando o storageKey como caminho relativo ao `root`.
+   * Suporta tanto `root/{tenantId}/{file}` quanto `root/{tenantId}/{YYYY-MM}/{file}`.
+   */
+  private async listFilesUnderRoot(
+    root: string,
+    dir: string,
+  ): Promise<Array<{ filePath: string; storageKey: string }>> {
+    const result: Array<{ filePath: string; storageKey: string }> = [];
+    let entries: fs.Dirent[];
+    try {
+      entries = await fs.promises.readdir(dir, { withFileTypes: true });
+    } catch {
+      return result;
+    }
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isFile()) {
+        const storageKey = path.relative(root, fullPath).split(path.sep).join('/');
+        result.push({ filePath: fullPath, storageKey });
+      } else if (entry.isDirectory()) {
+        const sub = await this.listFilesUnderRoot(root, fullPath);
+        result.push(...sub);
+      }
+    }
+    return result;
   }
 }
