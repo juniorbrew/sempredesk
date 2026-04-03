@@ -507,7 +507,7 @@ export class CustomersService {
     }
 
     const contacts = await this.contacts.createQueryBuilder('ct')
-      .where('ct.tenant_id = :tenantId', { tenantId })
+      .where('ct.tenant_id::text = :tenantId', { tenantId })
       .andWhere(
         `(ct.client_id::text = :clientId OR EXISTS (
            SELECT 1
