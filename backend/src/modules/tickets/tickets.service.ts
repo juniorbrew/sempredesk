@@ -746,10 +746,18 @@ export class TicketsService {
     const slaResponseAt = new Date(now.getTime() + slaResponseHours * multiplier * 3600 * 1000);
     const slaResolveAt = new Date(now.getTime() + slaResolveHours * multiplier * 3600 * 1000);
 
+    // tickets.description é NOT NULL no PostgreSQL; o atendimento pode enviar descrição vazia
+    const descriptionText =
+      (dto.description && String(dto.description).trim()) ||
+      (dto.conversationId
+        ? 'Ticket criado a partir da conversa no atendimento.'
+        : 'Sem descrição.');
+
     const ticketSaved = await this.ticketRepo.manager.transaction(async (em) => {
       const ticketNumber = await this.allocateNextTicketNumberInTx(em);
       const ticket = em.create(Ticket, {
         ...dto,
+        description: descriptionText,
         conversationId: dto.conversationId || undefined,
         department: classification.department || undefined,
         category: classification.category || undefined,
