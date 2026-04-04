@@ -7,7 +7,7 @@ import { useAuthStore, hasPermission } from '@/store/auth.store';
 import {
   MessageSquare, Send, Phone, RefreshCw, Lock, ExternalLink, Plus, Link2, Globe,
   Check, Search, X, CheckCircle2, User, Mail, MapPin, Building2, Hash, Tag, Edit2,
-  Paperclip, Image as ImageIcon, Mic, StopCircle, Video,
+  Paperclip, Image as ImageIcon, Mic, StopCircle, Video, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { EmojiPicker } from '@/components/ui/EmojiPicker';
 import ContactValidationBanner, { type ResolvedData } from '@/components/atendimento/ContactValidationBanner';
@@ -866,6 +866,9 @@ export default function AtendimentoPage() {
   const [input, setInput] = useState('');
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [replyingTo, setReplyingTo] = useState<any | null>(null);
+  const [panelOpen, setPanelOpen] = useState(() => {
+    try { return localStorage.getItem('atend_panel_open') !== 'false'; } catch { return true; }
+  });
   const attachFileInputRef = useRef<HTMLInputElement>(null);
   const [messageMediaUrls, setMessageMediaUrls] = useState<Record<string, string>>({});
   const [sending, setSending] = useState(false);
@@ -2514,6 +2517,12 @@ export default function AtendimentoPage() {
                       style={{ width: 30, height: 30, borderRadius: 8, border: S.border2, background: msgSearchOpen ? S.accentLight : S.bg2, color: msgSearchOpen ? S.accent : S.txt2, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                       <Search size={14} strokeWidth={1.8} />
                     </button>
+                    <button
+                      onClick={() => { const next = !panelOpen; setPanelOpen(next); try { localStorage.setItem('atend_panel_open', String(next)); } catch {} }}
+                      title={panelOpen ? 'Fechar painel de contato' : 'Abrir painel de contato'}
+                      style={{ width: 30, height: 30, borderRadius: 8, border: S.border2, background: panelOpen ? S.accentLight : S.bg2, color: panelOpen ? S.accent : S.txt2, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      {panelOpen ? <ChevronRight size={14} strokeWidth={1.8} /> : <ChevronLeft size={14} strokeWidth={1.8} />}
+                    </button>
                     {hasTicket && (
                       <Link href={`/dashboard/tickets/${selected.ticketId}`} target="_blank"
                         style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 999, background: S.accentLight, border: `1px solid ${S.accentMid}`, color: S.accent, fontSize: 12, fontWeight: 700, textDecoration: 'none', fontFamily: "'DM Mono', monospace" }}>
@@ -2737,8 +2746,8 @@ export default function AtendimentoPage() {
           )}
         </div>
 
-        {/* ══════════ CLIENT PANEL (290px) ══════════ */}
-        <div style={{ width: 290, borderLeft: S.border, background: S.bg, display: 'flex', flexDirection: 'column', overflowY: 'auto', flexShrink: 0 }}>
+        {/* ══════════ CLIENT PANEL (290px, colapsável) ══════════ */}
+        <div style={{ width: panelOpen ? 290 : 0, borderLeft: panelOpen ? S.border : 'none', background: S.bg, display: 'flex', flexDirection: 'column', overflow: panelOpen ? 'auto' : 'hidden', flexShrink: 0, transition: 'width .2s ease' }}>
           {selected ? (() => {
             const customer = customers.find((c: any) => c.id === selected?.clientId);
             const contact = contacts.find((c: any) => c.id === (selected?.contactId || currentTicket?.contactId)) || null;
