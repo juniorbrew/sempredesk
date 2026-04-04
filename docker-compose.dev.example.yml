@@ -8,9 +8,10 @@
 #   • docker-compose.yml — stack completa na VPS/CI; ficheiro único de Compose em prod.
 #   • infra/nginx/nginx.conf — SSL, domínios, redirects; nunca trocar por nginx.dev.conf / .local.conf.
 #
-# DESENVOLVIMENTO (cópias locais — listadas no .gitignore):
-#   • docker-compose.override.yml OU docker-compose.dev.yml OU docker-compose.local.yml
+# DESENVOLVIMENTO (cópias locais — ver checklist no .gitignore):
+#   • docker-compose.override.yml OU docker-compose.dev.yml OU docker-compose.local.yml OU docker-compose.*.local.yml
 #   • infra/nginx/nginx.dev.conf (modelo: infra/nginx/nginx.dev.conf.example)
+#   • infra/nginx/nginx.local.conf — opcional; se existir, também ignorado pelo Git (sem .example obrigatório)
 #
 # O bloco abaixo só substitui o volume do nginx.conf; volumes letsencrypt/certbot
 # do compose base mantêm-se (em local costumam estar vazios — inofensivo).
@@ -38,8 +39,8 @@
 #   3) docker compose up (com -f extra nas opções B/C).
 #
 # VPS / PRODUÇÃO — o que NUNCA fazer:
-#   • Não copiar este ficheiro para o servidor nem usar docker-compose.override.yml / .dev.yml / .local.yml lá.
-#   • Não montar infra/nginx/nginx.dev.conf — só infra/nginx/nginx.conf (versionado).
+#   • Não copiar este modelo para o servidor nem usar override / .dev.yml / .local.yml / docker-compose.*.local.yml lá.
+#   • Não montar nginx.dev.conf nem nginx.local.conf — só infra/nginx/nginx.conf (versionado).
 #   • Subir a stack só com docker-compose.yml: docker compose up -d (sem override / .dev / .local).
 # =============================================================================
 

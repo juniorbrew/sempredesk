@@ -9,9 +9,10 @@
 #   • infra/nginx/nginx.conf — SSL Let's Encrypt, server_name reais, redirects (versionado).
 #   • Alterações a nginx.conf só com revisão explícita e validação em staging/prod.
 #
-# DESENVOLVIMENTO (este modelo):
+# DESENVOLVIMENTO (este modelo — par nginx.dev.conf; ver também .gitignore):
 #   • Sem listen 443, sem certificados, sem redirects de domínio de produção.
 #   • Um único server HTTP (default_server) para backend:4000 e frontend:3000.
+#   • nginx.local.conf é alternativa local opcional (ignorada pelo Git); este ficheiro é o modelo oficial .dev.
 #
 # VPS / PRODUÇÃO — o que NUNCA fazer:
 #   • Não montar nginx.dev.conf nem nginx.local.conf no lugar de infra/nginx/nginx.conf.

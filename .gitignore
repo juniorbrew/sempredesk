@@ -5,9 +5,14 @@
 #
 # PRODUÇÃO (versionado, imutável salvo decisão explícita do projeto):
 #   docker-compose.yml, infra/nginx/nginx.conf
-# DESENVOLVIMENTO (cópias locais — NUNCA commitar):
-#   docker-compose.override.yml, docker-compose.dev.yml, docker-compose.local.yml,
-#   docker-compose.*.local.yml, infra/nginx/nginx.dev.conf, infra/nginx/nginx.local.conf, .env / .env.*
+# DESENVOLVIMENTO (cópias locais — NUNCA commitar; alinhado às regras do projeto):
+#   • .env, .env.*  (exceto .env.example e backend/.env.example — ver negados abaixo)
+#   • docker-compose.override.yml
+#   • docker-compose.dev.yml
+#   • docker-compose.local.yml
+#   • docker-compose.*.local.yml
+#   • infra/nginx/nginx.dev.conf
+#   • infra/nginx/nginx.local.conf
 # =============================================================================
 
 # Node
