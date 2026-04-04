@@ -513,6 +513,15 @@ export class TicketsService {
       return;
     }
 
+    // Safety net: aceita contato que já tem conversa vinculada a este cliente neste tenant.
+    // Cobre casos em que o contato foi associado ao cliente pela conversa (WhatsApp/chatbot)
+    // mas o vínculo direto na tabela contacts ainda não foi persistido de forma explícita.
+    const convRows = await this.ticketRepo.manager.query(
+      `SELECT id FROM conversations WHERE tenant_id = $1 AND contact_id = $2 AND client_id = $3 LIMIT 1`,
+      [tenantId, contactId, clientId],
+    );
+    if (convRows.length) return;
+
     throw new BadRequestException('Contato inválido para este cliente. O contato deve pertencer ao cliente ou a outra empresa da mesma rede.');
   }
 

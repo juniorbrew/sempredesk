@@ -2493,11 +2493,11 @@ export default function AtendimentoPage() {
                       </span>
                       <span style={{ color: S.txt3 }}>·</span>
                       <span>{customerName(selected.clientId)}</span>
-                      {/* Número do contato visível no cabeçalho */}
-                      {contacts[0]?.whatsapp && isWhatsapp && (
+                      {/* Número do contato da conversa atual (usa contactId, não contacts[0]) */}
+                      {contacts.find((c: any) => c.id === selected?.contactId)?.whatsapp && isWhatsapp && (
                         <>
                           <span style={{ color: S.txt3 }}>·</span>
-                          <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 10 }}>{formatWhatsApp(contacts[0].whatsapp)}</span>
+                          <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 10 }}>{formatWhatsApp(contacts.find((c: any) => c.id === selected?.contactId)!.whatsapp)}</span>
                         </>
                       )}
                       {selected.lastMessageAt && (
@@ -2938,7 +2938,6 @@ export default function AtendimentoPage() {
                     {field('Empresa', <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140, display: 'block' }}>{customer.tradeName || customer.companyName || '—'}</span>)}
                     {customer.networkName && field('Rede', customer.networkName)}
                     {customer.cnpj && field('CNPJ', <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11 }}>{customer.cnpj}</span>)}
-                    {contact?.phone && field('Telefone', <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11 }}>{formatWhatsApp(contact.phone)}</span>)}
                     {contact?.whatsapp && field('WhatsApp', <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11 }}>{formatWhatsApp(contact.whatsapp)}</span>)}
                     {contact?.email && field('E-mail', <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140, display: 'block', color: S.accent }}>{contact.email}</span>)}
                     {customer.city && field('Cidade', `${customer.city}${customer.state ? `, ${customer.state}` : ''}`)}

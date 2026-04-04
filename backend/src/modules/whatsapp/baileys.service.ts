@@ -69,6 +69,7 @@ export class BaileysService {
     const normalized = this.extractDigitsFromJid(digits);
     if (!normalized) return [];
 
+    // Brasil: 55 + DDD + número (12 dígitos sem 9, 13 com 9)
     if (normalized.startsWith('55') && normalized.length === 12) {
       const ddd = normalized.slice(2, 4);
       const num = normalized.slice(4);
@@ -79,6 +80,20 @@ export class BaileysService {
       const ddd = normalized.slice(2, 4);
       const numSem9 = normalized.slice(5);
       return [`${normalized}@s.whatsapp.net`, `55${ddd}${numSem9}@s.whatsapp.net`];
+    }
+
+    // Internacional (ex: Argentina +54): números de 12–13 dígitos com DDI de 2 dígitos
+    // podem ter um "9" móvel logo após o DDI (posição 2). Testa as duas variantes e
+    // deixa o onWhatsApp() escolher o JID correto — sem alterar números que não se encaixam.
+    if (normalized.length === 13 && normalized.charAt(2) === '9') {
+      // Tem o 9: testa com 9 (original) e sem 9 (remove posição 2)
+      const withoutNine = normalized.slice(0, 2) + normalized.slice(3);
+      return [`${normalized}@s.whatsapp.net`, `${withoutNine}@s.whatsapp.net`];
+    }
+    if (normalized.length === 12 && !normalized.startsWith('55')) {
+      // Sem o 9: testa sem 9 (original) e com 9 (insere na posição 2)
+      const withNine = normalized.slice(0, 2) + '9' + normalized.slice(2);
+      return [`${normalized}@s.whatsapp.net`, `${withNine}@s.whatsapp.net`];
     }
 
     return [`${normalized}@s.whatsapp.net`];
