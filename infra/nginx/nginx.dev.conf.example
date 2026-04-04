@@ -1,0 +1,60 @@
+# Modelo para desenvolvimento local. Copiar para nginx.dev.conf (não versionado):
+#   cp infra/nginx/nginx.dev.conf.example infra/nginx/nginx.dev.conf
+#
+# Nginx — apenas desenvolvimento local (sem SSL, sem redirects de produção).
+# Ativado por docker-compose.override.yml (não versionado).
+
+events {}
+http {
+  resolver 127.0.0.11 valid=10s ipv6=off;
+
+  client_max_body_size 32m;
+
+  server {
+    listen 80 default_server;
+    server_name _;
+
+    location /socket.io/ {
+      proxy_pass http://backend:4000/socket.io/;
+      proxy_http_version 1.1;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection "upgrade";
+      proxy_set_header Host $host;
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto $scheme;
+      proxy_read_timeout 86400;
+    }
+
+    location /api/ {
+      if ($request_method = 'OPTIONS') {
+        add_header 'Access-Control-Allow-Origin' $http_origin always;
+        add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, PATCH, DELETE, OPTIONS' always;
+        add_header 'Access-Control-Allow-Headers' 'Content-Type, Authorization, Accept' always;
+        add_header 'Access-Control-Allow-Credentials' 'true' always;
+        add_header 'Access-Control-Max-Age' 86400;
+        return 204;
+      }
+      proxy_pass http://backend:4000/api/;
+      proxy_http_version 1.1;
+      proxy_set_header Host $host;
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto $scheme;
+      add_header 'Access-Control-Allow-Origin' $http_origin always;
+      add_header 'Access-Control-Allow-Credentials' 'true' always;
+      add_header 'Cache-Control' 'no-store, no-cache, must-revalidate' always;
+    }
+
+    location / {
+      proxy_pass http://frontend:3000;
+      proxy_http_version 1.1;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection "upgrade";
+      proxy_set_header Host $host;
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto $scheme;
+    }
+  }
+}

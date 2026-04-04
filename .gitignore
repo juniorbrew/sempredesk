@@ -33,6 +33,9 @@ Thumbs.db
 
 # Docker
 *.pid
+# Override local: Nginx dev sem SSL (não versionar)
+docker-compose.override.yml
+infra/nginx/nginx.dev.conf
 
 # WhatsApp sessions — contém dados de sessão autenticada
 backend/whatsapp-sessions/

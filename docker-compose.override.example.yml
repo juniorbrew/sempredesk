@@ -1,0 +1,8 @@
+# Copiar para docker-compose.override.yml na raiz (ficheiro ignorado pelo Git):
+#   cp docker-compose.override.example.yml docker-compose.override.yml
+#
+# Sobrescreve apenas o Nginx em desenvolvimento local.
+services:
+  nginx:
+    volumes:
+      - ./infra/nginx/nginx.dev.conf:/etc/nginx/nginx.conf:ro
