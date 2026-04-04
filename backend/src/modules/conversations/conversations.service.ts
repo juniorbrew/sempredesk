@@ -2,7 +2,7 @@ import { Injectable, NotFoundException, BadRequestException, Logger } from '@nes
 import * as fs from 'fs';
 import * as path from 'path';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository, IsNull } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { Conversation, ConversationChannel, ConversationStatus, ConversationInitiatedBy } from './entities/conversation.entity';
 import { ConversationMessage, ReplyToSnapshot } from './entities/conversation-message.entity';
 import { TicketsService } from '../tickets/tickets.service';
@@ -216,15 +216,20 @@ export class ConversationsService {
     channel: ConversationChannel,
     opts?: { chatAlert?: boolean; firstMessage?: string; contactName?: string; department?: string; autoCreateTicket?: boolean },
   ): Promise<{ conversation: Conversation; ticket: any; ticketCreated: boolean }> {
+    // Busca por contactId+channel+status sem filtrar por clientId.
+    // Evita criar conversa paralela quando o vínculo do contato com um cliente muda
+    // (ex: contato chega sem clientId, é vinculado a um cliente, próxima mensagem usa clientId real).
     const active = await this.convRepo.findOne({
-      where: {
-        tenantId,
-        clientId: clientId ?? IsNull(),
-        contactId,
-        channel,
-        status: ConversationStatus.ACTIVE,
-      },
+      where: { tenantId, contactId, channel, status: ConversationStatus.ACTIVE },
+      order: { createdAt: 'DESC' },
     });
+
+    // Se encontrou conversa com clientId diferente do atual, atualiza antes de continuar.
+    if (active && clientId && active.clientId !== clientId) {
+      active.clientId = clientId;
+      await this.convRepo.save(active);
+    }
+
     this.logConversationResolution({
       scope: 'conversation-resolution',
       tenantId,
@@ -496,6 +501,13 @@ export class ConversationsService {
       await this.resetChatbotSessionForWhatsappContact(tenantId, contact);
     }
     if (existing) {
+      // Garante que a conversa reutilizada seja marcada como iniciada pelo agente.
+      // Sem isso, respostas do contato em conversas previamente iniciadas pelo contato
+      // continuariam caindo no chatbot (initiated_by='contact' não passa pela guarda skipChatbot).
+      if (existing.initiatedBy !== ConversationInitiatedBy.AGENT) {
+        existing.initiatedBy = ConversationInitiatedBy.AGENT;
+        await this.convRepo.save(existing);
+      }
       this.logConversationResolution({
         scope: 'conversation-resolution',
         tenantId,

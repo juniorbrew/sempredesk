@@ -102,20 +102,46 @@ export class WhatsappService {
     // For Meta webhook messages, run chatbot here (Baileys runs it in whatsapp.module.ts)
     let resolvedDepartment = department;
     if (msg.provider === 'meta' && !department && this.chatbotService) {
+      // Verifica se existe conversa humana ativa antes de acionar chatbot.
+      // Se o agente iniciou a conversa, a resposta do contato não deve cair no chatbot.
+      let skipChatbot = false;
       try {
-        const botResult = await this.chatbotService.processMessage(tenantId, msg.from, text, 'whatsapp', msg.senderName);
-        if (botResult.handled) {
-          // Send replies via Meta API
-          for (const reply of botResult.replies) {
-            this.sendWhatsappMessage(msg.from, reply).catch(() => {});
+        const rawFromDigits = msg.from.replace(/\D/g, '');
+        const isLid = msg.isLid === true || rawFromDigits.length >= 14;
+        const normalizedWhatsapp = normalizeWhatsappNumber(wa) || wa;
+        const canonical = await this.customersService.resolveCanonicalWhatsappContact(tenantId, {
+          rawWhatsapp: msg.from,
+          normalizedWhatsapp,
+          lid: isLid ? rawFromDigits : null,
+          direction: 'inbound',
+        });
+        if (canonical.contact?.id) {
+          const activeHumanConversation = await this.conversationsService.findActiveHumanWhatsappConversation(tenantId, canonical.contact.id);
+          if (activeHumanConversation) {
+            skipChatbot = true;
+            this.logger.log(`Active human WhatsApp conversation found for ${msg.from}; skipping chatbot (Meta)`);
           }
-          if (!botResult.transfer) {
-            return { created: false, reason: 'CHATBOT_HANDLED' };
-          }
-          resolvedDepartment = botResult.transfer.department ?? undefined;
         }
-      } catch (e) {
-        this.logger.warn('Chatbot processing failed for Meta message', e);
+      } catch (err) {
+        this.logger.warn(`Failed to evaluate active human conversation for ${msg.from} (Meta)`, err);
+      }
+
+      if (!skipChatbot && text) {
+        try {
+          const botResult = await this.chatbotService.processMessage(tenantId, msg.from, text, 'whatsapp', msg.senderName);
+          if (botResult.handled) {
+            // Send replies via Meta API
+            for (const reply of botResult.replies) {
+              this.sendWhatsappMessage(msg.from, reply).catch(() => {});
+            }
+            if (!botResult.transfer) {
+              return { created: false, reason: 'CHATBOT_HANDLED' };
+            }
+            resolvedDepartment = botResult.transfer.department ?? undefined;
+          }
+        } catch (e) {
+          this.logger.warn('Chatbot processing failed for Meta message', e);
+        }
       }
     }
 

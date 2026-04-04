@@ -45,11 +45,33 @@ export class CustomersService {
       seen.add(v);
       out.push(v);
     };
-    push(normalized);
-    const restored = restoreBrNinthDigit(normalized);
-    if (restored !== normalized) push(restored);
-    const without9 = brPhoneWithout9(normalized);
-    if (without9) push(without9);
+
+    // Gera variante sem DDI "55" (número salvo sem código de país)
+    const withoutCC = normalized.startsWith('55') && (normalized.length === 12 || normalized.length === 13)
+      ? normalized.slice(2)
+      : null;
+
+    // Gera variante com DDI "55" (número salvo com código de país)
+    const withCC = !normalized.startsWith('55') && (normalized.length === 10 || normalized.length === 11)
+      ? `55${normalized}`
+      : null;
+
+    // Aplica todas as transformações de 9º dígito sobre cada base (com e sem DDI).
+    // Garante que o mesmo contato seja encontrado independentemente do formato em que foi salvo.
+    for (const base of [normalized, withoutCC, withCC].filter(Boolean) as string[]) {
+      push(base);
+      // Restaura 9º dígito em JIDs BR legados (55 + DDD + 8 dígitos → 12 dígitos com DDI)
+      const restored = restoreBrNinthDigit(base);
+      if (restored !== base) push(restored);
+      // Remove 9º dígito para bater com cadastros antigos (com DDI)
+      const without9 = brPhoneWithout9(base);
+      if (without9) push(without9);
+      // Remove 9º dígito para formatos sem DDI (ex: "11987654321" → "1187654321")
+      if (!base.startsWith('55') && base.length === 11 && base.charAt(2) === '9') {
+        push(`${base.slice(0, 2)}${base.slice(3)}`);
+      }
+    }
+
     return out;
   }
 
@@ -539,15 +561,18 @@ export class CustomersService {
     }
 
     if (typeof updates.whatsapp === 'string' && updates.whatsapp) {
+      // Verifica conflito contra todas as variantes BR do número (com/sem DDI "55", com/sem 9º dígito).
+      // Impede que dois contatos coexistam com o mesmo número em formatos diferentes.
+      const variants = this.brWhatsappLookupVariants(updates.whatsapp);
       const conflictingContacts = await this.contacts.manager.query(
         `SELECT id
            FROM contacts
           WHERE tenant_id::text = $1
-            AND whatsapp = $2
+            AND whatsapp = ANY($2)
             AND id::text <> $3
             AND status <> 'inactive'
           LIMIT 1`,
-        [tenantId, updates.whatsapp, contactId],
+        [tenantId, variants, contactId],
       );
 
       if (Array.isArray(conflictingContacts) && conflictingContacts.length > 0) {
@@ -585,6 +610,96 @@ export class CustomersService {
         [tenantId, contact.whatsapp],
       );
     }
+  }
+
+  /**
+   * Arquiva um contato ativo.
+   *
+   * Transições de estado permitidas: 'active' → 'archived'
+   * Efeitos colaterais:
+   *   - Fecha todas as conversas WhatsApp abertas do contato (evita atendimentos órfãos na fila)
+   *   - Apaga a sessão do chatbot (ao reativar, o próximo contato começa do zero)
+   */
+  async archiveContact(tenantId: string, contactId: string): Promise<Contact> {
+    // 1. Garante que o contato existe — NotFoundException se não encontrar
+    const contact = await this.getContactOrFail(tenantId, contactId);
+
+    // 2. Rejeita se já estiver arquivado ou inativo
+    if (contact.status !== 'active') {
+      throw new BadRequestException(
+        contact.status === 'archived'
+          ? 'Contato já está arquivado.'
+          : 'Não é possível arquivar um contato inativo.',
+      );
+    }
+
+    // 3. Mescla archivedAt ao metadata existente sem sobrescrever outros campos
+    const updatedMetadata = {
+      ...(contact.metadata ?? {}),
+      archivedAt: new Date().toISOString(),
+    };
+
+    await this.contacts.update(
+      { id: contactId, tenantId },
+      { status: 'archived', metadata: updatedMetadata } as any,
+    );
+
+    // 4. Fecha conversas ativas do contato para não deixar atendimentos sem responsável
+    await this.contacts.manager.query(
+      `UPDATE conversations
+          SET status = 'closed'
+        WHERE tenant_id::text = $1
+          AND contact_id::text = $2
+          AND status = 'active'`,
+      [tenantId, contactId],
+    );
+
+    // 5. Remove sessão do chatbot pelo número WhatsApp — mesmo padrão de removeContact
+    if (contact.whatsapp) {
+      await this.contacts.manager.query(
+        `DELETE FROM chatbot_sessions WHERE tenant_id = $1 AND identifier = $2`,
+        [tenantId, contact.whatsapp],
+      );
+    }
+
+    // 6. Retorna o contato com o estado persistido
+    return this.contacts.findOne({ where: { id: contactId, tenantId } }) as Promise<Contact>;
+  }
+
+  /**
+   * Reativa manualmente um contato arquivado.
+   *
+   * Transições de estado permitidas: 'archived' → 'active'
+   * Contatos 'inactive' NÃO são reativados por este método —
+   * 'inactive' é reservado para remoções e mesclagens feitas pelo sistema.
+   */
+  async unarchiveContact(tenantId: string, contactId: string): Promise<Contact> {
+    // 1. Garante que o contato existe — NotFoundException se não encontrar
+    const contact = await this.getContactOrFail(tenantId, contactId);
+
+    // 2. Rejeita qualquer status que não seja 'archived'
+    if (contact.status !== 'archived') {
+      throw new BadRequestException(
+        contact.status === 'active'
+          ? 'Contato já está ativo.'
+          : 'Não é possível reativar um contato inativo.',
+      );
+    }
+
+    // 3. Limpa archivedAt e registra reactivatedAt, preservando o restante do metadata
+    const updatedMetadata = {
+      ...(contact.metadata ?? {}),
+      archivedAt: null,
+      reactivatedAt: new Date().toISOString(),
+    };
+
+    await this.contacts.update(
+      { id: contactId, tenantId },
+      { status: 'active', metadata: updatedMetadata } as any,
+    );
+
+    // 4. Retorna o contato com o estado persistido
+    return this.contacts.findOne({ where: { id: contactId, tenantId } }) as Promise<Contact>;
   }
 
   findContactById(tenantId: string, contactId: string) {
@@ -665,9 +780,21 @@ export class CustomersService {
     if (JSON.stringify(updatedMeta) !== JSON.stringify(target.metadata ?? {})) {
       updates.metadata = updatedMeta;
     }
-    if (target.status !== 'active') {
+    if (target.status === 'inactive') {
+      // 'inactive' é marcação de sistema (remoção/merge pelo sistema, sem fluxo de
+      // arquivamento explícito). Pode ser promovido para 'active' dentro de consolidate
+      // porque o contexto de consolidação já implica que esse número deve estar ativo:
+      // é o target escolhido para receber todos os vínculos dos candidatos duplicados.
       updates.status = 'active';
     }
+    // 'archived': consolidate NÃO reativa. Reativação de contatos arquivados é
+    // responsabilidade exclusiva de resolveCanonicalWhatsappContact e
+    // findOrCreateByWhatsapp, que possuem contexto completo (direction, rawInput, etc.)
+    // e atualizam metadata corretamente (archivedAt=null, reactivatedAt=now, log).
+    // Tocar no status aqui quebraria a trilha de auditoria sem qualquer justificativa
+    // rastreável. Os callers que chegam com target 'archived' já passaram pelas camadas
+    // de reativação antes de invocar consolidate — se ainda estiver 'archived', é porque
+    // não houve mensagem inbound válida para justificar reativação.
     if (!target.isPrimary && allClientIds.length > 1) {
       updates.isPrimary = true;
     }
@@ -1031,7 +1158,7 @@ export class CustomersService {
       contact &&
       !canonicalCandidates.length &&
       lid &&
-      contact.status === 'active' &&
+      (contact.status === 'active' || contact.status === 'archived') &&
       contact.isPrimary &&
       contact.metadata?.whatsappLid === lid,
     );
@@ -1039,7 +1166,7 @@ export class CustomersService {
     const hasTrustedClientLinkedTechnicalContact = Boolean(
       contact &&
       !canonicalCandidates.length &&
-      contact.status === 'active' &&
+      (contact.status === 'active' || contact.status === 'archived') &&
       opts.clientId &&
       await this.isContactLinkedToClient(tenantId, contact.id, opts.clientId),
     );
@@ -1047,7 +1174,7 @@ export class CustomersService {
     const hasTrustedExplicitClientSelectionForSingleTechnicalCandidate = Boolean(
       contact &&
       !canonicalCandidates.length &&
-      contact.status === 'active' &&
+      (contact.status === 'active' || contact.status === 'archived') &&
       opts.clientId &&
       lid &&
       matchedBy !== 'none' &&
@@ -1098,6 +1225,31 @@ export class CustomersService {
           ? { whatsappResolvedDigits: normalizedWhatsapp }
           : {}),
       };
+    }
+
+    // Reativa automaticamente contato arquivado que voltou a enviar mensagem via WhatsApp.
+    // Ocorre aqui — após persistir os identificadores de runtime e antes de retornar —
+    // para que handleIncomingMessage receba o contato já com status='active',
+    // garantindo que skipChatbot e getOrCreateForContact funcionem sem duplicações.
+    // Contatos 'inactive' (removidos pelo sistema) NÃO são reativados.
+    if (safeContact && safeContact.status === 'archived') {
+      const reactivatedMetadata = {
+        ...(safeContact.metadata ?? {}),
+        archivedAt: null,
+        reactivatedAt: new Date().toISOString(),
+      };
+      await this.contacts.update(
+        { id: safeContact.id, tenantId },
+        { status: 'active', metadata: reactivatedMetadata } as any,
+      );
+      safeContact.status = 'active';
+      safeContact.metadata = reactivatedMetadata;
+      this.logger.log(JSON.stringify({
+        scope: 'contact-reactivation',
+        reason: 'inbound-whatsapp-message',
+        tenantId,
+        contactId: safeContact.id,
+      }));
     }
 
     this.logContactResolution({
@@ -1235,10 +1387,39 @@ export class CustomersService {
     if (!contact) {
       const [inactiveCandidate] = await this.buildWhatsappContactsQuery(tenantId, normalized, true).getMany();
       if (inactiveCandidate) {
-        await this.contacts.update(
-          { id: inactiveCandidate.id, tenantId },
-          { status: 'active', isPrimary: inactiveCandidate.isPrimary || undefined } as any,
-        );
+        if (inactiveCandidate.status === 'inactive') {
+          // 'inactive' é marcação de sistema (remoção/merge). Pode ser reativado diretamente
+          // sem trilha de auditoria — esse era o comportamento original e é seguro manter,
+          // pois 'inactive' nunca passou pelo fluxo de arquivamento explícito.
+          await this.contacts.update(
+            { id: inactiveCandidate.id, tenantId },
+            { status: 'active', isPrimary: inactiveCandidate.isPrimary || undefined } as any,
+          );
+        } else if (inactiveCandidate.status === 'archived') {
+          // 'archived' foi explicitamente arquivado por um agente. A reativação aqui
+          // seria indevida: este método não tem contexto suficiente para decidir se o
+          // contato deve ser reativado (essa decisão pertence à camada de resolução de
+          // identidade WhatsApp: resolveCanonicalWhatsappContact e findOrCreateByWhatsapp).
+          // Reativar sem metadata quebraria a trilha de auditoria (archivedAt ficaria
+          // populado, reactivatedAt ficaria ausente).
+          // Não tocamos no status; apenas consolidamos os vínculos.
+          this.logger.warn(JSON.stringify({
+            scope: 'contact-reactivation-skipped',
+            reason: 'archived-contact-in-findContactByWhatsapp-fallback',
+            tenantId,
+            contactId: inactiveCandidate.id,
+          }));
+        } else {
+          // Status inesperado (ex.: valor legado ou futuro): não reativa para evitar
+          // regressões silenciosas. Apenas loga para diagnóstico.
+          this.logger.warn(JSON.stringify({
+            scope: 'contact-unknown-status-in-fallback',
+            reason: 'unexpected-status-skipped-reactivation',
+            tenantId,
+            contactId: inactiveCandidate.id,
+            status: inactiveCandidate.status,
+          }));
+        }
         await this.consolidateWhatsappContactLinks(tenantId, inactiveCandidate.id, normalized);
         contact = await this.contacts.findOne({
           where: { id: inactiveCandidate.id, tenantId },
@@ -1737,6 +1918,28 @@ export class CustomersService {
         await this.contacts.update({ id: sanitizedExisting.id, tenantId }, { metadata: updatedMeta } as any);
         sanitizedExisting.metadata = updatedMeta;
       }
+      // Reativa automaticamente contato arquivado que voltou a enviar mensagem.
+      // Este é o caminho de fallback (resolveCanonicalWhatsappContact retornou null).
+      // Contatos 'inactive' (removidos pelo sistema) NÃO são reativados.
+      if (sanitizedExisting.status === 'archived') {
+        const reactivatedMetadata = {
+          ...(sanitizedExisting.metadata ?? {}),
+          archivedAt: null,
+          reactivatedAt: new Date().toISOString(),
+        };
+        await this.contacts.update(
+          { id: sanitizedExisting.id, tenantId },
+          { status: 'active', metadata: reactivatedMetadata } as any,
+        );
+        sanitizedExisting.status = 'active';
+        sanitizedExisting.metadata = reactivatedMetadata;
+        this.logger.log(JSON.stringify({
+          scope: 'contact-reactivation',
+          reason: 'inbound-whatsapp-message-fallback',
+          tenantId,
+          contactId: sanitizedExisting.id,
+        }));
+      }
       await this.consolidateWhatsappContactLinks(tenantId, sanitizedExisting.id, normalized);
       this.logContactResolution({
         scope: 'contact-resolution',
@@ -1806,7 +2009,7 @@ export class CustomersService {
     const contact = await this.contacts.save(
       this.contacts.create({
         tenantId,
-        clientId: null as any,
+        clientId: (opts?.clientId ?? null) as any,
         name: displayName || `+${normalized}`,
         whatsapp: normalized,
         phone: normalized,

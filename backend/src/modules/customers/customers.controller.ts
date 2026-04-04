@@ -98,6 +98,20 @@ export class CustomersController {
     return this.svc.removeContact(tenantId, cid);
   }
 
+  /** PATCH /customers/:id/contacts/:cid/archive — arquiva contato ativo */
+  @Patch(':id/contacts/:cid/archive')
+  @RequirePermission('customer.edit')
+  archiveContact(@TenantId() tenantId: string, @Param('cid') cid: string) {
+    return this.svc.archiveContact(tenantId, cid);
+  }
+
+  /** PATCH /customers/:id/contacts/:cid/unarchive — reativa contato arquivado */
+  @Patch(':id/contacts/:cid/unarchive')
+  @RequirePermission('customer.edit')
+  unarchiveContact(@TenantId() tenantId: string, @Param('cid') cid: string) {
+    return this.svc.unarchiveContact(tenantId, cid);
+  }
+
   /** GET /customers/contact/:id — busca contato por ID (independente do cliente) */
   @Get('contact/:contactId')
   @RequirePermission('ticket.view')
