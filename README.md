@@ -99,12 +99,11 @@ O script obtém os certificados e ativa HTTPS. Depois, configure renovação aut
 
 **Nota:** Acesso por IP continua em HTTP (Let's Encrypt não emite certificado para IP). Use os domínios para HTTPS.
 
-## Credenciais demo
+## Credenciais demo locais
 
 | Usuário | Senha |
 |---------|-------|
 | admin@demo.com | Admin@123 |
-| super@sistema.com | Admin@123 |
 
 ## Variáveis de ambiente
 

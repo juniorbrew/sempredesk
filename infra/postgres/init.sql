@@ -735,11 +735,11 @@ INSERT INTO tenants (id, name, slug, plan, status, email) VALUES
    'Demo Automação Comercial', 'demo', 'professional', 'active',
    'admin@demo.com');
 
--- Admin password: Admin@123  (bcrypt $2b$12$...)
+-- Admin password: Admin@123  (bcrypt $2a$12$oZ8A7aDHpDDLcuLDFwuiO.kTR4kJilNsyBlSGIlNP/bpEByeIJUTu)
 INSERT INTO users (tenant_id, name, email, password, role) VALUES
   ('00000000-0000-0000-0000-000000000001',
    'Administrador', 'admin@demo.com',
-   '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdWnYfEJUO5xjK2',
+   '$2a$12$oZ8A7aDHpDDLcuLDFwuiO.kTR4kJilNsyBlSGIlNP/bpEByeIJUTu',
    'admin'),
   ('00000000-0000-0000-0000-000000000001',
    'João Técnico', 'tecnico@demo.com',
