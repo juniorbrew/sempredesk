@@ -826,10 +826,12 @@ export class BaileysService {
       return { image: buffer, caption: opts?.caption || undefined };
     }
     if (kind === 'audio') {
+      const isOggOpus = !!(opts?.mime && (opts.mime.includes('ogg') || opts.mime.includes('opus')));
       return {
         audio: buffer,
-        mimetype: opts?.mime || 'audio/mpeg',
-        ptt: !!(opts?.mime && (opts.mime.includes('ogg') || opts.mime.includes('opus'))),
+        // PTT (nota de voz) exige exatamente 'audio/ogg; codecs=opus' no WhatsApp
+        mimetype: isOggOpus ? 'audio/ogg; codecs=opus' : (opts?.mime || 'audio/mpeg'),
+        ptt: isOggOpus,
       };
     }
     return {
@@ -849,10 +851,13 @@ export class BaileysService {
     opts?: { caption?: string; mime?: string },
   ): Promise<SendMessageResult> {
     const sock = this.sessions.get(tenantId);
+    this.logger.log(`[OUTBOUND-MEDIA] tenantId=${tenantId} kind=${kind} mime=${opts?.mime ?? 'n/a'} para=${to}`);
     if (!sock) {
+      this.logger.warn(`[OUTBOUND-MEDIA] Nenhuma sessão Baileys ativa para tenant ${tenantId}`);
       return { success: false, error: 'Nenhuma sessão Baileys ativa' };
     }
     if (!fs.existsSync(filePath)) {
+      this.logger.warn(`[OUTBOUND-MEDIA] Ficheiro não encontrado: ${filePath}`);
       return { success: false, error: 'Ficheiro de mídia não encontrado' };
     }
     const buffer = fs.readFileSync(filePath);
@@ -860,10 +865,12 @@ export class BaileysService {
       let digits = to.replace(/\D/g, '');
       if (digits.length >= 14) {
         const jid = `${digits}@lid`;
+        this.logger.log(`[OUTBOUND-MEDIA] LID detectado → ${jid}`);
         return await this.enqueueOutbound(tenantId, async () => {
           const payload = this.buildBaileysMediaPayload(kind, buffer, opts);
           const result = await sock.sendMessage(jid, payload as any);
           const messageId = result?.key?.id ?? null;
+          this.logger.log(`[OUTBOUND-MEDIA] Enviado! JID=${jid} messageId=${messageId}`);
           return { success: true as const, jid, messageId };
         });
       }
@@ -879,14 +886,16 @@ export class BaileysService {
       } catch {
         /* usa JID estimado */
       }
+      this.logger.log(`[OUTBOUND-MEDIA] Enviando para JID: ${jid}`);
       return await this.enqueueOutbound(tenantId, async () => {
         const payload = this.buildBaileysMediaPayload(kind, buffer, opts);
         const result = await sock.sendMessage(jid, payload as any);
         const messageId = result?.key?.id ?? null;
+        this.logger.log(`[OUTBOUND-MEDIA] Enviado! JID=${jid} messageId=${messageId}`);
         return { success: true as const, jid, messageId };
       });
     } catch (error: any) {
-      this.logger.error(`[OUTBOUND-MEDIA] Falha tenant ${tenantId}: ${error?.message}`);
+      this.logger.error(`[OUTBOUND-MEDIA] Falha tenant ${tenantId}: ${error?.message}`, error?.stack);
       return { success: false, error: error?.message };
     }
   }
