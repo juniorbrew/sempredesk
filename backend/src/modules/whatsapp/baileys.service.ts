@@ -195,6 +195,7 @@ export class BaileysService {
     isLid?: boolean,
     resolvedDigits?: string | null,
     media?: { kind: 'image' | 'audio' | 'video'; storageKey: string; mime: string } | null,
+    quotedStanzaId?: string | null,
   ) => void) | null = null;
 
   setMessageHandler(cb: (
@@ -206,6 +207,7 @@ export class BaileysService {
     isLid?: boolean,
     resolvedDigits?: string | null,
     media?: { kind: 'image' | 'audio' | 'video'; storageKey: string; mime: string } | null,
+    quotedStanzaId?: string | null,
   ) => void) {
     this.onMessageCallback = cb;
   }
@@ -606,6 +608,15 @@ export class BaileysService {
           }
         }
         if (!text.trim() && !media) return;
+        // Extrai stanzaId da mensagem citada (reply nativo do WhatsApp → reply interno)
+        const contextInfo =
+          msg.message?.extendedTextMessage?.contextInfo
+          ?? msg.message?.imageMessage?.contextInfo
+          ?? msg.message?.videoMessage?.contextInfo
+          ?? msg.message?.audioMessage?.contextInfo
+          ?? msg.message?.documentMessage?.contextInfo
+          ?? null;
+        const quotedStanzaId: string | null = contextInfo?.stanzaId ?? null;
         // Strip all JID suffixes: @s.whatsapp.net, @lid, @c.us
         const isLid = remoteJid.endsWith('@lid');
         const from = remoteJid.replace(/@s\.whatsapp\.net|@lid|@c\.us/g, '').trim();
@@ -631,7 +642,7 @@ export class BaileysService {
           return;
         }
         this.logger.log(`Incoming WhatsApp message from ${from} (JID: ${remoteJid}, lid=${isLid}, resolved=${resolvedDigits ?? 'none'}, media=${media?.kind ?? 'none'})`);
-        this.onMessageCallback?.(tenantId, from, text, msg.key.id, msg.pushName || undefined, isLid, resolvedDigits, media);
+        this.onMessageCallback?.(tenantId, from, text, msg.key.id, msg.pushName || undefined, isLid, resolvedDigits, media, quotedStanzaId);
       });
 
       // Presença do contato: repassa "digitando..." ao frontend via WebSocket
@@ -757,7 +768,12 @@ export class BaileysService {
     }
   }
 
-  async sendMessage(tenantId: string, to: string, text: string): Promise<SendMessageResult> {
+  async sendMessage(
+    tenantId: string,
+    to: string,
+    text: string,
+    opts?: { quoted?: { externalId: string; content: string; fromMe: boolean } | null },
+  ): Promise<SendMessageResult> {
     const sock = this.sessions.get(tenantId);
     this.logger.log(`[OUTBOUND] tenantId=${tenantId} para=${to}`);
 
@@ -772,9 +788,12 @@ export class BaileysService {
       // LID: identificador interno do WhatsApp (14+ dígitos) — usa sufixo @lid
       if (digits.length >= 14) {
         const jid = `${digits}@lid`;
+        const quotedWAMsg = opts?.quoted
+          ? { key: { id: opts.quoted.externalId, remoteJid: jid, fromMe: opts.quoted.fromMe }, message: { conversation: opts.quoted.content } }
+          : undefined;
         this.logger.log(`[OUTBOUND] LID detectado, usando JID: ${jid}`);
         return await this.enqueueOutbound(tenantId, async () => {
-          const result = await sock.sendMessage(jid, { text });
+          const result = await sock.sendMessage(jid, { text }, quotedWAMsg ? { quoted: quotedWAMsg as any } : undefined);
           const messageId = result?.key?.id ?? null;
           this.logger.log(`[OUTBOUND] Enviado! JID=${jid} messageId=${messageId}`);
           return { success: true as const, jid, messageId };
@@ -805,9 +824,12 @@ export class BaileysService {
         this.logger.warn(`[OUTBOUND] onWhatsApp falhou (${checkErr?.message}), usando JID estimado: ${jid}`);
       }
 
+      const quotedWAMsg = opts?.quoted
+        ? { key: { id: opts.quoted.externalId, remoteJid: jid, fromMe: opts.quoted.fromMe }, message: { conversation: opts.quoted.content } }
+        : undefined;
       return await this.enqueueOutbound(tenantId, async () => {
         this.logger.log(`[OUTBOUND] Enviando mensagem para JID: ${jid}`);
-        const result = await sock.sendMessage(jid, { text });
+        const result = await sock.sendMessage(jid, { text }, quotedWAMsg ? { quoted: quotedWAMsg as any } : undefined);
         const messageId = result?.key?.id ?? null;
         this.logger.log(`[OUTBOUND] Enviado! JID=${jid} messageId=${messageId} status=${result?.status ?? 'desconhecido'}`);
         return { success: true as const, jid, messageId };
@@ -852,7 +874,7 @@ export class BaileysService {
     to: string,
     kind: 'image' | 'audio' | 'video',
     filePath: string,
-    opts?: { caption?: string; mime?: string },
+    opts?: { caption?: string; mime?: string; quoted?: { externalId: string; content: string; fromMe: boolean } | null },
   ): Promise<SendMessageResult> {
     const sock = this.sessions.get(tenantId);
     this.logger.log(`[OUTBOUND-MEDIA] tenantId=${tenantId} kind=${kind} mime=${opts?.mime ?? 'n/a'} para=${to}`);
@@ -893,9 +915,12 @@ export class BaileysService {
       if (digits.length >= 14) {
         const jid = `${digits}@lid`;
         this.logger.log(`[OUTBOUND-MEDIA] LID detectado → ${jid}`);
+        const quotedWAMsgMedia = opts?.quoted
+          ? { key: { id: opts.quoted.externalId, remoteJid: jid, fromMe: opts.quoted.fromMe }, message: { conversation: opts.quoted.content } }
+          : undefined;
         return await this.enqueueOutbound(tenantId, async () => {
           const payload = this.buildBaileysMediaPayload(kind, buffer, effectiveOpts);
-          const result = await sock.sendMessage(jid, payload as any);
+          const result = await sock.sendMessage(jid, payload as any, quotedWAMsgMedia ? { quoted: quotedWAMsgMedia as any } : undefined);
           const messageId = result?.key?.id ?? null;
           this.logger.log(`[OUTBOUND-MEDIA] Enviado! JID=${jid} messageId=${messageId}`);
           return { success: true as const, jid, messageId };
@@ -913,10 +938,13 @@ export class BaileysService {
       } catch {
         /* usa JID estimado */
       }
+      const quotedWAMsgMedia = opts?.quoted
+        ? { key: { id: opts.quoted.externalId, remoteJid: jid, fromMe: opts.quoted.fromMe }, message: { conversation: opts.quoted.content } }
+        : undefined;
       this.logger.log(`[OUTBOUND-MEDIA] Enviando para JID: ${jid}`);
       return await this.enqueueOutbound(tenantId, async () => {
         const payload = this.buildBaileysMediaPayload(kind, buffer, effectiveOpts);
-        const result = await sock.sendMessage(jid, payload as any);
+        const result = await sock.sendMessage(jid, payload as any, quotedWAMsgMedia ? { quoted: quotedWAMsgMedia as any } : undefined);
         const messageId = result?.key?.id ?? null;
         this.logger.log(`[OUTBOUND-MEDIA] Enviado! JID=${jid} messageId=${messageId}`);
         return { success: true as const, jid, messageId };

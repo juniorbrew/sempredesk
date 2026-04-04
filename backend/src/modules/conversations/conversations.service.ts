@@ -55,6 +55,7 @@ export class ConversationsService {
         payload:
           | string
           | { kind: 'image' | 'audio' | 'video'; filePath: string; caption?: string; mime?: string },
+        quotedMsg?: { externalId: string; content: string; fromMe: boolean } | null,
       ) => Promise<{ success: boolean; jid?: string | null; messageId?: string | null; error?: string } | boolean>)
     | null = null;
   setOutboundSender(
@@ -62,6 +63,7 @@ export class ConversationsService {
       tenantId: string,
       toWhatsapp: string,
       payload: string | { kind: 'image' | 'audio' | 'video'; filePath: string; caption?: string; mime?: string },
+      quotedMsg?: { externalId: string; content: string; fromMe: boolean } | null,
     ) => Promise<{ success: boolean; jid?: string | null; messageId?: string | null; error?: string } | boolean>,
   ) {
     this.outboundSender = fn;
@@ -959,7 +961,19 @@ export class ConversationsService {
                     mime: opts.mediaMime || undefined,
                   }
                 : content;
-            const raw = await this.outboundSender(tenantId, contact.whatsapp, outboundPayload as any);
+            // Resolve mensagem citada para reply nativo no WhatsApp
+            let quotedMsg: { externalId: string; content: string; fromMe: boolean } | null = null;
+            if (opts?.replyToId) {
+              const parent = await this.msgRepo.findOne({ where: { id: opts.replyToId } });
+              if (parent?.externalId) {
+                quotedMsg = {
+                  externalId: parent.externalId,
+                  content: parent.content.slice(0, 200),
+                  fromMe: parent.authorType === 'user',
+                };
+              }
+            }
+            const raw = await this.outboundSender(tenantId, contact.whatsapp, outboundPayload as any, quotedMsg);
             const sendResult = typeof raw === 'boolean' ? { success: raw } : raw;
             if (sendResult.success) {
               const externalId = sendResult.messageId ?? null;

@@ -49,12 +49,12 @@ export class WhatsappModule implements OnModuleInit {
 
   async onModuleInit() {
     // Registra dispatcher de mensagens outbound (agente → contato via WhatsApp)
-    this.conversationsService.setOutboundSender(async (tenantId: string, toWhatsapp: string, payload: string | {
-      kind: 'image' | 'audio' | 'video';
-      filePath: string;
-      caption?: string;
-      mime?: string;
-    }) => {
+    this.conversationsService.setOutboundSender(async (
+      tenantId: string,
+      toWhatsapp: string,
+      payload: string | { kind: 'image' | 'audio' | 'video'; filePath: string; caption?: string; mime?: string },
+      quotedMsg?: { externalId: string; content: string; fromMe: boolean } | null,
+    ) => {
       if (typeof payload !== 'string') {
         if (this.baileysService) {
           const result = await this.baileysService.sendMedia(
@@ -62,7 +62,7 @@ export class WhatsappModule implements OnModuleInit {
             toWhatsapp,
             payload.kind,
             payload.filePath,
-            { caption: payload.caption, mime: payload.mime },
+            { caption: payload.caption, mime: payload.mime, quoted: quotedMsg ?? undefined },
           );
           if (result.success) return result;
         }
@@ -71,7 +71,7 @@ export class WhatsappModule implements OnModuleInit {
       }
       const text = payload;
       if (this.baileysService) {
-        const result = await this.baileysService.sendMessage(tenantId, toWhatsapp, text);
+        const result = await this.baileysService.sendMessage(tenantId, toWhatsapp, text, { quoted: quotedMsg ?? undefined });
         if (result.success) return result;
         this.logger.warn(`[outboundSender] Baileys falhou (${result.error}), tentando Meta API`);
       }
@@ -109,6 +109,7 @@ export class WhatsappModule implements OnModuleInit {
       isLid?: boolean,
       resolvedDigits?: string | null,
       media?: { kind: 'image' | 'audio' | 'video'; storageKey: string; mime: string } | null,
+      quotedStanzaId?: string | null,
     ) => {
       try {
         const messageKey = `${tenantId}:${messageId}`;
@@ -194,7 +195,7 @@ export class WhatsappModule implements OnModuleInit {
         if (!transferClientId && foundActiveConversationClientId) {
           transferClientId = foundActiveConversationClientId;
         }
-        const msg = { provider: 'generic' as const, from, text, messageId, senderName, isLid, resolvedDigits, media: media ?? undefined };
+        const msg = { provider: 'generic' as const, from, text, messageId, senderName, isLid, resolvedDigits, media: media ?? undefined, quotedStanzaId: quotedStanzaId ?? null };
         const result = await this.whatsappService.handleIncomingMessage(tenantId, msg, transferDept, transferClientId);
         this.logger.log(`Baileys message processed: tenantId=${tenantId} from=${from} result=${JSON.stringify(result)}`);
       } catch (err) {

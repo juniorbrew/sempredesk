@@ -26,6 +26,8 @@ export interface NormalizedWhatsappMessage {
   /** Mídia já gravada em disco (Baileys). */
   media?: { kind: 'image' | 'audio' | 'video'; storageKey: string; mime: string } | null;
   isLid?: boolean;
+  /** stanzaId da mensagem citada (reply nativo WhatsApp → reply interno). */
+  quotedStanzaId?: string | null;
 }
 
 @Injectable()
@@ -389,6 +391,18 @@ export class WhatsappService {
       stage: 'after-conversation-resolution',
     });
 
+    // Resolve replyToId: se a mensagem WhatsApp citar outra, localiza pelo externalId
+    let inboundReplyToId: string | null = null;
+    if (msg.quotedStanzaId) {
+      try {
+        const rows: Array<{ id: string }> = await this.dataSource.query(
+          `SELECT id FROM conversation_messages WHERE external_id = $1 AND tenant_id = $2 LIMIT 1`,
+          [msg.quotedStanzaId, tenantId],
+        );
+        if (rows?.[0]?.id) inboundReplyToId = rows[0].id;
+      } catch { /* lookup falhou — segue sem reply */ }
+    }
+
     await this.conversationsService.addMessage(
       tenantId,
       conversation.id,
@@ -408,6 +422,7 @@ export class WhatsappService {
         mediaKind: msg.media?.kind ?? null,
         mediaStorageKey: msg.media?.storageKey ?? null,
         mediaMime: msg.media?.mime ?? null,
+        replyToId: inboundReplyToId,
       },
     );
 
