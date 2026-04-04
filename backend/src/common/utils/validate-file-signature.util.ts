@@ -38,6 +38,9 @@ export function validateFileSignature(buffer: Buffer, declaredMime: string): boo
       );
     case 'audio/ogg':
       return matchesPrefix(buffer, [0x4f, 0x67, 0x67, 0x53]);
+    case 'audio/webm':
+      // EBML header — magic bytes de todo arquivo WebM/MKV
+      return matchesPrefix(buffer, [0x1a, 0x45, 0xdf, 0xa3]);
     case 'audio/mpeg':
       return (
         matchesPrefix(buffer, [0xff, 0xfb]) ||

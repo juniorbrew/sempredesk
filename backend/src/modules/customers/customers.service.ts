@@ -876,9 +876,8 @@ export class CustomersService {
         (lid && b.metadata?.whatsappLid === lid ? 1 : 0);
       if (aTechnicalMatch !== bTechnicalMatch) return bTechnicalMatch - aTechnicalMatch;
 
-      const aPrimary = a.isPrimary ? 1 : 0;
-      const bPrimary = b.isPrimary ? 1 : 0;
-      if (aPrimary !== bPrimary) return bPrimary - aPrimary;
+      // isPrimary removido intencionalmente: cada contato é responsável pela sua própria
+      // conversa/ticket — o contato principal não deve interferir na identificação do remetente.
 
       const aActive = a.status === 'active' ? 1 : 0;
       const bActive = b.status === 'active' ? 1 : 0;
@@ -897,7 +896,6 @@ export class CustomersService {
       normalizedWhatsapp && chosen.metadata?.whatsappResolvedDigits === normalizedWhatsapp ? 'matched-resolved-digits' : null,
       rawWhatsapp && chosen.metadata?.whatsappJid === rawWhatsapp ? 'matched-jid' : null,
       lid && chosen.metadata?.whatsappLid === lid ? 'matched-lid' : null,
-      chosen.isPrimary ? 'is-primary' : null,
       chosen.status === 'active' ? 'active' : null,
       'oldest',
     ].filter(Boolean);
@@ -979,18 +977,36 @@ export class CustomersService {
           .filter((value): value is string => Boolean(value)),
       ),
     );
+    // siblingMatches: só adiciona contatos do mesmo cliente que tenham match técnico real
+    // com os identificadores da mensagem (whatsapp, jid, lid ou resolvedDigits).
+    // Contatos sem nenhum match direto — incluindo o contato principal — não entram no pool,
+    // evitando que isPrimary influencie a seleção do remetente via critério de desempate.
     if (candidateClientIds.length) {
-      const siblingMatches = await this.contacts.createQueryBuilder('ct')
-        .leftJoinAndSelect('ct.client', 'client')
-        .where('ct.tenant_id = :tenantId', { tenantId })
-        .andWhere('ct.client_id::text IN (:...candidateClientIds)', { candidateClientIds })
-        .andWhere("COALESCE(ct.whatsapp, '') <> ''")
-        .orderBy("ct.status = 'active'", 'DESC')
-        .addOrderBy('ct.is_primary', 'DESC')
-        .addOrderBy('ct.created_at', 'ASC')
-        .getMany();
-      for (const contact of siblingMatches) {
-        if (!candidateMap.has(contact.id)) candidateMap.set(contact.id, contact);
+      const techValues = Array.from(new Set([
+        normalizedWhatsapp,
+        rawWhatsapp,
+        lid,
+        ...brVariants,
+      ].filter((v): v is string => Boolean(v))));
+
+      if (techValues.length) {
+        const siblingMatches = await this.contacts.createQueryBuilder('ct')
+          .leftJoinAndSelect('ct.client', 'client')
+          .where('ct.tenant_id = :tenantId', { tenantId })
+          .andWhere('ct.client_id::text IN (:...candidateClientIds)', { candidateClientIds })
+          .andWhere(
+            `(ct.whatsapp IN (:...techValues)
+              OR ct.metadata->>'whatsappResolvedDigits' IN (:...techValues)
+              OR ct.metadata->>'whatsappJid' IN (:...techValues)
+              OR ct.metadata->>'whatsappLid' IN (:...techValues))`,
+            { techValues },
+          )
+          .orderBy("ct.status = 'active'", 'DESC')
+          .addOrderBy('ct.created_at', 'ASC')
+          .getMany();
+        for (const contact of siblingMatches) {
+          if (!candidateMap.has(contact.id)) candidateMap.set(contact.id, contact);
+        }
       }
     }
     const candidates = Array.from(candidateMap.values());

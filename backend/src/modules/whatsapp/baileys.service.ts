@@ -5,6 +5,8 @@ import { Subject, Observable } from 'rxjs';
 import { EventEmitter } from 'events';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
+import { execFileSync } from 'child_process';
 import { WhatsappConnection, WhatsappConnectionStatus, WhatsappProvider } from './entities/whatsapp-connection.entity';
 import { StorageQuotaService } from '../storage/storage-quota.service';
 
@@ -67,6 +69,7 @@ export class BaileysService {
     const normalized = this.extractDigitsFromJid(digits);
     if (!normalized) return [];
 
+    // Brasil: 55 + DDD + número (12 dígitos sem 9, 13 com 9)
     if (normalized.startsWith('55') && normalized.length === 12) {
       const ddd = normalized.slice(2, 4);
       const num = normalized.slice(4);
@@ -77,6 +80,20 @@ export class BaileysService {
       const ddd = normalized.slice(2, 4);
       const numSem9 = normalized.slice(5);
       return [`${normalized}@s.whatsapp.net`, `55${ddd}${numSem9}@s.whatsapp.net`];
+    }
+
+    // Internacional (ex: Argentina +54): números de 12–13 dígitos com DDI de 2 dígitos
+    // podem ter um "9" móvel logo após o DDI (posição 2). Testa as duas variantes e
+    // deixa o onWhatsApp() escolher o JID correto — sem alterar números que não se encaixam.
+    if (normalized.length === 13 && normalized.charAt(2) === '9') {
+      // Tem o 9: testa com 9 (original) e sem 9 (remove posição 2)
+      const withoutNine = normalized.slice(0, 2) + normalized.slice(3);
+      return [`${normalized}@s.whatsapp.net`, `${withoutNine}@s.whatsapp.net`];
+    }
+    if (normalized.length === 12 && !normalized.startsWith('55')) {
+      // Sem o 9: testa sem 9 (original) e com 9 (insere na posição 2)
+      const withNine = normalized.slice(0, 2) + '9' + normalized.slice(2);
+      return [`${normalized}@s.whatsapp.net`, `${withNine}@s.whatsapp.net`];
     }
 
     return [`${normalized}@s.whatsapp.net`];
@@ -193,6 +210,7 @@ export class BaileysService {
     isLid?: boolean,
     resolvedDigits?: string | null,
     media?: { kind: 'image' | 'audio' | 'video'; storageKey: string; mime: string } | null,
+    quotedStanzaId?: string | null,
   ) => void) | null = null;
 
   setMessageHandler(cb: (
@@ -204,6 +222,7 @@ export class BaileysService {
     isLid?: boolean,
     resolvedDigits?: string | null,
     media?: { kind: 'image' | 'audio' | 'video'; storageKey: string; mime: string } | null,
+    quotedStanzaId?: string | null,
   ) => void) {
     this.onMessageCallback = cb;
   }
@@ -604,6 +623,15 @@ export class BaileysService {
           }
         }
         if (!text.trim() && !media) return;
+        // Extrai stanzaId da mensagem citada (reply nativo do WhatsApp → reply interno)
+        const contextInfo =
+          msg.message?.extendedTextMessage?.contextInfo
+          ?? msg.message?.imageMessage?.contextInfo
+          ?? msg.message?.videoMessage?.contextInfo
+          ?? msg.message?.audioMessage?.contextInfo
+          ?? msg.message?.documentMessage?.contextInfo
+          ?? null;
+        const quotedStanzaId: string | null = contextInfo?.stanzaId ?? null;
         // Strip all JID suffixes: @s.whatsapp.net, @lid, @c.us
         const isLid = remoteJid.endsWith('@lid');
         const from = remoteJid.replace(/@s\.whatsapp\.net|@lid|@c\.us/g, '').trim();
@@ -629,7 +657,7 @@ export class BaileysService {
           return;
         }
         this.logger.log(`Incoming WhatsApp message from ${from} (JID: ${remoteJid}, lid=${isLid}, resolved=${resolvedDigits ?? 'none'}, media=${media?.kind ?? 'none'})`);
-        this.onMessageCallback?.(tenantId, from, text, msg.key.id, msg.pushName || undefined, isLid, resolvedDigits, media);
+        this.onMessageCallback?.(tenantId, from, text, msg.key.id, msg.pushName || undefined, isLid, resolvedDigits, media, quotedStanzaId);
       });
 
       // Presença do contato: repassa "digitando..." ao frontend via WebSocket
@@ -755,7 +783,12 @@ export class BaileysService {
     }
   }
 
-  async sendMessage(tenantId: string, to: string, text: string): Promise<SendMessageResult> {
+  async sendMessage(
+    tenantId: string,
+    to: string,
+    text: string,
+    opts?: { quoted?: { externalId: string; content: string; fromMe: boolean } | null },
+  ): Promise<SendMessageResult> {
     const sock = this.sessions.get(tenantId);
     this.logger.log(`[OUTBOUND] tenantId=${tenantId} para=${to}`);
 
@@ -770,9 +803,12 @@ export class BaileysService {
       // LID: identificador interno do WhatsApp (14+ dígitos) — usa sufixo @lid
       if (digits.length >= 14) {
         const jid = `${digits}@lid`;
+        const quotedWAMsg = opts?.quoted
+          ? { key: { id: opts.quoted.externalId, remoteJid: jid, fromMe: opts.quoted.fromMe }, message: { conversation: opts.quoted.content } }
+          : undefined;
         this.logger.log(`[OUTBOUND] LID detectado, usando JID: ${jid}`);
         return await this.enqueueOutbound(tenantId, async () => {
-          const result = await sock.sendMessage(jid, { text });
+          const result = await sock.sendMessage(jid, { text }, quotedWAMsg ? { quoted: quotedWAMsg as any } : undefined);
           const messageId = result?.key?.id ?? null;
           this.logger.log(`[OUTBOUND] Enviado! JID=${jid} messageId=${messageId}`);
           return { success: true as const, jid, messageId };
@@ -803,9 +839,12 @@ export class BaileysService {
         this.logger.warn(`[OUTBOUND] onWhatsApp falhou (${checkErr?.message}), usando JID estimado: ${jid}`);
       }
 
+      const quotedWAMsg = opts?.quoted
+        ? { key: { id: opts.quoted.externalId, remoteJid: jid, fromMe: opts.quoted.fromMe }, message: { conversation: opts.quoted.content } }
+        : undefined;
       return await this.enqueueOutbound(tenantId, async () => {
         this.logger.log(`[OUTBOUND] Enviando mensagem para JID: ${jid}`);
-        const result = await sock.sendMessage(jid, { text });
+        const result = await sock.sendMessage(jid, { text }, quotedWAMsg ? { quoted: quotedWAMsg as any } : undefined);
         const messageId = result?.key?.id ?? null;
         this.logger.log(`[OUTBOUND] Enviado! JID=${jid} messageId=${messageId} status=${result?.status ?? 'desconhecido'}`);
         return { success: true as const, jid, messageId };
@@ -826,12 +865,14 @@ export class BaileysService {
       return { image: buffer, caption: opts?.caption || undefined };
     }
     if (kind === 'audio') {
-      const isOggOpus = !!(opts?.mime && (opts.mime.includes('ogg') || opts.mime.includes('opus')));
+      // PTT (nota de voz) só funciona com OGG/Opus — os bytes devem ser OGG, não WebM.
+      // audio/webm (gravação do browser Chrome) é enviado como arquivo normal (ptt=false).
+      const mimeBase = (opts?.mime || '').split(';')[0].trim();
+      const isOgg = mimeBase === 'audio/ogg';
       return {
         audio: buffer,
-        // PTT (nota de voz) exige exatamente 'audio/ogg; codecs=opus' no WhatsApp
-        mimetype: isOggOpus ? 'audio/ogg; codecs=opus' : (opts?.mime || 'audio/mpeg'),
-        ptt: isOggOpus,
+        mimetype: isOgg ? 'audio/ogg; codecs=opus' : (opts?.mime || 'audio/mpeg'),
+        ptt: isOgg,
       };
     }
     return {
@@ -848,7 +889,7 @@ export class BaileysService {
     to: string,
     kind: 'image' | 'audio' | 'video',
     filePath: string,
-    opts?: { caption?: string; mime?: string },
+    opts?: { caption?: string; mime?: string; quoted?: { externalId: string; content: string; fromMe: boolean } | null },
   ): Promise<SendMessageResult> {
     const sock = this.sessions.get(tenantId);
     this.logger.log(`[OUTBOUND-MEDIA] tenantId=${tenantId} kind=${kind} mime=${opts?.mime ?? 'n/a'} para=${to}`);
@@ -860,15 +901,41 @@ export class BaileysService {
       this.logger.warn(`[OUTBOUND-MEDIA] Ficheiro não encontrado: ${filePath}`);
       return { success: false, error: 'Ficheiro de mídia não encontrado' };
     }
-    const buffer = fs.readFileSync(filePath);
+    const rawBuffer = fs.readFileSync(filePath);
+
+    // Transcodifica WebM → OGG/Opus antes de enviar ao WhatsApp.
+    // O WhatsApp não entrega audio/webm ao destinatário — só aceita ogg, mpeg e mp4.
+    // Se o ffmpeg não estiver disponível ou falhar, usa o webm como fallback.
+    let buffer = rawBuffer;
+    let effectiveOpts = opts;
+    if (kind === 'audio' && (opts?.mime || '').includes('webm')) {
+      const tmpOut = path.join(os.tmpdir(), `wa-audio-${Date.now()}.ogg`);
+      try {
+        execFileSync('ffmpeg', ['-i', filePath, '-c:a', 'libopus', '-b:a', '64k', '-y', tmpOut], {
+          timeout: 15000,
+          stdio: 'ignore',
+        });
+        buffer = fs.readFileSync(tmpOut);
+        effectiveOpts = { ...opts, mime: 'audio/ogg' };
+        this.logger.log('[OUTBOUND-MEDIA] WebM → OGG/Opus via ffmpeg');
+      } catch (err: any) {
+        this.logger.warn(`[OUTBOUND-MEDIA] ffmpeg falhou (${err?.message ?? 'erro desconhecido'}), enviando webm como fallback`);
+      } finally {
+        try { fs.unlinkSync(tmpOut); } catch { /* ignora */ }
+      }
+    }
+
     try {
       let digits = to.replace(/\D/g, '');
       if (digits.length >= 14) {
         const jid = `${digits}@lid`;
         this.logger.log(`[OUTBOUND-MEDIA] LID detectado → ${jid}`);
+        const quotedWAMsgMedia = opts?.quoted
+          ? { key: { id: opts.quoted.externalId, remoteJid: jid, fromMe: opts.quoted.fromMe }, message: { conversation: opts.quoted.content } }
+          : undefined;
         return await this.enqueueOutbound(tenantId, async () => {
-          const payload = this.buildBaileysMediaPayload(kind, buffer, opts);
-          const result = await sock.sendMessage(jid, payload as any);
+          const payload = this.buildBaileysMediaPayload(kind, buffer, effectiveOpts);
+          const result = await sock.sendMessage(jid, payload as any, quotedWAMsgMedia ? { quoted: quotedWAMsgMedia as any } : undefined);
           const messageId = result?.key?.id ?? null;
           this.logger.log(`[OUTBOUND-MEDIA] Enviado! JID=${jid} messageId=${messageId}`);
           return { success: true as const, jid, messageId };
@@ -886,10 +953,13 @@ export class BaileysService {
       } catch {
         /* usa JID estimado */
       }
+      const quotedWAMsgMedia = opts?.quoted
+        ? { key: { id: opts.quoted.externalId, remoteJid: jid, fromMe: opts.quoted.fromMe }, message: { conversation: opts.quoted.content } }
+        : undefined;
       this.logger.log(`[OUTBOUND-MEDIA] Enviando para JID: ${jid}`);
       return await this.enqueueOutbound(tenantId, async () => {
-        const payload = this.buildBaileysMediaPayload(kind, buffer, opts);
-        const result = await sock.sendMessage(jid, payload as any);
+        const payload = this.buildBaileysMediaPayload(kind, buffer, effectiveOpts);
+        const result = await sock.sendMessage(jid, payload as any, quotedWAMsgMedia ? { quoted: quotedWAMsgMedia as any } : undefined);
         const messageId = result?.key?.id ?? null;
         this.logger.log(`[OUTBOUND-MEDIA] Enviado! JID=${jid} messageId=${messageId}`);
         return { success: true as const, jid, messageId };

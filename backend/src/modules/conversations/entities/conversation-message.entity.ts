@@ -1,6 +1,14 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
 import { Conversation } from './conversation.entity';
 
+/** Snapshot mínimo da mensagem citada — anexado em runtime, não persistido neste campo. */
+export interface ReplyToSnapshot {
+  id: string;
+  authorName: string;
+  content: string;
+  mediaKind: string | null;
+}
+
 @Entity('conversation_messages')
 export class ConversationMessage {
   @PrimaryGeneratedColumn('uuid')
@@ -46,7 +54,14 @@ export class ConversationMessage {
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 
+  /** ID da mensagem respondida (reply). Nullable; SET NULL se original for deletada. */
+  @Column({ name: 'reply_to_id', type: 'uuid', nullable: true })
+  replyToId: string | null;
+
   @ManyToOne(() => Conversation, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'conversation_id' })
   conversation: Conversation;
+
+  /** Snapshot da mensagem citada — populado em runtime pelo service, não é coluna. */
+  replyTo?: ReplyToSnapshot | null;
 }

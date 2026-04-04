@@ -7,7 +7,7 @@ import { useAuthStore, hasPermission } from '@/store/auth.store';
 import {
   MessageSquare, Send, Phone, RefreshCw, Lock, ExternalLink, Plus, Link2, Globe,
   Check, Search, X, CheckCircle2, User, Mail, MapPin, Building2, Hash, Tag, Edit2,
-  Paperclip, Image as ImageIcon, Mic, Video,
+  Paperclip, Image as ImageIcon, Mic, StopCircle, Video, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { EmojiPicker } from '@/components/ui/EmojiPicker';
 import ContactValidationBanner, { type ResolvedData } from '@/components/atendimento/ContactValidationBanner';
@@ -157,11 +157,13 @@ const MessageItem = memo(function MessageItem({
   isWhatsapp,
   highlight,
   mediaUrl,
+  onReply,
 }: {
   m: any;
   isWhatsapp: boolean;
   highlight?: string;
   mediaUrl?: string | null;
+  onReply?: (msg: any) => void;
 }) {
   const isContact = m.authorType === 'contact';
   const isSystem  = m.messageType === 'system';
@@ -217,6 +219,28 @@ const MessageItem = memo(function MessageItem({
           opacity: m._optimistic ? 0.75 : 1,
           transition: 'opacity 0.2s',
         }}>
+          {/* Bloco de citação (reply) */}
+          {m.replyTo && (
+            <div style={{
+              borderLeft: `3px solid ${isContact ? accent : 'rgba(255,255,255,.6)'}`,
+              background: isContact ? 'rgba(79,70,229,.07)' : 'rgba(255,255,255,.15)',
+              borderRadius: 6,
+              padding: '5px 10px',
+              marginBottom: 8,
+              fontSize: 12,
+              opacity: 0.9,
+            }}>
+              <div style={{ fontWeight: 600, marginBottom: 2, color: isContact ? accent : 'rgba(255,255,255,.9)' }}>
+                {m.replyTo.authorName}
+              </div>
+              <div style={{ color: isContact ? txt2 : 'rgba(255,255,255,.8)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 320 }}>
+                {m.replyTo.mediaKind === 'image' ? '📷 Imagem'
+                  : m.replyTo.mediaKind === 'audio' ? '🎤 Áudio'
+                  : m.replyTo.mediaKind === 'video' ? '📹 Vídeo'
+                  : m.replyTo.content}
+              </div>
+            </div>
+          )}
           {m.mediaKind === 'image' && resolvedMediaSrc && (
             <InlineChatMedia
               src={resolvedMediaSrc}
@@ -263,6 +287,23 @@ const MessageItem = memo(function MessageItem({
             {!isContact && <MessageStatusIcon status={m.whatsappStatus} isWhatsapp={isWhatsapp} />}
           </div>
         </div>
+        {/* Botão Responder — visível somente em mensagens reais (não otimistas) */}
+        {onReply && !m._optimistic && !String(m.id).startsWith('_opt') && (
+          <button
+            type="button"
+            onClick={() => onReply(m)}
+            title="Responder"
+            style={{
+              background: 'none', border: 'none', cursor: 'pointer', padding: '4px 6px',
+              color: txt3, fontSize: 11, borderRadius: 6, alignSelf: 'center', flexShrink: 0,
+              opacity: 0.6, transition: 'opacity .15s',
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.opacity = '1')}
+            onMouseLeave={(e) => (e.currentTarget.style.opacity = '0.6')}
+          >
+            ↩
+          </button>
+        )}
       </div>
     </div>
   );
@@ -293,6 +334,8 @@ type ChatComposerProps = {
   onRecordedAudio: (file: File) => void;
   onRemovePendingFile: () => void;
   onInsertEmoji: (emoji: string) => void;
+  replyingTo?: any | null;
+  onCancelReply?: () => void;
 };
 
 function ChatComposer({
@@ -317,6 +360,8 @@ function ChatComposer({
   onRecordedAudio,
   onRemovePendingFile,
   onInsertEmoji,
+  replyingTo,
+  onCancelReply,
 }: ChatComposerProps) {
   const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
@@ -507,7 +552,7 @@ function ChatComposer({
     { kind: 'video', label: 'Video MP4', icon: <Video size={15} strokeWidth={2} />, description: 'Enviar video MP4' },
   ];
   const recordingLabel = `${String(Math.floor(recordingSeconds / 60)).padStart(2, '0')}:${String(recordingSeconds % 60).padStart(2, '0')}`;
-  const canUseMicrophone = canSend && !isSending && !pendingFile;
+  const showMicButton = canSend && !isSending && !inputValue.trim() && !pendingFile && !isRecording;
 
   return (
     <div style={{ borderTop: borderColor, background: backgroundColor, padding: 0, flexShrink: 0 }}>
@@ -519,6 +564,37 @@ function ChatComposer({
         onChange={onPendingFileChange}
       />
       <form onSubmit={onSubmit}>
+        {/* Preview da mensagem sendo respondida */}
+        {replyingTo && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            padding: '8px 16px 0',
+            borderTop: '1px solid rgba(0,0,0,.06)',
+          }}>
+            <div style={{
+              flex: 1, borderLeft: '3px solid #4F46E5', background: '#EEF2FF',
+              borderRadius: 6, padding: '5px 10px', fontSize: 12, minWidth: 0,
+            }}>
+              <div style={{ fontWeight: 600, color: '#4F46E5', marginBottom: 2 }}>
+                {replyingTo.authorName}
+              </div>
+              <div style={{ color: '#6B6B80', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {replyingTo.mediaKind === 'image' ? '📷 Imagem'
+                  : replyingTo.mediaKind === 'audio' ? '🎤 Áudio'
+                  : replyingTo.mediaKind === 'video' ? '📹 Vídeo'
+                  : replyingTo.content}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onCancelReply}
+              title="Cancelar resposta"
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94A3B8', fontSize: 16, padding: '0 4px', lineHeight: 1 }}
+            >
+              ×
+            </button>
+          </div>
+        )}
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, padding: '12px 16px' }}>
           <div ref={attachmentMenuRef} style={{ position: 'relative', flexShrink: 0 }}>
             <button
@@ -660,28 +736,6 @@ function ChatComposer({
             )}
 
             <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10 }}>
-              <button
-                type="button"
-                onClick={isRecording ? stopRecording : startRecording}
-                disabled={(!isRecording && !canUseMicrophone) || isSending}
-                title={isRecording ? 'Parar gravacao' : 'Gravar audio'}
-                style={{
-                  width: 40,
-                  height: 40,
-                  borderRadius: 11,
-                  border: '1px solid rgba(0,0,0,.08)',
-                  background: isRecording ? '#FEE2E2' : ((!canUseMicrophone || isSending) ? '#F1F5F9' : '#F8FAFC'),
-                  color: isRecording ? '#DC2626' : ((!canUseMicrophone || isSending) ? '#94A3B8' : mutedTextColor),
-                  cursor: ((!isRecording && !canUseMicrophone) || isSending) ? 'not-allowed' : 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                  transition: 'background .15s, border-color .15s',
-                }}
-              >
-                <Mic size={16} strokeWidth={2} />
-              </button>
               <textarea
                 ref={inputRef}
                 value={inputValue}
@@ -709,25 +763,72 @@ function ChatComposer({
                 }}
               />
               <EmojiPicker onSelect={onInsertEmoji} position="top" />
-              <button
-                type="submit"
-                disabled={isSending || isRecording || !canSend || (!inputValue.trim() && !pendingFile)}
-                style={{
-                  width: 40,
-                  height: 40,
-                  borderRadius: 11,
-                  border: 'none',
-                  background: isSending || isRecording || !canSend || (!inputValue.trim() && !pendingFile) ? '#E2E8F0' : accentColor,
-                  cursor: isSending || isRecording || !canSend || (!inputValue.trim() && !pendingFile) ? 'not-allowed' : 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                  transition: 'background .15s',
-                }}
-              >
-                <Send size={16} color="#fff" strokeWidth={2} />
-              </button>
+              {/* Botão dinâmico: Mic (campo vazio) | Stop (gravando) | Send (tem texto/arquivo) */}
+              {isRecording ? (
+                <button
+                  type="button"
+                  onClick={stopRecording}
+                  title="Parar gravacao"
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 11,
+                    border: '1px solid rgba(220,38,38,.25)',
+                    background: '#FEE2E2',
+                    color: '#DC2626',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                    transition: 'background .15s',
+                  }}
+                >
+                  <StopCircle size={16} strokeWidth={2} />
+                </button>
+              ) : showMicButton ? (
+                <button
+                  type="button"
+                  onClick={startRecording}
+                  title="Gravar audio"
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 11,
+                    border: '1px solid rgba(0,0,0,.08)',
+                    background: '#F8FAFC',
+                    color: mutedTextColor,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                    transition: 'background .15s',
+                  }}
+                >
+                  <Mic size={16} strokeWidth={2} />
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={isSending || !canSend || (!inputValue.trim() && !pendingFile)}
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 11,
+                    border: 'none',
+                    background: isSending || !canSend || (!inputValue.trim() && !pendingFile) ? '#E2E8F0' : accentColor,
+                    cursor: isSending || !canSend || (!inputValue.trim() && !pendingFile) ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                    transition: 'background .15s',
+                  }}
+                >
+                  <Send size={16} color="#fff" strokeWidth={2} />
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -764,6 +865,10 @@ export default function AtendimentoPage() {
   const tagDropdownRef = useRef<HTMLDivElement>(null);
   const [input, setInput] = useState('');
   const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [replyingTo, setReplyingTo] = useState<any | null>(null);
+  const [panelOpen, setPanelOpen] = useState(() => {
+    try { return localStorage.getItem('atend_panel_open') !== 'false'; } catch { return true; }
+  });
   const attachFileInputRef = useRef<HTMLInputElement>(null);
   const [messageMediaUrls, setMessageMediaUrls] = useState<Record<string, string>>({});
   const [sending, setSending] = useState(false);
@@ -1583,6 +1688,7 @@ export default function AtendimentoPage() {
     e.preventDefault();
     const text = input.trim();
     const file = pendingFile;
+    const currentReplyingTo = replyingTo;
     if ((!text && !file) || !selected?.id) return;
     const ticketId = isTicketType ? (selected.ticketId || selected.id?.replace?.(/^ticket:/, '')) : selected?.ticketId;
     const channel = selected?.channel || 'whatsapp';
@@ -1617,9 +1723,12 @@ export default function AtendimentoPage() {
       mediaKind: previewKind,
       hasMedia: !!file,
       _localPreviewUrl: localPreviewUrl,
+      replyToId: currentReplyingTo?.id ?? null,
+      replyTo: currentReplyingTo ?? null,
     }]);
     setInput('');
     setPendingFile(null);
+    setReplyingTo(null);
     if (attachFileInputRef.current) attachFileInputRef.current.value = '';
     setSending(true);
 
@@ -1641,15 +1750,15 @@ export default function AtendimentoPage() {
         if (!convTarget) {
           throw new Error('Conversa não encontrada para enviar ficheiro. Vincule ou abra a conversa do ticket.');
         }
-        res = await api.addConversationMessage(convTarget, { content: text || undefined, file });
+        res = await api.addConversationMessage(convTarget, { content: text || undefined, file, replyToId: currentReplyingTo?.id ?? null });
       } else if (isTicketType && ticketId) {
         res = await api.addMessage(ticketId, { content: text, messageType: 'comment' });
       } else if (channel === 'whatsapp' && whatsappConvId) {
-        res = await api.addConversationMessage(whatsappConvId, { content: text });
+        res = await api.addConversationMessage(whatsappConvId, { content: text, replyToId: currentReplyingTo?.id ?? null });
       } else if (channel === 'whatsapp' && ticketId) {
         res = await api.sendWhatsappFromTicket(ticketId, text);
       } else {
-        res = await api.addConversationMessage(selected.id, { content: text });
+        res = await api.addConversationMessage(selected.id, { content: text, replyToId: currentReplyingTo?.id ?? null });
       }
 
       // Extrai objeto de mensagem da resposta da API (vários formatos possíveis)
@@ -1816,6 +1925,7 @@ export default function AtendimentoPage() {
   useEffect(() => {
     const toRevoke = { ...messageMediaUrlsRef.current };
     setMessageMediaUrls({});
+    setReplyingTo(null);
     mediaInFlightRef.current.clear();
     Object.values(toRevoke).forEach((u) => URL.revokeObjectURL(u));
   }, [selected?.id]);
@@ -1830,13 +1940,13 @@ export default function AtendimentoPage() {
         mediaInFlightRef.current.add(String(m.id));
         try {
           const blob = await api.getConversationMessageMediaBlob(m.id);
-          if (cancelled) return;
           const url = URL.createObjectURL(blob);
+          // Não verifica `cancelled` aqui: o fetch já completou com sucesso.
+          // Se a conversa trocou, o effect de selected?.id já limpou messageMediaUrls,
+          // então esta atualização é inócua. Verificar cancelled após o await
+          // causava race condition onde a mídia ficava em loading infinito.
           setMessageMediaUrls((prev) => {
-            if (prev[m.id]) {
-              URL.revokeObjectURL(url);
-              return prev;
-            }
+            if (prev[m.id]) { URL.revokeObjectURL(url); return prev; }
             return { ...prev, [m.id]: url };
           });
         } catch {
@@ -2383,11 +2493,11 @@ export default function AtendimentoPage() {
                       </span>
                       <span style={{ color: S.txt3 }}>·</span>
                       <span>{customerName(selected.clientId)}</span>
-                      {/* Número do contato visível no cabeçalho */}
-                      {contacts[0]?.whatsapp && isWhatsapp && (
+                      {/* Número do contato da conversa atual (usa contactId, não contacts[0]) */}
+                      {contacts.find((c: any) => c.id === selected?.contactId)?.whatsapp && isWhatsapp && (
                         <>
                           <span style={{ color: S.txt3 }}>·</span>
-                          <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 10 }}>{formatWhatsApp(contacts[0].whatsapp)}</span>
+                          <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 10 }}>{formatWhatsApp(contacts.find((c: any) => c.id === selected?.contactId)!.whatsapp)}</span>
                         </>
                       )}
                       {selected.lastMessageAt && (
@@ -2406,6 +2516,12 @@ export default function AtendimentoPage() {
                       title="Buscar na conversa (Ctrl+F)"
                       style={{ width: 30, height: 30, borderRadius: 8, border: S.border2, background: msgSearchOpen ? S.accentLight : S.bg2, color: msgSearchOpen ? S.accent : S.txt2, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                       <Search size={14} strokeWidth={1.8} />
+                    </button>
+                    <button
+                      onClick={() => { const next = !panelOpen; setPanelOpen(next); try { localStorage.setItem('atend_panel_open', String(next)); } catch {} }}
+                      title={panelOpen ? 'Fechar painel de contato' : 'Abrir painel de contato'}
+                      style={{ width: 30, height: 30, borderRadius: 8, border: S.border2, background: panelOpen ? S.accentLight : S.bg2, color: panelOpen ? S.accent : S.txt2, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      {panelOpen ? <ChevronRight size={14} strokeWidth={1.8} /> : <ChevronLeft size={14} strokeWidth={1.8} />}
                     </button>
                     {hasTicket && (
                       <Link href={`/dashboard/tickets/${selected.ticketId}`} target="_blank"
@@ -2550,7 +2666,7 @@ export default function AtendimentoPage() {
                             id={`msg-${m.id}`}
                             style={isCurrentMatch ? { borderRadius: 14, outline: '2px solid #FDE68A', outlineOffset: 3 } : undefined}
                           >
-                            <MessageItem m={m} isWhatsapp={isWhatsapp} highlight={msgSearchQuery.trim() || undefined} mediaUrl={messageMediaUrls[m.id] ?? null} />
+                            <MessageItem m={m} isWhatsapp={isWhatsapp} highlight={msgSearchQuery.trim() || undefined} mediaUrl={messageMediaUrls[m.id] ?? null} onReply={setReplyingTo} />
                           </div>
                         );
                       })}
@@ -2617,6 +2733,8 @@ export default function AtendimentoPage() {
                     onRecordedAudio={handleRecordedAudio}
                     onRemovePendingFile={clearPendingFile}
                     onInsertEmoji={insertEmoji}
+                    replyingTo={replyingTo}
+                    onCancelReply={() => setReplyingTo(null)}
                   />
               )}
               {isClosed && (
@@ -2628,8 +2746,8 @@ export default function AtendimentoPage() {
           )}
         </div>
 
-        {/* ══════════ CLIENT PANEL (290px) ══════════ */}
-        <div style={{ width: 290, borderLeft: S.border, background: S.bg, display: 'flex', flexDirection: 'column', overflowY: 'auto', flexShrink: 0 }}>
+        {/* ══════════ CLIENT PANEL (290px, colapsável) ══════════ */}
+        <div style={{ width: panelOpen ? 290 : 0, borderLeft: panelOpen ? S.border : 'none', background: S.bg, display: 'flex', flexDirection: 'column', overflow: panelOpen ? 'auto' : 'hidden', flexShrink: 0, transition: 'width .2s ease' }}>
           {selected ? (() => {
             const customer = customers.find((c: any) => c.id === selected?.clientId);
             const contact = contacts.find((c: any) => c.id === (selected?.contactId || currentTicket?.contactId)) || null;
@@ -2820,7 +2938,6 @@ export default function AtendimentoPage() {
                     {field('Empresa', <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140, display: 'block' }}>{customer.tradeName || customer.companyName || '—'}</span>)}
                     {customer.networkName && field('Rede', customer.networkName)}
                     {customer.cnpj && field('CNPJ', <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11 }}>{customer.cnpj}</span>)}
-                    {contact?.phone && field('Telefone', <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11 }}>{formatWhatsApp(contact.phone)}</span>)}
                     {contact?.whatsapp && field('WhatsApp', <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11 }}>{formatWhatsApp(contact.whatsapp)}</span>)}
                     {contact?.email && field('E-mail', <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140, display: 'block', color: S.accent }}>{contact.email}</span>)}
                     {customer.city && field('Cidade', `${customer.city}${customer.state ? `, ${customer.state}` : ''}`)}
