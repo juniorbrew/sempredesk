@@ -51,6 +51,7 @@ export function conversationMediaDiskStorage() {
       if (mime.includes('png')) ext = 'png';
       else if (mime.includes('webp')) ext = 'webp';
       else if (mime.startsWith('image/')) ext = 'jpg';
+      else if (mime.includes('webm')) ext = 'webm';
       else if (mime.includes('ogg')) ext = 'ogg';
       else if (mime.includes('mpeg') || mime.includes('mp3')) ext = 'mp3';
       else if (mime.startsWith('video/')) {

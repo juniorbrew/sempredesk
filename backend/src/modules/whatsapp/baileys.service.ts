@@ -826,12 +826,14 @@ export class BaileysService {
       return { image: buffer, caption: opts?.caption || undefined };
     }
     if (kind === 'audio') {
-      const isOggOpus = !!(opts?.mime && (opts.mime.includes('ogg') || opts.mime.includes('opus')));
+      // PTT (nota de voz) só funciona com OGG/Opus — os bytes devem ser OGG, não WebM.
+      // audio/webm (gravação do browser Chrome) é enviado como arquivo normal (ptt=false).
+      const mimeBase = (opts?.mime || '').split(';')[0].trim();
+      const isOgg = mimeBase === 'audio/ogg';
       return {
         audio: buffer,
-        // PTT (nota de voz) exige exatamente 'audio/ogg; codecs=opus' no WhatsApp
-        mimetype: isOggOpus ? 'audio/ogg; codecs=opus' : (opts?.mime || 'audio/mpeg'),
-        ptt: isOggOpus,
+        mimetype: isOgg ? 'audio/ogg; codecs=opus' : (opts?.mime || 'audio/mpeg'),
+        ptt: isOgg,
       };
     }
     return {
