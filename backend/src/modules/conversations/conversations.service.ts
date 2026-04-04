@@ -890,45 +890,47 @@ export class ConversationsService {
 
     // Envia via WhatsApp quando é mensagem do agente em conversa WhatsApp
     // skipOutbound=true quando o envio já foi feito pelo chamador (ex.: sendReplyFromTicket)
+    // Fire-and-forget: retornamos `saved` imediatamente para o HTTP não segurar a resposta
+    // enquanto o Baileys faz o upload — isso evitava que múltiplos setMessages no frontend
+    // cancelassem o useEffect responsável por buscar o blob da mídia.
     if (!opts?.skipOutbound && authorType === 'user' && conv.channel === ConversationChannel.WHATSAPP && this.outboundSender) {
-      try {
-        const contact = await this.customersService.findContactById(tenantId, conv.contactId);
-        if (contact?.whatsapp) {
-          const absMedia =
-            opts?.mediaKind && opts?.mediaStorageKey
-              ? path.join(this.mediaRoot, opts.mediaStorageKey)
-              : null;
-          const outboundPayload =
-            opts?.mediaKind && absMedia && await fs.promises.access(absMedia).then(() => true).catch(() => false)
-              ? {
-                  kind: opts.mediaKind,
-                  filePath: absMedia,
-                  caption: (opts && 'mediaCaption' in opts) ? (opts.mediaCaption || undefined) : (content || undefined),
-                  mime: opts.mediaMime || undefined,
-                }
-              : content;
-          const raw = await this.outboundSender(tenantId, contact.whatsapp, outboundPayload as any);
-          const sendResult = typeof raw === 'boolean' ? { success: raw } : raw;
-          if (sendResult.success) {
-            const externalId = sendResult.messageId ?? null;
-            await this.msgRepo.update(saved.id, { externalId, whatsappStatus: 'sent' });
-            saved.externalId = externalId;
-            saved.whatsappStatus = 'sent';
-            // Re-emite com status atualizado para o frontend atualizar o ícone sem reload
-            emitMsg('sent');
-          } else {
-            await this.msgRepo.update(saved.id, { whatsappStatus: 'failed' });
-            saved.whatsappStatus = 'failed';
-            emitMsg('failed');
-            console.warn(`[ConversationsService] Mensagem salva mas envio WhatsApp falhou (conv=${conversationId}): ${sendResult.error ?? 'sem detalhes'}`);
+      const savedId = saved.id;
+      void (async () => {
+        try {
+          const contact = await this.customersService.findContactById(tenantId, conv.contactId);
+          if (contact?.whatsapp) {
+            const absMedia =
+              opts?.mediaKind && opts?.mediaStorageKey
+                ? path.join(this.mediaRoot, opts.mediaStorageKey)
+                : null;
+            const outboundPayload =
+              opts?.mediaKind && absMedia && await fs.promises.access(absMedia).then(() => true).catch(() => false)
+                ? {
+                    kind: opts.mediaKind,
+                    filePath: absMedia,
+                    caption: (opts && 'mediaCaption' in opts) ? (opts.mediaCaption || undefined) : (content || undefined),
+                    mime: opts.mediaMime || undefined,
+                  }
+                : content;
+            const raw = await this.outboundSender(tenantId, contact.whatsapp, outboundPayload as any);
+            const sendResult = typeof raw === 'boolean' ? { success: raw } : raw;
+            if (sendResult.success) {
+              const externalId = sendResult.messageId ?? null;
+              await this.msgRepo.update(savedId, { externalId, whatsappStatus: 'sent' });
+              emitMsg('sent');
+            } else {
+              await this.msgRepo.update(savedId, { whatsappStatus: 'failed' });
+              emitMsg('failed');
+              console.warn(`[ConversationsService] Mensagem salva mas envio WhatsApp falhou (conv=${conversationId}): ${sendResult.error ?? 'sem detalhes'}`);
+            }
           }
+        } catch (e) {
+          // Falha no envio WhatsApp não deve impedir o salvamento da mensagem
+          await this.msgRepo.update(savedId, { whatsappStatus: 'failed' }).catch(() => {});
+          emitMsg('failed');
+          console.error('[ConversationsService] Falha ao enviar mensagem outbound WhatsApp:', e);
         }
-      } catch (e) {
-        // Falha no envio WhatsApp não deve impedir o salvamento da mensagem
-        await this.msgRepo.update(saved.id, { whatsappStatus: 'failed' }).catch(() => {});
-        emitMsg('failed');
-        console.error('[ConversationsService] Falha ao enviar mensagem outbound WhatsApp:', e);
-      }
+      })();
     }
 
     return saved;
