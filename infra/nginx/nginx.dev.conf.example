@@ -1,8 +1,11 @@
-# Modelo para desenvolvimento local. Copiar para nginx.dev.conf (não versionado):
+# Modelo para desenvolvimento local (.dev.* — não versionar a cópia sem .example).
 #   cp infra/nginx/nginx.dev.conf.example infra/nginx/nginx.dev.conf
 #
-# Nginx — apenas desenvolvimento local (sem SSL, sem redirects de produção).
-# Ativado por docker-compose.override.yml (não versionado).
+# Ativar com docker-compose.dev.example.yml → docker-compose.override.yml ou
+# docker-compose.dev.yml (ver comentários no topo desse ficheiro).
+#
+# Nginx — só desenvolvimento (sem SSL, sem redirects de produção).
+# Produção usa sempre infra/nginx/nginx.conf (versionado).
 
 events {}
 http {

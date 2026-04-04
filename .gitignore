@@ -1,3 +1,9 @@
+# =============================================================================
+# SempreDesk — .gitignore
+# Regra: nada de ambiente local ou credenciais no repositório.
+# Modelos versionados: *.example, *.dev.example.yml, .env.example
+# =============================================================================
+
 # Node
 node_modules/
 npm-debug.log*
@@ -21,6 +27,12 @@ logs/
 .env.production
 .env.staging
 .env.*.local
+# Variantes explícitas de desenvolvimento (.dev.* / .local.*)
+.env.dev
+.env.development
+**/.env.dev
+**/.env.development
+**/.env.local
 # Permitir apenas o exemplo sem segredos
 !.env.example
 
@@ -33,8 +45,12 @@ Thumbs.db
 
 # Docker
 *.pid
-# Override local: Nginx dev sem SSL (não versionar)
+# ── Compose local (não versionar) ─────────────────────────────────────────
+# docker-compose.override.yml é o nome que o Docker Compose funde automaticamente.
 docker-compose.override.yml
+docker-compose.dev.yml
+docker-compose.local.yml
+# ── Infra local (.dev.*) ───────────────────────────────────────────────────
 infra/nginx/nginx.dev.conf
 
 # WhatsApp sessions — contém dados de sessão autenticada

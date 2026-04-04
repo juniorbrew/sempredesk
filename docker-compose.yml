@@ -1,3 +1,13 @@
+# SempreDesk — ficheiro base de stack (produção / referência).
+# Não colocar segredos aqui; use .env na raiz (lista de chaves em .env.example).
+#
+# Desenvolvimento local (gitignored — ver .gitignore):
+#   • docker-compose.override.yml — fundido automaticamente em `docker compose up`
+#   • docker-compose.dev.yml — explícito: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+# Modelos: docker-compose.dev.example.yml, infra/nginx/nginx.dev.conf.example
+#
+# Nginx em produção: infra/nginx/nginx.conf (SSL). Não substituir na VPS por ficheiros .dev.*.
+
 services:
   # ─────────────────────────────────────────
   # PostgreSQL
@@ -133,7 +143,8 @@ services:
 
 
   # ─────────────────────────────────────────
-  # Nginx (Reverse Proxy)
+  # Nginx (Reverse Proxy) — produção: infra/nginx/nginx.conf
+  # Dev local: nginx.dev.conf via override / docker-compose.dev.yml (ver cabeçalho deste ficheiro).
   # ─────────────────────────────────────────
   nginx:
     image: nginx:alpine

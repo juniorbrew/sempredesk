@@ -1,0 +1,23 @@
+# =============================================================================
+# MODELO — desenvolvimento local (Nginx sem SSL). NÃO editar a cópia no Git.
+# =============================================================================
+# Copiar para um destes ficheiros na raiz (ambos estão no .gitignore):
+#
+#   Opção A (recomendada — merge automático):
+#     cp docker-compose.dev.example.yml docker-compose.override.yml
+#     docker compose up -d
+#
+#   Opção B (ficheiro com sufixo .dev explícito):
+#     cp docker-compose.dev.example.yml docker-compose.dev.yml
+#     docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#
+# Antes, copie também o Nginx de dev:
+#     cp infra/nginx/nginx.dev.conf.example infra/nginx/nginx.dev.conf
+#
+# Produção (VPS): não usar estes ficheiros — apenas docker-compose.yml + nginx.conf.
+# =============================================================================
+
+services:
+  nginx:
+    volumes:
+      - ./infra/nginx/nginx.dev.conf:/etc/nginx/nginx.conf:ro
