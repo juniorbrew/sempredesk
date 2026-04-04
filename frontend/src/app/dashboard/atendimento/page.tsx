@@ -1830,13 +1830,13 @@ export default function AtendimentoPage() {
         mediaInFlightRef.current.add(String(m.id));
         try {
           const blob = await api.getConversationMessageMediaBlob(m.id);
-          if (cancelled) return;
           const url = URL.createObjectURL(blob);
+          // Não verifica `cancelled` aqui: o fetch já completou com sucesso.
+          // Se a conversa trocou, o effect de selected?.id já limpou messageMediaUrls,
+          // então esta atualização é inócua. Verificar cancelled após o await
+          // causava race condition onde a mídia ficava em loading infinito.
           setMessageMediaUrls((prev) => {
-            if (prev[m.id]) {
-              URL.revokeObjectURL(url);
-              return prev;
-            }
+            if (prev[m.id]) { URL.revokeObjectURL(url); return prev; }
             return { ...prev, [m.id]: url };
           });
         } catch {

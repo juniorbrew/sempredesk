@@ -5,6 +5,8 @@ import { Subject, Observable } from 'rxjs';
 import { EventEmitter } from 'events';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
+import { execFileSync } from 'child_process';
 import { WhatsappConnection, WhatsappConnectionStatus, WhatsappProvider } from './entities/whatsapp-connection.entity';
 import { StorageQuotaService } from '../storage/storage-quota.service';
 
@@ -862,14 +864,37 @@ export class BaileysService {
       this.logger.warn(`[OUTBOUND-MEDIA] Ficheiro não encontrado: ${filePath}`);
       return { success: false, error: 'Ficheiro de mídia não encontrado' };
     }
-    const buffer = fs.readFileSync(filePath);
+    const rawBuffer = fs.readFileSync(filePath);
+
+    // Transcodifica WebM → OGG/Opus antes de enviar ao WhatsApp.
+    // O WhatsApp não entrega audio/webm ao destinatário — só aceita ogg, mpeg e mp4.
+    // Se o ffmpeg não estiver disponível ou falhar, usa o webm como fallback.
+    let buffer = rawBuffer;
+    let effectiveOpts = opts;
+    if (kind === 'audio' && (opts?.mime || '').includes('webm')) {
+      const tmpOut = path.join(os.tmpdir(), `wa-audio-${Date.now()}.ogg`);
+      try {
+        execFileSync('ffmpeg', ['-i', filePath, '-c:a', 'libopus', '-b:a', '64k', '-y', tmpOut], {
+          timeout: 15000,
+          stdio: 'ignore',
+        });
+        buffer = fs.readFileSync(tmpOut);
+        effectiveOpts = { ...opts, mime: 'audio/ogg' };
+        this.logger.log('[OUTBOUND-MEDIA] WebM → OGG/Opus via ffmpeg');
+      } catch (err: any) {
+        this.logger.warn(`[OUTBOUND-MEDIA] ffmpeg falhou (${err?.message ?? 'erro desconhecido'}), enviando webm como fallback`);
+      } finally {
+        try { fs.unlinkSync(tmpOut); } catch { /* ignora */ }
+      }
+    }
+
     try {
       let digits = to.replace(/\D/g, '');
       if (digits.length >= 14) {
         const jid = `${digits}@lid`;
         this.logger.log(`[OUTBOUND-MEDIA] LID detectado → ${jid}`);
         return await this.enqueueOutbound(tenantId, async () => {
-          const payload = this.buildBaileysMediaPayload(kind, buffer, opts);
+          const payload = this.buildBaileysMediaPayload(kind, buffer, effectiveOpts);
           const result = await sock.sendMessage(jid, payload as any);
           const messageId = result?.key?.id ?? null;
           this.logger.log(`[OUTBOUND-MEDIA] Enviado! JID=${jid} messageId=${messageId}`);
@@ -890,7 +915,7 @@ export class BaileysService {
       }
       this.logger.log(`[OUTBOUND-MEDIA] Enviando para JID: ${jid}`);
       return await this.enqueueOutbound(tenantId, async () => {
-        const payload = this.buildBaileysMediaPayload(kind, buffer, opts);
+        const payload = this.buildBaileysMediaPayload(kind, buffer, effectiveOpts);
         const result = await sock.sendMessage(jid, payload as any);
         const messageId = result?.key?.id ?? null;
         this.logger.log(`[OUTBOUND-MEDIA] Enviado! JID=${jid} messageId=${messageId}`);
