@@ -1,11 +1,19 @@
-# Modelo para desenvolvimento local (.dev.* — não versionar a cópia sem .example).
+# =============================================================================
+# MODELO OFICIAL — Nginx apenas para DESENVOLVIMENTO LOCAL
+# =============================================================================
+# Copiar para: infra/nginx/nginx.dev.conf  (ficheiro ignorado pelo Git)
 #   cp infra/nginx/nginx.dev.conf.example infra/nginx/nginx.dev.conf
 #
-# Ativar com docker-compose.dev.example.yml → docker-compose.override.yml ou
-# docker-compose.dev.yml (ver comentários no topo desse ficheiro).
+# PRODUÇÃO (nunca substituir por este ficheiro):
+#   • infra/nginx/nginx.conf — SSL Let's Encrypt, server_name reais, redirects.
+#   • Versionado; alterações só com revisão explícita e testes em staging/prod.
 #
-# Nginx — só desenvolvimento (sem SSL, sem redirects de produção).
-# Produção usa sempre infra/nginx/nginx.conf (versionado).
+# DESENVOLVIMENTO (este modelo):
+#   • Sem listen 443, sem certificados, sem redirects de domínio de produção.
+#   • Um único server HTTP (default_server) para backend:4000 e frontend:3000.
+#
+# Ativação: ver cabeçalho de docker-compose.dev.example.yml (override ou -f .dev).
+# =============================================================================
 
 events {}
 http {

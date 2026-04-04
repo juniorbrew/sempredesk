@@ -1,20 +1,38 @@
 # =============================================================================
-# MODELO — desenvolvimento local (Nginx sem SSL). NÃO editar a cópia no Git.
+# MODELO OFICIAL — desenvolvimento local (Nginx sem SSL)
 # =============================================================================
-# Copiar para um destes ficheiros na raiz (ambos estão no .gitignore):
+# Isto é o ÚNICO ficheiro Compose de dev versionado. Copia-o para um nome
+# ignorado pelo Git (nunca edites o original no repositório).
 #
-#   Opção A (recomendada — merge automático):
+# PRODUÇÃO (imutável neste fluxo):
+#   • docker-compose.yml — stack completa; NÃO sobrescrever com patches de dev.
+#   • infra/nginx/nginx.conf — SSL, domínios, redirects; NÃO trocar por .dev.*.
+#
+# DESENVOLVIMENTO (cópias locais — listadas no .gitignore):
+#   • docker-compose.override.yml OU docker-compose.dev.yml OU docker-compose.local.yml
+#   • infra/nginx/nginx.dev.conf (modelo: infra/nginx/nginx.dev.conf.example)
+#
+# O bloco abaixo só substitui o volume do nginx.conf; volumes letsencrypt/certbot
+# do compose base mantêm-se (em local costumam estar vazios — inofensivo).
+# =============================================================================
+#
+# Onboarding — copiar na raiz do repositório:
+#
+#   Opção A (recomendada — merge automático do Docker Compose):
 #     cp docker-compose.dev.example.yml docker-compose.override.yml
+#     cp infra/nginx/nginx.dev.conf.example infra/nginx/nginx.dev.conf
 #     docker compose up -d
 #
-#   Opção B (ficheiro com sufixo .dev explícito):
+#   Opção B (nome explícito .dev):
 #     cp docker-compose.dev.example.yml docker-compose.dev.yml
+#     cp infra/nginx/nginx.dev.conf.example infra/nginx/nginx.dev.conf
 #     docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 #
-# Antes, copie também o Nginx de dev:
-#     cp infra/nginx/nginx.dev.conf.example infra/nginx/nginx.dev.conf
+#   Opção C (nome .local — mesmo conteúdo que B, ficheiro gitignored):
+#     cp docker-compose.dev.example.yml docker-compose.local.yml
+#     docker compose -f docker-compose.yml -f docker-compose.local.yml up -d
 #
-# Produção (VPS): não usar estes ficheiros — apenas docker-compose.yml + nginx.conf.
+# VPS / produção: não copiar override nem .dev.yml; não usar nginx.dev.conf.
 # =============================================================================
 
 services:
