@@ -4,19 +4,21 @@
 # Copiar para: infra/nginx/nginx.dev.conf  (ficheiro ignorado pelo Git)
 #   cp infra/nginx/nginx.dev.conf.example infra/nginx/nginx.dev.conf
 #
-# PRODUÇÃO (nunca substituir por este ficheiro):
-#   • infra/nginx/nginx.conf — SSL Let's Encrypt, server_name reais, redirects.
-#   • Versionado; alterações só com revisão explícita e testes em staging/prod.
+# PRODUÇÃO (nunca substituir por este ficheiro — mesmo critério que docker-compose.dev.example.yml):
+#   • docker-compose.yml — único Compose em produção; sem override nem .dev/.local.
+#   • infra/nginx/nginx.conf — SSL Let's Encrypt, server_name reais, redirects (versionado).
+#   • Alterações a nginx.conf só com revisão explícita e validação em staging/prod.
 #
 # DESENVOLVIMENTO (este modelo):
 #   • Sem listen 443, sem certificados, sem redirects de domínio de produção.
 #   • Um único server HTTP (default_server) para backend:4000 e frontend:3000.
 #
 # VPS / PRODUÇÃO — o que NUNCA fazer:
-#   • Não substituir nginx.conf no contentor por este ficheiro (nem por nginx.local.conf).
-#   • Manter sempre infra/nginx/nginx.conf na produção, com SSL e domínios reais.
+#   • Não montar nginx.dev.conf nem nginx.local.conf no lugar de infra/nginx/nginx.conf.
+#   • Não usar docker-compose.override.yml / .dev.yml / .local.yml no servidor.
 #
-# Ativação local: docker-compose.dev.example.yml → override ou -f .dev / .local.
+# Onboarding: copiar este modelo para nginx.dev.conf; depois seguir opções A/B/C em
+# docker-compose.dev.example.yml (na raiz do repositório).
 # =============================================================================
 
 events {}

@@ -27,7 +27,7 @@ build/
 logs/
 *.log
 
-# Env — .env e todas as variantes (.env.local, .env.dev, .env.production.local, …)
+# Env — .env e .env.*; exceto .env.example e backend/.env.example (negados em baixo).
 .env
 .env.*
 !.env.example
