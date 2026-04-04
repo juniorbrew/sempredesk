@@ -224,6 +224,7 @@ export class ConversationsController {
       mediaKind,
       mediaStorageKey,
       mediaMime,
+      mediaCaption: contentRaw || null,
     });
     if (file?.size) {
       this.logger.log(JSON.stringify({

@@ -769,6 +769,8 @@ export class ConversationsService {
       mediaKind?: 'image' | 'audio' | 'video' | null;
       mediaStorageKey?: string | null;
       mediaMime?: string | null;
+      /** Texto real do usuário para usar como caption no WhatsApp (sem emoji de placeholder). */
+      mediaCaption?: string | null;
     },
   ): Promise<ConversationMessage> {
     await this.ensureConversationMessageMediaSchemaReady();
@@ -901,7 +903,7 @@ export class ConversationsService {
               ? {
                   kind: opts.mediaKind,
                   filePath: absMedia,
-                  caption: content || undefined,
+                  caption: (opts && 'mediaCaption' in opts) ? (opts.mediaCaption || undefined) : (content || undefined),
                   mime: opts.mediaMime || undefined,
                 }
               : content;
