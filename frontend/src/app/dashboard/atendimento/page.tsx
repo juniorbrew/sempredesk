@@ -7,7 +7,7 @@ import { useAuthStore, hasPermission } from '@/store/auth.store';
 import {
   MessageSquare, Send, Phone, RefreshCw, Lock, ExternalLink, Plus, Link2, Globe,
   Check, Search, X, CheckCircle2, User, Mail, MapPin, Building2, Hash, Tag, Edit2,
-  Paperclip, Image as ImageIcon, Mic, Video,
+  Paperclip, Image as ImageIcon, Mic, StopCircle, Video,
 } from 'lucide-react';
 import { EmojiPicker } from '@/components/ui/EmojiPicker';
 import ContactValidationBanner, { type ResolvedData } from '@/components/atendimento/ContactValidationBanner';
@@ -552,7 +552,7 @@ function ChatComposer({
     { kind: 'video', label: 'Video MP4', icon: <Video size={15} strokeWidth={2} />, description: 'Enviar video MP4' },
   ];
   const recordingLabel = `${String(Math.floor(recordingSeconds / 60)).padStart(2, '0')}:${String(recordingSeconds % 60).padStart(2, '0')}`;
-  const canUseMicrophone = canSend && !isSending && !pendingFile;
+  const showMicButton = canSend && !isSending && !inputValue.trim() && !pendingFile && !isRecording;
 
   return (
     <div style={{ borderTop: borderColor, background: backgroundColor, padding: 0, flexShrink: 0 }}>
@@ -736,28 +736,6 @@ function ChatComposer({
             )}
 
             <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10 }}>
-              <button
-                type="button"
-                onClick={isRecording ? stopRecording : startRecording}
-                disabled={(!isRecording && !canUseMicrophone) || isSending}
-                title={isRecording ? 'Parar gravacao' : 'Gravar audio'}
-                style={{
-                  width: 40,
-                  height: 40,
-                  borderRadius: 11,
-                  border: '1px solid rgba(0,0,0,.08)',
-                  background: isRecording ? '#FEE2E2' : ((!canUseMicrophone || isSending) ? '#F1F5F9' : '#F8FAFC'),
-                  color: isRecording ? '#DC2626' : ((!canUseMicrophone || isSending) ? '#94A3B8' : mutedTextColor),
-                  cursor: ((!isRecording && !canUseMicrophone) || isSending) ? 'not-allowed' : 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                  transition: 'background .15s, border-color .15s',
-                }}
-              >
-                <Mic size={16} strokeWidth={2} />
-              </button>
               <textarea
                 ref={inputRef}
                 value={inputValue}
@@ -785,25 +763,72 @@ function ChatComposer({
                 }}
               />
               <EmojiPicker onSelect={onInsertEmoji} position="top" />
-              <button
-                type="submit"
-                disabled={isSending || isRecording || !canSend || (!inputValue.trim() && !pendingFile)}
-                style={{
-                  width: 40,
-                  height: 40,
-                  borderRadius: 11,
-                  border: 'none',
-                  background: isSending || isRecording || !canSend || (!inputValue.trim() && !pendingFile) ? '#E2E8F0' : accentColor,
-                  cursor: isSending || isRecording || !canSend || (!inputValue.trim() && !pendingFile) ? 'not-allowed' : 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                  transition: 'background .15s',
-                }}
-              >
-                <Send size={16} color="#fff" strokeWidth={2} />
-              </button>
+              {/* Botão dinâmico: Mic (campo vazio) | Stop (gravando) | Send (tem texto/arquivo) */}
+              {isRecording ? (
+                <button
+                  type="button"
+                  onClick={stopRecording}
+                  title="Parar gravacao"
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 11,
+                    border: '1px solid rgba(220,38,38,.25)',
+                    background: '#FEE2E2',
+                    color: '#DC2626',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                    transition: 'background .15s',
+                  }}
+                >
+                  <StopCircle size={16} strokeWidth={2} />
+                </button>
+              ) : showMicButton ? (
+                <button
+                  type="button"
+                  onClick={startRecording}
+                  title="Gravar audio"
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 11,
+                    border: '1px solid rgba(0,0,0,.08)',
+                    background: '#F8FAFC',
+                    color: mutedTextColor,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                    transition: 'background .15s',
+                  }}
+                >
+                  <Mic size={16} strokeWidth={2} />
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={isSending || !canSend || (!inputValue.trim() && !pendingFile)}
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 11,
+                    border: 'none',
+                    background: isSending || !canSend || (!inputValue.trim() && !pendingFile) ? '#E2E8F0' : accentColor,
+                    cursor: isSending || !canSend || (!inputValue.trim() && !pendingFile) ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                    transition: 'background .15s',
+                  }}
+                >
+                  <Send size={16} color="#fff" strokeWidth={2} />
+                </button>
+              )}
             </div>
           </div>
         </div>
