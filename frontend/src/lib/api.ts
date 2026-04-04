@@ -110,16 +110,17 @@ class ApiClient {
   getConversation = (id: string) => this.client.get(`/conversations/${id}`);
   getConversationMessages = (id: string, params?: { limit?: number; before?: string }) =>
     this.client.get(`/conversations/${id}/messages`, { params });
-  /** Texto JSON ou multipart com campo opcional `file` (imagem/áudio). */
-  addConversationMessage = (id: string, data: { content?: string; file?: File | null }) => {
+  /** Texto JSON ou multipart com campo opcional `file` (imagem/áudio) e replyToId (reply). */
+  addConversationMessage = (id: string, data: { content?: string; file?: File | null; replyToId?: string | null }) => {
     if (data.file) {
       const fd = new FormData();
       const c = (data.content ?? '').trim();
       if (c) fd.append('content', c);
+      if (data.replyToId) fd.append('replyToId', data.replyToId);
       fd.append('file', data.file);
       return this.client.post(`/conversations/${id}/messages`, fd);
     }
-    return this.client.post(`/conversations/${id}/messages`, { content: data.content ?? '' });
+    return this.client.post(`/conversations/${id}/messages`, { content: data.content ?? '', replyToId: data.replyToId ?? undefined });
   };
   /** Blob autenticado (imagem ou áudio) para mensagem de conversa. */
   getConversationMessageMediaBlob = (messageId: string) =>

@@ -157,11 +157,13 @@ const MessageItem = memo(function MessageItem({
   isWhatsapp,
   highlight,
   mediaUrl,
+  onReply,
 }: {
   m: any;
   isWhatsapp: boolean;
   highlight?: string;
   mediaUrl?: string | null;
+  onReply?: (msg: any) => void;
 }) {
   const isContact = m.authorType === 'contact';
   const isSystem  = m.messageType === 'system';
@@ -217,6 +219,28 @@ const MessageItem = memo(function MessageItem({
           opacity: m._optimistic ? 0.75 : 1,
           transition: 'opacity 0.2s',
         }}>
+          {/* Bloco de citação (reply) */}
+          {m.replyTo && (
+            <div style={{
+              borderLeft: `3px solid ${isContact ? accent : 'rgba(255,255,255,.6)'}`,
+              background: isContact ? 'rgba(79,70,229,.07)' : 'rgba(255,255,255,.15)',
+              borderRadius: 6,
+              padding: '5px 10px',
+              marginBottom: 8,
+              fontSize: 12,
+              opacity: 0.9,
+            }}>
+              <div style={{ fontWeight: 600, marginBottom: 2, color: isContact ? accent : 'rgba(255,255,255,.9)' }}>
+                {m.replyTo.authorName}
+              </div>
+              <div style={{ color: isContact ? txt2 : 'rgba(255,255,255,.8)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 320 }}>
+                {m.replyTo.mediaKind === 'image' ? '📷 Imagem'
+                  : m.replyTo.mediaKind === 'audio' ? '🎤 Áudio'
+                  : m.replyTo.mediaKind === 'video' ? '📹 Vídeo'
+                  : m.replyTo.content}
+              </div>
+            </div>
+          )}
           {m.mediaKind === 'image' && resolvedMediaSrc && (
             <InlineChatMedia
               src={resolvedMediaSrc}
@@ -263,6 +287,23 @@ const MessageItem = memo(function MessageItem({
             {!isContact && <MessageStatusIcon status={m.whatsappStatus} isWhatsapp={isWhatsapp} />}
           </div>
         </div>
+        {/* Botão Responder — visível somente em mensagens reais (não otimistas) */}
+        {onReply && !m._optimistic && !String(m.id).startsWith('_opt') && (
+          <button
+            type="button"
+            onClick={() => onReply(m)}
+            title="Responder"
+            style={{
+              background: 'none', border: 'none', cursor: 'pointer', padding: '4px 6px',
+              color: txt3, fontSize: 11, borderRadius: 6, alignSelf: 'center', flexShrink: 0,
+              opacity: 0.6, transition: 'opacity .15s',
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.opacity = '1')}
+            onMouseLeave={(e) => (e.currentTarget.style.opacity = '0.6')}
+          >
+            ↩
+          </button>
+        )}
       </div>
     </div>
   );
@@ -293,6 +334,8 @@ type ChatComposerProps = {
   onRecordedAudio: (file: File) => void;
   onRemovePendingFile: () => void;
   onInsertEmoji: (emoji: string) => void;
+  replyingTo?: any | null;
+  onCancelReply?: () => void;
 };
 
 function ChatComposer({
@@ -317,6 +360,8 @@ function ChatComposer({
   onRecordedAudio,
   onRemovePendingFile,
   onInsertEmoji,
+  replyingTo,
+  onCancelReply,
 }: ChatComposerProps) {
   const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
@@ -519,6 +564,37 @@ function ChatComposer({
         onChange={onPendingFileChange}
       />
       <form onSubmit={onSubmit}>
+        {/* Preview da mensagem sendo respondida */}
+        {replyingTo && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            padding: '8px 16px 0',
+            borderTop: '1px solid rgba(0,0,0,.06)',
+          }}>
+            <div style={{
+              flex: 1, borderLeft: '3px solid #4F46E5', background: '#EEF2FF',
+              borderRadius: 6, padding: '5px 10px', fontSize: 12, minWidth: 0,
+            }}>
+              <div style={{ fontWeight: 600, color: '#4F46E5', marginBottom: 2 }}>
+                {replyingTo.authorName}
+              </div>
+              <div style={{ color: '#6B6B80', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {replyingTo.mediaKind === 'image' ? '📷 Imagem'
+                  : replyingTo.mediaKind === 'audio' ? '🎤 Áudio'
+                  : replyingTo.mediaKind === 'video' ? '📹 Vídeo'
+                  : replyingTo.content}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onCancelReply}
+              title="Cancelar resposta"
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94A3B8', fontSize: 16, padding: '0 4px', lineHeight: 1 }}
+            >
+              ×
+            </button>
+          </div>
+        )}
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, padding: '12px 16px' }}>
           <div ref={attachmentMenuRef} style={{ position: 'relative', flexShrink: 0 }}>
             <button
@@ -764,6 +840,7 @@ export default function AtendimentoPage() {
   const tagDropdownRef = useRef<HTMLDivElement>(null);
   const [input, setInput] = useState('');
   const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [replyingTo, setReplyingTo] = useState<any | null>(null);
   const attachFileInputRef = useRef<HTMLInputElement>(null);
   const [messageMediaUrls, setMessageMediaUrls] = useState<Record<string, string>>({});
   const [sending, setSending] = useState(false);
@@ -1583,6 +1660,7 @@ export default function AtendimentoPage() {
     e.preventDefault();
     const text = input.trim();
     const file = pendingFile;
+    const currentReplyingTo = replyingTo;
     if ((!text && !file) || !selected?.id) return;
     const ticketId = isTicketType ? (selected.ticketId || selected.id?.replace?.(/^ticket:/, '')) : selected?.ticketId;
     const channel = selected?.channel || 'whatsapp';
@@ -1617,9 +1695,12 @@ export default function AtendimentoPage() {
       mediaKind: previewKind,
       hasMedia: !!file,
       _localPreviewUrl: localPreviewUrl,
+      replyToId: currentReplyingTo?.id ?? null,
+      replyTo: currentReplyingTo ?? null,
     }]);
     setInput('');
     setPendingFile(null);
+    setReplyingTo(null);
     if (attachFileInputRef.current) attachFileInputRef.current.value = '';
     setSending(true);
 
@@ -1641,15 +1722,15 @@ export default function AtendimentoPage() {
         if (!convTarget) {
           throw new Error('Conversa não encontrada para enviar ficheiro. Vincule ou abra a conversa do ticket.');
         }
-        res = await api.addConversationMessage(convTarget, { content: text || undefined, file });
+        res = await api.addConversationMessage(convTarget, { content: text || undefined, file, replyToId: currentReplyingTo?.id ?? null });
       } else if (isTicketType && ticketId) {
         res = await api.addMessage(ticketId, { content: text, messageType: 'comment' });
       } else if (channel === 'whatsapp' && whatsappConvId) {
-        res = await api.addConversationMessage(whatsappConvId, { content: text });
+        res = await api.addConversationMessage(whatsappConvId, { content: text, replyToId: currentReplyingTo?.id ?? null });
       } else if (channel === 'whatsapp' && ticketId) {
         res = await api.sendWhatsappFromTicket(ticketId, text);
       } else {
-        res = await api.addConversationMessage(selected.id, { content: text });
+        res = await api.addConversationMessage(selected.id, { content: text, replyToId: currentReplyingTo?.id ?? null });
       }
 
       // Extrai objeto de mensagem da resposta da API (vários formatos possíveis)
@@ -1816,6 +1897,7 @@ export default function AtendimentoPage() {
   useEffect(() => {
     const toRevoke = { ...messageMediaUrlsRef.current };
     setMessageMediaUrls({});
+    setReplyingTo(null);
     mediaInFlightRef.current.clear();
     Object.values(toRevoke).forEach((u) => URL.revokeObjectURL(u));
   }, [selected?.id]);
@@ -2550,7 +2632,7 @@ export default function AtendimentoPage() {
                             id={`msg-${m.id}`}
                             style={isCurrentMatch ? { borderRadius: 14, outline: '2px solid #FDE68A', outlineOffset: 3 } : undefined}
                           >
-                            <MessageItem m={m} isWhatsapp={isWhatsapp} highlight={msgSearchQuery.trim() || undefined} mediaUrl={messageMediaUrls[m.id] ?? null} />
+                            <MessageItem m={m} isWhatsapp={isWhatsapp} highlight={msgSearchQuery.trim() || undefined} mediaUrl={messageMediaUrls[m.id] ?? null} onReply={setReplyingTo} />
                           </div>
                         );
                       })}
@@ -2617,6 +2699,8 @@ export default function AtendimentoPage() {
                     onRecordedAudio={handleRecordedAudio}
                     onRemovePendingFile={clearPendingFile}
                     onInsertEmoji={insertEmoji}
+                    replyingTo={replyingTo}
+                    onCancelReply={() => setReplyingTo(null)}
                   />
               )}
               {isClosed && (

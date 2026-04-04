@@ -4,7 +4,7 @@ import * as path from 'path';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository, IsNull } from 'typeorm';
 import { Conversation, ConversationChannel, ConversationStatus, ConversationInitiatedBy } from './entities/conversation.entity';
-import { ConversationMessage } from './entities/conversation-message.entity';
+import { ConversationMessage, ReplyToSnapshot } from './entities/conversation-message.entity';
 import { TicketsService } from '../tickets/tickets.service';
 import { CustomersService } from '../customers/customers.service';
 import { TicketMessage, TicketOrigin } from '../tickets/entities/ticket.entity';
@@ -137,7 +137,13 @@ export class ConversationsService {
         ADD COLUMN IF NOT EXISTS media_storage_key text,
         ADD COLUMN IF NOT EXISTS media_mime varchar(128),
         ADD COLUMN IF NOT EXISTS external_id text,
-        ADD COLUMN IF NOT EXISTS whatsapp_status text
+        ADD COLUMN IF NOT EXISTS whatsapp_status text,
+        ADD COLUMN IF NOT EXISTS reply_to_id uuid REFERENCES conversation_messages(id) ON DELETE SET NULL
+    `);
+    await this.dataSource.query(`
+      CREATE INDEX IF NOT EXISTS idx_conv_messages_reply_to
+        ON conversation_messages(reply_to_id)
+        WHERE reply_to_id IS NOT NULL
     `);
   }
 
@@ -151,6 +157,7 @@ export class ConversationsService {
           'media_mime',
           'external_id',
           'whatsapp_status',
+          'reply_to_id',
         ];
         const rows = await this.dataSource.query(
           `SELECT column_name
@@ -709,13 +716,32 @@ export class ConversationsService {
   /**
    * Retorna mensagens da conversa (chat em tempo real do portal).
    */
+  /** Enriquece mensagens com snapshot das citadas (1 query IN para todos os replyToIds). */
+  private async attachReplyToSnapshots(messages: ConversationMessage[]): Promise<void> {
+    const ids = [...new Set(messages.map((m) => m.replyToId).filter(Boolean))] as string[];
+    if (ids.length === 0) return;
+    const rows: Array<{ id: string; author_name: string; content: string; media_kind: string | null }> =
+      await this.dataSource.query(
+        `SELECT id, author_name, content, media_kind FROM conversation_messages WHERE id = ANY($1::uuid[])`,
+        [ids],
+      );
+    const map = new Map(
+      rows.map((r) => [r.id, { id: r.id, authorName: r.author_name, content: r.content.slice(0, 100), mediaKind: r.media_kind ?? null } as ReplyToSnapshot]),
+    );
+    for (const m of messages) {
+      m.replyTo = m.replyToId ? (map.get(m.replyToId) ?? null) : null;
+    }
+  }
+
   async getMessages(tenantId: string, conversationId: string): Promise<ConversationMessage[]> {
     await this.ensureConversationMessageMediaSchemaReady();
     const conv = await this.findOne(tenantId, conversationId);
-    return this.msgRepo.find({
+    const messages = await this.msgRepo.find({
       where: { conversationId: conv.id, tenantId },
       order: { createdAt: 'ASC' },
     });
+    await this.attachReplyToSnapshots(messages);
+    return messages;
   }
 
   /**
@@ -749,6 +775,7 @@ export class ConversationsService {
     const rows = await qb.getMany();
     const hasMore = rows.length > limit;
     const messages = rows.slice(0, limit).reverse(); // ordena ASC para exibição
+    await this.attachReplyToSnapshots(messages);
     return { messages, hasMore };
   }
 
@@ -771,6 +798,8 @@ export class ConversationsService {
       mediaMime?: string | null;
       /** Texto real do usuário para usar como caption no WhatsApp (sem emoji de placeholder). */
       mediaCaption?: string | null;
+      /** ID da mensagem que está sendo respondida (reply estilo WhatsApp). */
+      replyToId?: string | null;
     },
   ): Promise<ConversationMessage> {
     await this.ensureConversationMessageMediaSchemaReady();
@@ -806,6 +835,7 @@ export class ConversationsService {
       mediaMime: opts?.mediaMime ?? null,
       whatsappStatus: opts?.initialWhatsappStatus ?? null,
       externalId: extId ?? null,
+      replyToId: opts?.replyToId ?? null,
     });
     let saved: ConversationMessage;
     try {
@@ -820,6 +850,21 @@ export class ConversationsService {
       throw err;
     }
     await this.updateLastMessageAt(tenantId, conversationId);
+
+    // Busca snapshot da mensagem citada (1 query leve, só se houver replyToId)
+    let replyToSnapshot: ReplyToSnapshot | null = null;
+    if (saved.replyToId) {
+      const parent = await this.msgRepo.findOne({ where: { id: saved.replyToId } });
+      if (parent) {
+        replyToSnapshot = {
+          id: parent.id,
+          authorName: parent.authorName,
+          content: parent.content.slice(0, 100),
+          mediaKind: parent.mediaKind ?? null,
+        };
+      }
+    }
+    saved.replyTo = replyToSnapshot;
 
     // Quando a conversa já está vinculada a ticket, o atendimento pode estar ouvindo
     // a sala ticket:<id> em vez da sala conversation:<id>. Emitimos nos dois canais.
@@ -839,6 +884,8 @@ export class ConversationsService {
         mediaKind: saved.mediaKind ?? null,
         mediaMime: saved.mediaMime ?? null,
         hasMedia: !!(saved.mediaKind && saved.mediaStorageKey),
+        replyToId: saved.replyToId ?? null,
+        replyTo: replyToSnapshot,
       };
       this.realtimeEmitter.emitNewConversationMessage(conversationId, payload);
       if (conv.ticketId) {

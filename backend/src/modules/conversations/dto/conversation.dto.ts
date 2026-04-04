@@ -67,6 +67,11 @@ export class AddConversationMessageDto {
   @IsString()
   @IsOptional()
   content?: string;
+
+  /** ID da mensagem que está sendo respondida (reply estilo WhatsApp). */
+  @IsString()
+  @IsOptional()
+  replyToId?: string;
 }
 
 /** Dados opcionais de encerramento formal (solução, causa raiz, etc.) — salvos como interação separada da conversa */
