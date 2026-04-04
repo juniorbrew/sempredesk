@@ -76,6 +76,11 @@ backend/uploads/
 # Audits / backups locais
 audits/
 
+# Rascunhos / SQL ad hoc na raiz do repo (máquina local — não versionar)
+/hash.txt
+/update.sql
+/update2.sql
+
 # Coverage
 coverage/
 .nyc_output/
