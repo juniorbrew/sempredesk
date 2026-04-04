@@ -32,7 +32,10 @@
 #     cp docker-compose.dev.example.yml docker-compose.local.yml
 #     docker compose -f docker-compose.yml -f docker-compose.local.yml up -d
 #
-# VPS / produção: não copiar override nem .dev.yml; não usar nginx.dev.conf.
+# VPS / PRODUÇÃO — o que NUNCA fazer:
+#   • Não copiar este ficheiro para o servidor nem usar docker-compose.override.yml / .dev.yml / .local.yml lá.
+#   • Não montar infra/nginx/nginx.dev.conf — só infra/nginx/nginx.conf (versionado).
+#   • Subir a stack apenas com: docker compose -f docker-compose.yml up -d (sem ficheiros de dev).
 # =============================================================================
 
 services:

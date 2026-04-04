@@ -12,7 +12,11 @@
 #   • Sem listen 443, sem certificados, sem redirects de domínio de produção.
 #   • Um único server HTTP (default_server) para backend:4000 e frontend:3000.
 #
-# Ativação: ver cabeçalho de docker-compose.dev.example.yml (override ou -f .dev).
+# VPS / PRODUÇÃO — o que NUNCA fazer:
+#   • Não substituir nginx.conf no contentor por este ficheiro (nem por nginx.local.conf).
+#   • Manter sempre infra/nginx/nginx.conf na produção, com SSL e domínios reais.
+#
+# Ativação local: docker-compose.dev.example.yml → override ou -f .dev / .local.
 # =============================================================================
 
 events {}
