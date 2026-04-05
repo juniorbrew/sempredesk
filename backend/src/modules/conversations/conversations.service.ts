@@ -717,7 +717,7 @@ export class ConversationsService {
       .addSelect('ag.name', 'assignedToName');
 
     const raws = await qb.getRawAndEntities();
-    return raws.entities.map((entity, i) => ({
+    const rows = raws.entities.map((entity, i) => ({
       ...entity,
       contactName:    raws.raw[i]?.contactName    ?? null,
       ticketNumber:   raws.raw[i]?.ticketNumber   ?? null,
@@ -725,6 +725,31 @@ export class ConversationsService {
       assignedTo:     raws.raw[i]?.assignedTo     ?? null,
       assignedToName: raws.raw[i]?.assignedToName ?? null,
     }));
+
+    if (rows.length > 0) {
+      const convIds = rows.map((r) => r.id);
+      const lastAgentRows: Array<{ conversation_id: string; last_agent_at: Date | string | null }> =
+        await this.dataSource.query(
+          `SELECT conversation_id, MAX(created_at) AS last_agent_at
+           FROM conversation_messages
+           WHERE tenant_id = $1
+             AND conversation_id = ANY($2::uuid[])
+             AND author_type = 'user'
+           GROUP BY conversation_id`,
+          [tenantId, convIds],
+        );
+      const lastAgentMap = new Map(
+        lastAgentRows.map((r) => [
+          r.conversation_id,
+          r.last_agent_at ? new Date(r.last_agent_at as string | Date) : null,
+        ]),
+      );
+      for (const r of rows) {
+        (r as Conversation & { lastAgentMessageAt?: Date | null }).lastAgentMessageAt = lastAgentMap.get(r.id) ?? null;
+      }
+    }
+
+    return rows;
   }
 
   /**
