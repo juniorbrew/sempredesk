@@ -166,11 +166,23 @@ class ApiClient {
   updateCustomer = (id: string, data: any) => this.client.put(`/customers/${id}`, data);
   deleteCustomer = (id: string) => this.client.delete(`/customers/${id}`);
   changeCustomerNetwork = (id: string, networkId: string | null) => this.client.patch(`/customers/${id}/network`, { networkId });
-  getContacts = (clientId: string) => this.client.get(`/customers/${clientId}/contacts`);
+  getContacts = (clientId: string, includeArchived = false) =>
+    this.client.get(`/customers/${clientId}/contacts`, {
+      params: includeArchived ? { includeArchived: true } : {},
+    });
   getContactById = (contactId: string) => this.client.get(`/customers/contact/${contactId}`);
   createContact = (clientId: string, data: any) => this.client.post(`/customers/${clientId}/contacts`, data);
   updateContact = (clientId: string, contactId: string, data: any) => this.client.put(`/customers/${clientId}/contacts/${contactId}`, data);
   removeContact = (clientId: string, contactId: string) => this.client.delete(`/customers/${clientId}/contacts/${contactId}`);
+  /** Etapa 10 — arquivamento (requer FEATURE_CONTACT_ARCHIVE no backend) */
+  archiveCustomerContact = (clientId: string, contactId: string) =>
+    this.client.patch(`/customers/${clientId}/contacts/${contactId}/archive`, {});
+  unarchiveCustomerContact = (clientId: string, contactId: string) =>
+    this.client.patch(`/customers/${clientId}/contacts/${contactId}/unarchive`, {});
+
+  /** Métricas/flag Etapa 9 — super_admin; em 403 use getMonitoringHealth como fallback */
+  getContactArchiveRollout = () => this.client.get('/monitoring/contact-archive-rollout');
+  getMonitoringHealth = () => this.client.get('/monitoring/health');
 
   getContracts = () => this.client.get('/contracts');
   getContract = (id: string) => this.client.get(`/contracts/${id}`);

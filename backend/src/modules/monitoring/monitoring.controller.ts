@@ -34,4 +34,12 @@ export class MonitoringController {
   suspicious() {
     return this.monitoringService.suspiciousActivity();
   }
+
+  /** Etapa 9 — métricas de rollout do recurso de arquivamento de contatos */
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('super_admin')
+  @Get('contact-archive-rollout')
+  contactArchiveRollout() {
+    return this.monitoringService.contactArchiveRolloutStats();
+  }
 }

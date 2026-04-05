@@ -1,4 +1,5 @@
 import { Injectable, Logger, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
+import { ContactArchiveRolloutService } from './contact-archive-rollout.service';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
@@ -100,8 +101,10 @@ export class CustomersService {
     return !this.isTechnicalWhatsappIdentifier(value ?? null, rawValue ?? null);
   }
 
-  private filterVisibleContactsForClient(contacts: Contact[]): Contact[] {
-    const activeContacts = (contacts || []).filter((contact) => contact.status !== 'inactive');
+  private filterVisibleContactsForClient(contacts: Contact[], includeArchived = false): Contact[] {
+    const activeContacts = (contacts || []).filter((contact) =>
+      includeArchived ? contact.status !== 'inactive' : contact.status === 'active',
+    );
     const hasCanonicalContact = activeContacts.some((contact) =>
       this.isCanonicalWhatsappValue(contact.whatsapp, contact.whatsapp),
     );
@@ -160,6 +163,7 @@ export class CustomersService {
   constructor(
     @InjectRepository(Client) private readonly clients: Repository<Client>,
     @InjectRepository(Contact) private readonly contacts: Repository<Contact>,
+    private readonly contactArchiveRollout: ContactArchiveRolloutService,
   ) {}
 
   private async nextCode(tenantId: string): Promise<string> {
@@ -519,7 +523,7 @@ export class CustomersService {
     return saved;
   }
 
-  async findContacts(tenantId: string, clientId: string) {
+  async findContacts(tenantId: string, clientId: string, includeArchived = false) {
     const clientExists = await this.clients.findOne({
       where: { id: clientId, tenantId },
       select: ['id'],
@@ -528,7 +532,7 @@ export class CustomersService {
       throw new NotFoundException('Cliente não encontrado');
     }
 
-    const contacts = await this.contacts.createQueryBuilder('ct')
+    const qb = this.contacts.createQueryBuilder('ct')
       .where('ct.tenant_id::text = :tenantId', { tenantId })
       .andWhere(
         `(ct.client_id::text = :clientId OR EXISTS (
@@ -539,11 +543,14 @@ export class CustomersService {
               AND cc.tenant_id::text = :tenantId
          ))`,
         { clientId, tenantId },
-      )
-      .andWhere("ct.status != 'inactive'")
-      .orderBy('ct.name', 'ASC')
-      .getMany();
-    const visibleContacts = this.filterVisibleContactsForClient(contacts);
+      );
+    if (includeArchived) {
+      qb.andWhere("ct.status != 'inactive'");
+    } else {
+      qb.andWhere("ct.status = 'active'");
+    }
+    const contacts = await qb.orderBy('ct.name', 'ASC').getMany();
+    const visibleContacts = this.filterVisibleContactsForClient(contacts, includeArchived);
     return Promise.all(
       visibleContacts.map((contact) => this.sanitizeTechnicalContactIdentifiers(tenantId, contact)),
     );
@@ -633,6 +640,20 @@ export class CustomersService {
       );
     }
 
+    if (!this.contactArchiveRollout.isArchiveFeatureEnabled()) {
+      this.logger.warn(
+        JSON.stringify({
+          scope: 'contact-archive-blocked',
+          reason: 'FEATURE_CONTACT_ARCHIVE_DISABLED',
+          tenantId,
+          contactId,
+        }),
+      );
+      throw new BadRequestException(
+        'Arquivamento de contatos está temporariamente desativado (FEATURE_CONTACT_ARCHIVE).',
+      );
+    }
+
     // 3. Mescla archivedAt ao metadata existente sem sobrescrever outros campos
     const updatedMetadata = {
       ...(contact.metadata ?? {}),
@@ -663,7 +684,20 @@ export class CustomersService {
     }
 
     // 6. Retorna o contato com o estado persistido
-    return this.contacts.findOne({ where: { id: contactId, tenantId } }) as Promise<Contact>;
+    const archivedRow = (await this.contacts.findOne({ where: { id: contactId, tenantId } })) as Contact;
+    this.contactArchiveRollout.incrArchiveManual();
+    this.logger.log(
+      JSON.stringify({
+        scope: 'contact-archive-manual',
+        tenantId,
+        contactId,
+        outcome: 'archived',
+        archivedAt: archivedRow?.metadata && (archivedRow.metadata as any).archivedAt != null
+          ? (archivedRow.metadata as any).archivedAt
+          : null,
+      }),
+    );
+    return archivedRow;
   }
 
   /**
@@ -686,6 +720,20 @@ export class CustomersService {
       );
     }
 
+    if (!this.contactArchiveRollout.isArchiveFeatureEnabled()) {
+      this.logger.warn(
+        JSON.stringify({
+          scope: 'contact-unarchive-blocked',
+          reason: 'FEATURE_CONTACT_ARCHIVE_DISABLED',
+          tenantId,
+          contactId,
+        }),
+      );
+      throw new BadRequestException(
+        'Desarquivamento de contatos está temporariamente desativado (FEATURE_CONTACT_ARCHIVE).',
+      );
+    }
+
     // 3. Limpa archivedAt e registra reactivatedAt, preservando o restante do metadata
     const updatedMetadata = {
       ...(contact.metadata ?? {}),
@@ -699,7 +747,20 @@ export class CustomersService {
     );
 
     // 4. Retorna o contato com o estado persistido
-    return this.contacts.findOne({ where: { id: contactId, tenantId } }) as Promise<Contact>;
+    const unarchived = (await this.contacts.findOne({ where: { id: contactId, tenantId } })) as Contact;
+    this.contactArchiveRollout.incrUnarchiveManual();
+    this.logger.log(
+      JSON.stringify({
+        scope: 'contact-unarchive-manual',
+        tenantId,
+        contactId,
+        outcome: 'active',
+        reactivatedAt: unarchived?.metadata && (unarchived.metadata as any).reactivatedAt != null
+          ? (unarchived.metadata as any).reactivatedAt
+          : null,
+      }),
+    );
+    return unarchived;
   }
 
   findContactById(tenantId: string, contactId: string) {
@@ -780,7 +841,8 @@ export class CustomersService {
     if (JSON.stringify(updatedMeta) !== JSON.stringify(target.metadata ?? {})) {
       updates.metadata = updatedMeta;
     }
-    if (target.status === 'inactive') {
+    const promoteInactiveToActive = target.status === 'inactive';
+    if (promoteInactiveToActive) {
       // 'inactive' é marcação de sistema (remoção/merge pelo sistema, sem fluxo de
       // arquivamento explícito). Pode ser promovido para 'active' dentro de consolidate
       // porque o contexto de consolidação já implica que esse número deve estar ativo:
@@ -800,6 +862,18 @@ export class CustomersService {
     }
     if (Object.keys(updates).length) {
       await this.contacts.update({ id: targetContactId, tenantId }, updates as any);
+      if (promoteInactiveToActive && updates.status === 'active') {
+        this.contactArchiveRollout.incrConsolidateInactivePromoted();
+        this.logger.log(
+          JSON.stringify({
+            scope: 'consolidate-whatsapp-links-status',
+            action: 'promote-inactive-to-active',
+            tenantId,
+            contactId: targetContactId,
+            normalizedWhatsapp: normalized,
+          }),
+        );
+      }
     }
   }
 
@@ -1233,23 +1307,39 @@ export class CustomersService {
     // garantindo que skipChatbot e getOrCreateForContact funcionem sem duplicações.
     // Contatos 'inactive' (removidos pelo sistema) NÃO são reativados.
     if (safeContact && safeContact.status === 'archived') {
-      const reactivatedMetadata = {
-        ...(safeContact.metadata ?? {}),
-        archivedAt: null,
-        reactivatedAt: new Date().toISOString(),
-      };
-      await this.contacts.update(
-        { id: safeContact.id, tenantId },
-        { status: 'active', metadata: reactivatedMetadata } as any,
-      );
-      safeContact.status = 'active';
-      safeContact.metadata = reactivatedMetadata;
-      this.logger.log(JSON.stringify({
-        scope: 'contact-reactivation',
-        reason: 'inbound-whatsapp-message',
-        tenantId,
-        contactId: safeContact.id,
-      }));
+      if (!this.contactArchiveRollout.isArchiveFeatureEnabled()) {
+        this.logger.log(
+          JSON.stringify({
+            scope: 'contact-reactivation-skipped',
+            reason: 'FEATURE_CONTACT_ARCHIVE_DISABLED',
+            path: 'resolveCanonicalWhatsappContact',
+            tenantId,
+            contactId: safeContact.id,
+          }),
+        );
+      } else {
+        const reactivatedMetadata = {
+          ...(safeContact.metadata ?? {}),
+          archivedAt: null,
+          reactivatedAt: new Date().toISOString(),
+        };
+        await this.contacts.update(
+          { id: safeContact.id, tenantId },
+          { status: 'active', metadata: reactivatedMetadata } as any,
+        );
+        safeContact.status = 'active';
+        safeContact.metadata = reactivatedMetadata;
+        this.contactArchiveRollout.incrAutoReactivateCanonical();
+        this.logger.log(
+          JSON.stringify({
+            scope: 'contact-reactivation-auto',
+            path: 'resolveCanonicalWhatsappContact',
+            reason: 'inbound-whatsapp-message',
+            tenantId,
+            contactId: safeContact.id,
+          }),
+        );
+      }
     }
 
     this.logContactResolution({
@@ -1395,6 +1485,16 @@ export class CustomersService {
             { id: inactiveCandidate.id, tenantId },
             { status: 'active', isPrimary: inactiveCandidate.isPrimary || undefined } as any,
           );
+          this.contactArchiveRollout.incrFallbackInactivePromoted();
+          this.logger.log(
+            JSON.stringify({
+              scope: 'contact-fallback-find-by-whatsapp',
+              action: 'reactivate-inactive',
+              tenantId,
+              contactId: inactiveCandidate.id,
+              normalizedWhatsapp: normalized,
+            }),
+          );
         } else if (inactiveCandidate.status === 'archived') {
           // 'archived' foi explicitamente arquivado por um agente. A reativação aqui
           // seria indevida: este método não tem contexto suficiente para decidir se o
@@ -1403,12 +1503,16 @@ export class CustomersService {
           // Reativar sem metadata quebraria a trilha de auditoria (archivedAt ficaria
           // populado, reactivatedAt ficaria ausente).
           // Não tocamos no status; apenas consolidamos os vínculos.
-          this.logger.warn(JSON.stringify({
-            scope: 'contact-reactivation-skipped',
-            reason: 'archived-contact-in-findContactByWhatsapp-fallback',
-            tenantId,
-            contactId: inactiveCandidate.id,
-          }));
+          this.contactArchiveRollout.incrFallbackArchivedSkipped();
+          this.logger.warn(
+            JSON.stringify({
+              scope: 'contact-fallback-find-by-whatsapp',
+              reason: 'archived-contact-in-findContactByWhatsapp-fallback',
+              tenantId,
+              contactId: inactiveCandidate.id,
+              normalizedWhatsapp: normalized,
+            }),
+          );
         } else {
           // Status inesperado (ex.: valor legado ou futuro): não reativa para evitar
           // regressões silenciosas. Apenas loga para diagnóstico.
@@ -1922,23 +2026,39 @@ export class CustomersService {
       // Este é o caminho de fallback (resolveCanonicalWhatsappContact retornou null).
       // Contatos 'inactive' (removidos pelo sistema) NÃO são reativados.
       if (sanitizedExisting.status === 'archived') {
-        const reactivatedMetadata = {
-          ...(sanitizedExisting.metadata ?? {}),
-          archivedAt: null,
-          reactivatedAt: new Date().toISOString(),
-        };
-        await this.contacts.update(
-          { id: sanitizedExisting.id, tenantId },
-          { status: 'active', metadata: reactivatedMetadata } as any,
-        );
-        sanitizedExisting.status = 'active';
-        sanitizedExisting.metadata = reactivatedMetadata;
-        this.logger.log(JSON.stringify({
-          scope: 'contact-reactivation',
-          reason: 'inbound-whatsapp-message-fallback',
-          tenantId,
-          contactId: sanitizedExisting.id,
-        }));
+        if (!this.contactArchiveRollout.isArchiveFeatureEnabled()) {
+          this.logger.log(
+            JSON.stringify({
+              scope: 'contact-reactivation-skipped',
+              reason: 'FEATURE_CONTACT_ARCHIVE_DISABLED',
+              path: 'findOrCreateByWhatsapp',
+              tenantId,
+              contactId: sanitizedExisting.id,
+            }),
+          );
+        } else {
+          const reactivatedMetadata = {
+            ...(sanitizedExisting.metadata ?? {}),
+            archivedAt: null,
+            reactivatedAt: new Date().toISOString(),
+          };
+          await this.contacts.update(
+            { id: sanitizedExisting.id, tenantId },
+            { status: 'active', metadata: reactivatedMetadata } as any,
+          );
+          sanitizedExisting.status = 'active';
+          sanitizedExisting.metadata = reactivatedMetadata;
+          this.contactArchiveRollout.incrAutoReactivateFindOrCreateFallback();
+          this.logger.log(
+            JSON.stringify({
+              scope: 'contact-reactivation-auto',
+              path: 'findOrCreateByWhatsapp',
+              reason: 'inbound-whatsapp-message-fallback',
+              tenantId,
+              contactId: sanitizedExisting.id,
+            }),
+          );
+        }
       }
       await this.consolidateWhatsappContactLinks(tenantId, sanitizedExisting.id, normalized);
       this.logContactResolution({

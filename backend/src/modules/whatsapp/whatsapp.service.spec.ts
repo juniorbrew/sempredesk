@@ -62,14 +62,17 @@ describe('WhatsappService LID handoff fallback', () => {
       'client-1',
     );
 
-    expect(customersService.findOrCreateByWhatsapp).toHaveBeenCalledWith(
+    // 1ª chamada: materialização com dígitos normalizados (restoreBrNinthDigit). 2ª: fallback LID.
+    expect(customersService.findOrCreateByWhatsapp).toHaveBeenNthCalledWith(
+      1,
       'tenant-1',
-      '557799131959',
+      '5577999131959',
       'Contato Novo',
       false,
       expect.objectContaining({
         clientId: 'client-1',
-        rawInput: '557799131959',
+        direction: 'inbound',
+        rawInput: '5577999131959',
       }),
     );
     expect(customersService.persistWhatsappRuntimeIdentifiers).toHaveBeenCalled();

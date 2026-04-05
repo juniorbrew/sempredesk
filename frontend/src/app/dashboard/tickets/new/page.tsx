@@ -3,7 +3,7 @@ import { FormEvent, useEffect, useMemo, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { api } from '@/lib/api';
-import { Search, X, User, Building2, FileText, ChevronDown, AlertCircle, Ticket, Tag, ArrowLeft } from 'lucide-react';
+import { Search, X, User, Building2, FileText, ChevronDown, AlertCircle, Ticket, Tag, ArrowLeft, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { TagMultiSelect } from '@/components/ui/TagMultiSelect';
 
@@ -32,6 +32,9 @@ export default function NewTicketPage() {
   const [contracts, setContracts] = useState<any[]>([]);
   const [contacts, setContacts] = useState<any[]>([]);
   const [loadingContacts, setLoadingContacts] = useState(false);
+  /** Etapa 10B — mesmo contrato da ficha do cliente */
+  const [showArchived, setShowArchived] = useState(false);
+  const [archiveFeatureEnabled, setArchiveFeatureEnabled] = useState(true);
   const [clientSearch, setClientSearch] = useState('');
   const [selectedClient, setSelectedClient] = useState<any>(null);
   const [showDropdown, setShowDropdown] = useState(false);
@@ -43,6 +46,19 @@ export default function NewTicketPage() {
   useEffect(() => {
     const load = async () => {
       try {
+        try {
+          const roll: any = await api.getContactArchiveRollout();
+          const v = roll?.featureContactArchiveEnabled ?? roll?.contactArchiveFeatureEnabled;
+          setArchiveFeatureEnabled(typeof v === 'boolean' ? v : true);
+        } catch {
+          try {
+            const h: any = await api.getMonitoringHealth();
+            const v = h?.rollout?.contactArchiveFeatureEnabled;
+            setArchiveFeatureEnabled(typeof v === 'boolean' ? v : true);
+          } catch {
+            setArchiveFeatureEnabled(true);
+          }
+        }
         const [cr, tr, treeR, conR, tagR] = await Promise.all([api.getCustomers({ perPage:500 }), api.getTeam(), api.getTicketSettingsTree(), api.getContracts(), api.getTags({ active: true })]);
         setCustomers(cr?.data||cr||[]); setTeam(tr||[]); setTree(treeR||{departments:[]}); setContracts(Array.isArray(conR)?conR:conR?.data||[]); setAvailableTags(Array.isArray(tagR)?tagR:tagR?.data||[]);
       } catch(e){ console.error(e); }
@@ -62,14 +78,45 @@ export default function NewTicketPage() {
     return customers.filter((c:any) => (c.tradeName||c.companyName||'').toLowerCase().includes(q) || (c.cnpj||'').replace(/\D/g,'').includes(q.replace(/\D/g,''))).slice(0,10);
   }, [clientSearch, customers]);
 
-  const selectClient = async (client:any) => {
-    setSelectedClient(client); setForm(f=>({...f,clientId:client.id,contactId:'',contractId:''})); setClientSearch(''); setShowDropdown(false);
+  const refetchContactsForClient = async (clientId: string, includeArchived: boolean) => {
     setLoadingContacts(true);
-    try { setContacts(await api.getContacts(client.id)||[]); } catch { setContacts([]); }
+    try {
+      const raw = await api.getContacts(clientId, includeArchived);
+      const list = Array.isArray(raw) ? raw : (raw as any)?.data ?? [];
+      setContacts(list);
+      setForm((f) => {
+        const ids = new Set(list.map((c: any) => c.id));
+        return { ...f, contactId: ids.has(f.contactId) ? f.contactId : '' };
+      });
+    } catch {
+      toast.error('Não foi possível atualizar a lista de contatos');
+    }
     setLoadingContacts(false);
   };
 
-  const clearClient = () => { setSelectedClient(null); setForm(f=>({...f,clientId:'',contactId:'',contractId:''})); setContacts([]); setClientSearch(''); };
+  const selectClient = async (client:any) => {
+    setSelectedClient(client);
+    setForm(f=>({...f,clientId:client.id,contactId:'',contractId:''}));
+    setClientSearch('');
+    setShowDropdown(false);
+    setShowArchived(false);
+    await refetchContactsForClient(client.id, false);
+  };
+
+  const handleToggleShowArchived = (checked: boolean) => {
+    setShowArchived(checked);
+    if (selectedClient?.id) {
+      void refetchContactsForClient(selectedClient.id, checked);
+    }
+  };
+
+  const clearClient = () => {
+    setSelectedClient(null);
+    setForm(f=>({...f,clientId:'',contactId:'',contractId:''}));
+    setContacts([]);
+    setClientSearch('');
+    setShowArchived(false);
+  };
 
   const departments = tree?.departments||[];
   const selectedDept = useMemo(()=>departments.find((d:any)=>d.name===form.department),[departments,form.department]);
@@ -84,9 +131,24 @@ export default function NewTicketPage() {
     e.preventDefault();
     if (!form.clientId) { toast.error('Selecione um cliente'); return; }
     if (!form.contactId) { toast.error('Selecione um contato da empresa'); return; }
+    const subject = form.subject.trim();
+    const description = form.description.trim();
+    if (subject.length < 3) { toast.error('Assunto deve ter no mínimo 3 caracteres'); return; }
+    if (description.length > 0 && description.length < 3) { toast.error('Descrição deve ter no mínimo 3 caracteres'); return; }
     setSaving(true);
     try {
-      const payload = { ...form, contactId:form.contactId||undefined, contractId:form.contractId||undefined, assignedTo:form.assignedTo||undefined, department:form.department||undefined, category:form.category||undefined, subcategory:form.subcategory||undefined, tags:form.tags.length?form.tags:undefined };
+      const payload = {
+        ...form,
+        subject,
+        description: description || undefined,
+        contactId: form.contactId || undefined,
+        contractId: form.contractId || undefined,
+        assignedTo: form.assignedTo || undefined,
+        department: form.department || undefined,
+        category: form.category || undefined,
+        subcategory: form.subcategory || undefined,
+        tags: form.tags.length ? form.tags : undefined,
+      };
       const created = await api.createTicket(payload);
       router.push(`/dashboard/tickets/${created.id}`);
     } catch(e:any){ toast.error(e?.response?.data?.message||'Erro ao criar ticket'); }
@@ -183,14 +245,55 @@ export default function NewTicketPage() {
           {selectedClient && (
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
               <div>
-                <label style={lbl}><User style={{width:11,height:11,display:'inline',marginRight:4}} />Contato</label>
+                <div style={{ display:'flex', flexWrap:'wrap', alignItems:'center', justifyContent:'space-between', gap:10, marginBottom:5 }}>
+                  <label style={{ ...lbl, marginBottom:0 }}><User style={{width:11,height:11,display:'inline',marginRight:4}} />Contato</label>
+                  <label style={{ display:'inline-flex', alignItems:'center', gap:8, cursor:'pointer', userSelect:'none', fontSize:12, color:'#64748B', fontWeight:600 }}>
+                    <input
+                      type="checkbox"
+                      className="rounded border-slate-300"
+                      checked={showArchived}
+                      disabled={loadingContacts}
+                      onChange={(e) => handleToggleShowArchived(e.target.checked)}
+                    />
+                    Mostrar arquivados
+                    {loadingContacts && <Loader2 className="w-3.5 h-3.5 animate-spin" style={{ color:'#94A3B8' }} />}
+                  </label>
+                </div>
+                {!archiveFeatureEnabled && (
+                  <p style={{ fontSize:11, color:'#94A3B8', margin:'0 0 8px' }}>
+                    Arquivamento está desativado no servidor — use a ficha do cliente para gerir quando voltar a ficar disponível.
+                  </p>
+                )}
                 <div style={{ position:'relative' }}>
-                  <select style={{ ...inp(), appearance:'none' as const }} value={form.contactId} onChange={e=>setForm({...form,contactId:e.target.value})}>
+                  <select style={{ ...inp(), appearance:'none' as const, opacity:loadingContacts?0.7:1 }} value={form.contactId} onChange={e=>setForm({...form,contactId:e.target.value})} disabled={loadingContacts}>
                     <option value="">{loadingContacts?'Carregando...':'Selecione o contato'}</option>
-                    {contacts.map((c:any)=><option key={c.id} value={c.id}>{c.name}{c.role?` — ${c.role}`:''}</option>)}
+                    {contacts.map((c:any) => {
+                      const archived = c.status === 'archived';
+                      const label = `${c.name}${c.role ? ` — ${c.role}` : ''}${archived ? ' (Arquivado)' : ''}`;
+                      return <option key={c.id} value={c.id}>{label}</option>;
+                    })}
                   </select>
                   <ChevronDown style={{position:'absolute',right:12,top:'50%',transform:'translateY(-50%)',width:14,height:14,color:'#CBD5E1',pointerEvents:'none'}} />
                 </div>
+                {form.contactId && contacts.some((c: any) => c.id === form.contactId && c.status === 'archived') && (
+                  <div style={{ marginTop:8, display:'flex', alignItems:'center', gap:8 }}>
+                    <span
+                      style={{
+                        fontSize:10,
+                        fontWeight:700,
+                        letterSpacing:'0.05em',
+                        textTransform:'uppercase',
+                        padding:'2px 8px',
+                        borderRadius:9999,
+                        background:'#F1F5F9',
+                        color:'#64748B',
+                        border:'1px solid #E2E8F0',
+                      }}
+                    >
+                      Arquivado
+                    </span>
+                  </div>
+                )}
               </div>
               <div>
                 <label style={lbl}><FileText style={{width:11,height:11,display:'inline',marginRight:4}} />Contrato</label>
@@ -212,13 +315,13 @@ export default function NewTicketPage() {
           <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
             <div>
               <label style={lbl}>Assunto <span style={{color:'#6366F1'}}>*</span></label>
-              <input value={form.subject} onChange={e=>setForm({...form,subject:e.target.value})} required
+              <input value={form.subject} onChange={e=>setForm({...form,subject:e.target.value})} required minLength={3}
                 placeholder="Descreva brevemente o problema" onFocus={()=>setFocusField('subject')} onBlur={()=>setFocusField('')}
                 style={inp(focusField==='subject')} />
             </div>
             <div>
               <label style={lbl}>Descrição <span style={{color:'#6366F1'}}>*</span></label>
-              <textarea value={form.description} onChange={e=>setForm({...form,description:e.target.value})} required rows={4}
+              <textarea value={form.description} onChange={e=>setForm({...form,description:e.target.value})} required minLength={3} rows={4}
                 placeholder="Detalhe o problema, incluindo passos para reproduzir, erros, etc."
                 onFocus={()=>setFocusField('desc')} onBlur={()=>setFocusField('')}
                 style={{ ...inp(focusField==='desc'), resize:'vertical' as const }} />

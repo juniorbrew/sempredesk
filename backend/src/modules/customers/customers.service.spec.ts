@@ -1,5 +1,6 @@
 import { ConflictException } from '@nestjs/common';
 import { CustomersService } from './customers.service';
+import { ContactArchiveRolloutService } from './contact-archive-rollout.service';
 
 describe('CustomersService multiempresa resolution', () => {
   const makeService = (queryResults: any[] = []) => {
@@ -13,8 +14,8 @@ describe('CustomersService multiempresa resolution', () => {
     };
 
     const clientsRepo: any = {};
-
-    const service = new CustomersService(clientsRepo, contactsRepo);
+    const cfg = { get: jest.fn().mockReturnValue(undefined) } as any;
+    const service = new CustomersService(clientsRepo, contactsRepo, new ContactArchiveRolloutService(cfg));
     return { service, contactsRepo };
   };
 
@@ -119,7 +120,8 @@ describe('CustomersService updateContact', () => {
       },
     };
 
-    const service = new CustomersService({} as any, contactsRepo);
+    const cfg = { get: jest.fn().mockReturnValue(undefined) } as any;
+    const service = new CustomersService({} as any, contactsRepo, new ContactArchiveRolloutService(cfg));
 
     await expect(
       service.updateContact('tenant-1', 'contact-a', {
