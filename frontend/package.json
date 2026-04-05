@@ -4,6 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3000",
+    "dev:3001": "next dev -p 3001",
+    "dev:3002": "next dev -p 3002",
+    "dev:clean": "node scripts/dev-clean.js",
     "build": "next build",
     "start": "next start -p 3000",
     "lint": "next lint"
