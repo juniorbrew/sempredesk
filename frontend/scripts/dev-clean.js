@@ -70,6 +70,10 @@ if (process.platform === 'win32') {
   killListenersUnix(port);
 }
 
+console.log('\n[SempreDesk] Após subir, confirme o servidor correto:');
+console.log(`  http://localhost:${port}/api/health  → deve devolver JSON { "ok": true, "app": "sempredesk-frontend", ... }`);
+console.log('  Se vir 404 ou HTML de outra app, há outro processo na porta ou cache do browser.\n');
+
 const nextCli = path.join(root, 'node_modules', 'next', 'dist', 'bin', 'next');
 const child = spawn(process.execPath, [nextCli, 'dev', '-p', port], {
   cwd: root,

@@ -7,6 +7,13 @@ import { useAuthStore } from '@/store/auth.store';
 import toast from 'react-hot-toast';
 import { Eye, EyeOff, Shield, Zap, Headphones, BarChart3 } from 'lucide-react';
 
+/** Ao abrir login, limpar modo TV compacto para não herdar CSS global em <html>. */
+function useClearRealtimeTvModeOnMount() {
+  useEffect(() => {
+    document.documentElement.classList.remove('realtime-tv-mode');
+  }, []);
+}
+
 interface LoginForm { email: string; password: string; }
 
 function destinoAposLoginHost(): '/admin/tenants' | '/dashboard' {
@@ -15,6 +22,7 @@ function destinoAposLoginHost(): '/admin/tenants' | '/dashboard' {
 }
 
 export default function LoginPage() {
+  useClearRealtimeTvModeOnMount();
   const router = useRouter();
   const setAuth = useAuthStore((s) => s.setAuth);
   const [showPwd, setShowPwd] = useState(false);

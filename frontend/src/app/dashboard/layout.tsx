@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/auth.store';
 import NavSidebar from '@/components/shared/NavSidebar';
@@ -9,6 +9,7 @@ import GlobalSearch from '@/components/GlobalSearch';
 import { StatusSelector } from '@/components/StatusSelector';
 import { Menu, X } from 'lucide-react';
 import { PresenceProvider } from '@/components/PresenceProvider';
+import { RealtimeTvModeClassGuard } from '@/components/RealtimeTvModeClassGuard';
 import { api } from '@/lib/api';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -57,7 +58,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   return (
     <ThemeProvider>
       <PresenceProvider>
-      <div className="min-h-screen theme-bg">
+        <Suspense fallback={null}>
+          <RealtimeTvModeClassGuard />
+        </Suspense>
+        <div className="min-h-screen theme-bg">
         {/* Mobile overlay */}
         <div
           className={`sidebar-overlay${sidebarOpen ? ' open' : ''}`}
@@ -90,7 +94,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             {children}
           </div>
         </main>
-      </div>
+        </div>
       </PresenceProvider>
     </ThemeProvider>
   );

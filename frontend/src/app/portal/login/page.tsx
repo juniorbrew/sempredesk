@@ -1,10 +1,13 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { usePortalStore } from '@/store/portal.store';
 import { Headphones, Mail, Lock, Eye, EyeOff, AlertCircle } from 'lucide-react';
 
 export default function PortalLoginPage() {
+  useEffect(() => {
+    document.documentElement.classList.remove('realtime-tv-mode');
+  }, []);
   const router = useRouter();
   const { setAuth } = usePortalStore();
   const [email, setEmail] = useState('');
