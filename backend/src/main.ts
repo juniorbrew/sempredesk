@@ -1,3 +1,4 @@
+import type { Response } from 'express';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
 import { RequestLoggingInterceptor } from './common/interceptors/request-logging.interceptor';
 import { TenantLicenseInterceptor } from './common/interceptors/tenant-license.interceptor';
@@ -77,6 +78,17 @@ async function bootstrap() {
   SwaggerModule.setup('api/docs', app, document, {
     swaggerOptions: { persistAuthorization: true, docExpansion: 'none' },
     customSiteTitle: 'SempreDesk API Docs',
+  });
+
+  // Mesmo padrão que /api/docs: fora do prefixo global api/v1. Útil quando reverse proxies
+  // encaminham /api/* ao Nest (ex.: sem location = /api/health → frontend).
+  app.getHttpAdapter().get('/api/health', (_req, res: Response) => {
+    res.status(200).json({
+      ok: true,
+      app: 'sempredesk-backend',
+      router: 'nest',
+      time: new Date().toISOString(),
+    });
   });
 
   const port = parseInt(process.env.PORT ?? '4000', 10);
