@@ -5,7 +5,8 @@ const internalApiUrl =
   'http://localhost:4000'
 
 const nextConfig = {
-  output: 'standalone',
+  // Standalone só no Docker: `next start` local com `output: 'standalone'` quebra (500 / rotas App Router).
+  ...(process.env.DOCKER_BUILD === '1' ? { output: 'standalone' } : {}),
   eslint: { ignoreDuringBuilds: true },
   typescript: { ignoreBuildErrors: true },
   async rewrites() {

@@ -9,6 +9,8 @@ ARG INTERNAL_API_URL
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_WS_URL=$NEXT_PUBLIC_WS_URL
 ENV INTERNAL_API_URL=$INTERNAL_API_URL
+# Gera `.next/standalone` para `node server.js` na imagem final (ver next.config.js).
+ENV DOCKER_BUILD=1
 RUN npm run build
 
 FROM node:20-alpine AS production
