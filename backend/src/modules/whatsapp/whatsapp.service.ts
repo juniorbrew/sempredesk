@@ -3,6 +3,12 @@ import { HttpService } from '@nestjs/axios';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { firstValueFrom } from 'rxjs';
+import * as path from 'path';
+import * as fs from 'fs';
+import * as https from 'https';
+import * as http from 'http';
+import * as FormData from 'form-data';
+import { execFile } from 'child_process';
 import { CustomersService } from '../customers/customers.service';
 import { TicketsService } from '../tickets/tickets.service';
 import { ConversationsService } from '../conversations/conversations.service';
@@ -28,6 +34,10 @@ export interface NormalizedWhatsappMessage {
   isLid?: boolean;
   /** stanzaId da mensagem citada (reply nativo WhatsApp → reply interno). */
   quotedStanzaId?: string | null;
+  /** ID de mídia na Meta Graph API (precisa ser baixado antes de salvar). */
+  metaMediaId?: string | null;
+  metaMediaMime?: string | null;
+  metaMediaType?: 'image' | 'audio' | 'video' | null;
 }
 
 @Injectable()
@@ -67,22 +77,39 @@ export class WhatsappService {
       const change = entry?.changes?.[0];
       const value = change?.value;
       const msg = value?.messages?.[0];
-      if (!msg || (!msg.text?.body && !msg.button?.text && !msg.interactive?.button_reply?.title)) return null;
+      if (!msg) return null;
 
-      const text =
-        msg.text?.body ||
-        msg.button?.text ||
-        msg.interactive?.button_reply?.title ||
-        '';
-
-      return {
-        provider: 'meta',
-        from: msg.from,
+      const base = {
+        provider: 'meta' as const,
+        from: String(msg.from || ''),
         to: value?.metadata?.display_phone_number || value?.metadata?.phone_number_id,
-        text,
-        messageId: msg.id,
+        messageId: String(msg.id || ''),
         timestamp: msg.timestamp ? new Date(Number(msg.timestamp) * 1000) : new Date(),
+        // context.id = wamid da mensagem que o contato citou (reply nativo WhatsApp)
+        quotedStanzaId: (msg.context?.id as string | undefined) ?? null,
       };
+
+      // Text / button / interactive
+      if (msg.text?.body || msg.button?.text || msg.interactive?.button_reply?.title) {
+        return {
+          ...base,
+          text: msg.text?.body || msg.button?.text || msg.interactive?.button_reply?.title || '',
+        };
+      }
+
+      // Audio / Image / Video — mídia Meta (media_id precisa ser baixado)
+      if (msg.type === 'audio' || msg.type === 'image' || msg.type === 'video') {
+        const mediaData = msg[msg.type as string] as { id?: string; mime_type?: string } | undefined;
+        return {
+          ...base,
+          text: '',
+          metaMediaId: mediaData?.id ?? null,
+          metaMediaMime: mediaData?.mime_type ?? null,
+          metaMediaType: msg.type as 'audio' | 'image' | 'video',
+        };
+      }
+
+      return null;
     } catch {
       return null;
     }
@@ -97,7 +124,7 @@ export class WhatsappService {
     // Only truncate if it looks like a real phone number (starts with country code)
 
     const text = msg.text?.trim() ?? '';
-    if (!text && !msg.media) return { created: false, reason: 'EMPTY_MESSAGE' };
+    if (!text && !msg.media && !msg.metaMediaId) return { created: false, reason: 'EMPTY_MESSAGE' };
 
     // For Meta webhook messages, run chatbot here (Baileys runs it in whatsapp.module.ts)
     let resolvedDepartment = department;
@@ -132,7 +159,7 @@ export class WhatsappService {
           if (botResult.handled) {
             // Send replies via Meta API
             for (const reply of botResult.replies) {
-              this.sendWhatsappMessage(msg.from, reply).catch(() => {});
+              this.sendWhatsappMessage(tenantId, msg.from, reply).catch(() => {});
             }
             if (!botResult.transfer) {
               return { created: false, reason: 'CHATBOT_HANDLED' };
@@ -381,13 +408,32 @@ export class WhatsappService {
       stage: 'before-conversation-resolution',
     });
 
+    // Baixa mídia Meta (audio/image/video) antes de criar a conversa/ticket
+    let resolvedMedia = msg.media ?? null;
+    if (!resolvedMedia && msg.metaMediaId && msg.metaMediaType) {
+      try {
+        const storageKey = await this.downloadMetaMedia(
+          tenantId,
+          msg.metaMediaId,
+          msg.metaMediaType,
+          msg.metaMediaMime ?? undefined,
+          msg.messageId,
+        );
+        if (storageKey) {
+          resolvedMedia = { kind: msg.metaMediaType, storageKey, mime: msg.metaMediaMime ?? '' };
+        }
+      } catch (e) {
+        this.logger.warn(`[Meta media] Falha ao baixar mídia ${msg.metaMediaId}: ${(e as Error).message}`);
+      }
+    }
+
     const firstPreview =
       text ||
-      (msg.media?.kind === 'image'
+      (resolvedMedia?.kind === 'image'
         ? '[Imagem]'
-        : msg.media?.kind === 'audio'
+        : resolvedMedia?.kind === 'audio'
           ? '[Áudio]'
-          : msg.media?.kind === 'video'
+          : resolvedMedia?.kind === 'video'
             ? '[Vídeo]'
             : '');
     const { conversation, ticket, ticketCreated } = await this.conversationsService.getOrCreateForContact(
@@ -436,18 +482,18 @@ export class WhatsappService {
       contact.name || contact.email || wa,
       'contact',
       text ||
-        (msg.media?.kind === 'image'
+        (resolvedMedia?.kind === 'image'
           ? '📷 Imagem'
-          : msg.media?.kind === 'audio'
+          : resolvedMedia?.kind === 'audio'
             ? '🎤 Áudio'
-            : msg.media?.kind === 'video'
+            : resolvedMedia?.kind === 'video'
               ? '📹 Vídeo'
               : ''),
       {
         initialExternalId: msg.messageId?.trim() || null,
-        mediaKind: msg.media?.kind ?? null,
-        mediaStorageKey: msg.media?.storageKey ?? null,
-        mediaMime: msg.media?.mime ?? null,
+        mediaKind: resolvedMedia?.kind ?? null,
+        mediaStorageKey: resolvedMedia?.storageKey ?? null,
+        mediaMime: resolvedMedia?.mime ?? null,
         replyToId: inboundReplyToId,
       },
     );
@@ -539,7 +585,7 @@ export class WhatsappService {
       if (result.success) return;
       this.logger.warn(`[postTicketMessage] Baileys falhou, tentando Meta API`);
     }
-    await this.sendWhatsappMessage(wa, message);
+    await this.sendWhatsappMessage(tenantId, wa, message);
   }
 
   private normalizePostTicketTemplate(template: string | null | undefined, fallback: string): string {
@@ -588,14 +634,15 @@ export class WhatsappService {
 
     // Tenta Baileys (QR) primeiro; fallback Meta API
     let sent = false;
-    let baileysMsgId: string | null = null;
+    let externalMsgId: string | null = null;
     if (this.baileysService) {
       const result = await this.baileysService.sendMessage(tenantId, destination.raw, text);
       sent = result.success;
-      baileysMsgId = result.messageId ?? null; // ID para rastreamento de ACK (delivered/read)
+      externalMsgId = result.messageId ?? null; // ID para rastreamento de ACK (delivered/read)
     }
     if (!sent) {
-      await this.sendWhatsappMessage(destination.digits, text);
+      const wamid = await this.sendWhatsappMessage(tenantId, destination.digits, text);
+      if (wamid) { externalMsgId = wamid; sent = true; }
     }
 
     let savedMessage: any = null;
@@ -606,7 +653,7 @@ export class WhatsappService {
         // sem reload — o externalId é o ID do Baileys, usado no messages.update callback.
         savedMessage = await this.conversationsService.addMessage(
           tenantId, ticket.conversationId, authorId, authorName, 'user', text,
-          { skipOutbound: true, initialWhatsappStatus: 'sent', initialExternalId: baileysMsgId },
+          { skipOutbound: true, initialWhatsappStatus: 'sent', initialExternalId: externalMsgId },
         );
       } catch {
         // Conversation may already be closed; WhatsApp message was still delivered
@@ -635,6 +682,8 @@ export class WhatsappService {
       clientId?: string;
       subject?: string;
       firstMessage?: string;
+      templateName?: string;
+      templateLanguage?: string;
     },
   ): Promise<{
     conversation: any;
@@ -881,7 +930,24 @@ export class WhatsappService {
 
     // --- 5. Enviar primeira mensagem ---
     let firstMessageSent = false;
-    if (dto.firstMessage?.trim()) {
+    if (dto.templateName?.trim()) {
+      const tmplName = dto.templateName.trim();
+      const tmplLang = dto.templateLanguage?.trim() || 'en_US';
+      log(`[OUTBOUND-FLOW] Enviando template "${tmplName}" (lang=${tmplLang})`);
+      try {
+        const { digits } = this.resolveContactWhatsappTarget(contact, dto.phone?.replace(/\D/g, ''));
+        const wamid = await this.sendTemplateMessage(tenantId, digits, tmplName, tmplLang);
+        await this.conversationsService.addMessage(
+          tenantId, conversation.id, authorId, authorName, 'user',
+          `[Template: ${tmplName}]`,
+          { skipOutbound: true, initialExternalId: wamid ?? null, initialWhatsappStatus: 'sent' },
+        ).catch(() => {});
+        firstMessageSent = true;
+        log(`[OUTBOUND-FLOW] Template enviado com sucesso wamid=${wamid}`);
+      } catch (e: any) {
+        log(`[OUTBOUND-FLOW] Falha ao enviar template: ${e?.message}`);
+      }
+    } else if (dto.firstMessage?.trim()) {
       log(`[OUTBOUND-FLOW] Enviando primeira mensagem: "${dto.firstMessage.trim().slice(0, 50)}..."`);
       try {
         await this.conversationsService.addMessage(
@@ -906,6 +972,215 @@ export class WhatsappService {
   }
 
   /**
+   * Baixa um arquivo de mídia da Meta Graph API e salva em disco.
+   * Retorna a chave relativa ao CONVERSATION_MEDIA_DIR.
+   */
+  private async downloadMetaMedia(
+    tenantId: string,
+    mediaId: string,
+    kind: 'image' | 'audio' | 'video',
+    mime?: string,
+    messageId?: string,
+  ): Promise<string | null> {
+    const metaConfig = this.baileysService
+      ? await this.baileysService.getMetaConfig(tenantId).catch(() => null)
+      : null;
+    const token = metaConfig?.metaToken || process.env.WHATSAPP_TOKEN;
+    if (!token) {
+      this.logger.warn(`[Meta media] Token não configurado para tenant=${tenantId}`);
+      return null;
+    }
+
+    // 1. Obter URL de download
+    const metaUrl = `https://graph.facebook.com/v20.0/${mediaId}`;
+    const metaResp = await firstValueFrom(
+      this.http.get<{ url: string; mime_type?: string }>(metaUrl, {
+        headers: { Authorization: `Bearer ${token}` },
+      }),
+    );
+    const downloadUrl = metaResp.data?.url;
+    const resolvedMime = mime || metaResp.data?.mime_type || 'application/octet-stream';
+    if (!downloadUrl) {
+      this.logger.warn(`[Meta media] URL de download não retornada para mediaId=${mediaId}`);
+      return null;
+    }
+
+    // 2. Baixar binário
+    const buffer = await new Promise<Buffer>((resolve, reject) => {
+      const makeRequest = (url: string, redirects = 0) => {
+        if (redirects > 5) { reject(new Error('Too many redirects')); return; }
+        const mod = url.startsWith('https') ? https : http;
+        mod.get(url, { headers: { Authorization: `Bearer ${token}` } }, (res) => {
+          if (res.statusCode === 301 || res.statusCode === 302) {
+            makeRequest(res.headers.location!, redirects + 1);
+            return;
+          }
+          const chunks: Buffer[] = [];
+          res.on('data', (c: Buffer) => chunks.push(c));
+          res.on('end', () => resolve(Buffer.concat(chunks)));
+          res.on('error', reject);
+        }).on('error', reject);
+      };
+      makeRequest(downloadUrl);
+    });
+
+    // 3. Salvar em disco (mesma estrutura do baileys.service.ts)
+    const mediaDir = process.env.CONVERSATION_MEDIA_DIR || path.join(process.cwd(), 'uploads', 'conversation-media');
+    const yyyyMM = new Date().toISOString().slice(0, 7);
+    const dir = path.join(mediaDir, tenantId, yyyyMM);
+    await fs.promises.mkdir(dir, { recursive: true });
+    const ext = this.extForMimeLocal(resolvedMime);
+    const safeId = String(messageId || mediaId || 'msg').replace(/[^\w.-]/g, '_');
+    const fname = `${safeId}.${ext}`;
+    await fs.promises.writeFile(path.join(dir, fname), buffer);
+    const storageKey = path.join(tenantId, yyyyMM, fname);
+    this.logger.log(`[Meta media] Mídia ${kind} salva: ${storageKey} (${buffer.length} bytes)`);
+    return storageKey;
+  }
+
+  private extForMimeLocal(mime?: string | null): string {
+    const m = (mime || '').toLowerCase().split(';')[0].trim();
+    if (m.startsWith('video/')) {
+      if (m.includes('webm')) return 'webm';
+      if (m.includes('mp4')) return 'mp4';
+      return 'mp4';
+    }
+    if (m.startsWith('image/')) {
+      if (m.includes('png')) return 'png';
+      if (m.includes('gif')) return 'gif';
+      if (m.includes('webp')) return 'webp';
+      return 'jpg';
+    }
+    if (m.startsWith('audio/')) {
+      if (m.includes('mp4') || m.includes('m4a')) return 'm4a';
+      if (m.includes('mpeg') || m.includes('mp3')) return 'mp3';
+      if (m.includes('wav')) return 'wav';
+      return 'ogg';
+    }
+    return 'bin';
+  }
+
+  /**
+   * Envia mídia (áudio, imagem, vídeo) via Meta Cloud API.
+   * Faz upload do arquivo para a Meta e depois envia como mensagem de mídia.
+   * Retorna o wamid da mensagem ou null em caso de falha.
+   */
+  async sendMetaMedia(
+    tenantId: string,
+    to: string,
+    kind: 'image' | 'audio' | 'video',
+    filePath: string,
+    opts?: { caption?: string; mime?: string; contextMessageId?: string | null },
+  ): Promise<string | null> {
+    const metaConfig = this.baileysService
+      ? await this.baileysService.getMetaConfig(tenantId).catch(() => null)
+      : null;
+    const phoneNumberId = metaConfig?.metaPhoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID;
+    const token = metaConfig?.metaToken || process.env.WHATSAPP_TOKEN;
+
+    if (!phoneNumberId || !token) {
+      this.logger.warn(`[Meta media] Credenciais não configuradas para tenant=${tenantId}`);
+      return null;
+    }
+
+    // Converte formatos não suportados pela Meta API
+    let uploadPath = filePath;
+    let uploadMime = opts?.mime || this.guessMimeFromPath(filePath, kind);
+    let tempConverted: string | null = null;
+
+    const webmAudio = kind === 'audio' && (uploadMime.includes('webm') || filePath.endsWith('.webm'));
+    if (webmAudio) {
+      tempConverted = filePath.replace(/\.\w+$/, '') + '_conv.ogg';
+      try {
+        await this.ffmpegConvert(filePath, tempConverted, ['-c:a', 'libopus', '-b:a', '48k', '-vn']);
+        uploadPath = tempConverted;
+        uploadMime = 'audio/ogg; codecs=opus';
+        this.logger.log(`[Meta media] Convertido webm→ogg: ${tempConverted}`);
+      } catch (e) {
+        this.logger.warn(`[Meta media] ffmpeg falhou, tentando webm direto: ${(e as Error).message}`);
+        tempConverted = null;
+      }
+    }
+
+    // 1. Upload do arquivo para a Meta
+    const fileBuffer = await fs.promises.readFile(uploadPath);
+    const mime = uploadMime;
+    const form = new FormData();
+    form.append('file', fileBuffer, { filename: path.basename(uploadPath), contentType: mime });
+    form.append('type', mime);
+    form.append('messaging_product', 'whatsapp');
+
+    const uploadUrl = `https://graph.facebook.com/v20.0/${phoneNumberId}/media`;
+    let uploadedMediaId: string;
+    try {
+      const uploadResp = await firstValueFrom(
+        this.http.post<{ id: string }>(uploadUrl, form, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            ...form.getHeaders(),
+          },
+        }),
+      );
+      uploadedMediaId = uploadResp.data?.id;
+      if (!uploadedMediaId) throw new Error('Upload não retornou media id');
+      this.logger.log(`[Meta media] Upload OK — mediaId=${uploadedMediaId} tipo=${kind}`);
+    } catch (e: any) {
+      this.logger.error(`[Meta media] Falha no upload de mídia`, e?.response?.data || e?.message);
+      if (tempConverted) fs.promises.unlink(tempConverted).catch(() => {});
+      return null;
+    }
+
+    if (tempConverted) fs.promises.unlink(tempConverted).catch(() => {});
+
+    // 2. Enviar mensagem de mídia
+    const mediaPayload: Record<string, unknown> = { id: uploadedMediaId };
+    if (opts?.caption && kind !== 'audio') mediaPayload.caption = opts.caption;
+
+    const msgPayload: Record<string, unknown> = {
+      messaging_product: 'whatsapp',
+      to,
+      type: kind,
+      [kind]: mediaPayload,
+    };
+    if (opts?.contextMessageId) msgPayload.context = { message_id: opts.contextMessageId };
+
+    const msgUrl = `https://graph.facebook.com/v20.0/${phoneNumberId}/messages`;
+    try {
+      const msgResp = await firstValueFrom(
+        this.http.post<{ messages: Array<{ id: string }> }>(msgUrl, msgPayload, {
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        }),
+      );
+      const wamid = msgResp.data?.messages?.[0]?.id ?? null;
+      this.logger.log(`[Meta media] Mensagem ${kind} enviada para ${to} wamid=${wamid}`);
+      return wamid;
+    } catch (e: any) {
+      this.logger.error(`[Meta media] Falha ao enviar mensagem de mídia`, e?.response?.data || e?.message);
+      return null;
+    }
+  }
+
+  private ffmpegConvert(input: string, output: string, extraArgs: string[] = []): Promise<void> {
+    return new Promise((resolve, reject) => {
+      execFile('ffmpeg', ['-y', '-i', input, ...extraArgs, output], (err, _stdout, stderr) => {
+        if (err) reject(new Error(stderr || err.message));
+        else resolve();
+      });
+    });
+  }
+
+  private guessMimeFromPath(filePath: string, kind: 'image' | 'audio' | 'video'): string {
+    const ext = path.extname(filePath).toLowerCase().replace('.', '');
+    const mimeMap: Record<string, string> = {
+      ogg: 'audio/ogg; codecs=opus', opus: 'audio/ogg; codecs=opus', mp3: 'audio/mpeg',
+      m4a: 'audio/mp4', wav: 'audio/wav', aac: 'audio/aac',
+      jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp',
+      mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime',
+    };
+    return mimeMap[ext] || (kind === 'audio' ? 'audio/ogg' : kind === 'image' ? 'image/jpeg' : 'video/mp4');
+  }
+
+  /**
    * Resolve o destino técnico correto para envio WhatsApp de um contato.
    * Prioridade: metadata.whatsappLid → contact.whatsapp → fallback
    * Retorna { raw } para Baileys e { digits } para Meta API.
@@ -924,31 +1199,51 @@ export class WhatsappService {
   }
 
   /**
-   * Envio de mensagem via Meta (Graph API).
-   * Requer as variáveis:
-   * - WHATSAPP_PHONE_NUMBER_ID
-   * - WHATSAPP_TOKEN
+   * Processa atualização de status vinda do webhook Meta (delivered/read).
+   * Atualiza o whatsappStatus da mensagem pelo wamid (externalId).
    */
-  async sendWhatsappMessage(to: string, text: string) {
-    const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
-    const token = process.env.WHATSAPP_TOKEN;
+  async handleMetaStatusUpdate(tenantId: string, wamid: string, status: string): Promise<void> {
+    const normalized = status === 'delivered' ? 'delivered' : status === 'read' ? 'read' : status === 'failed' ? 'failed' : null;
+    if (!normalized) return;
+    await this.conversationsService.updateMessageStatusByExternalId(tenantId, wamid, normalized).catch(() => {});
+  }
+
+  /**
+   * Envio de mensagem via Meta Cloud API (Graph API).
+   * Credenciais lidas do banco (por tenant) com fallback em variáveis de ambiente.
+   */
+  async sendWhatsappMessage(tenantId: string, to: string, text: string, contextMessageId?: string | null) {
+    const metaConfig = this.baileysService
+      ? await this.baileysService.getMetaConfig(tenantId).catch(() => null)
+      : null;
+
+    const phoneNumberId =
+      metaConfig?.metaPhoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID;
+    const token =
+      metaConfig?.metaToken || process.env.WHATSAPP_TOKEN;
 
     if (!phoneNumberId || !token) {
-      this.logger.warn('WHATSAPP_PHONE_NUMBER_ID ou WHATSAPP_TOKEN não configurados');
-      return;
+      this.logger.warn(
+        `[Meta API] Credenciais não configuradas para tenant=${tenantId}. ` +
+        `Configure via PUT /webhooks/whatsapp/config/meta`,
+      );
+      return null;
     }
 
     const url = `https://graph.facebook.com/v20.0/${phoneNumberId}/messages`;
 
-    const payload = {
+    const payload: Record<string, unknown> = {
       messaging_product: 'whatsapp',
       to,
       type: 'text',
       text: { body: text },
     };
+    if (contextMessageId) {
+      payload.context = { message_id: contextMessageId };
+    }
 
     try {
-      await firstValueFrom(
+      const response = await firstValueFrom(
         this.http.post(url, payload, {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -956,8 +1251,60 @@ export class WhatsappService {
           },
         }),
       );
+      // Retorna o wamid para rastreamento de status (delivered/read)
+      return (response.data?.messages?.[0]?.id as string) ?? null;
     } catch (err: any) {
       this.logger.error('Erro ao enviar mensagem WhatsApp', err?.response?.data || err?.message || err);
+      throw err;
+    }
+  }
+
+  /**
+   * Envia template de mensagem via Meta Cloud API.
+   * Obrigatório para iniciar conversa fora da janela de 24h (primeiro contato).
+   */
+  async sendTemplateMessage(
+    tenantId: string,
+    to: string,
+    templateName: string,
+    languageCode: string = 'en_US',
+  ): Promise<string | null> {
+    const metaConfig = this.baileysService
+      ? await this.baileysService.getMetaConfig(tenantId).catch(() => null)
+      : null;
+
+    const phoneNumberId = metaConfig?.metaPhoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID;
+    const token = metaConfig?.metaToken || process.env.WHATSAPP_TOKEN;
+
+    if (!phoneNumberId || !token) {
+      this.logger.warn(`[Meta API] Credenciais não configuradas para tenant=${tenantId}.`);
+      return null;
+    }
+
+    const url = `https://graph.facebook.com/v20.0/${phoneNumberId}/messages`;
+    const payload = {
+      messaging_product: 'whatsapp',
+      to,
+      type: 'template',
+      template: {
+        name: templateName,
+        language: { code: languageCode },
+      },
+    };
+
+    try {
+      const response = await firstValueFrom(
+        this.http.post(url, payload, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        }),
+      );
+      this.logger.log(`[Meta API] Template "${templateName}" enviado para ${to} wamid=${response.data?.messages?.[0]?.id}`);
+      return (response.data?.messages?.[0]?.id as string) ?? null;
+    } catch (err: any) {
+      this.logger.error(`[Meta API] Erro ao enviar template "${templateName}"`, err?.response?.data || err?.message || err);
       throw err;
     }
   }

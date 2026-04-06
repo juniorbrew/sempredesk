@@ -65,9 +65,23 @@ export class WhatsappModule implements OnModuleInit {
             { caption: payload.caption, mime: payload.mime, quoted: quotedMsg ?? undefined },
           );
           if (result.success) return result;
+          this.logger.warn(`[outboundSender] Baileys falhou para mídia (${result.error}), tentando Meta API`);
         }
-        this.logger.warn('[outboundSender] Mídia só é enviada via Baileys (sessão QR).');
-        return { success: false, error: 'Mídia requer Baileys activo' };
+        // Fallback: Meta Cloud API
+        try {
+          const digits = toWhatsapp.replace(/\D/g, '');
+          const wamid = await this.whatsappService.sendMetaMedia(
+            tenantId,
+            digits,
+            payload.kind,
+            payload.filePath,
+            { caption: payload.caption, mime: payload.mime, contextMessageId: quotedMsg?.externalId ?? null },
+          );
+          if (wamid) return { success: true, messageId: wamid };
+          return { success: false, error: 'Meta API não retornou wamid para mídia' };
+        } catch (e: any) {
+          return { success: false, error: e?.message };
+        }
       }
       const text = payload;
       if (this.baileysService) {
@@ -77,8 +91,8 @@ export class WhatsappModule implements OnModuleInit {
       }
       try {
         const digits = toWhatsapp.replace(/\D/g, '');
-        await this.whatsappService.sendWhatsappMessage(digits, text);
-        return { success: true };
+        const wamid = await this.whatsappService.sendWhatsappMessage(tenantId, digits, text, quotedMsg?.externalId ?? null);
+        return { success: true, messageId: wamid ?? undefined };
       } catch (e: any) {
         return { success: false, error: e?.message };
       }

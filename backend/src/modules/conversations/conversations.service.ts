@@ -1015,12 +1015,17 @@ export class ConversationsService {
             if (sendResult.success) {
               const externalId = sendResult.messageId ?? null;
               await this.msgRepo.update(savedId, { externalId, whatsappStatus: 'sent' });
+              saved.externalId = externalId; // atualiza em memória para o emitMsg incluir o id correto
               emitMsg('sent');
             } else {
               await this.msgRepo.update(savedId, { whatsappStatus: 'failed' });
               emitMsg('failed');
               console.warn(`[ConversationsService] Mensagem salva mas envio WhatsApp falhou (conv=${conversationId}): ${sendResult.error ?? 'sem detalhes'}`);
             }
+          } else {
+            this.logger.warn(`[ConversationsService] Contato ${conv.contactId} sem WhatsApp — mensagem salva sem envio outbound`);
+            await this.msgRepo.update(savedId, { whatsappStatus: 'failed' }).catch(() => {});
+            emitMsg('failed');
           }
         } catch (e) {
           // Falha no envio WhatsApp não deve impedir o salvamento da mensagem
