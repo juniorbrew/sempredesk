@@ -132,14 +132,14 @@ export class WhatsappController {
   @UseGuards(JwtAuthGuard, PermissionsGuard)
   @RequirePermission('ticket.reply')
   @Post('send-from-ticket')
-  async sendFromTicket(@Request() req: any, @Body() body: { ticketId: string; text: string }) {
+  async sendFromTicket(@Request() req: any, @Body() body: { ticketId: string; text: string; replyToId?: string }) {
     const tenantId = req.tenantId || req.user?.tenantId;
     const userId = req.user?.id || req.user?.sub;
     const userName = req.user?.name || req.user?.email || 'Equipe';
     if (!tenantId || !body.ticketId || !body.text?.trim()) {
       return { success: false, message: 'tenantId, ticketId e text são obrigatórios' };
     }
-    return this.whatsappService.sendReplyFromTicket(tenantId, body.ticketId, userId, userName, body.text.trim());
+    return this.whatsappService.sendReplyFromTicket(tenantId, body.ticketId, userId, userName, body.text.trim(), body.replyToId ?? null);
   }
 
   // ──────────────────────────────────────────────────────────────────────

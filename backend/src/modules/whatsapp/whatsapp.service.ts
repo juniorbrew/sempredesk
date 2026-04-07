@@ -79,12 +79,17 @@ export class WhatsappService {
       const msg = value?.messages?.[0];
       if (!msg) return null;
 
+      // Nome do remetente vem em value.contacts[0].profile.name (API oficial Meta)
+      const contactProfile = value?.contacts?.find?.((c: any) => c.wa_id === msg.from) ?? value?.contacts?.[0];
+      const senderName = (contactProfile?.profile?.name as string | undefined) || undefined;
+
       const base = {
         provider: 'meta' as const,
         from: String(msg.from || ''),
         to: value?.metadata?.display_phone_number || value?.metadata?.phone_number_id,
         messageId: String(msg.id || ''),
         timestamp: msg.timestamp ? new Date(Number(msg.timestamp) * 1000) : new Date(),
+        senderName,
         // context.id = wamid da mensagem que o contato citou (reply nativo WhatsApp)
         quotedStanzaId: (msg.context?.id as string | undefined) ?? null,
       };
@@ -128,6 +133,7 @@ export class WhatsappService {
 
     // For Meta webhook messages, run chatbot here (Baileys runs it in whatsapp.module.ts)
     let resolvedDepartment = department;
+    let resolvedChatbotClientId = chatbotClientId;
     if (msg.provider === 'meta' && !department && this.chatbotService) {
       // Verifica se existe conversa humana ativa antes de acionar chatbot.
       // Se o agente iniciou a conversa, a resposta do contato não deve cair no chatbot.
@@ -165,6 +171,7 @@ export class WhatsappService {
               return { created: false, reason: 'CHATBOT_HANDLED' };
             }
             resolvedDepartment = botResult.transfer.department ?? undefined;
+            resolvedChatbotClientId = botResult.transfer.clientId ?? resolvedChatbotClientId;
           }
         } catch (e) {
           this.logger.warn('Chatbot processing failed for Meta message', e);
@@ -184,7 +191,7 @@ export class WhatsappService {
       rawPhone: msg.from,
       rawWhatsapp: msg.from,
       normalizedPhone: normalizedWhatsapp,
-      clientId: chatbotClientId ?? null,
+      clientId: resolvedChatbotClientId ?? null,
       lid: isLid ? rawFromDigits : null,
       resolvedDigits: msg.resolvedDigits ?? null,
       stage: 'before-contact-resolution',
@@ -194,7 +201,7 @@ export class WhatsappService {
       rawWhatsapp: msg.from,
       normalizedWhatsapp,
       lid: isLid ? rawFromDigits : null,
-      clientId: chatbotClientId ?? null,
+      clientId: resolvedChatbotClientId ?? null,
       direction: 'inbound',
     });
     let contact = canonicalContact.contact;
@@ -203,7 +210,7 @@ export class WhatsappService {
     if (!contact) {
       if (blockedTechnicalOnly) {
         const canMaterializeTrustedResolvedContact = Boolean(
-          chatbotClientId &&
+          resolvedChatbotClientId &&
           msg.resolvedDigits &&
           normalizeWhatsappNumber(msg.resolvedDigits),
         );
@@ -211,7 +218,7 @@ export class WhatsappService {
           let resolvedPhone = normalizeWhatsappNumber(msg.resolvedDigits as string) || msg.resolvedDigits!;
           resolvedPhone = restoreBrNinthDigit(resolvedPhone);
           this.logger.log(
-            `Materializando contato canônico para identificador técnico ${msg.from} usando resolvedDigits=${resolvedPhone} e clientId=${chatbotClientId}`,
+            `Materializando contato canônico para identificador técnico ${msg.from} usando resolvedDigits=${resolvedPhone} e clientId=${resolvedChatbotClientId}`,
           );
           contact = await this.customersService.findOrCreateByWhatsapp(
             tenantId,
@@ -220,7 +227,7 @@ export class WhatsappService {
             false,
             {
               direction: 'inbound',
-              clientId: chatbotClientId ?? null,
+              clientId: resolvedChatbotClientId ?? null,
               rawInput: resolvedPhone,
             },
           );
@@ -235,7 +242,7 @@ export class WhatsappService {
               },
               {
                 direction: 'inbound',
-                clientId: chatbotClientId ?? null,
+                clientId: resolvedChatbotClientId ?? null,
                 rawInput: msg.from,
               },
             ).catch(() => {});
@@ -256,7 +263,7 @@ export class WhatsappService {
           rawPhone: msg.from,
           rawWhatsapp: msg.from,
           normalizedPhone: normalizedWhatsapp,
-          clientId: chatbotClientId ?? null,
+          clientId: resolvedChatbotClientId ?? null,
           lid: isLid ? rawFromDigits : null,
           candidates: canonicalContact.candidates,
           matchedBy: canonicalContact.matchedBy,
@@ -270,7 +277,7 @@ export class WhatsappService {
       this.logger.log(`Criando contato para WhatsApp desconhecido: ${wa} isLid=${isLid} (${msg.senderName || 'sem nome'})`);
       contact = await this.customersService.findOrCreateByWhatsapp(tenantId, wa, msg.senderName, isLid, {
         direction: 'inbound',
-        clientId: chatbotClientId ?? null,
+        clientId: resolvedChatbotClientId ?? null,
         rawInput: msg.from,
       });
       contactAction = 'create';
@@ -283,7 +290,7 @@ export class WhatsappService {
         rawPhone: msg.from,
         rawWhatsapp: msg.from,
         normalizedPhone: normalizedWhatsapp,
-        clientId: chatbotClientId ?? null,
+        clientId: resolvedChatbotClientId ?? null,
         lid: isLid ? wa : null,
         candidates: canonicalContact.candidates,
         matchedBy: canonicalContact.matchedBy,
@@ -293,6 +300,17 @@ export class WhatsappService {
       });
       return { created: false, reason: isLid ? 'UNMATCHED_LID_CONTACT' : 'CONTACT_CREATE_FAILED' };
     }
+
+    // Atualiza o nome do contato se ele está salvo como número e o WhatsApp enviou o nome real
+    if (msg.senderName?.trim() && !isLid) {
+      const currentName = contact.name ?? '';
+      const looksLikePhone = !currentName.trim() || /^\+?\d[\d\s\-().]+$/.test(currentName.trim());
+      if (looksLikePhone) {
+        await this.customersService.updateContactName(tenantId, contact.id, msg.senderName.trim()).catch(() => {});
+        contact.name = msg.senderName.trim();
+      }
+    }
+
     this.logWhatsappResolution({
       scope: 'contact-resolution',
       direction: 'inbound',
@@ -300,7 +318,7 @@ export class WhatsappService {
       rawPhone: msg.from,
       rawWhatsapp: msg.from,
       normalizedPhone: normalizedWhatsapp,
-      clientId: chatbotClientId ?? contact.clientId ?? null,
+      clientId: resolvedChatbotClientId ?? contact.clientId ?? null,
       lid: isLid ? rawFromDigits : null,
       existingContactByWhatsapp: canonicalContact.matchedBy === 'whatsapp' || canonicalContact.matchedBy === 'whatsapp+lid'
         ? (canonicalContact.candidates[0] ?? null)
@@ -308,7 +326,7 @@ export class WhatsappService {
       existingContactByPhone: canonicalContact.matchedBy === 'whatsapp' || canonicalContact.matchedBy === 'whatsapp+lid'
         ? (canonicalContact.candidates[0] ?? null)
         : null,
-      existingContactByClientId: chatbotClientId && contact.clientId && String(contact.clientId) === String(chatbotClientId)
+      existingContactByClientId: resolvedChatbotClientId && contact.clientId && String(contact.clientId) === String(resolvedChatbotClientId)
         ? contact.id
         : null,
       existingContactByLid: canonicalContact.matchedBy === 'lid' || canonicalContact.matchedBy === 'whatsapp+lid'
@@ -325,25 +343,25 @@ export class WhatsappService {
     if (isLid && canonicalContact.matchedBy === 'none') {
       await this.customersService.persistWhatsappLid(tenantId, contact.id, rawFromDigits, {
         direction: 'inbound',
-        clientId: chatbotClientId ?? contact.clientId ?? null,
+        clientId: resolvedChatbotClientId ?? contact.clientId ?? null,
         rawInput: msg.from,
       }).catch(() => {});
       contact.metadata = { ...(contact.metadata ?? {}), whatsappLid: rawFromDigits };
     }
 
     // Se o chatbot identificou o cliente via CNPJ, vincula o contato antes de criar a conversa
-    if (chatbotClientId && !contact.clientId) {
+    if (resolvedChatbotClientId && !contact.clientId) {
       try {
-        await this.customersService.linkContactToClient(tenantId, contact.id, chatbotClientId);
-        contact.clientId = chatbotClientId;
-        this.logger.log(`Contato ${contact.id} vinculado automaticamente ao cliente ${chatbotClientId} via CNPJ`);
+        await this.customersService.linkContactToClient(tenantId, contact.id, resolvedChatbotClientId);
+        contact.clientId = resolvedChatbotClientId;
+        this.logger.log(`Contato ${contact.id} vinculado automaticamente ao cliente ${resolvedChatbotClientId} via CNPJ`);
       } catch (e) {
-        this.logger.warn(`Falha ao vincular contato ${contact.id} ao cliente ${chatbotClientId} via CNPJ`, e);
+        this.logger.warn(`Falha ao vincular contato ${contact.id} ao cliente ${resolvedChatbotClientId} via CNPJ`, e);
       }
     }
 
     // CNPJ auto-detection: só executa se chatbot não identificou cliente e contato não tem cliente
-    if (!chatbotClientId && !contact.clientId && text) {
+    if (!resolvedChatbotClientId && !contact.clientId && text) {
       const cnpjDetectado = detectCnpjInText(text);
       if (cnpjDetectado) {
         this.logger.log(`CNPJ detectado em mensagem do contato ${contact.id}: ${cnpjDetectado}`);
@@ -368,7 +386,7 @@ export class WhatsappService {
 
     // clientId: prioriza o identificado pelo chatbot (CNPJ), depois o já vinculado ao contato,
     // e por último o resolvido pelo identificador WhatsApp (telefone/LID).
-    let resolvedClientId: string | null = chatbotClientId ?? null;
+    let resolvedClientId: string | null = resolvedChatbotClientId ?? null;
     if (!resolvedClientId) {
       if (contact.clientId) {
         // Contato já vinculado a um cliente — usa directamente sem consulta adicional.
@@ -612,6 +630,7 @@ export class WhatsappService {
     authorId: string,
     authorName: string,
     text: string,
+    replyToId?: string | null,
   ) {
     const ticket = await this.ticketsService.findOne(tenantId, ticketId);
     if (ticket.origin !== TicketOrigin.WHATSAPP) {
@@ -632,16 +651,35 @@ export class WhatsappService {
       throw new BadRequestException('Número WhatsApp do contato inválido');
     }
 
+    // Resolve mensagem citada para reply nativo no WhatsApp
+    let quotedMsg: { externalId: string; content: string; fromMe: boolean } | null = null;
+    if (replyToId) {
+      try {
+        const rows: Array<{ external_id: string | null; content: string; author_type: string }> = await this.dataSource.query(
+          `SELECT external_id, content, author_type FROM conversation_messages WHERE id = $1 AND tenant_id = $2 LIMIT 1`,
+          [replyToId, tenantId],
+        );
+        const parent = rows[0];
+        if (parent?.external_id) {
+          quotedMsg = {
+            externalId: parent.external_id,
+            content: (parent.content ?? '').slice(0, 200),
+            fromMe: parent.author_type === 'user',
+          };
+        }
+      } catch { /* lookup falhou — segue sem reply */ }
+    }
+
     // Tenta Baileys (QR) primeiro; fallback Meta API
     let sent = false;
     let externalMsgId: string | null = null;
     if (this.baileysService) {
-      const result = await this.baileysService.sendMessage(tenantId, destination.raw, text);
+      const result = await this.baileysService.sendMessage(tenantId, destination.raw, text, { quoted: quotedMsg ?? undefined });
       sent = result.success;
       externalMsgId = result.messageId ?? null; // ID para rastreamento de ACK (delivered/read)
     }
     if (!sent) {
-      const wamid = await this.sendWhatsappMessage(tenantId, destination.digits, text);
+      const wamid = await this.sendWhatsappMessage(tenantId, destination.digits, text, quotedMsg?.externalId ?? null);
       if (wamid) { externalMsgId = wamid; sent = true; }
     }
 
@@ -653,7 +691,7 @@ export class WhatsappService {
         // sem reload — o externalId é o ID do Baileys, usado no messages.update callback.
         savedMessage = await this.conversationsService.addMessage(
           tenantId, ticket.conversationId, authorId, authorName, 'user', text,
-          { skipOutbound: true, initialWhatsappStatus: 'sent', initialExternalId: externalMsgId },
+          { skipOutbound: true, initialWhatsappStatus: 'sent', initialExternalId: externalMsgId, replyToId: replyToId ?? null },
         );
       } catch {
         // Conversation may already be closed; WhatsApp message was still delivered

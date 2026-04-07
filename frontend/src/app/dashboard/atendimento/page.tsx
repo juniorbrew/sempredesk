@@ -1756,7 +1756,7 @@ export default function AtendimentoPage() {
       } else if (channel === 'whatsapp' && whatsappConvId) {
         res = await api.addConversationMessage(whatsappConvId, { content: text, replyToId: currentReplyingTo?.id ?? null });
       } else if (channel === 'whatsapp' && ticketId) {
-        res = await api.sendWhatsappFromTicket(ticketId, text);
+        res = await api.sendWhatsappFromTicket(ticketId, text, currentReplyingTo?.id ?? null);
       } else {
         res = await api.addConversationMessage(selected.id, { content: text, replyToId: currentReplyingTo?.id ?? null });
       }

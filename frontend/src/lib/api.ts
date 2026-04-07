@@ -97,8 +97,8 @@ class ApiClient {
   /** Blob do anexo gravado em ticket_reply_attachments. */
   getTicketReplyAttachmentBlob = (ticketId: string, attachmentId: string) =>
     this.client.get(`/tickets/${ticketId}/reply-attachments/${attachmentId}/media`, { responseType: 'blob' });
-  sendWhatsappFromTicket = (ticketId: string, text: string) =>
-    this.client.post('/webhooks/whatsapp/send-from-ticket', { ticketId, text });
+  sendWhatsappFromTicket = (ticketId: string, text: string, replyToId?: string | null) =>
+    this.client.post('/webhooks/whatsapp/send-from-ticket', { ticketId, text, replyToId: replyToId ?? undefined });
   checkWhatsappNumber = (phone: string) =>
     this.client.post('/webhooks/whatsapp/check-number', { phone });
   startOutboundConversation = (data: { phone?: string; contactId?: string; clientId?: string; subject?: string; firstMessage?: string }) =>

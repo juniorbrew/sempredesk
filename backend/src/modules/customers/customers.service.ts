@@ -609,14 +609,58 @@ export class CustomersService {
 
   async removeContact(tenantId: string, contactId: string) {
     const contact = await this.getContactOrFail(tenantId, contactId);
-    await this.contacts.update({ id: contactId, tenantId }, { status: 'inactive' });
-    // Limpa a sessão do chatbot para que a próxima interação comece do zero
-    if (contact.whatsapp) {
+
+    // Verifica se existe ticket ou conversa vinculada — se não houver, apaga o registro
+    // completamente para não deixar rastros de identificadores WhatsApp no banco.
+    const [ticketCount, conversationCount] = await Promise.all([
+      this.contacts.manager.query<[{ count: string }]>(
+        `SELECT COUNT(*) as count FROM tickets WHERE tenant_id = $1 AND contact_id = $2`,
+        [tenantId, contactId],
+      ),
+      this.contacts.manager.query<[{ count: string }]>(
+        `SELECT COUNT(*) as count FROM conversations WHERE tenant_id = $1 AND contact_id = $2`,
+        [tenantId, contactId],
+      ),
+    ]);
+
+    const hasHistory = Number(ticketCount[0].count) > 0 || Number(conversationCount[0].count) > 0;
+
+    // Limpa a sessão do chatbot em qualquer caso
+    const waIdentifier = contact.whatsapp || contact.metadata?.whatsappResolvedDigits as string | undefined;
+    if (waIdentifier) {
       await this.contacts.manager.query(
-        `DELETE FROM chatbot_sessions WHERE tenant_id = $1 AND identifier = $2`,
-        [tenantId, contact.whatsapp],
+        `DELETE FROM chatbot_sessions WHERE tenant_id = $1 AND (identifier = $2 OR contact_id = $3)`,
+        [tenantId, waIdentifier, contactId],
       );
     }
+
+    if (!hasHistory) {
+      // Sem histórico: apaga completamente (contact_customers em cascata ou antes)
+      await this.contacts.manager.query(
+        `DELETE FROM contact_customers WHERE tenant_id = $1 AND contact_id = $2`,
+        [tenantId, contactId],
+      );
+      await this.contacts.delete({ id: contactId, tenantId });
+      return;
+    }
+
+    // Com histórico: mantém o registro por integridade dos tickets/conversas,
+    // mas apaga todos os identificadores para não reutilizar este contato.
+    const clearedMetadata = { ...(contact.metadata ?? {}) };
+    delete clearedMetadata.whatsappLid;
+    delete clearedMetadata.whatsappJid;
+    delete clearedMetadata.whatsappResolvedDigits;
+
+    await this.contacts.update(
+      { id: contactId, tenantId },
+      { status: 'inactive', whatsapp: null, phone: null, metadata: clearedMetadata } as any,
+    );
+  }
+
+  /** Atualiza apenas o nome do contato (usado quando o WhatsApp fornece o nome real na primeira mensagem). */
+  async updateContactName(tenantId: string, contactId: string, name: string): Promise<void> {
+    await this.contacts.update({ id: contactId, tenantId }, { name } as any);
+    this.logger.log(`[updateContactName] Contato ${contactId} → nome atualizado para "${name}"`);
   }
 
   /**
@@ -1361,7 +1405,7 @@ export class CustomersService {
       stage: 'resolveCanonicalWhatsappContact',
       matchedBy,
       candidates: candidates.map((candidate) => candidate.id),
-      canonicalReason: safeContact ? reason : `${reason},blocked-technical-only`,
+      canonicalReason: safeContact ? reason : contact ? `${reason},blocked-technical-only` : reason,
       whatsappJid: jidMatches[0]?.metadata?.whatsappJid ?? null,
       whatsappResolvedDigits: resolvedDigitsMatches[0]?.metadata?.whatsappResolvedDigits ?? null,
     });
@@ -1372,7 +1416,7 @@ export class CustomersService {
       normalizedWhatsapp,
       lid,
       candidates: candidates.map((candidate) => candidate.id),
-      canonicalReason: safeContact ? reason : `${reason},blocked-technical-only`,
+      canonicalReason: safeContact ? reason : contact ? `${reason},blocked-technical-only` : reason,
     };
   }
 
@@ -1791,11 +1835,30 @@ export class CustomersService {
 
   async getWhatsappSessionIdentifiers(tenantId: string, whatsapp: string): Promise<string[]> {
     const normalized = normalizeWhatsappNumber(whatsapp) || whatsapp;
-    const contacts = await this.findContactsByWhatsapp(tenantId, normalized);
     const identifiers = new Set<string>([normalized]);
 
-    for (const contact of contacts) {
-      if (contact.whatsapp) identifiers.add(String(contact.whatsapp));
+    // Adiciona variantes BR (com e sem o 9º dígito) para cobrir sessões criadas em
+    // diferentes formatos (Meta API envia 13 dígitos, Baileys pode usar 12).
+    const addBrVariants = (num: string) => {
+      const withNine = restoreBrNinthDigit(num);
+      if (withNine !== num) identifiers.add(withNine);
+      const without9 = brPhoneWithout9(num);
+      if (without9) identifiers.add(without9);
+    };
+    addBrVariants(normalized);
+
+    // Busca contatos pelos identificadores já coletados (incluindo variantes)
+    const toSearch = Array.from(identifiers);
+    const allContacts = (
+      await Promise.all(toSearch.map(id => this.findContactsByWhatsapp(tenantId, id).catch(() => [])))
+    ).flat();
+
+    for (const contact of allContacts) {
+      if (contact.whatsapp) {
+        const cwa = String(contact.whatsapp);
+        identifiers.add(cwa);
+        addBrVariants(cwa);
+      }
       if (contact.metadata?.whatsappLid) identifiers.add(String(contact.metadata.whatsappLid));
     }
 
@@ -2058,6 +2121,16 @@ export class CustomersService {
               contactId: sanitizedExisting.id,
             }),
           );
+        }
+      }
+      // Atualiza o nome do contato se está salvo apenas como número e chegou um displayName real
+      if (displayName && displayName.trim() && !isLid) {
+        const currentName = sanitizedExisting.name ?? '';
+        const looksLikePhoneNumber = /^\+?\d[\d\s\-().]+$/.test(currentName.trim());
+        if (looksLikePhoneNumber) {
+          await this.contacts.update({ id: sanitizedExisting.id, tenantId }, { name: displayName.trim() } as any);
+          sanitizedExisting.name = displayName.trim();
+          this.logger.log(`[findOrCreateByWhatsapp] Nome do contato ${sanitizedExisting.id} atualizado para "${displayName.trim()}" (era "${currentName}")`);
         }
       }
       await this.consolidateWhatsappContactLinks(tenantId, sanitizedExisting.id, normalized);
