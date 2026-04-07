@@ -2,7 +2,7 @@ import { Injectable, NotFoundException, BadRequestException, Logger } from '@nes
 import * as fs from 'fs';
 import * as path from 'path';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository, IsNull } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { Conversation, ConversationChannel, ConversationStatus, ConversationInitiatedBy } from './entities/conversation.entity';
 import { ConversationMessage, ReplyToSnapshot } from './entities/conversation-message.entity';
 import { TicketsService } from '../tickets/tickets.service';
@@ -216,15 +216,20 @@ export class ConversationsService {
     channel: ConversationChannel,
     opts?: { chatAlert?: boolean; firstMessage?: string; contactName?: string; department?: string; autoCreateTicket?: boolean },
   ): Promise<{ conversation: Conversation; ticket: any; ticketCreated: boolean }> {
+    // Busca por contactId+channel+status sem filtrar por clientId.
+    // Evita criar conversa paralela quando o vínculo do contato com um cliente muda
+    // (ex: contato chega sem clientId, é vinculado a um cliente, próxima mensagem usa clientId real).
     const active = await this.convRepo.findOne({
-      where: {
-        tenantId,
-        clientId: clientId ?? IsNull(),
-        contactId,
-        channel,
-        status: ConversationStatus.ACTIVE,
-      },
+      where: { tenantId, contactId, channel, status: ConversationStatus.ACTIVE },
+      order: { createdAt: 'DESC' },
     });
+
+    // Se encontrou conversa com clientId diferente do atual, atualiza antes de continuar.
+    if (active && clientId && active.clientId !== clientId) {
+      active.clientId = clientId;
+      await this.convRepo.save(active);
+    }
+
     this.logConversationResolution({
       scope: 'conversation-resolution',
       tenantId,
@@ -496,6 +501,13 @@ export class ConversationsService {
       await this.resetChatbotSessionForWhatsappContact(tenantId, contact);
     }
     if (existing) {
+      // Garante que a conversa reutilizada seja marcada como iniciada pelo agente.
+      // Sem isso, respostas do contato em conversas previamente iniciadas pelo contato
+      // continuariam caindo no chatbot (initiated_by='contact' não passa pela guarda skipChatbot).
+      if (existing.initiatedBy !== ConversationInitiatedBy.AGENT) {
+        existing.initiatedBy = ConversationInitiatedBy.AGENT;
+        await this.convRepo.save(existing);
+      }
       this.logConversationResolution({
         scope: 'conversation-resolution',
         tenantId,
@@ -705,7 +717,7 @@ export class ConversationsService {
       .addSelect('ag.name', 'assignedToName');
 
     const raws = await qb.getRawAndEntities();
-    return raws.entities.map((entity, i) => ({
+    const rows = raws.entities.map((entity, i) => ({
       ...entity,
       contactName:    raws.raw[i]?.contactName    ?? null,
       ticketNumber:   raws.raw[i]?.ticketNumber   ?? null,
@@ -713,6 +725,31 @@ export class ConversationsService {
       assignedTo:     raws.raw[i]?.assignedTo     ?? null,
       assignedToName: raws.raw[i]?.assignedToName ?? null,
     }));
+
+    if (rows.length > 0) {
+      const convIds = rows.map((r) => r.id);
+      const lastAgentRows: Array<{ conversation_id: string; last_agent_at: Date | string | null }> =
+        await this.dataSource.query(
+          `SELECT conversation_id, MAX(created_at) AS last_agent_at
+           FROM conversation_messages
+           WHERE tenant_id = $1
+             AND conversation_id = ANY($2::uuid[])
+             AND author_type = 'user'
+           GROUP BY conversation_id`,
+          [tenantId, convIds],
+        );
+      const lastAgentMap = new Map(
+        lastAgentRows.map((r) => [
+          r.conversation_id,
+          r.last_agent_at ? new Date(r.last_agent_at as string | Date) : null,
+        ]),
+      );
+      for (const r of rows) {
+        (r as Conversation & { lastAgentMessageAt?: Date | null }).lastAgentMessageAt = lastAgentMap.get(r.id) ?? null;
+      }
+    }
+
+    return rows;
   }
 
   /**
@@ -978,12 +1015,17 @@ export class ConversationsService {
             if (sendResult.success) {
               const externalId = sendResult.messageId ?? null;
               await this.msgRepo.update(savedId, { externalId, whatsappStatus: 'sent' });
+              saved.externalId = externalId; // atualiza em memória para o emitMsg incluir o id correto
               emitMsg('sent');
             } else {
               await this.msgRepo.update(savedId, { whatsappStatus: 'failed' });
               emitMsg('failed');
               console.warn(`[ConversationsService] Mensagem salva mas envio WhatsApp falhou (conv=${conversationId}): ${sendResult.error ?? 'sem detalhes'}`);
             }
+          } else {
+            this.logger.warn(`[ConversationsService] Contato ${conv.contactId} sem WhatsApp — mensagem salva sem envio outbound`);
+            await this.msgRepo.update(savedId, { whatsappStatus: 'failed' }).catch(() => {});
+            emitMsg('failed');
           }
         } catch (e) {
           // Falha no envio WhatsApp não deve impedir o salvamento da mensagem

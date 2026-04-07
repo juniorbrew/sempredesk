@@ -18,6 +18,8 @@ export class UpdateChatbotConfigDto {
   @IsString() @IsOptional() ratingRequestMessage?: string | null;
   @IsString() @IsOptional() ratingCommentMessage?: string | null;
   @IsString() @IsOptional() ratingThanksMessage?: string | null;
+  @IsBoolean() @IsOptional() collectName?: boolean;
+  @IsString() @IsOptional() nameRequestMessage?: string;
 }
 
 export class UpsertMenuItemDto {

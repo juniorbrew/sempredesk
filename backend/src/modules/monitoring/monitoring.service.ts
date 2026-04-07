@@ -2,9 +2,10 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Ticket, TicketStatus } from '../tickets/entities/ticket.entity';
-import { Client } from '../customers/entities/customer.entity';
+import { Client, Contact } from '../customers/entities/customer.entity';
 import { User } from '../auth/user.entity';
 import { KbArticle } from '../knowledge/entities/knowledge.entity';
+import { ContactArchiveRolloutService } from '../customers/contact-archive-rollout.service';
 
 @Injectable()
 export class MonitoringService {
@@ -13,10 +14,13 @@ export class MonitoringService {
     private readonly ticketRepo: Repository<Ticket>,
     @InjectRepository(Client)
     private readonly clientRepo: Repository<Client>,
+    @InjectRepository(Contact)
+    private readonly contactRepo: Repository<Contact>,
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
     @InjectRepository(KbArticle)
     private readonly articleRepo: Repository<KbArticle>,
+    private readonly contactArchiveRollout: ContactArchiveRolloutService,
   ) {}
 
   async health() {
@@ -25,6 +29,50 @@ export class MonitoringService {
       ok: true,
       service: 'backend',
       database: Array.isArray(db) && db.length ? 'up' : 'down',
+      rollout: {
+        contactArchiveFeatureEnabled: this.contactArchiveRollout.isArchiveFeatureEnabled(),
+      },
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * Métricas Etapa 9 — arquivamento de contatos (contadores por processo + agregados SQL).
+   * Uso: painel interno, Datadog, ou alertas (taxa de reativação / arquivo).
+   */
+  async contactArchiveRolloutStats() {
+    const [totalArchived, reactivated24hRows] = await Promise.all([
+      this.contactRepo.count({ where: { status: 'archived' as any } }),
+      this.contactRepo.query(
+        `SELECT COUNT(*)::int AS c
+           FROM contacts
+          WHERE status = 'active'
+            AND metadata IS NOT NULL
+            AND metadata->>'reactivatedAt' IS NOT NULL
+            AND (metadata->>'reactivatedAt')::timestamptz >= NOW() - INTERVAL '24 hours'`,
+      ),
+    ]);
+
+    const reactivated24h = Number(
+      Array.isArray(reactivated24hRows) && reactivated24hRows[0] ? (reactivated24hRows[0] as any).c : 0,
+    );
+
+    return {
+      ok: true,
+      featureContactArchiveEnabled: this.contactArchiveRollout.isArchiveFeatureEnabled(),
+      processCountersSinceBoot: this.contactArchiveRollout.getCounters(),
+      database: {
+        totalArchivedContacts: totalArchived,
+        activeWithReactivatedAtInLast24h: reactivated24h,
+      },
+      hints: {
+        archivesVsUnarchives:
+          'Compare archiveManual vs unarchiveManual + auto reactivations para detectar desbalanceamento.',
+        autoReactivationSpike:
+          'Alertar se autoReactivateCanonical + autoReactivateFindOrCreateFallback > limiar/hora vs baseline.',
+        duplicateContacts:
+          'Correlacionar com regras de negócio / WhatsApp identity; não medido diretamente aqui.',
+      },
       timestamp: new Date().toISOString(),
     };
   }

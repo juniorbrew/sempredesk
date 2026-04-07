@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 import { IsString, IsEnum, IsOptional, IsArray, IsNumber, Min, Max, MaxLength, MinLength } from 'class-validator';
 import { TicketStatus, TicketPriority, TicketOrigin, MessageType } from '../entities/ticket.entity';
 
@@ -47,10 +47,18 @@ export class CreateTicketDto {
   @IsOptional()
   subcategory?: string;
 
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString()
   @MinLength(3, { message: 'Assunto deve ter no mínimo 3 caracteres' })
   subject: string;
 
+  /** String vazia ou só espaços vira undefined (evita 400 com @MinLength em corpo JSON legado) */
+  @Transform(({ value }) => {
+    if (value === undefined || value === null) return undefined;
+    if (typeof value !== 'string') return value;
+    const t = value.trim();
+    return t === '' ? undefined : t;
+  })
   @IsString()
   @IsOptional()
   @MinLength(3, { message: 'Descrição deve ter no mínimo 3 caracteres' })

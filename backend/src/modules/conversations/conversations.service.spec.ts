@@ -20,9 +20,10 @@ describe('ConversationsService schema compatibility', () => {
 
     await (service as any).ensureConversationMessageMediaSchemaReady();
 
-    expect(dataSource.query).toHaveBeenCalledTimes(2);
+    expect(dataSource.query).toHaveBeenCalledTimes(3);
     expect(String(dataSource.query.mock.calls[0][0])).toContain('information_schema.columns');
     expect(String(dataSource.query.mock.calls[1][0])).toContain('ALTER TABLE conversation_messages');
+    expect(String(dataSource.query.mock.calls[2][0])).toContain('idx_conv_messages_reply_to');
   });
 
   it('nao executa alter table quando schema ja estiver completo', async () => {
@@ -33,6 +34,7 @@ describe('ConversationsService schema compatibility', () => {
         { column_name: 'media_mime' },
         { column_name: 'external_id' },
         { column_name: 'whatsapp_status' },
+        { column_name: 'reply_to_id' },
       ]),
     };
 

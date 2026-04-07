@@ -1,3 +1,20 @@
+# =============================================================================
+# SempreDesk — .gitignore
+# Regra: nada de ambiente local ou credenciais no repositório.
+# Modelos versionados: *.example, docker-compose.dev.example.yml, nginx.dev.conf.example
+#
+# PRODUÇÃO (versionado, imutável salvo decisão explícita do projeto):
+#   docker-compose.yml, infra/nginx/nginx.conf
+# DESENVOLVIMENTO (cópias locais — NUNCA commitar; alinhado às regras do projeto):
+#   • .env, .env.*  (exceto .env.example e backend/.env.example — ver negados abaixo)
+#   • docker-compose.override.yml
+#   • docker-compose.dev.yml
+#   • docker-compose.local.yml
+#   • docker-compose.*.local.yml
+#   • infra/nginx/nginx.dev.conf
+#   • infra/nginx/nginx.local.conf
+# =============================================================================
+
 # Node
 node_modules/
 npm-debug.log*
@@ -15,14 +32,11 @@ build/
 logs/
 *.log
 
-# Env — NUNCA subir arquivos de ambiente com credenciais
+# Env — .env e .env.*; exceto .env.example e backend/.env.example (negados em baixo).
 .env
-.env.local
-.env.production
-.env.staging
-.env.*.local
-# Permitir apenas o exemplo sem segredos
+.env.*
 !.env.example
+!backend/.env.example
 
 # Claude
 .claude/
@@ -33,6 +47,15 @@ Thumbs.db
 
 # Docker
 *.pid
+# ── Compose local (ficheiros .dev.* / override — não versionar) ───────────
+# override.yml: merge automático com docker compose up (convenção Docker).
+docker-compose.override.yml
+docker-compose.dev.yml
+docker-compose.local.yml
+docker-compose.*.local.yml
+# ── Nginx local (.dev.* / .local.*) — não versionar ─────────────────────────
+infra/nginx/nginx.dev.conf
+infra/nginx/nginx.local.conf
 
 # WhatsApp sessions — contém dados de sessão autenticada
 backend/whatsapp-sessions/
@@ -52,6 +75,11 @@ backend/uploads/
 
 # Audits / backups locais
 audits/
+
+# Rascunhos / SQL ad hoc na raiz do repo (máquina local — não versionar)
+/hash.txt
+/update.sql
+/update2.sql
 
 # Coverage
 coverage/

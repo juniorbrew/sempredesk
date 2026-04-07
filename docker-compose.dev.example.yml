@@ -1,0 +1,50 @@
+# =============================================================================
+# MODELO OFICIAL — desenvolvimento local (Nginx sem SSL)
+# =============================================================================
+# Isto é o ÚNICO ficheiro Compose de dev versionado. Copia-o para um nome
+# ignorado pelo Git (nunca edites o original no repositório).
+#
+# PRODUÇÃO (imutável neste fluxo — não versionar nem aplicar patches de dev):
+#   • docker-compose.yml — stack completa na VPS/CI; ficheiro único de Compose em prod.
+#   • infra/nginx/nginx.conf — SSL, domínios, redirects; nunca trocar por nginx.dev.conf / .local.conf.
+#
+# DESENVOLVIMENTO (cópias locais — ver checklist no .gitignore):
+#   • docker-compose.override.yml OU docker-compose.dev.yml OU docker-compose.local.yml OU docker-compose.*.local.yml
+#   • infra/nginx/nginx.dev.conf (modelo: infra/nginx/nginx.dev.conf.example)
+#   • infra/nginx/nginx.local.conf — opcional; se existir, também ignorado pelo Git (sem .example obrigatório)
+#
+# O bloco abaixo só substitui o volume do nginx.conf; volumes letsencrypt/certbot
+# do compose base mantêm-se (em local costumam estar vazios — inofensivo).
+# =============================================================================
+#
+# Onboarding — copiar na raiz do repositório:
+#
+#   Opção A (recomendada — merge automático do Docker Compose):
+#     cp docker-compose.dev.example.yml docker-compose.override.yml
+#     cp infra/nginx/nginx.dev.conf.example infra/nginx/nginx.dev.conf
+#     docker compose up -d
+#
+#   Opção B (nome explícito .dev):
+#     cp docker-compose.dev.example.yml docker-compose.dev.yml
+#     cp infra/nginx/nginx.dev.conf.example infra/nginx/nginx.dev.conf
+#     docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#
+#   Opção C (nome .local — mesmo conteúdo que B, ficheiro gitignored):
+#     cp docker-compose.dev.example.yml docker-compose.local.yml
+#     docker compose -f docker-compose.yml -f docker-compose.local.yml up -d
+#
+# Resumo — onboarding em clone novo:
+#   1) Criar .env na raiz a partir de .env.example (e backend/.env.example se aplicável).
+#   2) Copiar este ficheiro e nginx.dev.conf.example conforme opção A, B ou C acima.
+#   3) docker compose up (com -f extra nas opções B/C).
+#
+# VPS / PRODUÇÃO — o que NUNCA fazer:
+#   • Não copiar este modelo para o servidor nem usar override / .dev.yml / .local.yml / docker-compose.*.local.yml lá.
+#   • Não montar nginx.dev.conf nem nginx.local.conf — só infra/nginx/nginx.conf (versionado).
+#   • Subir a stack só com docker-compose.yml: docker compose up -d (sem override / .dev / .local).
+# =============================================================================
+
+services:
+  nginx:
+    volumes:
+      - ./infra/nginx/nginx.dev.conf:/etc/nginx/nginx.conf:ro

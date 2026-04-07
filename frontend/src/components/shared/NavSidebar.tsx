@@ -1,11 +1,13 @@
 'use client';
 import { useEffect, useState } from 'react';
+import type { LucideIcon } from 'lucide-react';
 import {
   LayoutDashboard, MessageCircle, MessageSquare, Ticket,
   Users, Users2, FileText, Monitor, BookOpen, BarChart2,
   Settings, Smartphone, LogOut, Headphones, ChevronRight, Bell,
   Network, FolderTree, Tag, Layers, Database, AlertTriangle,
   Activity,
+  Bolt,
 } from 'lucide-react';
 import { useAuthStore, hasPermission } from '@/store/auth.store';
 import { usePresenceStore } from '@/store/presence.store';
@@ -13,9 +15,33 @@ import { usePathname, useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import NavItem from './NavItem';
 
-const MAIN_ITEMS = [
+type MainNavChild = { href: string; icon: LucideIcon; label: string; perm: string };
+type MainNavItem = {
+  href: string;
+  icon: LucideIcon;
+  label: string;
+  perm: string;
+  badge?: boolean;
+  children?: MainNavChild[];
+};
+
+const MAIN_ITEMS: MainNavItem[] = [
   { href: '/dashboard',              icon: LayoutDashboard, label: 'Dashboard',             perm: 'dashboard.view' },
-  { href: '/dashboard/atendimento',  icon: MessageCircle,   label: 'Atendimento',            perm: 'attendance.view', badge: true },
+  {
+    href: '/dashboard/atendimento',
+    icon: MessageCircle,
+    label: 'Atendimento',
+    perm: 'attendance.view',
+    badge: true,
+    children: [
+      {
+        href: '/dashboard/atendimento/realtime',
+        icon: Bolt,
+        label: 'Painel Real-Time',
+        perm: 'attendance.view',
+      },
+    ],
+  },
   { href: '/dashboard/supervisor',   icon: Activity,        label: 'Supervisor',             perm: 'settings.manage' },
   { href: '/dashboard/chat-interno', icon: MessageSquare,   label: 'Chat interno',           perm: 'chat.view' },
   { href: '/dashboard/tickets',      icon: Ticket,          label: 'Tickets',                perm: 'ticket.view' },
@@ -43,6 +69,8 @@ const BOTTOM_ITEMS = [
 ];
 
 const CADASTROS_PATHS = CADASTROS_ITEMS.map(n => n.href);
+
+const ATENDIMENTO_CHILD_PATHS = ['/dashboard/atendimento/realtime'];
 
 function UserDot({ name, expanded }: { name: string; expanded: boolean }) {
   const initials = name
@@ -111,6 +139,10 @@ export default function NavSidebar({ isOpen, onClose, expanded = false, onToggle
   const [atendimentoCount, setAtendimentoCount] = useState(0);
   const isCadastrosActive = CADASTROS_PATHS.some(p => pathname.startsWith(p));
   const [cadastrosOpen, setCadastrosOpen] = useState(isCadastrosActive);
+  const isAtendimentoChildActive = ATENDIMENTO_CHILD_PATHS.some((p) => pathname.startsWith(p));
+  const [atendimentoOpen, setAtendimentoOpen] = useState(
+    pathname === '/dashboard/atendimento' || isAtendimentoChildActive,
+  );
 
   useEffect(() => {
     if (typeof window === 'undefined' || !localStorage.getItem('accessToken')) return;
@@ -128,6 +160,10 @@ export default function NavSidebar({ isOpen, onClose, expanded = false, onToggle
     if (isCadastrosActive) setCadastrosOpen(true);
   }, [isCadastrosActive]);
 
+  useEffect(() => {
+    if (pathname === '/dashboard/atendimento' || isAtendimentoChildActive) setAtendimentoOpen(true);
+  }, [pathname, isAtendimentoChildActive]);
+
   const logout = async () => {
     try { await api.logout(); } catch {}
     setPresence([], {});  // limpa presença local imediatamente
@@ -139,7 +175,12 @@ export default function NavSidebar({ isOpen, onClose, expanded = false, onToggle
   // O sendBeacon via beforeunload foi removido pois disparava também no F5 (refresh),
   // causando registros de "Logout automático" falsos.
 
-  const visibleMain      = MAIN_ITEMS.filter(n => hasPermission(user, n.perm));
+  const visibleMain: MainNavItem[] = MAIN_ITEMS.map((n) => {
+    if (!hasPermission(user, n.perm)) return null;
+    if (!n.children?.length) return n;
+    const ch = n.children.filter((c) => hasPermission(user, c.perm));
+    return ch.length ? { ...n, children: ch } : { ...n, children: undefined };
+  }).filter((n): n is MainNavItem => n !== null);
   const visibleCadastros = CADASTROS_ITEMS.filter(n => hasPermission(user, n.perm));
   const visibleBottom    = BOTTOM_ITEMS.filter(n => hasPermission(user, n.perm));
 
@@ -156,6 +197,15 @@ export default function NavSidebar({ isOpen, onClose, expanded = false, onToggle
           background: rgba(255,255,255,0.1) !important;
         }
         .nav-cadastros-sub {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+          padding-left: 8px;
+          margin-top: 2px;
+          border-left: 1px solid rgba(255,255,255,0.1);
+          margin-left: 12px;
+        }
+        .nav-atendimento-sub {
           display: flex;
           flex-direction: column;
           gap: 2px;
@@ -249,17 +299,118 @@ export default function NavSidebar({ isOpen, onClose, expanded = false, onToggle
 
         {/* Main nav */}
         <nav style={{ display: 'flex', flexDirection: 'column', alignItems: expanded ? 'stretch' : 'center', gap: 4, flex: 1, padding: expanded ? '0 8px' : 0, overflowY: 'auto', overflowX: 'hidden' }}>
-          {visibleMain.map(({ href, icon: Icon, label, badge }) => (
-            <NavItem
-              key={href}
-              href={href}
-              label={label}
-              icon={<Icon size={18} strokeWidth={1.6} />}
-              badge={badge ? atendimentoCount : undefined}
-              onClick={onClose}
-              expanded={expanded}
-            />
-          ))}
+          {visibleMain.map((item) => {
+            const { href, icon: Icon, label, badge, children } = item;
+            if (!children?.length) {
+              return (
+                <NavItem
+                  key={href}
+                  href={href}
+                  label={label}
+                  icon={<Icon size={18} strokeWidth={1.6} />}
+                  badge={badge ? atendimentoCount : undefined}
+                  onClick={onClose}
+                  expanded={expanded}
+                />
+              );
+            }
+
+            if (!expanded) {
+              return (
+                <div key={href} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                  <NavItem
+                    href={href}
+                    label={label}
+                    icon={<Icon size={18} strokeWidth={1.6} />}
+                    badge={badge ? atendimentoCount : undefined}
+                    onClick={onClose}
+                    expanded={false}
+                  />
+                  {children.map(({ href: chRef, icon: ChIcon, label: chLabel }) => (
+                    <NavItem
+                      key={chRef}
+                      href={chRef}
+                      label={chLabel}
+                      icon={<ChIcon size={18} strokeWidth={1.6} />}
+                      onClick={onClose}
+                      expanded={false}
+                    />
+                  ))}
+                </div>
+              );
+            }
+
+            return (
+              <div key={href}>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    width: '100%',
+                  }}
+                >
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <NavItem
+                      href={href}
+                      label={label}
+                      icon={<Icon size={18} strokeWidth={1.6} />}
+                      badge={badge ? atendimentoCount : undefined}
+                      onClick={onClose}
+                      expanded={expanded}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setAtendimentoOpen((v) => !v)}
+                    className="nav-item-hover"
+                    title={atendimentoOpen ? 'Recolher submenu' : 'Expandir submenu'}
+                    aria-expanded={atendimentoOpen}
+                    aria-label="Submenu Atendimento"
+                    style={{
+                      width: 36,
+                      height: 44,
+                      borderRadius: 10,
+                      background: 'transparent',
+                      border: 'none',
+                      cursor: 'pointer',
+                      color: 'rgba(255,255,255,0.45)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                      transition: 'background 0.1s, color 0.1s',
+                    }}
+                  >
+                    <ChevronRight
+                      size={13}
+                      strokeWidth={2}
+                      style={{
+                        transform: atendimentoOpen ? 'rotate(90deg)' : 'rotate(0deg)',
+                        transition: 'transform 0.2s ease',
+                        opacity: 0.6,
+                      }}
+                    />
+                  </button>
+                </div>
+
+                {atendimentoOpen && (
+                  <div className="nav-atendimento-sub">
+                    {children.map(({ href: chRef, icon: ChIcon, label: chLabel }) => (
+                      <NavItem
+                        key={chRef}
+                        href={chRef}
+                        label={chLabel}
+                        icon={<ChIcon size={16} strokeWidth={1.6} />}
+                        onClick={onClose}
+                        expanded={expanded}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
 
           {/* Cadastros group */}
           {visibleCadastros.length > 0 && (

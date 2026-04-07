@@ -28,6 +28,8 @@ interface ChatbotConfig {
   noAgentMessage: string;
   invalidOptionMessage: string;
   sessionTimeoutMinutes: number;
+  collectName: boolean;
+  nameRequestMessage: string;
   menuItems?: MenuItem[];
 }
 
@@ -218,6 +220,22 @@ export default function ChatbotConfigPage() {
               onChange={e => setConfig(c => c ? { ...c, sessionTimeoutMinutes: parseInt(e.target.value) || 30 } : c)}
               style={{ ...inp, width: 100 }} />
           </Field>
+          <Field label="Solicitar nome do contato (WhatsApp)">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <button onClick={() => setConfig(c => c ? { ...c, collectName: !c.collectName } : c)}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 8, border: `1.5px solid ${config.collectName ? S.green : '#E2E8F0'}`, background: config.collectName ? S.greenL : '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: config.collectName ? S.green : S.txt2 }}>
+                {config.collectName ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}
+                {config.collectName ? 'Ativado' : 'Desativado'}
+              </button>
+              <span style={{ fontSize: 12, color: S.txt2 }}>Pede o nome antes de exibir o menu quando o contato não está cadastrado</span>
+            </div>
+          </Field>
+          {config.collectName && (
+            <Field label="Mensagem para solicitar o nome">
+              <textarea value={config.nameRequestMessage} onChange={e => setConfig(c => c ? { ...c, nameRequestMessage: e.target.value } : c)}
+                rows={2} style={{ ...inp, resize: 'vertical' }} />
+            </Field>
+          )}
           <SaveBtn saving={saving} onClick={saveConfig} />
         </div>
       )}

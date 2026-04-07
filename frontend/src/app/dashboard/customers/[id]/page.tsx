@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
-import { ArrowLeft, Save, Plus, Trash2, User, MapPin, Building2, CheckCircle2, Network, Lock, Edit2, Phone, Mail, MessageCircle, Star, Eye, EyeOff, KeyRound, ExternalLink, Loader2, AlertCircle, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Save, Plus, Trash2, User, MapPin, Building2, CheckCircle2, Network, Lock, Edit2, Phone, Mail, MessageCircle, Star, Eye, EyeOff, KeyRound, ExternalLink, Loader2, AlertCircle, RefreshCw, Archive, ArchiveRestore } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 // ── Países para seleção de DDI ──────────────────────────────────────────────
@@ -170,12 +170,105 @@ export default function CustomerDetailPage() {
   const [cpfStatus, setCpfStatus] = useState<'idle'|'ok'|'error'>('idle');
   const cnpjTimer = (typeof window !== 'undefined' ? { current: null as any } : { current: null as any });
 
+  /** Etapa 10 — toggle listagem; não persistir */
+  const [showArchived, setShowArchived] = useState(false);
+  /** Flag do backend (rollout ou health público) */
+  const [archiveFeatureEnabled, setArchiveFeatureEnabled] = useState(true);
+  const [contactsLoading, setContactsLoading] = useState(false);
+  const [contactActionId, setContactActionId] = useState<string | null>(null);
+
+  const loadArchiveFeature = async () => {
+    try {
+      const roll: any = await api.getContactArchiveRollout();
+      const v = roll?.featureContactArchiveEnabled ?? roll?.contactArchiveFeatureEnabled;
+      setArchiveFeatureEnabled(typeof v === 'boolean' ? v : true);
+      return;
+    } catch {
+      /* 403 sem super_admin, etc. */
+    }
+    try {
+      const h: any = await api.getMonitoringHealth();
+      const v = h?.rollout?.contactArchiveFeatureEnabled;
+      setArchiveFeatureEnabled(typeof v === 'boolean' ? v : true);
+    } catch {
+      setArchiveFeatureEnabled(true);
+    }
+  };
+
+  const refetchContacts = async (includeArchived: boolean) => {
+    if (!id) return;
+    setContactsLoading(true);
+    try {
+      const contactsRes: any = await api.getContacts(id as string, includeArchived);
+      const contactsData = Array.isArray(contactsRes) ? contactsRes : contactsRes?.data ?? [];
+      setContacts((contactsData || []).map((contact: any) => normalizeLoadedContact(contact)));
+    } catch {
+      toast.error('Não foi possível atualizar a lista de contatos');
+    }
+    setContactsLoading(false);
+  };
+
+  const handleToggleShowArchived = (checked: boolean) => {
+    setShowArchived(checked);
+    void refetchContacts(checked);
+  };
+
+  const handleArchiveContactRow = async (contactId: string) => {
+    if (!archiveFeatureEnabled) {
+      toast.error('Função temporariamente desativada.');
+      return;
+    }
+    setContactActionId(contactId);
+    try {
+      await api.archiveCustomerContact(id as string, contactId);
+      toast.success('Contato arquivado');
+      await refetchContacts(showArchived);
+    } catch (e: any) {
+      let msg = e?.response?.data?.message ?? e?.message ?? 'Erro ao arquivar';
+      if (Array.isArray(msg)) msg = msg.join('; ');
+      const s = String(msg);
+      if (s.includes('FEATURE_CONTACT_ARCHIVE') || s.toLowerCase().includes('desativad')) {
+        toast.error('Função temporariamente desativada.');
+      } else {
+        toast.error(s);
+      }
+    } finally {
+      setContactActionId(null);
+    }
+  };
+
+  const handleUnarchiveContactRow = async (contactId: string) => {
+    if (!archiveFeatureEnabled) {
+      toast.error('Função temporariamente desativada.');
+      return;
+    }
+    setContactActionId(contactId);
+    try {
+      await api.unarchiveCustomerContact(id as string, contactId);
+      toast.success('Contato reativado');
+      await refetchContacts(showArchived);
+    } catch (e: any) {
+      let msg = e?.response?.data?.message ?? e?.message ?? 'Erro ao reativar';
+      if (Array.isArray(msg)) msg = msg.join('; ');
+      const s = String(msg);
+      if (s.includes('FEATURE_CONTACT_ARCHIVE') || s.toLowerCase().includes('desativad')) {
+        toast.error('Função temporariamente desativada.');
+      } else {
+        toast.error(s);
+      }
+    } finally {
+      setContactActionId(null);
+    }
+  };
+
   const load = async () => {
     setLoading(true);
+    setShowArchived(false);
     try {
+      await loadArchiveFeature();
       const [res, contactsRes]: any = await Promise.all([
         api.getCustomer(id as string),
-        api.getContacts(id as string),
+        api.getContacts(id as string, false),
       ]);
       setCustomer(res);
       setForm(res);
@@ -717,14 +810,30 @@ export default function CustomerDetailPage() {
       {/* ABA CONTATOS */}
       {activeTab === 'contatos' && (
         <div className="card p-5">
-          <div className="flex items-center justify-between mb-5">
-            <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background:'#F5F3FF' }}>
-                <User className="w-4 h-4" style={{ color:'#7C3AED' }} />
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-5">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background:'#F5F3FF' }}>
+                  <User className="w-4 h-4" style={{ color:'#7C3AED' }} />
+                </div>
+                <h2 className="table-header m-0">Contatos ({contacts.length})</h2>
+                {contactsLoading && <Loader2 className="w-4 h-4 animate-spin" style={{ color:'#94A3B8' }} />}
               </div>
-              <h2 className="table-header">Contatos ({contacts.length})</h2>
+              <label
+                className="inline-flex items-center gap-2 cursor-pointer select-none text-sm"
+                style={{ color:'#64748B' }}
+              >
+                <input
+                  type="checkbox"
+                  className="rounded border-slate-300"
+                  checked={showArchived}
+                  disabled={contactsLoading}
+                  onChange={(e) => handleToggleShowArchived(e.target.checked)}
+                />
+                Mostrar arquivados
+              </label>
             </div>
-            <button onClick={() => openContactModal()} className="btn-primary">
+            <button onClick={() => openContactModal()} className="btn-primary shrink-0">
               <Plus className="w-4 h-4" /> Novo Contato
             </button>
           </div>
@@ -752,6 +861,14 @@ export default function CustomerDetailPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-semibold text-sm" style={{ color:'#0F172A' }}>{c.name}</span>
+                      {c.status === 'archived' && (
+                        <span
+                          className="text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full"
+                          style={{ background:'#F1F5F9', color:'#64748B', border:'1px solid #E2E8F0' }}
+                        >
+                          Arquivado
+                        </span>
+                      )}
                       {c.isPrimary && (
                         <span className="flex items-center gap-1" style={{ background:'#EEF2FF', color:'#4F46E5', padding:'1px 8px', borderRadius:20, fontSize:10, fontWeight:700, border:'1px solid #C7D2FE' }}>
                           <Star className="w-2.5 h-2.5" /> PRINCIPAL
@@ -770,11 +887,45 @@ export default function CustomerDetailPage() {
                       )}
                     </div>
                   </div>
-                  <div className="flex gap-2">
-                    <button onClick={() => openContactModal(c)} className="btn-secondary" style={{ padding:'6px 8px' }}>
+                  <div className="flex flex-wrap gap-2 justify-end">
+                    {archiveFeatureEnabled && c.status === 'active' && (
+                      <button
+                        type="button"
+                        onClick={() => void handleArchiveContactRow(c.id)}
+                        disabled={!!contactActionId || contactsLoading}
+                        className="btn-secondary"
+                        style={{ padding:'6px 10px', fontSize:12, display:'inline-flex', alignItems:'center', gap:6 }}
+                        title="Arquivar contato"
+                      >
+                        {contactActionId === c.id ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Archive className="w-3.5 h-3.5" />
+                        )}
+                        Arquivar
+                      </button>
+                    )}
+                    {archiveFeatureEnabled && c.status === 'archived' && (
+                      <button
+                        type="button"
+                        onClick={() => void handleUnarchiveContactRow(c.id)}
+                        disabled={!!contactActionId || contactsLoading}
+                        className="btn-secondary"
+                        style={{ padding:'6px 10px', fontSize:12, display:'inline-flex', alignItems:'center', gap:6 }}
+                        title="Reativar contato"
+                      >
+                        {contactActionId === c.id ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <ArchiveRestore className="w-3.5 h-3.5" />
+                        )}
+                        Reativar
+                      </button>
+                    )}
+                    <button onClick={() => openContactModal(c)} className="btn-secondary" style={{ padding:'6px 8px' }} disabled={contactsLoading}>
                       <Edit2 className="w-3.5 h-3.5" />
                     </button>
-                    <button onClick={() => handleRemoveContact(c.id)} className="btn-danger" style={{ padding:'6px 8px' }}>
+                    <button onClick={() => handleRemoveContact(c.id)} className="btn-danger" style={{ padding:'6px 8px' }} disabled={contactsLoading}>
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </div>

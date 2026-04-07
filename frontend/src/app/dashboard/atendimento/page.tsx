@@ -1756,7 +1756,7 @@ export default function AtendimentoPage() {
       } else if (channel === 'whatsapp' && whatsappConvId) {
         res = await api.addConversationMessage(whatsappConvId, { content: text, replyToId: currentReplyingTo?.id ?? null });
       } else if (channel === 'whatsapp' && ticketId) {
-        res = await api.sendWhatsappFromTicket(ticketId, text);
+        res = await api.sendWhatsappFromTicket(ticketId, text, currentReplyingTo?.id ?? null);
       } else {
         res = await api.addConversationMessage(selected.id, { content: text, replyToId: currentReplyingTo?.id ?? null });
       }
@@ -2239,7 +2239,7 @@ export default function AtendimentoPage() {
           </div>
 
           {/* Filter chips */}
-          <div style={{ display: 'flex', gap: 6, padding: '10px 12px', borderBottom: availableTags.length > 0 ? 'none' : S.border, flexShrink: 0, background: 'rgba(255,255,255,.78)' }}>
+          <div style={{ display: 'flex', gap: 6, padding: '10px 12px', borderBottom: S.border, flexShrink: 0, background: 'rgba(255,255,255,.78)' }}>
             {([['all','Em aberto'],['closed','Encerradas'],['linked','Vinculadas']] as const).map(([f, label]) => (
               <button key={f} onClick={() => setFilter(f)}
                 style={{
@@ -2254,8 +2254,8 @@ export default function AtendimentoPage() {
             ))}
           </div>
 
-          {/* Tag filter (só aparece se há tags cadastradas) */}
-          {availableTags.length > 0 && (
+          {/* Tag filter removido */}
+          {false && (
             <div ref={tagDropdownRef} style={{ padding: '8px 12px 10px', borderBottom: S.border, flexShrink: 0, position: 'relative' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                 {/* Botão abre/fecha dropdown */}

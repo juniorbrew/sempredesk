@@ -39,16 +39,16 @@ export class WhatsappController {
   @Public()
   @Get()
   verify(
-    @TenantId() tenantId: string,
-    @Query('hub.mode') mode?: string,
-    @Query('hub.verify_token') verifyToken?: string,
-    @Query('hub.challenge') challenge?: string,
+    @Query('hub.mode') mode: string,
+    @Query('hub.verify_token') verifyToken: string,
+    @Query('hub.challenge') challenge: string,
+    @Res() res: Response,
   ) {
-    const defaultToken = process.env.WHATSAPP_VERIFY_TOKEN || 'suporte-whatsapp-verify';
-    if (mode === 'subscribe' && verifyToken === defaultToken) {
-      return challenge ?? 'OK';
+    const expectedToken = process.env.WHATSAPP_VERIFY_TOKEN || 'sempredesk-verify';
+    if (mode === 'subscribe' && verifyToken === expectedToken) {
+      return res.send(challenge);
     }
-    return 'INVALID_TOKEN';
+    return res.status(403).send('Forbidden');
   }
 
   // ── Meta/Generic webhook receive (POST) ──────────────────────────────
@@ -81,6 +81,23 @@ export class WhatsappController {
     }
 
     const tenantId = body?.tenantId || body?.tenant_id || body?.tenant || '00000000-0000-0000-0000-000000000001';
+
+    // ── Processar status updates da Meta (delivered/read) ─────────────────
+    const metaStatuses = body?.entry?.[0]?.changes?.[0]?.value?.statuses as any[] | undefined;
+    if (metaStatuses?.length) {
+      setImmediate(async () => {
+        for (const s of metaStatuses) {
+          const wamid: string | undefined = s?.id;
+          const status: string | undefined = s?.status; // sent | delivered | read | failed
+          if (wamid && status) {
+            await this.whatsappService.handleMetaStatusUpdate(tenantId, wamid, status).catch(() => {});
+          }
+        }
+      });
+      return { success: true };
+    }
+
+    // ── Processar mensagens recebidas ─────────────────────────────────────
     const generic = this.whatsappService.normalizeGenericPayload(body);
     const meta = !generic ? this.whatsappService.normalizeMetaPayload(body) : null;
     const msg = generic || meta;
@@ -106,8 +123,8 @@ export class WhatsappController {
   @UseGuards(JwtAuthGuard, PermissionsGuard)
   @RequirePermission('ticket.reply')
   @Post('send')
-  async send(@Body() body: { to: string; text: string }) {
-    await this.whatsappService.sendWhatsappMessage(body.to, body.text);
+  async send(@TenantId() tenantId: string, @Body() body: { to: string; text: string }) {
+    await this.whatsappService.sendWhatsappMessage(tenantId, body.to, body.text);
     return { success: true };
   }
 
@@ -115,14 +132,14 @@ export class WhatsappController {
   @UseGuards(JwtAuthGuard, PermissionsGuard)
   @RequirePermission('ticket.reply')
   @Post('send-from-ticket')
-  async sendFromTicket(@Request() req: any, @Body() body: { ticketId: string; text: string }) {
+  async sendFromTicket(@Request() req: any, @Body() body: { ticketId: string; text: string; replyToId?: string }) {
     const tenantId = req.tenantId || req.user?.tenantId;
     const userId = req.user?.id || req.user?.sub;
     const userName = req.user?.name || req.user?.email || 'Equipe';
     if (!tenantId || !body.ticketId || !body.text?.trim()) {
       return { success: false, message: 'tenantId, ticketId e text são obrigatórios' };
     }
-    return this.whatsappService.sendReplyFromTicket(tenantId, body.ticketId, userId, userName, body.text.trim());
+    return this.whatsappService.sendReplyFromTicket(tenantId, body.ticketId, userId, userName, body.text.trim(), body.replyToId ?? null);
   }
 
   // ──────────────────────────────────────────────────────────────────────
@@ -150,7 +167,7 @@ export class WhatsappController {
   async startOutbound(
     @Request() req: any,
     @TenantId() tenantId: string,
-    @Body() body: { phone?: string; contactId?: string; clientId?: string; subject?: string; firstMessage?: string },
+    @Body() body: { phone?: string; contactId?: string; clientId?: string; subject?: string; firstMessage?: string; templateName?: string; templateLanguage?: string },
   ) {
     const authorId = req.user?.id;
     const authorName = req.user?.name || req.user?.email || 'Equipe';

@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, Optional, OnModuleInit } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, MoreThan, LessThan, DataSource } from 'typeorm';
 import { ChatbotConfig } from './entities/chatbot-config.entity';
@@ -32,7 +32,7 @@ export interface ProcessResult {
 const SKIP_KEYWORDS = ['pular', 'pulei', 'skip', 'não sei', 'nao sei', 'nao', 'não', 'sem cnpj', 'p'];
 
 @Injectable()
-export class ChatbotService {
+export class ChatbotService implements OnModuleInit {
   private readonly logger = new Logger(ChatbotService.name);
 
   /** Setter para BaileysService — injetado via AppModule.onModuleInit (evita circular dep) */
@@ -51,6 +51,14 @@ export class ChatbotService {
     private readonly ticketSatisfactionService: TicketSatisfactionService,
     @InjectDataSource() private readonly dataSource: DataSource,
   ) {}
+
+  async onModuleInit() {
+    await this.dataSource.query(`
+      ALTER TABLE chatbot_configs
+        ADD COLUMN IF NOT EXISTS collect_name boolean NOT NULL DEFAULT false,
+        ADD COLUMN IF NOT EXISTS name_request_message text NOT NULL DEFAULT 'Olá! Para começarmos, pode me informar seu nome completo?'
+    `).catch((err: Error) => this.logger.warn('chatbot_configs schema migration skipped: ' + err.message));
+  }
 
   // ─── Config ────────────────────────────────────────────────────────────────
 
@@ -141,24 +149,78 @@ export class ChatbotService {
       this.logger.log(`[processMessage] identifier=${identifier} text=${JSON.stringify(text)} sessionStep=${session?.step ?? 'none'}`);
     }
 
-    // New session or expired → send welcome + menu
+    // New session or expired → pedir nome (se habilitado e sem nome) ou exibir menu
     if (!session || session.step === 'welcome') {
+      const shouldAskName =
+        config.collectName &&
+        channel === 'whatsapp' &&
+        !senderName?.trim();
+
+      const initialStep = shouldAskName ? 'awaiting_name' : 'awaiting_menu';
+
       if (!session) {
         session = await this.sessionRepo.save(this.sessionRepo.create({
           tenantId,
           identifier,
           channel,
-          step: 'awaiting_menu',
+          step: initialStep,
           lastActivity: new Date(),
         }));
       } else {
-        session.step = 'awaiting_menu';
+        session.step = initialStep;
         session.lastActivity = new Date();
         await this.sessionRepo.save(session);
       }
+
+      if (shouldAskName) {
+        return {
+          handled: true,
+          replies: [config.nameRequestMessage],
+        };
+      }
+
       return {
         handled: true,
         replies: [this.buildWelcome(config)],
+      };
+    }
+
+    // ── Aguardando nome do contato ────────────────────────────────────────────
+    if (session.step === 'awaiting_name') {
+      const name = text.trim();
+      if (name.length < 2) {
+        await this.touchSession(session);
+        return { handled: true, replies: ['Por favor, informe seu nome completo (mínimo 2 caracteres).'] };
+      }
+
+      // Atualiza o nome do contato no banco (se o contato já existe com nome vazio/numérico)
+      if (this.customersService) {
+        try {
+          const contact = await this.customersService.findContactByWhatsapp(tenantId, identifier);
+          if (contact) {
+            const currentName = contact.name ?? '';
+            const looksLikePhone = !currentName.trim() || /^\+?\d[\d\s\-().]+$/.test(currentName.trim());
+            if (looksLikePhone) {
+              await this.dataSource.query(
+                `UPDATE contacts SET name = $1 WHERE id = $2 AND tenant_id = $3`,
+                [name, contact.id, tenantId],
+              ).catch(() => {});
+            }
+          }
+        } catch {
+          // ignora — não bloqueia o fluxo
+        }
+      }
+
+      // Avança para o menu, usando o nome coletado como senderName
+      session.step = 'awaiting_menu';
+      session.metadata = { senderName: name };
+      session.lastActivity = new Date();
+      await this.sessionRepo.save(session);
+
+      return {
+        handled: true,
+        replies: [`Obrigado, ${name}! ` + this.buildWelcome(config)],
       };
     }
 
@@ -249,6 +311,10 @@ export class ChatbotService {
 
     // Awaiting menu selection
     if (session.step === 'awaiting_menu') {
+      // Prioriza nome coletado pelo step awaiting_name (salvo na metadata da sessão)
+      const sessionMeta = (session.metadata ?? {}) as Record<string, unknown>;
+      const resolvedSenderName = (sessionMeta.senderName as string | null) ?? senderName ?? null;
+
       const trimmed = text.trim();
       const num = parseInt(trimmed, 10);
       const items = (config.menuItems || []).filter(i => i.enabled).sort((a, b) => a.order - b.order);
@@ -325,7 +391,7 @@ export class ChatbotService {
         return this.goToDescriptionStep(session, config, {
           pendingDepartment: chosen.department ?? null,
           pendingMenuLabel: selectedLabel,
-          senderName: senderName ?? null,
+          senderName: resolvedSenderName,
           pendingClientId: knownClientId,
         }, prefixMsg);
       }
@@ -335,7 +401,7 @@ export class ChatbotService {
         session.metadata = {
           pendingDepartment: chosen.department ?? null,
           pendingMenuLabel: selectedLabel,
-          senderName: senderName ?? null,
+          senderName: resolvedSenderName,
           cnpjAttempts: 0,
         };
         await this.sessionRepo.save(session);
@@ -351,7 +417,7 @@ export class ChatbotService {
         session.metadata = {
           pendingDepartment: chosen.department ?? null,
           pendingMenuLabel: selectedLabel,
-          senderName: senderName ?? null,
+          senderName: resolvedSenderName,
           cnpjAttempts: 0,
         };
         await this.sessionRepo.save(session);
@@ -362,7 +428,7 @@ export class ChatbotService {
       return this.goToDescriptionStep(session, config, {
         pendingDepartment: chosen.department ?? null,
         pendingMenuLabel: selectedLabel,
-        senderName: senderName ?? null,
+        senderName: resolvedSenderName,
         pendingClientId: null,
       });
     }

@@ -5,9 +5,14 @@ const internalApiUrl =
   'http://localhost:4000'
 
 const nextConfig = {
-  output: 'standalone',
+  // Standalone só no Docker: `next start` local com `output: 'standalone'` quebra (500 / rotas App Router).
+  ...(process.env.DOCKER_BUILD === '1' ? { output: 'standalone' } : {}),
   eslint: { ignoreDuringBuilds: true },
   typescript: { ignoreBuildErrors: true },
+  // Reduz tamanho do bundle em páginas com muitos ícones (ex.: painel real-time).
+  experimental: {
+    optimizePackageImports: ['lucide-react'],
+  },
   async rewrites() {
     return [
       { source: '/manifest.json', destination: '/manifest' },

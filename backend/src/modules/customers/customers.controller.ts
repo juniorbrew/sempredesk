@@ -3,6 +3,8 @@ import {
   Controller, Get, Post, Put, Patch, Delete,
   Body, Param, Query, UseGuards, Request, HttpCode, HttpStatus,
   BadRequestException,
+  DefaultValuePipe,
+  ParseBoolPipe,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
@@ -81,8 +83,12 @@ export class CustomersController {
 
   @Get(':id/contacts')
   @RequirePermission('customer.view')
-  getContacts(@TenantId() tenantId: string, @Param('id') cId: string) {
-    return this.svc.findContacts(tenantId, cId);
+  getContacts(
+    @TenantId() tenantId: string,
+    @Param('id') cId: string,
+    @Query('includeArchived', new DefaultValuePipe(false), ParseBoolPipe) includeArchived: boolean,
+  ) {
+    return this.svc.findContacts(tenantId, cId, includeArchived);
   }
 
   @Put(':id/contacts/:cid')
@@ -96,6 +102,20 @@ export class CustomersController {
   @RequirePermission('customer.edit')
   removeContact(@TenantId() tenantId: string, @Param('cid') cid: string) {
     return this.svc.removeContact(tenantId, cid);
+  }
+
+  /** PATCH /customers/:id/contacts/:cid/archive — arquiva contato ativo */
+  @Patch(':id/contacts/:cid/archive')
+  @RequirePermission('customer.edit')
+  archiveContact(@TenantId() tenantId: string, @Param('cid') cid: string) {
+    return this.svc.archiveContact(tenantId, cid);
+  }
+
+  /** PATCH /customers/:id/contacts/:cid/unarchive — reativa contato arquivado */
+  @Patch(':id/contacts/:cid/unarchive')
+  @RequirePermission('customer.edit')
+  unarchiveContact(@TenantId() tenantId: string, @Param('cid') cid: string) {
+    return this.svc.unarchiveContact(tenantId, cid);
   }
 
   /** GET /customers/contact/:id — busca contato por ID (independente do cliente) */

@@ -1,0 +1,78 @@
+# =============================================================================
+# MODELO OFICIAL — Nginx apenas para DESENVOLVIMENTO LOCAL
+# =============================================================================
+# Copiar para: infra/nginx/nginx.dev.conf  (ficheiro ignorado pelo Git)
+#   cp infra/nginx/nginx.dev.conf.example infra/nginx/nginx.dev.conf
+#
+# PRODUÇÃO (nunca substituir por este ficheiro — mesmo critério que docker-compose.dev.example.yml):
+#   • docker-compose.yml — único Compose em produção; sem override nem .dev/.local.
+#   • infra/nginx/nginx.conf — SSL Let's Encrypt, server_name reais, redirects (versionado).
+#   • Alterações a nginx.conf só com revisão explícita e validação em staging/prod.
+#
+# DESENVOLVIMENTO (este modelo — par nginx.dev.conf; ver também .gitignore):
+#   • Sem listen 443, sem certificados, sem redirects de domínio de produção.
+#   • Um único server HTTP (default_server) para backend:4000 e frontend:3000.
+#   • nginx.local.conf é alternativa local opcional (ignorada pelo Git); este ficheiro é o modelo oficial .dev.
+#
+# VPS / PRODUÇÃO — o que NUNCA fazer:
+#   • Não montar nginx.dev.conf nem nginx.local.conf no lugar de infra/nginx/nginx.conf.
+#   • Não usar docker-compose.override.yml / .dev.yml / .local.yml no servidor.
+#
+# Onboarding: copiar este modelo para nginx.dev.conf; depois seguir opções A/B/C em
+# docker-compose.dev.example.yml (na raiz do repositório).
+# =============================================================================
+
+events {}
+http {
+  resolver 127.0.0.11 valid=10s ipv6=off;
+
+  client_max_body_size 32m;
+
+  server {
+    listen 80 default_server;
+    server_name _;
+
+    location /socket.io/ {
+      proxy_pass http://backend:4000/socket.io/;
+      proxy_http_version 1.1;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection "upgrade";
+      proxy_set_header Host $host;
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto $scheme;
+      proxy_read_timeout 86400;
+    }
+
+    location /api/ {
+      if ($request_method = 'OPTIONS') {
+        add_header 'Access-Control-Allow-Origin' $http_origin always;
+        add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, PATCH, DELETE, OPTIONS' always;
+        add_header 'Access-Control-Allow-Headers' 'Content-Type, Authorization, Accept' always;
+        add_header 'Access-Control-Allow-Credentials' 'true' always;
+        add_header 'Access-Control-Max-Age' 86400;
+        return 204;
+      }
+      proxy_pass http://backend:4000/api/;
+      proxy_http_version 1.1;
+      proxy_set_header Host $host;
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto $scheme;
+      add_header 'Access-Control-Allow-Origin' $http_origin always;
+      add_header 'Access-Control-Allow-Credentials' 'true' always;
+      add_header 'Cache-Control' 'no-store, no-cache, must-revalidate' always;
+    }
+
+    location / {
+      proxy_pass http://frontend:3000;
+      proxy_http_version 1.1;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection "upgrade";
+      proxy_set_header Host $host;
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto $scheme;
+    }
+  }
+}

@@ -14,7 +14,13 @@ interface NavItemProps {
 
 export default function NavItem({ icon, label, href, badge, onClick, expanded }: NavItemProps) {
   const pathname = usePathname();
-  const isActive = href === '/dashboard' ? pathname === href : pathname.startsWith(href);
+  // Atendimento principal não fica ativo em /dashboard/atendimento/realtime (sub-rota).
+  const isActive =
+    href === '/dashboard'
+      ? pathname === href
+      : href === '/dashboard/atendimento'
+        ? pathname === '/dashboard/atendimento'
+        : pathname.startsWith(href);
 
   return (
     <Link

@@ -42,6 +42,13 @@ export class ChatbotConfig {
   @Column({ name: 'session_timeout_minutes', default: 30 })
   sessionTimeoutMinutes: number;
 
+  /** Solicitar nome ao contato quando ele não está cadastrado (antes do menu) */
+  @Column({ name: 'collect_name', default: false })
+  collectName: boolean;
+
+  @Column({ name: 'name_request_message', type: 'text', default: 'Olá! Para começarmos, pode me informar seu nome completo?' })
+  nameRequestMessage: string;
+
   /** Solicitar CNPJ ao cliente antes de transferir para atendente */
   @Column({ name: 'collect_cnpj', default: true })
   collectCnpj: boolean;
