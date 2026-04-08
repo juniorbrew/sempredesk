@@ -107,6 +107,8 @@ class ApiClient {
   getConversations = (params?: { channel?: string; hasTicket?: string; status?: string }) =>
     this.client.get('/conversations', { params });
   getConversationsActiveCount = () => this.client.get('/conversations/active-count');
+  /** Tickets em aberto (open / in_progress / waiting_client) atribuídos ao agente logado no tenant atual */
+  getMyOpenAssignedTicketsCount = () => this.client.get('/tickets/me/open-assigned-count');
   getConversation = (id: string) => this.client.get(`/conversations/${id}`);
   getConversationMessages = (id: string, params?: { limit?: number; before?: string }) =>
     this.client.get(`/conversations/${id}/messages`, { params });

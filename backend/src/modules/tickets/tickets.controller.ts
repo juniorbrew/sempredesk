@@ -123,6 +123,17 @@ export class TicketsController {
     return this.ticketsService.getStats(tenantId);
   }
 
+  /** Quantidade de tickets em aberto atribuídos ao usuário autenticado (tenant atual). Portal: sempre 0. */
+  @Get('me/open-assigned-count')
+  @RequirePermission('attendance.view')
+  async myOpenAssignedCount(@Request() req: any, @TenantId() tenantId: string) {
+    if (req.user?.isPortal === true) {
+      return { count: 0 };
+    }
+    const count = await this.ticketsService.countOpenTicketsAssignedToAgent(tenantId, req.user.id);
+    return { count };
+  }
+
   /** Tickets em formato de conversas para inbox (portal/whatsapp) — ordenados por última mensagem */
   @Get('conversations')
   @RequirePermission('ticket.view')

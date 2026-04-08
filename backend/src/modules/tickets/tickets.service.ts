@@ -1103,6 +1103,20 @@ export class TicketsService {
     });
   }
 
+  /**
+   * Chamados em aberto atribuídos ao agente (isolado por tenant).
+   * Estados abertos: open, in_progress, waiting_client.
+   */
+  async countOpenTicketsAssignedToAgent(tenantId: string, agentUserId: string): Promise<number> {
+    return this.ticketRepo.count({
+      where: {
+        tenantId,
+        assignedTo: agentUserId,
+        status: In([TicketStatus.OPEN, TicketStatus.IN_PROGRESS, TicketStatus.WAITING_CLIENT]),
+      },
+    });
+  }
+
   async findOne(tenantId: string, id: string): Promise<any> {
     const ticket = await this.getTicketOrFail(tenantId, id);
     // Inclui dados do responsável para evitar chamada extra ao endpoint /team
