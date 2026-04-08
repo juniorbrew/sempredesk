@@ -168,14 +168,14 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
 
   const padding = density === 'compact' ? '6px 10px' : '8px 12px';
   const hPad = density === 'compact' ? 20 : 24;
-  const metaReserve = 56;
-  const textMaxWidth = Math.max(140, bubbleMax - hPad - metaReserve);
+  /** Largura útil máxima dentro da bolha (padding horizontal). Texto/reply/mídia usam isto; meta fica numa linha própria para não roubar largura. */
   const innerContentMax = bubbleMax - hPad;
+  /** Alias para JSX legado / hot-reload parcial (equivale a `innerContentMax`). */
+  const textMaxWidth = innerContentMax;
 
   const fontSize = density === 'compact' ? 13 : 14;
   const lineHeight = density === 'compact' ? 1.3 : 1.35;
   const borderRadius = bubbleBorderRadius(density, isContact, sameAuthorAsPrev, sameAuthorAsNext);
-  const innerGap = density === 'compact' ? 6 : 8;
 
   const mediaMaxH = density === 'compact' ? 220 : 240;
 
@@ -285,9 +285,13 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
 
         <div
           style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'stretch',
             width: 'fit-content',
             maxWidth: bubbleMaxCss,
             flexShrink: 0,
+            minWidth: 0,
             boxSizing: 'border-box',
             padding,
             fontSize,
@@ -310,7 +314,9 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
                 marginBottom: replyMb,
                 fontSize: replyFont,
                 lineHeight: 1.3,
-                maxWidth: innerContentMax,
+                maxWidth: '100%',
+                minWidth: 0,
+                boxSizing: 'border-box',
               }}
             >
               <div style={{ fontWeight: 600, marginBottom: 1, color: replyNameColor, fontSize: replyFont }}>{m.replyTo.authorName}</div>
@@ -320,7 +326,7 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
                   whiteSpace: 'nowrap',
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
-                  maxWidth: innerContentMax,
+                  maxWidth: '100%',
                 }}
               >
                 {m.replyTo.mediaKind === 'image'
@@ -335,7 +341,7 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
           )}
 
           {m.mediaKind === 'image' && resolvedMediaSrc && (
-            <div style={{ maxWidth: innerContentMax }}>
+            <div style={{ maxWidth: '100%', minWidth: 0 }}>
               <InlineChatMedia
                 src={resolvedMediaSrc}
                 mediaKind="image"
@@ -350,12 +356,20 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
             </div>
           )}
           {m.mediaKind === 'audio' && resolvedMediaSrc && (
-            <div style={{ marginBottom: showCaption ? replyMb : 0, maxWidth: innerContentMax, minWidth: 0 }}>
+            <div
+              style={{
+                marginBottom: showCaption ? replyMb : 0,
+                width: '100%',
+                maxWidth: innerContentMax,
+                minWidth: 0,
+                alignSelf: 'stretch',
+              }}
+            >
               <AudioMessagePlayer src={resolvedMediaSrc} variant={isContact ? 'received' : 'sent'} density={density} />
             </div>
           )}
           {m.mediaKind === 'video' && resolvedMediaSrc && (
-            <div style={{ maxWidth: innerContentMax }}>
+            <div style={{ maxWidth: '100%', minWidth: 0 }}>
               <InlineChatMedia
                 src={resolvedMediaSrc}
                 mediaKind="video"
@@ -373,42 +387,54 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
             <p style={{ margin: `0 0 ${replyMb}px`, fontSize: density === 'compact' ? 11 : 12, opacity: 0.85, color: P.loadingText }}>A carregar…</p>
           )}
 
-          {(showCaption || showMedia || mediaLoading) && (
-            <div
-              style={{
-                display: 'flex',
-                flexDirection: 'row',
-                flexWrap: 'wrap',
-                alignItems: 'flex-end',
-                justifyContent: 'flex-end',
-                gap: innerGap,
-              }}
-            >
-              {showCaption ? (
+          {(showCaption || showMedia || mediaLoading) &&
+            (showCaption ? (
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'stretch',
+                  gap: density === 'compact' ? 3 : 4,
+                  width: '100%',
+                  minWidth: 0,
+                }}
+              >
                 <p
                   style={{
                     margin: 0,
                     whiteSpace: 'pre-wrap',
                     wordBreak: 'break-word',
                     maxWidth: textMaxWidth,
-                    flexShrink: 0,
+                    width: '100%',
+                    minWidth: 0,
                   }}
                 >
                   {highlight ? <HighlightText text={m.content || ''} query={highlight} /> : m.content}
                 </p>
-              ) : null}
-              <ChatMessageMeta
-                timeLabel={t}
-                isContact={isContact}
-                isWhatsapp={isWhatsapp}
-                whatsappStatus={m.whatsappStatus}
-                density={density}
-              />
-            </div>
-          )}
+                <div style={{ display: 'flex', justifyContent: 'flex-end', width: '100%' }}>
+                  <ChatMessageMeta
+                    timeLabel={t}
+                    isContact={isContact}
+                    isWhatsapp={isWhatsapp}
+                    whatsappStatus={m.whatsappStatus}
+                    density={density}
+                  />
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', justifyContent: 'flex-end', width: '100%' }}>
+                <ChatMessageMeta
+                  timeLabel={t}
+                  isContact={isContact}
+                  isWhatsapp={isWhatsapp}
+                  whatsappStatus={m.whatsappStatus}
+                  density={density}
+                />
+              </div>
+            ))}
 
           {!showCaption && !showMedia && !mediaLoading && (
-            <div style={{ display: 'flex', justifyContent: 'flex-end', width: '100%' }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', alignSelf: 'flex-end' }}>
               <ChatMessageMeta
                 timeLabel={t}
                 isContact={isContact}

@@ -52,7 +52,8 @@ export default function AudioMessagePlayer({ src, variant, className, density = 
   const outerGap = compact ? 5 : 6;
   const timeFont = compact ? 9 : 10;
   const minW = compact ? 140 : 160;
-  const maxW = compact ? 260 : 280;
+  /** Teto horizontal vem do contentor da bolha (`width: 100%` + `maxWidth` no pai). */
+  const maxW = '100%';
   const btnBg = isDark
     ? isSent
       ? 'rgba(165,180,252,0.2)'
