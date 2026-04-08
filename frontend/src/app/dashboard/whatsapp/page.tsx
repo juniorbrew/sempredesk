@@ -539,7 +539,7 @@ export default function WhatsappPage() {
                     Como funciona a conexão via QR Code
                   </p>
                   <ul style={{ margin: 0, paddingLeft: 18, color: '#475569', fontSize: 13, lineHeight: 1.7 }}>
-                    <li>Clique em "Conectar via QR Code" para gerar o QR</li>
+                    <li>Clique em &quot;Conectar via QR Code&quot; para gerar o QR</li>
                     <li>Abra o WhatsApp no seu celular</li>
                     <li>Acesse <strong>Configurações &rarr; Dispositivos conectados &rarr; Conectar um dispositivo</strong></li>
                     <li>Escaneie o QR Code exibido na tela</li>

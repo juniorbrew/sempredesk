@@ -307,7 +307,7 @@ export default function ChatbotConfigPage() {
             ))}
             {menu.length === 0 && (
               <div style={{ textAlign: 'center', padding: '32px 0', color: S.txt3, fontSize: 14 }}>
-                Nenhuma opção configurada. Clique em "Adicionar" para começar.
+                Nenhuma opção configurada. Clique em &quot;Adicionar&quot; para começar.
               </div>
             )}
           </div>
@@ -368,7 +368,7 @@ export default function ChatbotConfigPage() {
           <div style={{ background: S.accentL, borderRadius: 10, padding: '14px 16px', display: 'flex', gap: 10 }}>
             <Zap size={18} color={S.accent} style={{ flexShrink: 0, marginTop: 1 }} />
             <div style={{ fontSize: 13, color: S.accent, lineHeight: 1.6 }}>
-              <strong>Para ativar o widget:</strong> habilite o canal "Chat Web" na aba Canais e certifique-se que o chatbot está ativo. O widget aparecerá automaticamente no canto inferior direito do seu site.
+              <strong>Para ativar o widget:</strong> habilite o canal &quot;Chat Web&quot; na aba Canais e certifique-se que o chatbot está ativo. O widget aparecerá automaticamente no canto inferior direito do seu site.
             </div>
           </div>
 

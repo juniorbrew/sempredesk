@@ -380,7 +380,7 @@ export default function SettingsPage() {
                 </Field>
               </div>
               <div style={{ background:'#EEF2FF',borderRadius:12,padding:'12px 16px',border:'1.5px solid #C7D2FE' }}>
-                <p style={{ fontSize:12,color:'#4338CA' }}>💡 As notificações por e-mail requerem configuração de SMTP válida na aba "E-mail (SMTP)".</p>
+                <p style={{ fontSize:12,color:'#4338CA' }}>💡 As notificações por e-mail requerem configuração de SMTP válida na aba &quot;E-mail (SMTP)&quot;.</p>
               </div>
             </div>
           )}
@@ -705,7 +705,7 @@ X-Api-Secret: {INBOUND_EMAIL_SECRET}`}</pre>
                 </div>
               </div>
               <div style={{ background:'#EEF2FF', borderRadius:12, padding:'12px 16px', border:'1.5px solid #C7D2FE', fontSize:12, color:'#4338CA' }}>
-                💡 Configure a variável de ambiente <code style={{ fontFamily:'monospace', background:'rgba(0,0,0,0.05)', padding:'1px 4px', borderRadius:4 }}>INBOUND_EMAIL_SECRET</code> no servidor para validar as requisições. O campo "De" do e-mail será usado como remetente e o assunto como título do ticket.
+                💡 Configure a variável de ambiente <code style={{ fontFamily:'monospace', background:'rgba(0,0,0,0.05)', padding:'1px 4px', borderRadius:4 }}>INBOUND_EMAIL_SECRET</code> no servidor para validar as requisições. O campo &quot;De&quot; do e-mail será usado como remetente e o assunto como título do ticket.
               </div>
             </div>
           )}
@@ -868,7 +868,7 @@ X-Api-Secret: {INBOUND_EMAIL_SECRET}`}</pre>
                       </div>
                     </div>
                   ))}
-                  {botMenu.length === 0 && <p style={{ textAlign:'center', padding:'20px 0', color:'#CBD5E1', fontSize:13 }}>Nenhuma opção. Clique em "Adicionar" para criar.</p>}
+                  {botMenu.length === 0 && <p style={{ textAlign:'center', padding:'20px 0', color:'#CBD5E1', fontSize:13 }}>Nenhuma opção. Clique em &quot;Adicionar&quot; para criar.</p>}
                 </div>
                 <button onClick={saveBotMenu} disabled={botSaving} className="btn-primary" style={{ marginTop:14 }}>
                   {botSaving ? <RefreshCw className="w-4 h-4 animate-spin"/> : <Save className="w-4 h-4"/>}
