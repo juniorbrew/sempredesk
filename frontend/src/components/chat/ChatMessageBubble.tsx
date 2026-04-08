@@ -4,6 +4,8 @@ import { memo, useMemo } from 'react';
 import { InlineChatMedia } from '@/components/chat/InlineChatMedia';
 import AudioMessagePlayer from '@/components/chat/AudioMessagePlayer';
 import ChatMessageMeta from '@/components/chat/ChatMessageMeta';
+import { useTheme } from '@/components/ThemeProvider';
+import { DEFAULT_CHAT_DENSITY_MODE, type ChatDensityMode } from '@/components/chat/chatDensity';
 
 function escapeRegex(s: string) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -45,6 +47,82 @@ function avatarColor(name: string) {
   return COLORS[Math.abs(hash) % COLORS.length];
 }
 
+function bubbleBorderRadius(
+  density: ChatDensityMode,
+  isContact: boolean,
+  sameAuthorAsPrev: boolean,
+  sameAuthorAsNext: boolean,
+): number | string {
+  if (density === 'compact') return 8;
+  if (isContact) {
+    if (sameAuthorAsPrev && sameAuthorAsNext) return '4px 14px 14px 4px';
+    if (sameAuthorAsPrev) return '4px 14px 14px 6px';
+    if (sameAuthorAsNext) return '14px 14px 14px 4px';
+    return '14px 14px 14px 4px';
+  }
+  if (sameAuthorAsPrev && sameAuthorAsNext) return '14px 4px 4px 14px';
+  if (sameAuthorAsPrev) return '14px 4px 14px 14px';
+  if (sameAuthorAsNext) return '14px 14px 4px 14px';
+  return '14px 14px 4px 14px';
+}
+
+type ChatPalette = {
+  received: { background: string; border: string; color: string };
+  sent: { background: string; border: string; color: string };
+  systemBg: string;
+  systemBorder: string;
+  systemColor: string;
+  authorLabel: string;
+  replyBorderContact: string;
+  replyBorderSent: string;
+  replyBgContact: string;
+  replyBgSent: string;
+  replyNameContact: string;
+  replyNameSent: string;
+  replySnippet: string;
+  loadingText: string;
+  replyBtn: string;
+};
+
+function chatPalette(theme: 'light' | 'dark'): ChatPalette {
+  if (theme === 'dark') {
+    return {
+      received: { background: '#1E293B', border: '1px solid rgba(148,163,184,0.22)', color: '#E2E8F0' },
+      sent: { background: 'rgba(91,33,182,0.35)', border: '1px solid rgba(167,139,250,0.45)', color: '#F1F5F9' },
+      systemBg: '#1E293B',
+      systemBorder: '1px solid rgba(148,163,184,0.22)',
+      systemColor: '#94A3B8',
+      authorLabel: '#94A3B8',
+      replyBorderContact: '#64748B',
+      replyBorderSent: '#A78BFA',
+      replyBgContact: 'rgba(148,163,184,0.14)',
+      replyBgSent: 'rgba(139,92,246,0.2)',
+      replyNameContact: '#CBD5E1',
+      replyNameSent: '#DDD6FE',
+      replySnippet: '#94A3B8',
+      loadingText: '#94A3B8',
+      replyBtn: '#64748B',
+    };
+  }
+  return {
+    received: { background: '#FFFFFF', border: '1px solid #E2E8F0', color: '#1E293B' },
+    sent: { background: '#EDE9FE', border: '1px solid #DDD6FE', color: '#1E293B' },
+    systemBg: '#F1F5F9',
+    systemBorder: '1px solid #E2E8F0',
+    systemColor: '#64748B',
+    authorLabel: '#64748B',
+    replyBorderContact: '#CBD5E1',
+    replyBorderSent: '#C4B5FD',
+    replyBgContact: 'rgba(241,245,249,0.95)',
+    replyBgSent: 'rgba(237,233,254,0.85)',
+    replyNameContact: '#475569',
+    replyNameSent: '#6D28D9',
+    replySnippet: '#64748B',
+    loadingText: '#64748B',
+    replyBtn: '#94A3B8',
+  };
+}
+
 export type ChatMessageBubbleProps = {
   m: any;
   isWhatsapp: boolean;
@@ -53,13 +131,9 @@ export type ChatMessageBubbleProps = {
   onReply?: (msg: any) => void;
   sameAuthorAsPrev: boolean;
   sameAuthorAsNext: boolean;
+  density?: ChatDensityMode;
 };
 
-const BUBBLE_MAX = 340;
-
-/**
- * Bolha de mensagem estilo WhatsApp Web: compacta, hora no canto inferior direito, agrupamento por autor.
- */
 const ChatMessageBubble = memo(function ChatMessageBubble({
   m,
   isWhatsapp,
@@ -68,11 +142,13 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
   onReply,
   sameAuthorAsPrev,
   sameAuthorAsNext,
+  density = DEFAULT_CHAT_DENSITY_MODE,
 }: ChatMessageBubbleProps) {
+  const { theme } = useTheme();
+  const P = useMemo(() => chatPalette(theme), [theme]);
   const isContact = m.authorType === 'contact';
   const isSystem = m.messageType === 'system';
   const t = useMemo(() => new Date(m.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }), [m.createdAt]);
-  const col = avatarColor(m.authorName || '?');
   const localPreview = m._localPreviewUrl as string | undefined;
   const resolvedMediaSrc = mediaUrl || localPreview || null;
   const showMedia =
@@ -83,56 +159,62 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
     !!resolvedMediaSrc && (m.content === '📷 Imagem' || m.content === '🎤 Áudio' || m.content === '📹 Vídeo');
   const showCaption = !!(m.content && !hidePlaceholderCaption);
 
-  const accent = '#4F46E5';
-  const accentLight = '#EEF2FF';
-  const bg = '#FFFFFF';
-  const txt = '#111118';
-  const txt2 = '#6B6B80';
+  const bubbleMax = density === 'compact' ? 580 : 520;
+  const bubbleMaxCss = `min(100%, ${bubbleMax}px)`;
+  const marginTop = sameAuthorAsPrev ? (density === 'compact' ? 2 : 4) : density === 'compact' ? 8 : 12;
+  const showAuthorLabel = isContact && !isSystem && !sameAuthorAsPrev;
+  const showAvatar = density === 'normal' && isContact && !sameAuthorAsNext;
+  const avatarColWidth = density === 'normal' && isContact ? 36 : 0;
 
-  const marginTop = sameAuthorAsPrev ? 2 : 10;
-  const showAuthorLabel = isContact && !sameAuthorAsPrev;
-  const showAvatar = isContact && !sameAuthorAsNext;
+  const padding = density === 'compact' ? '6px 10px' : '8px 12px';
+  const hPad = density === 'compact' ? 20 : 24;
+  const metaReserve = 56;
+  const textMaxWidth = Math.max(140, bubbleMax - hPad - metaReserve);
+  const innerContentMax = bubbleMax - hPad;
 
-  const bubbleRadii = (() => {
-    if (isContact) {
-      if (sameAuthorAsPrev && sameAuthorAsNext) return '4px 14px 14px 4px';
-      if (sameAuthorAsPrev) return '4px 14px 14px 6px';
-      if (sameAuthorAsNext) return '14px 14px 14px 4px';
-      return '14px 14px 14px 4px';
-    }
-    if (sameAuthorAsPrev && sameAuthorAsNext) return '14px 4px 4px 14px';
-    if (sameAuthorAsPrev) return '14px 4px 14px 14px';
-    if (sameAuthorAsNext) return '14px 14px 4px 14px';
-    return '14px 14px 4px 14px';
-  })();
+  const fontSize = density === 'compact' ? 13 : 14;
+  const lineHeight = density === 'compact' ? 1.3 : 1.35;
+  const borderRadius = bubbleBorderRadius(density, isContact, sameAuthorAsPrev, sameAuthorAsNext);
+  const innerGap = density === 'compact' ? 6 : 8;
+
+  const mediaMaxH = density === 'compact' ? 220 : 240;
+
+  const replyBorder = isContact ? P.replyBorderContact : P.replyBorderSent;
+  const replyBg = isContact ? P.replyBgContact : P.replyBgSent;
+  const replyNameColor = isContact ? P.replyNameContact : P.replyNameSent;
+  const replySnippetColor = P.replySnippet;
+  const replyPadding = density === 'compact' ? '3px 5px' : '4px 6px';
+  const replyFont = density === 'compact' ? 10.5 : 11;
+  const replyMb = density === 'compact' ? 3 : 4;
 
   if (isSystem) {
+    const sysMt = sameAuthorAsPrev ? (density === 'compact' ? 2 : 4) : density === 'compact' ? 6 : 8;
     return (
-      <div style={{ display: 'flex', justifyContent: 'center', margin: '6px 0' }}>
+      <div style={{ display: 'flex', justifyContent: 'center', width: '100%', marginTop: sysMt }}>
         <div
           style={{
-            background: '#EEF2FF',
-            border: '1px solid #C7D2FE',
-            borderRadius: 8,
-            padding: '5px 14px',
-            fontSize: 11,
-            color: '#4338CA',
-            fontWeight: 500,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
+            display: 'inline-block',
+            maxWidth: '92%',
+            width: 'fit-content',
+            padding: density === 'compact' ? '3px 8px' : '4px 10px',
+            borderRadius: density === 'compact' ? 6 : 8,
+            background: P.systemBg,
+            border: P.systemBorder,
+            color: P.systemColor,
+            fontSize: density === 'compact' ? 11 : 12,
+            lineHeight: 1.35,
+            boxShadow: 'none',
+            textAlign: 'center',
+            boxSizing: 'border-box',
           }}
         >
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#4338CA" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v2z" />
-          </svg>
           {highlight ? <HighlightText text={m.content || ''} query={highlight} /> : m.content}
         </div>
       </div>
     );
   }
 
-  const avatarColWidth = showAvatar ? 30 : 10;
+  const bubbleBase = isContact ? P.received : P.sent;
 
   return (
     <div
@@ -142,16 +224,17 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
         gap: 0,
         alignItems: isContact ? 'flex-start' : 'flex-end',
         marginTop,
+        width: '100%',
       }}
     >
       {showAuthorLabel && (
         <span
           style={{
-            fontSize: 11,
-            fontWeight: 600,
-            color: txt2,
-            marginBottom: 3,
-            paddingLeft: avatarColWidth + 8,
+            fontSize: 12,
+            fontWeight: 500,
+            color: P.authorLabel,
+            marginBottom: density === 'compact' ? 1 : 2,
+            paddingLeft: avatarColWidth > 0 ? 4 : 2,
           }}
         >
           {m.authorName}
@@ -161,12 +244,14 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
         style={{
           display: 'flex',
           alignItems: 'flex-end',
-          gap: 6,
+          gap: density === 'compact' ? 4 : 6,
           flexDirection: isContact ? 'row' : 'row-reverse',
+          width: 'max-content',
           maxWidth: '100%',
+          alignSelf: isContact ? 'flex-start' : 'flex-end',
         }}
       >
-        {isContact && (
+        {avatarColWidth > 0 && (
           <div
             style={{
               width: avatarColWidth,
@@ -180,15 +265,15 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
             {showAvatar ? (
               <div
                 style={{
-                  width: 30,
-                  height: 30,
+                  width: 32,
+                  height: 32,
                   borderRadius: '50%',
-                  background: col,
+                  background: avatarColor(m.authorName || '?'),
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   color: '#fff',
-                  fontSize: 10,
+                  fontSize: 11,
                   fontWeight: 700,
                 }}
               >
@@ -200,17 +285,17 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
 
         <div
           style={{
-            maxWidth: BUBBLE_MAX,
-            minWidth: 0,
-            padding: '6px 10px 5px',
-            fontSize: 13,
-            lineHeight: 1.45,
+            width: 'fit-content',
+            maxWidth: bubbleMaxCss,
+            flexShrink: 0,
+            boxSizing: 'border-box',
+            padding,
+            fontSize,
+            lineHeight,
             position: 'relative',
-            background: isContact ? bg : accent,
-            color: isContact ? txt : '#fff',
-            border: isContact ? '1px solid rgba(0,0,0,.07)' : 'none',
-            borderRadius: bubbleRadii,
-            boxShadow: isContact ? '0 1px 2px rgba(0,0,0,.04)' : '0 1px 6px rgba(79,70,229,.2)',
+            ...bubbleBase,
+            borderRadius,
+            boxShadow: 'none',
             opacity: m._optimistic ? 0.75 : 1,
             transition: 'opacity 0.2s',
           }}
@@ -218,23 +303,24 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
           {m.replyTo && (
             <div
               style={{
-                borderLeft: `3px solid ${isContact ? accent : 'rgba(255,255,255,.6)'}`,
-                background: isContact ? 'rgba(79,70,229,.07)' : 'rgba(255,255,255,.15)',
-                borderRadius: 6,
-                padding: '4px 8px',
-                marginBottom: 6,
-                fontSize: 12,
-                opacity: 0.92,
+                borderLeft: `2px solid ${replyBorder}`,
+                background: replyBg,
+                borderRadius: 4,
+                padding: replyPadding,
+                marginBottom: replyMb,
+                fontSize: replyFont,
+                lineHeight: 1.3,
+                maxWidth: innerContentMax,
               }}
             >
-              <div style={{ fontWeight: 600, marginBottom: 2, color: isContact ? accent : 'rgba(255,255,255,.9)' }}>{m.replyTo.authorName}</div>
+              <div style={{ fontWeight: 600, marginBottom: 1, color: replyNameColor, fontSize: replyFont }}>{m.replyTo.authorName}</div>
               <div
                 style={{
-                  color: isContact ? txt2 : 'rgba(255,255,255,.82)',
+                  color: replySnippetColor,
                   whiteSpace: 'nowrap',
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
-                  maxWidth: BUBBLE_MAX - 24,
+                  maxWidth: innerContentMax,
                 }}
               >
                 {m.replyTo.mediaKind === 'image'
@@ -249,57 +335,87 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
           )}
 
           {m.mediaKind === 'image' && resolvedMediaSrc && (
-            <InlineChatMedia
-              src={resolvedMediaSrc}
-              mediaKind="image"
-              imageStyle={{
-                maxHeight: 240,
-                marginBottom: showCaption ? 4 : 0,
-                borderRadius: 8,
-              }}
-            />
+            <div style={{ maxWidth: innerContentMax }}>
+              <InlineChatMedia
+                src={resolvedMediaSrc}
+                mediaKind="image"
+                imageStyle={{
+                  maxHeight: mediaMaxH,
+                  marginBottom: showCaption ? replyMb : 0,
+                  borderRadius: density === 'compact' ? 6 : 8,
+                  width: 'auto',
+                  height: 'auto',
+                }}
+              />
+            </div>
           )}
           {m.mediaKind === 'audio' && resolvedMediaSrc && (
-            <div style={{ marginBottom: showCaption ? 4 : 0 }}>
-              <AudioMessagePlayer src={resolvedMediaSrc} variant={isContact ? 'received' : 'sent'} />
+            <div style={{ marginBottom: showCaption ? replyMb : 0, maxWidth: innerContentMax, minWidth: 0 }}>
+              <AudioMessagePlayer src={resolvedMediaSrc} variant={isContact ? 'received' : 'sent'} density={density} />
             </div>
           )}
           {m.mediaKind === 'video' && resolvedMediaSrc && (
-            <InlineChatMedia
-              src={resolvedMediaSrc}
-              mediaKind="video"
-              videoContainerStyle={{ marginBottom: showCaption ? 4 : 0 }}
-              videoStyle={{
-                maxWidth: 300,
-                maxHeight: 240,
-                borderRadius: 8,
-              }}
-            />
+            <div style={{ maxWidth: innerContentMax }}>
+              <InlineChatMedia
+                src={resolvedMediaSrc}
+                mediaKind="video"
+                videoContainerStyle={{ marginBottom: showCaption ? replyMb : 0 }}
+                videoStyle={{
+                  maxWidth: innerContentMax,
+                  width: '100%',
+                  maxHeight: mediaMaxH,
+                  borderRadius: density === 'compact' ? 6 : 8,
+                }}
+              />
+            </div>
           )}
-          {mediaLoading && <p style={{ margin: '0 0 6px', fontSize: 12, opacity: 0.85 }}>A carregar…</p>}
+          {mediaLoading && (
+            <p style={{ margin: `0 0 ${replyMb}px`, fontSize: density === 'compact' ? 11 : 12, opacity: 0.85, color: P.loadingText }}>A carregar…</p>
+          )}
 
           {(showCaption || showMedia || mediaLoading) && (
             <div
               style={{
                 display: 'flex',
+                flexDirection: 'row',
                 flexWrap: 'wrap',
                 alignItems: 'flex-end',
                 justifyContent: 'flex-end',
-                gap: '4px 8px',
+                gap: innerGap,
               }}
             >
-              {showCaption && (
-                <p style={{ margin: 0, whiteSpace: 'pre-wrap', flex: '1 1 120px', minWidth: 48, wordBreak: 'break-word' }}>
+              {showCaption ? (
+                <p
+                  style={{
+                    margin: 0,
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                    maxWidth: textMaxWidth,
+                    flexShrink: 0,
+                  }}
+                >
                   {highlight ? <HighlightText text={m.content || ''} query={highlight} /> : m.content}
                 </p>
-              )}
-              <ChatMessageMeta timeLabel={t} isContact={isContact} isWhatsapp={isWhatsapp} whatsappStatus={m.whatsappStatus} />
+              ) : null}
+              <ChatMessageMeta
+                timeLabel={t}
+                isContact={isContact}
+                isWhatsapp={isWhatsapp}
+                whatsappStatus={m.whatsappStatus}
+                density={density}
+              />
             </div>
           )}
 
           {!showCaption && !showMedia && !mediaLoading && (
-            <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center' }}>
-              <ChatMessageMeta timeLabel={t} isContact={isContact} isWhatsapp={isWhatsapp} whatsappStatus={m.whatsappStatus} />
+            <div style={{ display: 'flex', justifyContent: 'flex-end', width: '100%' }}>
+              <ChatMessageMeta
+                timeLabel={t}
+                isContact={isContact}
+                isWhatsapp={isWhatsapp}
+                whatsappStatus={m.whatsappStatus}
+                density={density}
+              />
             </div>
           )}
         </div>
@@ -314,7 +430,7 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
               border: 'none',
               cursor: 'pointer',
               padding: '2px 4px',
-              color: '#94A3B8',
+              color: P.replyBtn,
               fontSize: 11,
               borderRadius: 6,
               alignSelf: 'center',

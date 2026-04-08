@@ -3,6 +3,8 @@
 import type { CSSProperties, RefObject, UIEventHandler } from 'react';
 import { MessageSquare } from 'lucide-react';
 import ChatMessageBubble, { messageAuthorKey } from '@/components/chat/ChatMessageBubble';
+import { useTheme } from '@/components/ThemeProvider';
+import { DEFAULT_CHAT_DENSITY_MODE, type ChatDensityMode } from '@/components/chat/chatDensity';
 
 /** Estilos alinhados ao objeto `S` da tela de atendimento (evita acoplar ao layout pai). */
 export type ConversationMessageListTheme = {
@@ -31,32 +33,22 @@ export type ConversationMessageListProps = {
   isContactTyping: boolean;
   /** Nome do contato para avatar no indicador "digitando…" */
   typingContactName?: string | null;
+  /** Densidade das bolhas (normal = WhatsApp-like; compact = mais denso). */
+  chatDensity?: ChatDensityMode;
 };
 
 function MessageSkeleton() {
+  const { theme } = useTheme();
+  const barBg = theme === 'dark' ? '#334155' : '#E2E8F0';
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '8px 0' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '4px 0' }}>
       {([false, true, false] as boolean[]).map((right, i) => (
-        <div key={i} style={{ display: 'flex', alignItems: 'flex-end', gap: 8, flexDirection: right ? 'row-reverse' : 'row' }}>
-          <div className="animate-pulse" style={{ width: 28, height: 28, borderRadius: '50%', background: '#E2E8F0', flexShrink: 0 }} />
-          <div className="animate-pulse" style={{ width: `${38 + i * 12}%`, height: 44, borderRadius: 12, background: '#E2E8F0' }} />
+        <div key={i} style={{ display: 'flex', alignItems: 'flex-end', justifyContent: right ? 'flex-end' : 'flex-start' }}>
+          <div className="animate-pulse" style={{ width: `${42 + i * 10}%`, height: 32, borderRadius: 8, background: barBg }} />
         </div>
       ))}
     </div>
   );
-}
-
-function initials(name: string) {
-  const parts = name.trim().split(/\s+/);
-  if (parts.length === 1) return (parts[0][0] || '?').toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
-
-function avatarColor(name: string) {
-  const COLORS = ['#16A34A', '#2563EB', '#EA580C', '#7C3AED', '#E11D48', '#0891B2', '#4F46E5', '#B45309'];
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
-  return COLORS[Math.abs(hash) % COLORS.length];
 }
 
 /**
@@ -81,8 +73,14 @@ export default function ConversationMessageList({
   onReply,
   isContactTyping,
   typingContactName,
+  chatDensity = DEFAULT_CHAT_DENSITY_MODE,
 }: ConversationMessageListProps) {
-  const typingName = typingContactName || '?';
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
+  const compact = chatDensity === 'compact';
+  const typingNameColor = isDark ? '#94A3B8' : '#64748B';
+  const typingBubbleBg = isDark ? '#1E293B' : '#F1F5F9';
+  const typingBubbleBorder = isDark ? '1px solid rgba(148,163,184,0.22)' : '1px solid #E2E8F0';
 
   return (
     <div ref={scrollContainerRef} onScroll={onScroll} style={containerStyle}>
@@ -136,7 +134,7 @@ export default function ConversationMessageList({
                 <div
                   key={m.id}
                   id={`msg-${m.id}`}
-                  style={isCurrentMatch ? { borderRadius: 14, outline: '2px solid #FDE68A', outlineOffset: 3 } : undefined}
+                  style={isCurrentMatch ? { borderRadius: 8, outline: '2px solid #FDE68A', outlineOffset: 2 } : undefined}
                 >
                   <ChatMessageBubble
                     m={m}
@@ -146,6 +144,7 @@ export default function ConversationMessageList({
                     onReply={onReply}
                     sameAuthorAsPrev={sameAuthorAsPrev}
                     sameAuthorAsNext={sameAuthorAsNext}
+                    density={chatDensity}
                   />
                 </div>
               );
@@ -154,31 +153,35 @@ export default function ConversationMessageList({
         </div>
       )}
       {isContactTyping && isWhatsapp && (
-        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, marginTop: 4 }}>
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'flex-start',
+            gap: compact ? 1 : 2,
+            marginTop: compact ? 4 : 6,
+            paddingLeft: compact ? 0 : 40,
+          }}
+        >
+          {typingContactName ? (
+            <span
+              style={{
+                fontSize: compact ? 11 : 12,
+                fontWeight: 500,
+                color: typingNameColor,
+                paddingLeft: compact ? 0 : 4,
+              }}
+            >
+              {typingContactName}
+            </span>
+          ) : null}
           <div
             style={{
-              width: 26,
-              height: 26,
-              borderRadius: '50%',
-              background: avatarColor(typingName),
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: '#fff',
-              fontSize: 9,
-              fontWeight: 700,
-              flexShrink: 0,
-            }}
-          >
-            {initials(typingName)}
-          </div>
-          <div
-            style={{
-              background: '#FFFFFF',
-              border: '1px solid rgba(0,0,0,.09)',
-              borderRadius: '18px 18px 18px 4px',
-              padding: '10px 16px',
-              boxShadow: '0 1px 3px rgba(0,0,0,.06)',
+              background: typingBubbleBg,
+              border: typingBubbleBorder,
+              borderRadius: compact ? 6 : 8,
+              padding: compact ? '5px 10px' : '6px 12px',
+              boxShadow: 'none',
               display: 'flex',
               alignItems: 'center',
               gap: 4,
@@ -189,10 +192,10 @@ export default function ConversationMessageList({
                 <span
                   key={i}
                   style={{
-                    width: 7,
-                    height: 7,
+                    width: 5,
+                    height: 5,
                     borderRadius: '50%',
-                    background: '#A8A8BE',
+                    background: '#94A3B8',
                     display: 'inline-block',
                     animation: `typingDot 1.2s ${i * 0.2}s infinite ease-in-out`,
                   }}

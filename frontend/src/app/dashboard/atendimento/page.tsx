@@ -13,6 +13,13 @@ import { EmojiPicker } from '@/components/ui/EmojiPicker';
 import ContactValidationBanner, { type ResolvedData } from '@/components/atendimento/ContactValidationBanner';
 import { TagMultiSelect } from '@/components/ui/TagMultiSelect';
 import ConversationMessageList from '@/components/chat/ConversationMessageList';
+import ChatDensityToggle from '@/components/chat/ChatDensityToggle';
+import {
+  DEFAULT_CHAT_DENSITY_MODE,
+  readChatDensityFromStorage,
+  writeChatDensityToStorage,
+  type ChatDensityMode,
+} from '@/components/chat/chatDensity';
 import { invalidateMyOpenTicketsCount } from '@/hooks/useMyOpenTicketsCount';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -639,6 +646,9 @@ export default function AtendimentoPage() {
   const [panelOpen, setPanelOpen] = useState(() => {
     try { return localStorage.getItem('atend_panel_open') !== 'false'; } catch { return true; }
   });
+  /** Fallback SSR/hidratação: `normal`; depois lê `CHAT_DENSITY_STORAGE_KEY`. */
+  const [chatDensity, setChatDensity] = useState<ChatDensityMode>(DEFAULT_CHAT_DENSITY_MODE);
+  const [chatDensityHydrated, setChatDensityHydrated] = useState(false);
   const attachFileInputRef = useRef<HTMLInputElement>(null);
   const [messageMediaUrls, setMessageMediaUrls] = useState<Record<string, string>>({});
   const [sending, setSending] = useState(false);
@@ -1685,6 +1695,16 @@ export default function AtendimentoPage() {
 
   // ── effects ──
   useEffect(() => {
+    setChatDensity(readChatDensityFromStorage());
+    setChatDensityHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!chatDensityHydrated) return;
+    writeChatDensityToStorage(chatDensity);
+  }, [chatDensity, chatDensityHydrated]);
+
+  useEffect(() => {
     try { localStorage.setItem('atend_filter', filter); localStorage.setItem('atend_channel', channelFilter); } catch {}
     loadConversations(true, false);
   }, [filter, channelFilter, loadConversations]);
@@ -2288,6 +2308,7 @@ export default function AtendimentoPage() {
                   </div>
                   {/* Actions */}
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
+                    <ChatDensityToggle value={chatDensity} onChange={setChatDensity} />
                     {/* Busca dentro da conversa */}
                     <button
                       onClick={() => { setMsgSearchOpen(v => !v); if (msgSearchOpen) { setMsgSearchQuery(''); setMsgSearchIdx(0); } }}
@@ -2411,7 +2432,7 @@ export default function AtendimentoPage() {
                   containerStyle={{
                     height: '100%',
                     overflowY: 'auto',
-                    padding: '16px 20px 20px',
+                    padding: '10px 12px 14px',
                     display: 'flex',
                     flexDirection: 'column',
                     gap: 0,
@@ -2433,6 +2454,7 @@ export default function AtendimentoPage() {
                   onReply={setReplyingTo}
                   isContactTyping={isContactTyping}
                   typingContactName={selected?.contactName}
+                  chatDensity={chatDensity}
                 />
 
                 {/* Botão flutuante: nova mensagem enquanto usuário lê histórico */}

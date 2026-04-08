@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pause, Play } from 'lucide-react';
+import { useTheme } from '@/components/ThemeProvider';
+import { DEFAULT_CHAT_DENSITY_MODE, type ChatDensityMode } from '@/components/chat/chatDensity';
 
 function formatTime(sec: number): string {
   if (!Number.isFinite(sec) || sec < 0) return '0:00';
@@ -17,13 +19,13 @@ type Props = {
   src: string;
   variant: AudioMessagePlayerVariant;
   className?: string;
+  density?: ChatDensityMode;
 };
 
-/**
- * Player compacto para mensagens de áudio (substitui &lt;audio controls&gt; nativo).
- * Usa a mesma URL de mídia já autenticada/fornecida pelo inbox.
- */
-export default function AudioMessagePlayer({ src, variant, className }: Props) {
+/** Player compacto; escala com `density` (normal = confortável, compact = mais fino). */
+export default function AudioMessagePlayer({ src, variant, className, density = DEFAULT_CHAT_DENSITY_MODE }: Props) {
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const barRef = useRef<HTMLDivElement | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -31,10 +33,33 @@ export default function AudioMessagePlayer({ src, variant, className }: Props) {
   const [duration, setDuration] = useState(0);
 
   const isSent = variant === 'sent';
-  const fg = isSent ? 'rgba(255,255,255,0.95)' : '#0F172A';
-  const muted = isSent ? 'rgba(255,255,255,0.55)' : '#64748B';
-  const trackBg = isSent ? 'rgba(255,255,255,0.25)' : 'rgba(15,23,42,0.12)';
-  const fillBg = isSent ? 'rgba(255,255,255,0.85)' : '#2563EB';
+  const fg = isDark ? '#CBD5E1' : '#475569';
+  const muted = isDark ? '#64748B' : '#94A3B8';
+  const trackBg =
+    isDark
+      ? isSent
+        ? 'rgba(255,255,255,0.1)'
+        : 'rgba(255,255,255,0.08)'
+      : isSent
+        ? 'rgba(71,85,105,0.12)'
+        : 'rgba(71,85,105,0.1)';
+  const fillBg = isDark ? (isSent ? '#A5B4FC' : '#60A5FA') : isSent ? '#6366F1' : '#3B82F6';
+  const compact = density === 'compact';
+  const btnSize = compact ? 26 : 32;
+  const iconPx = compact ? 12 : 15;
+  const barH = compact ? 2.5 : 4;
+  const rowGap = compact ? 1 : 2;
+  const outerGap = compact ? 5 : 6;
+  const timeFont = compact ? 9 : 10;
+  const minW = compact ? 140 : 160;
+  const maxW = compact ? 260 : 280;
+  const btnBg = isDark
+    ? isSent
+      ? 'rgba(165,180,252,0.2)'
+      : 'rgba(96,165,250,0.18)'
+    : isSent
+      ? 'rgba(99,102,241,0.12)'
+      : 'rgba(59,130,246,0.1)';
 
   const toggle = useCallback(() => {
     const el = audioRef.current;
@@ -106,9 +131,12 @@ export default function AudioMessagePlayer({ src, variant, className }: Props) {
       style={{
         display: 'flex',
         alignItems: 'center',
-        gap: 8,
-        minWidth: 200,
-        maxWidth: 280,
+        gap: outerGap,
+        width: '100%',
+        minWidth: minW,
+        maxWidth: maxW,
+        padding: compact ? '1px 0' : '2px 0',
+        boxSizing: 'border-box',
       }}
     >
       <audio ref={audioRef} src={src} preload="metadata" style={{ display: 'none' }} />
@@ -117,8 +145,8 @@ export default function AudioMessagePlayer({ src, variant, className }: Props) {
         onClick={toggle}
         aria-label={playing ? 'Pausar' : 'Reproduzir'}
         style={{
-          width: 36,
-          height: 36,
+          width: btnSize,
+          height: btnSize,
           borderRadius: '50%',
           border: 'none',
           cursor: 'pointer',
@@ -126,13 +154,13 @@ export default function AudioMessagePlayer({ src, variant, className }: Props) {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          background: isSent ? 'rgba(255,255,255,0.22)' : 'rgba(37,99,235,0.12)',
+          background: btnBg,
           color: fg,
         }}
       >
-        {playing ? <Pause size={16} strokeWidth={2} /> : <Play size={16} strokeWidth={2} style={{ marginLeft: 2 }} />}
+        {playing ? <Pause size={iconPx} strokeWidth={2} /> : <Play size={iconPx} strokeWidth={2} style={{ marginLeft: 1 }} />}
       </button>
-      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: rowGap }}>
         <div
           ref={barRef}
           role="slider"
@@ -154,7 +182,7 @@ export default function AudioMessagePlayer({ src, variant, className }: Props) {
             }
           }}
           style={{
-            height: 5,
+            height: barH,
             borderRadius: 99,
             background: trackBg,
             cursor: 'pointer',
@@ -175,7 +203,7 @@ export default function AudioMessagePlayer({ src, variant, className }: Props) {
             }}
           />
         </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: muted, lineHeight: 1.2 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: timeFont, color: muted, lineHeight: 1.15 }}>
           <span>{currentLabel}</span>
           <span>{durationLabel}</span>
         </div>

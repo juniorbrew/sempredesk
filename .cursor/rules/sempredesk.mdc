@@ -10,6 +10,10 @@ alwaysApply: true
 Seguir sempre este caminho:
 LOCAL -> GITHUB -> VPS
 
+### Push para o GitHub
+- **Não executar `git push` sem autorização explícita do usuário** (ex.: "pode subir", "pode dar push").
+- Pode fazer **commits locais** e deixar pronto para revisão; o usuário testa local, aprova e só então autoriza o push.
+
 ## Caminho na VPS (produção)
 - Raiz do repositório no servidor: **`/opt/suporte-tecnico`**
 - Comandos de deploy (`git pull`, `docker compose`, migrations SQL, `ls` em volumes) devem ser indicados **sempre** a partir deste diretório (ex.: `cd /opt/suporte-tecnico` antes de `docker compose ...`).
