@@ -18,10 +18,12 @@ export class ChatbotConfig {
   @Column({ name: 'menu_title', default: 'Escolha uma das opções abaixo:' })
   menuTitle: string;
 
-  @Column({ default: true })
+  // Nunca ativar chatbot automaticamente — operador deve habilitar explicitamente no painel.
+  // DEFAULT FALSE garante que novos tenants não recebam bot genérico antes de configurar.
+  @Column({ default: false })
   enabled: boolean;
 
-  @Column({ name: 'channel_whatsapp', default: true })
+  @Column({ name: 'channel_whatsapp', default: false })
   channelWhatsapp: boolean;
 
   @Column({ name: 'channel_web', default: false })

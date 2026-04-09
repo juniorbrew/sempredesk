@@ -672,12 +672,23 @@ export default function AtendimentoPage() {
   const [startContactSearch, setStartContactSearch] = useState('');
   const [startingConv, setStartingConv] = useState(false);
   const [loadingStartContacts, setLoadingStartContacts] = useState(false);
+  // Busca de cliente no modal
+  const [startClientInput, setStartClientInput] = useState('');
+  const [startClientResults, setStartClientResults] = useState<any[]>([]);
+  const [startClientSearching, setStartClientSearching] = useState(false);
+  const [startClientDropdown, setStartClientDropdown] = useState(false);
   // Modo "Por número"
   const [startPhone, setStartPhone] = useState('');
   const [startPhoneChecking, setStartPhoneChecking] = useState(false);
   const [startPhoneResult, setStartPhoneResult] = useState<{ exists: boolean; jid: string | null; normalized: string } | null>(null);
   // Mensagem inicial (ambos os modos)
   const [startFirstMessage, setStartFirstMessage] = useState('');
+  const [startMsgMode, setStartMsgMode] = useState<'text' | 'template'>('text');
+  const [startTemplateName, setStartTemplateName] = useState('');
+  const [startTemplateLang, setStartTemplateLang] = useState('pt_BR');
+  const [startTemplateParams, setStartTemplateParams] = useState<string[]>([]);
+  const [metaTemplates, setMetaTemplates] = useState<{ name: string; language: string; status: string; body: string; paramCount: number }[]>([]);
+  const [loadingTemplates, setLoadingTemplates] = useState(false);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
   const [networks, setNetworks] = useState<any[]>([]);
   const [createCustomers, setCreateCustomers] = useState<any[]>([]);
@@ -1342,11 +1353,46 @@ export default function AtendimentoPage() {
   // ── start conversation ──
   const openStartModal = () => {
     setStartMode('contact');
-    setStartClientId(''); setStartClientName(''); setStartContactId(''); setStartContacts([]); setStartContactSearch('');
+    setStartClientId(''); setStartClientName(''); setStartClientInput(''); setStartClientResults([]); setStartClientDropdown(false);
+    setStartContactId(''); setStartContacts([]); setStartContactSearch('');
     setStartPhone(''); setStartPhoneResult(null); setStartPhoneChecking(false);
-    setStartFirstMessage('');
-    if (customers.length === 0) api.getCustomers({ perPage: 200 }).then((r: any) => setCustomers(r?.data || r || [])).catch(() => {});
+    setStartFirstMessage(''); setStartMsgMode('text'); setStartTemplateName(''); setStartTemplateLang('pt_BR');
     setShowStartModal(true);
+    if (metaTemplates.length === 0) {
+      setLoadingTemplates(true);
+      api.getWhatsappTemplates().then((r: any) => setMetaTemplates(r?.data ?? r ?? [])).catch(() => {}).finally(() => setLoadingTemplates(false));
+    }
+  };
+
+  const handleClientSearchInput = async (val: string) => {
+    setStartClientInput(val);
+    setStartClientId('');
+    setStartClientName('');
+    setStartContactId(''); setStartContacts([]); setStartContactSearch('');
+    if (!val.trim()) { setStartClientResults(customers.slice(0, 8)); setStartClientDropdown(true); return; }
+    const local = customers.filter((c: any) => (c.tradeName || c.companyName || c.name || '').toLowerCase().includes(val.toLowerCase()));
+    setStartClientResults(local.slice(0, 10));
+    setStartClientDropdown(true);
+    if (val.trim().length >= 2) {
+      setStartClientSearching(true);
+      try {
+        const r: any = await api.searchCustomers(val.trim());
+        const apiRes: any[] = r?.data ?? r ?? [];
+        const apiIds = new Set(apiRes.map((c: any) => c.id));
+        const merged = [...apiRes, ...local.filter((c: any) => !apiIds.has(c.id))].slice(0, 12);
+        setStartClientResults(merged);
+      } catch {}
+      setStartClientSearching(false);
+    }
+  };
+
+  const handleClientSelect = (c: any) => {
+    const name = c.tradeName || c.companyName || c.name || '';
+    setStartClientId(c.id);
+    setStartClientName(name);
+    setStartClientInput(name);
+    setStartClientDropdown(false);
+    handleStartClientChange(c.id, name);
   };
 
   const handleStartClientChange = async (clientId: string, clientName: string) => {
@@ -2905,7 +2951,7 @@ export default function AtendimentoPage() {
         const contactsPhoneOnly = filteredContacts.filter((c: any) => !c.whatsapp?.trim() && c.phone?.trim());
 
         const canStartByContact = !!startContactId && !startingConv;
-        const canStartByPhone = startPhoneResult?.exists !== false && startPhone.trim().replace(/\D/g,'').length >= 8 && !startingConv;
+        const canStartByPhone = startPhone.trim().replace(/\D/g,'').length >= 8 && !startingConv && !!startClientId;
 
         const S_TAB = (active: boolean) => ({
           flex: 1, padding: '8px 0', fontSize: 13, fontWeight: active ? 700 : 500,
@@ -2947,13 +2993,27 @@ export default function AtendimentoPage() {
                 {/* ── Modo: Por contato ── */}
                 {startMode === 'contact' && (
                   <>
-                    <div style={{ marginBottom: 16 }}>
+                    <div style={{ marginBottom: 16, position: 'relative' }}>
                       <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#64748B', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6 }}>Cliente</label>
-                      <select value={startClientId} onChange={(e) => { const opt = e.target.options[e.target.selectedIndex]; handleStartClientChange(e.target.value, opt.text); }}
-                        style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1.5px solid #E2E8F0', fontSize: 14, color: '#0F172A', background: '#fff', outline: 'none' }}>
-                        <option value="">Selecione um cliente...</option>
-                        {customers.map((c: any) => <option key={c.id} value={c.id}>{c.tradeName || c.companyName || c.name}</option>)}
-                      </select>
+                      <input
+                        value={startClientInput}
+                        onChange={e => handleClientSearchInput(e.target.value)}
+                        onFocus={() => { if (!startClientId) { setStartClientResults(customers.slice(0, 8)); setStartClientDropdown(true); } }}
+                        onBlur={() => setTimeout(() => setStartClientDropdown(false), 150)}
+                        placeholder="Buscar cliente por nome..."
+                        style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: `1.5px solid ${startClientId ? '#4F46E5' : '#E2E8F0'}`, fontSize: 13, outline: 'none', boxSizing: 'border-box' as const, background: startClientId ? '#F5F3FF' : '#fff' }}
+                      />
+                      {startClientSearching && <span style={{ position: 'absolute', right: 12, top: 34, fontSize: 11, color: '#94A3B8' }}>Buscando...</span>}
+                      {startClientDropdown && startClientResults.length > 0 && (
+                        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1.5px solid #E2E8F0', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', zIndex: 100, maxHeight: 200, overflowY: 'auto', marginTop: 2 }}>
+                          {startClientResults.map((c: any) => (
+                            <button key={c.id} onMouseDown={() => handleClientSelect(c)}
+                              style={{ display: 'block', width: '100%', padding: '9px 14px', textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: '#0F172A', borderBottom: '1px solid #F1F5F9' }}>
+                              {c.tradeName || c.companyName || c.name}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                     {startClientId && (
                       <div style={{ marginBottom: 12 }}>
@@ -3061,31 +3121,85 @@ export default function AtendimentoPage() {
                         )}
                       </div>
                     )}
-                    <div style={{ marginBottom: 10 }}>
-                      <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#64748B', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6 }}>Cliente (opcional)</label>
-                      <select value={startClientId} onChange={(e) => setStartClientId(e.target.value)}
-                        style={{ width: '100%', padding: '9px 12px', borderRadius: 10, border: '1.5px solid #E2E8F0', fontSize: 13, color: '#0F172A', background: '#fff', outline: 'none' }}>
-                        <option value="">Sem cliente (vincular depois)</option>
-                        {customers.map((c: any) => <option key={c.id} value={c.id}>{c.tradeName || c.companyName || c.name}</option>)}
-                      </select>
+                    <div style={{ marginBottom: 10, position: 'relative' }}>
+                      <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#64748B', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6 }}>Cliente <span style={{ color: '#EF4444' }}>*</span> <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: '#94A3B8' }}>(obrigatório — o contato será cadastrado nesta empresa)</span></label>
+                      <input
+                        value={startClientInput}
+                        onChange={e => handleClientSearchInput(e.target.value)}
+                        onFocus={() => { setStartClientResults(customers.slice(0, 8)); setStartClientDropdown(true); }}
+                        onBlur={() => setTimeout(() => setStartClientDropdown(false), 150)}
+                        placeholder="Buscar cliente por nome..."
+                        style={{ width: '100%', padding: '9px 12px', borderRadius: 10, border: `1.5px solid ${startClientId ? '#4F46E5' : '#E2E8F0'}`, fontSize: 13, outline: 'none', boxSizing: 'border-box' as const, background: startClientId ? '#F5F3FF' : '#fff' }}
+                      />
+                      {startClientSearching && <span style={{ position: 'absolute', right: 12, top: 32, fontSize: 11, color: '#94A3B8' }}>Buscando...</span>}
+                      {startClientDropdown && startClientResults.length > 0 && (
+                        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1.5px solid #E2E8F0', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', zIndex: 100, maxHeight: 200, overflowY: 'auto', marginTop: 2 }}>
+                          {startClientResults.map((c: any) => (
+                            <button key={c.id} onMouseDown={() => handleClientSelect(c)}
+                              style={{ display: 'block', width: '100%', padding: '9px 14px', textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: '#0F172A', borderBottom: '1px solid #F1F5F9' }}>
+                              {c.tradeName || c.companyName || c.name}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
+                    {!startClientId && (
+                      <p style={{ margin: '6px 0 0', fontSize: 12, color: '#EF4444' }}>
+                        Selecione uma empresa para que o contato seja cadastrado automaticamente ao iniciar.
+                      </p>
+                    )}
                   </div>
                 )}
 
-                {/* ── Mensagem inicial (ambos os modos) ── */}
+                {/* ── Template obrigatório (ambos os modos) ── */}
                 {(startMode === 'phone' || (startMode === 'contact' && startContactId)) && (
-                  <div style={{ marginTop: 4 }}>
-                    <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#64748B', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6 }}>
-                      Mensagem inicial <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: '#94A3B8' }}>(opcional)</span>
+                  <div style={{ marginTop: 8, padding: '14px', borderRadius: 12, border: '1.5px solid #FDE68A', background: '#FFFBEB' }}>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#92400E', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 8 }}>
+                      Template de abertura
                     </label>
-                    <textarea
-                      value={startFirstMessage}
-                      onChange={e => setStartFirstMessage(e.target.value)}
-                      placeholder="Olá! Entramos em contato para..."
-                      rows={3}
-                      style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1.5px solid #E2E8F0', fontSize: 13, resize: 'vertical', outline: 'none', boxSizing: 'border-box' as const, fontFamily: 'inherit' }}
-                    />
-                    <p style={{ margin: '3px 0 0', fontSize: 11, color: '#94A3B8' }}>Se preenchida, a mensagem será enviada imediatamente ao criar a conversa.</p>
+                    {loadingTemplates ? (
+                      <div style={{ fontSize: 13, color: '#94A3B8', padding: '8px 0' }}>Carregando templates...</div>
+                    ) : metaTemplates.length > 0 ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {metaTemplates.map(t => {
+                          const sel = startTemplateName === t.name && startTemplateLang === t.language;
+                          return (
+                            <button key={`${t.name}-${t.language}`} onClick={() => { setStartTemplateName(t.name); setStartTemplateLang(t.language); setStartMsgMode('template'); setStartTemplateParams(Array(t.paramCount).fill('')); }}
+                              style={{ display: 'flex', flexDirection: 'column', gap: 3, padding: '10px 13px', borderRadius: 10, border: `2px solid ${sel ? '#D97706' : '#E2E8F0'}`, background: sel ? '#FEF3C7' : '#fff', cursor: 'pointer', textAlign: 'left' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' as const }}>
+                                <span style={{ fontSize: 13, fontWeight: 700, color: '#0F172A' }}>{t.name}</span>
+                                <span style={{ fontSize: 11, color: '#64748B', background: '#F1F5F9', borderRadius: 4, padding: '1px 6px' }}>{t.language}</span>
+                                <span style={{ fontSize: 11, borderRadius: 4, padding: '1px 6px', background: t.status === 'APPROVED' ? '#DCFCE7' : '#FEF9C3', color: t.status === 'APPROVED' ? '#16A34A' : '#854D0E', fontWeight: 600 }}>{t.status}</span>
+                                {sel && <span style={{ fontSize: 11, color: '#D97706', fontWeight: 700, marginLeft: 'auto' }}>✓ selecionado</span>}
+                              </div>
+                              {t.body && <span style={{ fontSize: 12, color: '#64748B' }}>{t.body}</span>}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p style={{ fontSize: 12, color: '#92400E', margin: 0 }}>Nenhum template aprovado encontrado. Verifique o WABA ID e o token nas configurações.</p>
+                    )}
+
+                    {/* Campos de parâmetros do template selecionado */}
+                    {startTemplateParams.length > 0 && (
+                      <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        <label style={{ fontSize: 11, fontWeight: 700, color: '#92400E', letterSpacing: '0.06em', textTransform: 'uppercase' as const }}>
+                          Parâmetros do template
+                        </label>
+                        {startTemplateParams.map((val, i) => (
+                          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ fontSize: 12, color: '#64748B', minWidth: 28 }}>{`{{${i + 1}}}`}</span>
+                            <input
+                              style={{ flex: 1, padding: '8px 10px', borderRadius: 8, border: '1.5px solid #E2E8F0', fontSize: 13, outline: 'none' }}
+                              placeholder={`Valor para {{${i + 1}}}`}
+                              value={val}
+                              onChange={e => setStartTemplateParams(p => p.map((v, j) => j === i ? e.target.value : v))}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -3111,7 +3225,9 @@ export default function AtendimentoPage() {
                             contactId: startContactId,
                             clientId: startClientId,
                             subject: selectedContact?.name ? `WhatsApp - ${selectedContact.name}` : undefined,
-                            firstMessage: startFirstMessage.trim() || undefined,
+                            templateName: startTemplateName.trim() || undefined,
+                            templateLanguage: startTemplateName.trim() ? startTemplateLang : undefined,
+                            templateParams: startTemplateParams.length > 0 ? startTemplateParams : undefined,
                           });
                           const d = res?.data ?? res;
                           await afterConvCreated(d.conversation);
@@ -3137,7 +3253,9 @@ export default function AtendimentoPage() {
                         const res: any = await api.startOutboundConversation({
                           phone: startPhone.trim(),
                           clientId: startClientId || undefined,
-                          firstMessage: startFirstMessage.trim() || undefined,
+                          templateName: startTemplateName.trim() || undefined,
+                          templateLanguage: startTemplateName.trim() ? startTemplateLang : undefined,
+                          templateParams: startTemplateParams.length > 0 ? startTemplateParams : undefined,
                         });
                         const d = res?.data ?? res;
                         await afterConvCreated(d.conversation);

@@ -31,6 +31,9 @@ export class WhatsappConnection {
   @Column({ name: 'meta_phone_number_id', nullable: true })
   metaPhoneNumberId: string | null;
 
+  @Column({ name: 'meta_waba_id', nullable: true })
+  metaWabaId: string | null;
+
   @Column({ name: 'meta_token', nullable: true, type: 'text' })
   metaToken: string | null;
 

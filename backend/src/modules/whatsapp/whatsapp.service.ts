@@ -163,9 +163,9 @@ export class WhatsappService {
         try {
           const botResult = await this.chatbotService.processMessage(tenantId, msg.from, text, 'whatsapp', msg.senderName);
           if (botResult.handled) {
-            // Send replies via Meta API
+            // Send replies via Meta API — usa wa (número normalizado) e não msg.from bruto
             for (const reply of botResult.replies) {
-              this.sendWhatsappMessage(tenantId, msg.from, reply).catch(() => {});
+              this.sendWhatsappMessage(tenantId, wa, reply).catch(() => {});
             }
             if (!botResult.transfer) {
               return { created: false, reason: 'CHATBOT_HANDLED' };
@@ -679,7 +679,7 @@ export class WhatsappService {
       externalMsgId = result.messageId ?? null; // ID para rastreamento de ACK (delivered/read)
     }
     if (!sent) {
-      const wamid = await this.sendWhatsappMessage(tenantId, destination.digits, text, quotedMsg?.externalId ?? null);
+      const wamid = await this.sendWhatsappMessage(tenantId, destination.phone, text, quotedMsg?.externalId ?? null);
       if (wamid) { externalMsgId = wamid; sent = true; }
     }
 
@@ -722,6 +722,7 @@ export class WhatsappService {
       firstMessage?: string;
       templateName?: string;
       templateLanguage?: string;
+      templateParams?: string[];
     },
   ): Promise<{
     conversation: any;
@@ -925,7 +926,10 @@ export class WhatsappService {
     log(`[OUTBOUND-FLOW] Instância Baileys: tenantId=${tenantId} (sessão ativa=${!!this.baileysService})`);
 
     // --- 4. Criar ou localizar conversa ---
-    const clientId = dto.clientId || contact.clientId || null;
+    // Se o contato já tem clientId próprio, ele tem precedência sobre o que veio no request.
+    // Isso evita o erro "Contato pertence a outro cliente" quando o agente seleciona
+    // um cliente diferente do que o contato já está vinculado.
+    const clientId = contact.clientId || dto.clientId || null;
     log(`[OUTBOUND-FLOW] clientId=${clientId ?? 'N/A'} contactId=${contact.id}`);
     logStructured({
       scope: 'conversation-resolution',
@@ -973,8 +977,8 @@ export class WhatsappService {
       const tmplLang = dto.templateLanguage?.trim() || 'en_US';
       log(`[OUTBOUND-FLOW] Enviando template "${tmplName}" (lang=${tmplLang})`);
       try {
-        const { digits } = this.resolveContactWhatsappTarget(contact, dto.phone?.replace(/\D/g, ''));
-        const wamid = await this.sendTemplateMessage(tenantId, digits, tmplName, tmplLang);
+        const { phone } = this.resolveContactWhatsappTarget(contact, dto.phone?.replace(/\D/g, ''));
+        const wamid = await this.sendTemplateMessage(tenantId, phone, tmplName, tmplLang, dto.templateParams ?? []);
         await this.conversationsService.addMessage(
           tenantId, conversation.id, authorId, authorName, 'user',
           `[Template: ${tmplName}]`,
@@ -1126,14 +1130,17 @@ export class WhatsappService {
     let uploadMime = opts?.mime || this.guessMimeFromPath(filePath, kind);
     let tempConverted: string | null = null;
 
+    // Converte WebM → MP3 para Meta Cloud API.
+    // OGG/Opus via Meta não toca no app mobile (bitrate/duração ausentes no header OGG).
+    // MP3 (audio/mpeg) tem suporte universal em iOS e Android e é aceito pela Meta API.
     const webmAudio = kind === 'audio' && (uploadMime.includes('webm') || filePath.endsWith('.webm'));
     if (webmAudio) {
-      tempConverted = filePath.replace(/\.\w+$/, '') + '_conv.ogg';
+      tempConverted = filePath.replace(/\.\w+$/, '') + '_conv.mp3';
       try {
-        await this.ffmpegConvert(filePath, tempConverted, ['-c:a', 'libopus', '-b:a', '48k', '-vn']);
+        await this.ffmpegConvert(filePath, tempConverted, ['-c:a', 'libmp3lame', '-ac', '1', '-ar', '16000', '-b:a', '64k', '-vn']);
         uploadPath = tempConverted;
-        uploadMime = 'audio/ogg; codecs=opus';
-        this.logger.log(`[Meta media] Convertido webm→ogg: ${tempConverted}`);
+        uploadMime = 'audio/mpeg';
+        this.logger.log(`[Meta media] Convertido webm→mp3 mono 16kHz: ${tempConverted}`);
       } catch (e) {
         this.logger.warn(`[Meta media] ffmpeg falhou, tentando webm direto: ${(e as Error).message}`);
         tempConverted = null;
@@ -1226,14 +1233,14 @@ export class WhatsappService {
   private resolveContactWhatsappTarget(
     contact: any,
     fallback?: string,
-  ): { raw: string; digits: string } {
-    const raw: string =
-      (contact?.metadata?.whatsappLid as string | undefined) ||
-      (contact?.whatsapp as string | undefined) ||
-      fallback ||
-      '';
+  ): { raw: string; digits: string; phone: string } {
+    const lid = (contact?.metadata?.whatsappLid as string | undefined) || null;
+    const phone = (contact?.whatsapp as string | undefined) || fallback || '';
+    const raw = lid || phone || '';
     const digits = raw.replace(/\D/g, '');
-    return { raw, digits };
+    // phone: número de telefone real (sem LID) para uso na Meta Cloud API
+    const phoneDigits = phone.replace(/\D/g, '') || digits;
+    return { raw, digits, phone: phoneDigits };
   }
 
   /**
@@ -1298,6 +1305,54 @@ export class WhatsappService {
   }
 
   /**
+   * Lista templates aprovados no Meta Business Manager via Graph API.
+   * Requer metaWabaId configurado no tenant.
+   */
+  async listMetaTemplates(tenantId: string): Promise<{ name: string; language: string; status: string; body: string; paramCount: number }[]> {
+    const metaConfig = this.baileysService
+      ? await this.baileysService.getMetaConfig(tenantId).catch(() => null)
+      : null;
+
+    const wabaId = metaConfig?.metaWabaId;
+    const token = metaConfig?.metaToken || process.env.WHATSAPP_TOKEN;
+
+    if (!wabaId || !token) {
+      this.logger.warn(`[Meta API] WABA ID ou token não configurado para tenant=${tenantId}`);
+      return [];
+    }
+
+    const url = `https://graph.facebook.com/v20.0/${wabaId}/message_templates`;
+    try {
+      const response = await firstValueFrom(
+        this.http.get(url, {
+          params: { fields: 'name,language,status,components', limit: 100 },
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+      );
+      const templates: any[] = response.data?.data ?? [];
+      this.logger.log(`[Meta API] Templates recebidos: ${templates.map(t => `${t.name}(${t.language}/${t.status})`).join(', ')}`);
+      // Exclui apenas rejeitados; mostra todos os outros (APPROVED, PAUSED, PENDING, etc.)
+      return templates
+        .filter((t: any) => !['REJECTED', 'DELETED'].includes(t.status))
+        .map((t: any) => {
+          const bodyComp = (t.components ?? []).find((c: any) => c.type === 'BODY');
+          const bodyText: string = bodyComp?.text ?? '';
+          const paramCount = (bodyText.match(/\{\{\d+\}\}/g) ?? []).length;
+          return {
+            name: t.name,
+            language: t.language,
+            status: t.status,
+            body: bodyText.slice(0, 200),
+            paramCount,
+          };
+        });
+    } catch (err: any) {
+      this.logger.error('[Meta API] Erro ao listar templates', err?.response?.data || err?.message);
+      return [];
+    }
+  }
+
+  /**
    * Envia template de mensagem via Meta Cloud API.
    * Obrigatório para iniciar conversa fora da janela de 24h (primeiro contato).
    */
@@ -1306,6 +1361,7 @@ export class WhatsappService {
     to: string,
     templateName: string,
     languageCode: string = 'en_US',
+    templateParams: string[] = [],
   ): Promise<string | null> {
     const metaConfig = this.baileysService
       ? await this.baileysService.getMetaConfig(tenantId).catch(() => null)
@@ -1320,14 +1376,25 @@ export class WhatsappService {
     }
 
     const url = `https://graph.facebook.com/v20.0/${phoneNumberId}/messages`;
+
+    const templateObj: Record<string, unknown> = {
+      name: templateName,
+      language: { code: languageCode },
+    };
+    if (templateParams.length > 0) {
+      templateObj.components = [
+        {
+          type: 'body',
+          parameters: templateParams.map(text => ({ type: 'text', text })),
+        },
+      ];
+    }
+
     const payload = {
       messaging_product: 'whatsapp',
       to,
       type: 'template',
-      template: {
-        name: templateName,
-        language: { code: languageCode },
-      },
+      template: templateObj,
     };
 
     try {
@@ -1346,5 +1413,6 @@ export class WhatsappService {
       throw err;
     }
   }
+
 }
 

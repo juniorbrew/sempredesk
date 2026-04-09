@@ -101,7 +101,9 @@ class ApiClient {
     this.client.post('/webhooks/whatsapp/send-from-ticket', { ticketId, text, replyToId: replyToId ?? undefined });
   checkWhatsappNumber = (phone: string) =>
     this.client.post('/webhooks/whatsapp/check-number', { phone });
-  startOutboundConversation = (data: { phone?: string; contactId?: string; clientId?: string; subject?: string; firstMessage?: string }) =>
+  searchCustomers = (q: string) => this.client.get('/customers/search', { params: { q } });
+  getWhatsappTemplates = () => this.client.get('/webhooks/whatsapp/templates');
+  startOutboundConversation = (data: { phone?: string; contactId?: string; clientId?: string; subject?: string; firstMessage?: string; templateName?: string; templateLanguage?: string; templateParams?: string[] }) =>
     this.client.post('/webhooks/whatsapp/start-outbound', data);
 
   getConversations = (params?: { channel?: string; hasTicket?: string; status?: string }) =>

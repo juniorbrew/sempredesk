@@ -65,7 +65,14 @@ export class ChatbotService implements OnModuleInit {
   async getOrCreateConfig(tenantId: string): Promise<ChatbotConfig> {
     let config = await this.configRepo.findOne({ where: { tenantId }, relations: ['menuItems'] });
     if (!config) {
-      config = await this.configRepo.save(this.configRepo.create({ tenantId }));
+      // Sempre criar desabilitado: chatbot só deve responder quando operador habilitar
+      // explicitamente no painel. enabled=true por default causava bot genérico respondendo
+      // por todas as empresas mesmo sem nenhuma configuração, bloqueando tickets.
+      config = await this.configRepo.save(this.configRepo.create({
+        tenantId,
+        enabled: false,
+        channelWhatsapp: false,
+      }));
       await this.createDefaultMenu(tenantId, config.id);
       config = await this.configRepo.findOne({ where: { tenantId }, relations: ['menuItems'] });
     }
@@ -139,12 +146,24 @@ export class ChatbotService implements OnModuleInit {
   ): Promise<ProcessResult> {
     const config = await this.getOrCreateConfig(tenantId);
 
-    if (!config.enabled) return { handled: false, replies: [] };
-    if (channel === 'whatsapp' && !config.channelWhatsapp) return { handled: false, replies: [] };
-    if (channel === 'web' && !config.channelWeb) return { handled: false, replies: [] };
-    if (channel === 'portal' && !config.channelPortal) return { handled: false, replies: [] };
-
+    // Pré-busca sessão para detectar fluxos de avaliação em andamento.
+    // Sessões de avaliação devem ser concluídas mesmo que o chatbot esteja desabilitado —
+    // caso contrário, a resposta da nota cai no handleIncomingMessage e reabre o ticket.
+    // Usa timeout estendido (1440 min = 24 h) para tolerância a respondentes lentos.
     let session = await this.getActiveSession(tenantId, identifier, channel, config.sessionTimeoutMinutes);
+    if (!session || !['awaiting_rating', 'awaiting_rating_comment'].includes(session.step)) {
+      const extended = await this.getActiveSession(tenantId, identifier, channel, 1440);
+      if (extended && ['awaiting_rating', 'awaiting_rating_comment'].includes(extended.step)) {
+        session = extended;
+      }
+    }
+    const isRatingInProgress = session?.step === 'awaiting_rating' || session?.step === 'awaiting_rating_comment';
+
+    if (!config.enabled && !isRatingInProgress) return { handled: false, replies: [] };
+    if (channel === 'whatsapp' && !config.channelWhatsapp && !isRatingInProgress) return { handled: false, replies: [] };
+    if (channel === 'web' && !config.channelWeb && !isRatingInProgress) return { handled: false, replies: [] };
+    if (channel === 'portal' && !config.channelPortal && !isRatingInProgress) return { handled: false, replies: [] };
+
     if (channel === 'whatsapp') {
       this.logger.log(`[processMessage] identifier=${identifier} text=${JSON.stringify(text)} sessionStep=${session?.step ?? 'none'}`);
     }
