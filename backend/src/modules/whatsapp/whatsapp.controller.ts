@@ -21,6 +21,7 @@ import { Response, Request as ExpressRequest } from 'express';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { WhatsappService } from './whatsapp.service';
 import { BaileysService } from './baileys.service';
+import { WhatsappProvider } from './entities/whatsapp-connection.entity';
 import { JwtAuthGuard, Public } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
@@ -80,7 +81,19 @@ export class WhatsappController {
       }
     }
 
-    const tenantId = body?.tenantId || body?.tenant_id || body?.tenant || '00000000-0000-0000-0000-000000000001';
+    // Tenta resolver o tenantId pelo phoneNumberId da Meta (mais confiável que campo no body)
+    const metaPhoneNumberId = body?.entry?.[0]?.changes?.[0]?.value?.metadata?.phone_number_id as string | undefined;
+    const resolvedTenantId = metaPhoneNumberId
+      ? await this.baileysService.findTenantByMetaPhoneNumberId(metaPhoneNumberId).catch(() => null)
+      : null;
+
+    // Nunca usar fallback hardcoded para tenant real — isso contaminaria dados entre empresas.
+    // Se não for possível resolver o tenant, descartar o payload (200 para Meta não reenviar).
+    const tenantId = resolvedTenantId || body?.tenantId || body?.tenant_id || body?.tenant;
+    if (!tenantId) {
+      this.logger.warn(`[webhook] Payload descartado: meta_phone_number_id="${metaPhoneNumberId ?? 'N/A'}" não mapeado a nenhum tenant`);
+      return { success: true };
+    }
 
     // ── Processar status updates da Meta (delivered/read) ─────────────────
     const metaStatuses = body?.entry?.[0]?.changes?.[0]?.value?.statuses as any[] | undefined;
@@ -109,7 +122,11 @@ export class WhatsappController {
     setImmediate(async () => {
       try {
         const connection = await this.baileysService.getStatus(tenantId).catch(() => null);
-        if (connection?.status === 'connected') return;
+        // Descarta apenas se for sessão Baileys ATIVA: mensagens Baileys chegam pelo socket
+        // diretamente (messages.upsert), processar aqui causaria duplicata.
+        // Conexões Meta (provider='meta') DEVEM ser processadas por este webhook mesmo que
+        // o status apareça como connected — o socket Baileys não existe para elas.
+        if (connection?.provider === 'baileys' && connection?.status === 'connected') return;
         await this.whatsappService.handleIncomingMessage(tenantId, msg);
       } catch (err) {
         this.logger.error(`Erro ao processar mensagem WhatsApp (tenant=${tenantId}): ${err}`);
@@ -156,6 +173,14 @@ export class WhatsappController {
     return this.baileysService.checkNumberExists(tenantId, body.phone.trim());
   }
 
+  // ── List Meta templates ───────────────────────────────────────────────
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermission('ticket.view')
+  @Get('templates')
+  listTemplates(@TenantId() tenantId: string) {
+    return this.whatsappService.listMetaTemplates(tenantId);
+  }
+
   // ── Start outbound conversation ───────────────────────────────────────
   /**
    * Fluxo completo de início de conversa outbound:
@@ -167,7 +192,7 @@ export class WhatsappController {
   async startOutbound(
     @Request() req: any,
     @TenantId() tenantId: string,
-    @Body() body: { phone?: string; contactId?: string; clientId?: string; subject?: string; firstMessage?: string; templateName?: string; templateLanguage?: string },
+    @Body() body: { phone?: string; contactId?: string; clientId?: string; subject?: string; firstMessage?: string; templateName?: string; templateLanguage?: string; templateParams?: string[] },
   ) {
     const authorId = req.user?.id;
     const authorName = req.user?.name || req.user?.email || 'Equipe';
@@ -191,6 +216,7 @@ export class WhatsappController {
         metaToken: metaConfig.metaToken ? '••••••••' + metaConfig.metaToken.slice(-4) : null,
         metaVerifyToken: metaConfig.metaVerifyToken,
         metaWebhookUrl: metaConfig.metaWebhookUrl,
+        metaWabaId: metaConfig.metaWabaId,
         configured: !!(metaConfig.metaPhoneNumberId && metaConfig.metaToken),
       } : null,
     };
@@ -238,16 +264,17 @@ export class WhatsappController {
   @Put('config/meta')
   async saveMetaConfig(
     @TenantId() tenantId: string,
-    @Body() body: { metaPhoneNumberId: string; metaToken: string; metaVerifyToken?: string; metaWebhookUrl?: string },
+    @Body() body: { metaPhoneNumberId: string; metaToken?: string; metaVerifyToken?: string; metaWebhookUrl?: string; metaWabaId?: string },
   ) {
-    if (!body.metaPhoneNumberId?.trim() || !body.metaToken?.trim()) {
-      return { success: false, message: 'metaPhoneNumberId e metaToken são obrigatórios' };
+    if (!body.metaPhoneNumberId?.trim()) {
+      return { success: false, message: 'metaPhoneNumberId é obrigatório' };
     }
     await this.baileysService.saveMetaConfig(tenantId, {
       metaPhoneNumberId: body.metaPhoneNumberId.trim(),
-      metaToken: body.metaToken.trim(),
+      metaToken: body.metaToken?.trim() || null,
       metaVerifyToken: body.metaVerifyToken?.trim() || 'sempredesk-verify',
       metaWebhookUrl: body.metaWebhookUrl?.trim(),
+      metaWabaId: body.metaWabaId?.trim() || undefined,
     });
     return { success: true, message: 'Configuração Meta salva com sucesso!' };
   }

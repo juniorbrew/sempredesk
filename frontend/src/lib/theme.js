@@ -1,28 +1,31 @@
-
 const toggleTheme = () => {
   const currentTheme = localStorage.getItem('theme') || 'light';
   const newTheme = currentTheme === 'light' ? 'dark' : 'light';
-  
-  // Armazenar a preferência do tema no navegador
+
+  // Armazena a preferencia do tema no navegador
   localStorage.setItem('theme', newTheme);
-  
-  // Aplicar a classe de tema no corpo
+
+  // Aplica a classe de tema no corpo
   document.body.classList.toggle('dark', newTheme === 'dark');
 };
 
-// Detectar a preferência do sistema operacional
+// Detecta a preferencia do sistema operacional
 const detectSystemTheme = () => {
   const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
   const savedTheme = localStorage.getItem('theme');
 
-  // Se o tema não foi salvo, aplicar o tema preferido do sistema
+  // Se nao houver tema salvo, usa a preferencia do sistema
+  if (!savedTheme) {
     document.body.classList.toggle('dark', prefersDark);
   }
 };
 
-// Chama a função para detectar e aplicar o tema preferido
+// Chama a funcao para detectar e aplicar o tema preferido
 detectSystemTheme();
 
-// Event listener para o botão de alternar tema
-document.getElementById('toggleThemeBtn').addEventListener('click', toggleTheme);
+// Event listener para o botao de alternar tema
+const toggleThemeButton = document.getElementById('toggleThemeBtn');
+if (toggleThemeButton) {
+  toggleThemeButton.addEventListener('click', toggleTheme);
+}
 

@@ -13,6 +13,7 @@ import { useAuthStore, hasPermission } from '@/store/auth.store';
 import { usePresenceStore } from '@/store/presence.store';
 import { usePathname, useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
+import { useMyOpenTicketsCount } from '@/hooks/useMyOpenTicketsCount';
 import NavItem from './NavItem';
 
 type MainNavChild = { href: string; icon: LucideIcon; label: string; perm: string };
@@ -136,24 +137,13 @@ export default function NavSidebar({ isOpen, onClose, expanded = false, onToggle
   const setPresence = usePresenceStore((s) => s.setPresence);
   const router = useRouter();
   const pathname = usePathname();
-  const [atendimentoCount, setAtendimentoCount] = useState(0);
+  const { count: atendimentoCount } = useMyOpenTicketsCount();
   const isCadastrosActive = CADASTROS_PATHS.some(p => pathname.startsWith(p));
   const [cadastrosOpen, setCadastrosOpen] = useState(isCadastrosActive);
   const isAtendimentoChildActive = ATENDIMENTO_CHILD_PATHS.some((p) => pathname.startsWith(p));
   const [atendimentoOpen, setAtendimentoOpen] = useState(
     pathname === '/dashboard/atendimento' || isAtendimentoChildActive,
   );
-
-  useEffect(() => {
-    if (typeof window === 'undefined' || !localStorage.getItem('accessToken')) return;
-    const fetch = () =>
-      api.getConversationsActiveCount()
-        .then((r: any) => setAtendimentoCount((r?.total ?? r?.data?.total ?? 0) || 0))
-        .catch(() => {});
-    fetch();
-    const id = setInterval(fetch, 30_000);
-    return () => clearInterval(id);
-  }, []);
 
   // auto-open cadastros when navigating to a cadastros route
   useEffect(() => {

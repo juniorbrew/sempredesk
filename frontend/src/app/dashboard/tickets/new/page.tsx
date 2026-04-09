@@ -208,9 +208,9 @@ export default function NewTicketPage() {
                 <div style={{ position:'relative' }}>
                   <Search style={{ position:'absolute', left:12, top:'50%', transform:'translateY(-50%)', width:15, height:15, color:'#CBD5E1' }} />
                   <input value={clientSearch} onChange={e=>{ setClientSearch(e.target.value); setShowDropdown(true); }}
-                    onFocus={()=>clientSearch.length>=3&&setShowDropdown(true)}
+                    onFocus={()=>{ setFocusField('client'); if (clientSearch.length >= 3) setShowDropdown(true); }}
                     placeholder="Digite o nome ou CNPJ do cliente..." style={{ ...inp(focusField==='client'), paddingLeft:40 }}
-                    onFocus={()=>setFocusField('client')} onBlur={()=>setFocusField('')} />
+                    onBlur={()=>setFocusField('')} />
                   {clientSearch && <button type="button" onClick={()=>{setClientSearch('');setShowDropdown(false);}} style={{ position:'absolute', right:12, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', color:'#94A3B8', display:'flex' }}><X style={{width:14,height:14}} /></button>}
                 </div>
                 {clientSearch.length>0&&clientSearch.length<3&&<p style={{fontSize:11,color:'#94A3B8',marginTop:4}}>Digite mais {3-clientSearch.length} caractere(s)</p>}

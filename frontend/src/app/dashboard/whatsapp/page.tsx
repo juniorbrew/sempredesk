@@ -22,6 +22,7 @@ interface ConnectionInfo {
     metaToken: string | null;
     metaVerifyToken: string | null;
     metaWebhookUrl: string | null;
+    metaWabaId: string | null;
     configured: boolean;
   } | null;
 }
@@ -31,6 +32,7 @@ interface MetaForm {
   metaToken: string;
   metaVerifyToken: string;
   metaWebhookUrl: string;
+  metaWabaId: string;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -105,6 +107,7 @@ export default function WhatsappPage() {
     metaToken: '',
     metaVerifyToken: 'sempredesk-verify',
     metaWebhookUrl: '',
+    metaWabaId: '',
   });
   const [showToken, setShowToken] = useState(false);
   const [savingMeta, setSavingMeta] = useState(false);
@@ -133,6 +136,7 @@ export default function WhatsappPage() {
             metaPhoneNumberId: m.metaPhoneNumberId || '',
             metaVerifyToken: m.metaVerifyToken || 'sempredesk-verify',
             metaWebhookUrl: m.metaWebhookUrl || '',
+            metaWabaId: m.metaWabaId || '',
           }));
         }
       }
@@ -265,8 +269,8 @@ export default function WhatsappPage() {
 
   const handleSaveMeta = async () => {
     setMetaError('');
-    if (!metaForm.metaPhoneNumberId.trim() || !metaForm.metaToken.trim()) {
-      setMetaError('Phone Number ID e Token são obrigatórios.');
+    if (!metaForm.metaPhoneNumberId.trim()) {
+      setMetaError('Phone Number ID é obrigatório.');
       return;
     }
     setSavingMeta(true);
@@ -284,6 +288,7 @@ export default function WhatsappPage() {
           metaToken: metaForm.metaToken.trim(),
           metaVerifyToken: metaForm.metaVerifyToken.trim() || 'sempredesk-verify',
           metaWebhookUrl: metaForm.metaWebhookUrl.trim() || undefined,
+          metaWabaId: metaForm.metaWabaId.trim() || undefined,
         }),
       });
       if (res.ok) {
@@ -539,7 +544,7 @@ export default function WhatsappPage() {
                     Como funciona a conexão via QR Code
                   </p>
                   <ul style={{ margin: 0, paddingLeft: 18, color: '#475569', fontSize: 13, lineHeight: 1.7 }}>
-                    <li>Clique em "Conectar via QR Code" para gerar o QR</li>
+                    <li>Clique em &quot;Conectar via QR Code&quot; para gerar o QR</li>
                     <li>Abra o WhatsApp no seu celular</li>
                     <li>Acesse <strong>Configurações &rarr; Dispositivos conectados &rarr; Conectar um dispositivo</strong></li>
                     <li>Escaneie o QR Code exibido na tela</li>
@@ -630,7 +635,16 @@ export default function WhatsappPage() {
                 />
               </Field>
 
-              <Field label="Token de Acesso (Permanente)" hint="Use um token permanente gerado no Meta Business Suite">
+              <Field label="WhatsApp Business Account ID (WABA ID)" hint="Necessário para listar templates. Encontrado em: Meta Business Suite › Configurações › WhatsApp">
+                <input
+                  style={INPUT_STYLE}
+                  placeholder="Ex: 123456789012345"
+                  value={metaForm.metaWabaId}
+                  onChange={e => setMetaForm(f => ({ ...f, metaWabaId: e.target.value }))}
+                />
+              </Field>
+
+              <Field label="Token de Acesso (Permanente)" hint="Deixe em branco para manter o token atual. Use um token permanente gerado no Meta Business Suite">
                 <div style={{ position: 'relative' }}>
                   <input
                     style={{ ...INPUT_STYLE, paddingRight: 42 }}

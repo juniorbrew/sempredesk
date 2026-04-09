@@ -911,13 +911,16 @@ export class BaileysService {
     if (kind === 'audio' && (opts?.mime || '').includes('webm')) {
       const tmpOut = path.join(os.tmpdir(), `wa-audio-${Date.now()}.ogg`);
       try {
-        execFileSync('ffmpeg', ['-i', filePath, '-c:a', 'libopus', '-b:a', '64k', '-y', tmpOut], {
+        // -ac 1: mono (WhatsApp mobile rejeita PTT estéreo)
+        // -ar 16000: 16 kHz (taxa padrão de notas de voz WhatsApp)
+        // -b:a 32k: bitrate adequado para voz
+        execFileSync('ffmpeg', ['-i', filePath, '-c:a', 'libopus', '-ac', '1', '-ar', '16000', '-b:a', '32k', '-y', tmpOut], {
           timeout: 15000,
           stdio: 'ignore',
         });
         buffer = fs.readFileSync(tmpOut);
         effectiveOpts = { ...opts, mime: 'audio/ogg' };
-        this.logger.log('[OUTBOUND-MEDIA] WebM → OGG/Opus via ffmpeg');
+        this.logger.log('[OUTBOUND-MEDIA] WebM → OGG/Opus mono 16kHz via ffmpeg');
       } catch (err: any) {
         this.logger.warn(`[OUTBOUND-MEDIA] ffmpeg falhou (${err?.message ?? 'erro desconhecido'}), enviando webm como fallback`);
       } finally {
@@ -1010,17 +1013,65 @@ export class BaileysService {
     }
   }
 
-  async saveMetaConfig(tenantId: string, config: { metaPhoneNumberId: string; metaToken: string; metaVerifyToken: string; metaWebhookUrl?: string }): Promise<WhatsappConnection> {
+  async saveMetaConfig(tenantId: string, config: { metaPhoneNumberId: string; metaToken?: string | null; metaVerifyToken: string; metaWebhookUrl?: string; metaWabaId?: string }): Promise<WhatsappConnection> {
+    // Pré-validação: verifica se o phoneNumberId já pertence a outro tenant.
+    // Tratamento de race condition: o índice único no banco (uidx_whatsapp_connections_meta_phone_number_id)
+    // é a guarda definitiva — o catch abaixo converte a violação de constraint em erro legível.
+    const existing = await this.connRepo.findOne({
+      where: { metaPhoneNumberId: config.metaPhoneNumberId },
+      order: { createdAt: 'DESC' },
+    });
+    if (existing && existing.tenantId !== tenantId) {
+      throw new Error(
+        `O Phone Number ID "${config.metaPhoneNumberId}" já está vinculado a outro tenant. ` +
+        `Remova a configuração do outro tenant antes de prosseguir.`,
+      );
+    }
+
     const conn = await this.getOrCreateConnection(tenantId);
     conn.provider = WhatsappProvider.META;
     conn.metaPhoneNumberId = config.metaPhoneNumberId;
-    conn.metaToken = config.metaToken;
+    // Só sobrescreve o token se um novo valor foi informado; preserva o existente caso contrário
+    if (config.metaToken) conn.metaToken = config.metaToken;
     conn.metaVerifyToken = config.metaVerifyToken;
     conn.metaWebhookUrl = config.metaWebhookUrl || null;
-    return this.connRepo.save(conn);
+    if (config.metaWabaId !== undefined) conn.metaWabaId = config.metaWabaId || null;
+
+    try {
+      return await this.connRepo.save(conn);
+    } catch (err: any) {
+      // Captura violação do índice único (race condition entre dois tenants salvando ao mesmo tempo)
+      if (err?.code === '23505' || err?.message?.includes('uidx_whatsapp_connections_meta_phone_number_id')) {
+        throw new Error(
+          `O Phone Number ID "${config.metaPhoneNumberId}" já foi cadastrado por outro tenant simultaneamente. ` +
+          `Não é possível vinculá-lo a mais de uma empresa.`,
+        );
+      }
+      throw err;
+    }
   }
 
-  async getMetaConfig(tenantId: string): Promise<{ metaPhoneNumberId: string | null; metaToken: string | null; metaVerifyToken: string | null; metaWebhookUrl: string | null } | null> {
+  /** Resolve o tenantId a partir do metaPhoneNumberId configurado no painel.
+   * Usado pelo webhook para mapear status updates da Meta ao tenant correto.
+   * ORDER BY createdAt DESC garante resultado determinístico mesmo se houver duplicata residual.
+   * O índice único uidx_whatsapp_connections_meta_phone_number_id impede duplicatas novas. */
+  async findTenantByMetaPhoneNumberId(phoneNumberId: string): Promise<string | null> {
+    const conns = await this.connRepo.find({
+      where: { metaPhoneNumberId: phoneNumberId },
+      order: { createdAt: 'DESC' },
+      take: 2,
+    });
+    if (conns.length > 1) {
+      this.logger.error(
+        `[CRITICAL] meta_phone_number_id="${phoneNumberId}" está duplicado em ${conns.length} tenants: ` +
+        conns.map(c => c.tenantId).join(', ') +
+        ' — usando o mais recente. Remova o registro duplicado urgentemente.',
+      );
+    }
+    return conns[0]?.tenantId ?? null;
+  }
+
+  async getMetaConfig(tenantId: string): Promise<{ metaPhoneNumberId: string | null; metaToken: string | null; metaVerifyToken: string | null; metaWebhookUrl: string | null; metaWabaId: string | null } | null> {
     const conn = await this.connRepo.findOne({ where: { tenantId } });
     if (!conn) return null;
     return {
@@ -1028,6 +1079,7 @@ export class BaileysService {
       metaToken: conn.metaToken,
       metaVerifyToken: conn.metaVerifyToken,
       metaWebhookUrl: conn.metaWebhookUrl,
+      metaWabaId: conn.metaWabaId ?? null,
     };
   }
 }

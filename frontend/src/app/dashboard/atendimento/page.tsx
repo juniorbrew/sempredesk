@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useLayoutEffect, useState, useCallback, useRef, memo, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useState, useCallback, useRef, type ReactNode } from 'react';
 import { api } from '@/lib/api';
 import Link from 'next/link';
 import { useRealtimeConversation, useRealtimeTicket, useRealtimeTenantNewMessages, useRealtimeConversationClosed, useRealtimeTicketAssigned, useRealtimeContactTyping, emitTypingPresence, subscribeContactPresence } from '@/lib/realtime';
@@ -12,7 +12,15 @@ import {
 import { EmojiPicker } from '@/components/ui/EmojiPicker';
 import ContactValidationBanner, { type ResolvedData } from '@/components/atendimento/ContactValidationBanner';
 import { TagMultiSelect } from '@/components/ui/TagMultiSelect';
-import { InlineChatMedia } from '@/components/chat/InlineChatMedia';
+import ConversationMessageList from '@/components/chat/ConversationMessageList';
+import ChatDensityToggle from '@/components/chat/ChatDensityToggle';
+import {
+  DEFAULT_CHAT_DENSITY_MODE,
+  readChatDensityFromStorage,
+  writeChatDensityToStorage,
+  type ChatDensityMode,
+} from '@/components/chat/chatDensity';
+import { invalidateMyOpenTicketsCount } from '@/hooks/useMyOpenTicketsCount';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -77,237 +85,6 @@ function ChannelDot({ channel }: { channel: string }) {
     </span>
   );
 }
-
-// ── MessageStatusIcon ─────────────────────────────────────────────────────────
-/** Ícone de status de mensagem estilo WhatsApp */
-function MessageStatusIcon({ status, isWhatsapp }: { status?: string | null; isWhatsapp?: boolean }) {
-  // Canal não-WhatsApp: check simples
-  if (!isWhatsapp) return <CheckCircle2 size={11} style={{ color: 'rgba(255,255,255,.5)' }} />;
-  // Pendente / enviando (otimista)
-  if (!status || status === 'pending' || status === 'sending' || status === 'queued') {
-    return (
-      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.45)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-        <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
-      </svg>
-    );
-  }
-  // Erro
-  if (status === 'failed' || status === 'error') {
-    return (
-      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#FCA5A5" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-        <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
-      </svg>
-    );
-  }
-  // Enviado (✓ cinza)
-  if (status === 'sent') {
-    return <Check size={11} style={{ color: 'rgba(255,255,255,.5)' }} />;
-  }
-  // Entregue (✓✓ cinza)
-  if (status === 'delivered') {
-    return (
-      <span style={{ fontSize: 10, color: 'rgba(255,255,255,.5)', letterSpacing: '-2px', lineHeight: 1 }}>✓✓</span>
-    );
-  }
-  // Lido (✓✓ azul)
-  if (status === 'read') {
-    return (
-      <span style={{ fontSize: 10, color: '#93C5FD', letterSpacing: '-2px', lineHeight: 1 }}>✓✓</span>
-    );
-  }
-  return <Check size={11} style={{ color: 'rgba(255,255,255,.5)' }} />;
-}
-
-// ── MessageSkeleton ───────────────────────────────────────────────────────────
-/** Placeholder animado enquanto carrega mensagens pela primeira vez */
-function MessageSkeleton() {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20, padding: '8px 0' }}>
-      {([false, true, false] as boolean[]).map((right, i) => (
-        <div key={i} style={{ display: 'flex', alignItems: 'flex-end', gap: 10, flexDirection: right ? 'row-reverse' : 'row' }}>
-          <div className="animate-pulse" style={{ width: 30, height: 30, borderRadius: '50%', background: '#E2E8F0', flexShrink: 0 }} />
-          <div className="animate-pulse" style={{ width: `${38 + i * 12}%`, height: 56, borderRadius: 12, background: '#E2E8F0' }} />
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// ── HighlightText ─────────────────────────────────────────────────────────────
-/** Destaca ocorrências de `query` dentro de `text` com fundo amarelo */
-function escapeRegex(s: string) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
-function HighlightText({ text, query }: { text: string; query: string }) {
-  if (!query) return <>{text}</>;
-  const parts = text.split(new RegExp(`(${escapeRegex(query)})`, 'gi'));
-  return (
-    <>
-      {parts.map((part, i) =>
-        part.toLowerCase() === query.toLowerCase()
-          ? <mark key={i} style={{ background: '#FEF08A', color: '#0F172A', borderRadius: 2, padding: '0 2px' }}>{part}</mark>
-          : part,
-      )}
-    </>
-  );
-}
-
-// ── MessageItem (memoizado) ───────────────────────────────────────────────────
-/** Item individual de mensagem — memoizado para evitar re-render ao digitar */
-const MessageItem = memo(function MessageItem({
-  m,
-  isWhatsapp,
-  highlight,
-  mediaUrl,
-  onReply,
-}: {
-  m: any;
-  isWhatsapp: boolean;
-  highlight?: string;
-  mediaUrl?: string | null;
-  onReply?: (msg: any) => void;
-}) {
-  const isContact = m.authorType === 'contact';
-  const isSystem  = m.messageType === 'system';
-  const t = new Date(m.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-  const col = avatarColor(m.authorName || '?');
-  const localPreview = m._localPreviewUrl as string | undefined;
-  const resolvedMediaSrc = mediaUrl || localPreview || null;
-  const showMedia =
-    (m.hasMedia || m.mediaKind === 'image' || m.mediaKind === 'audio' || m.mediaKind === 'video') &&
-    (m.mediaKind === 'image' || m.mediaKind === 'audio' || m.mediaKind === 'video');
-  const mediaLoading =
-    showMedia && !resolvedMediaSrc && !m._optimistic;
-  const hidePlaceholderCaption =
-    !!resolvedMediaSrc &&
-    (m.content === '📷 Imagem' || m.content === '🎤 Áudio' || m.content === '📹 Vídeo');
-  const showCaption = !!(m.content && !hidePlaceholderCaption);
-
-  // Constantes de estilo (idênticas ao S da tela pai)
-  const accent = '#4F46E5';
-  const accentLight = '#EEF2FF';
-  const bg = '#FFFFFF';
-  const txt = '#111118';
-  const txt2 = '#6B6B80';
-  const txt3 = '#A8A8BE';
-
-  if (isSystem) {
-    return (
-      <div style={{ display: 'flex', justifyContent: 'center', margin: '4px 0' }}>
-        <div style={{ background: '#EEF2FF', border: '1px solid #C7D2FE', borderRadius: 8, padding: '5px 14px', fontSize: 11, color: '#4338CA', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6 }}>
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#4338CA" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v2z"/></svg>
-          {highlight ? <HighlightText text={m.content || ''} query={highlight} /> : m.content}
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: isContact ? 'flex-start' : 'flex-end' }}>
-      <span style={{ fontSize: 11, fontWeight: 500, color: txt2, paddingLeft: isContact ? 40 : 0, paddingRight: isContact ? 0 : 40 }}>
-        {m.authorName}
-      </span>
-      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, flexDirection: isContact ? 'row' : 'row-reverse' }}>
-        <div style={{ width: 30, height: 30, borderRadius: '50%', background: isContact ? col : accentLight, display: 'flex', alignItems: 'center', justifyContent: 'center', color: isContact ? '#fff' : accent, fontSize: 10, fontWeight: 700, flexShrink: 0 }}>
-          {initials(m.authorName || '?')}
-        </div>
-        <div style={{
-          maxWidth: 420, padding: '11px 16px', fontSize: 13, lineHeight: 1.6, position: 'relative',
-          background: isContact ? bg : accent,
-          color: isContact ? txt : '#fff',
-          border: isContact ? '1px solid rgba(0,0,0,.09)' : 'none',
-          borderRadius: isContact ? '18px 18px 18px 4px' : '18px 18px 4px 18px',
-          boxShadow: isContact ? '0 1px 3px rgba(0,0,0,.06)' : '0 2px 8px rgba(79,70,229,.25)',
-          opacity: m._optimistic ? 0.75 : 1,
-          transition: 'opacity 0.2s',
-        }}>
-          {/* Bloco de citação (reply) */}
-          {m.replyTo && (
-            <div style={{
-              borderLeft: `3px solid ${isContact ? accent : 'rgba(255,255,255,.6)'}`,
-              background: isContact ? 'rgba(79,70,229,.07)' : 'rgba(255,255,255,.15)',
-              borderRadius: 6,
-              padding: '5px 10px',
-              marginBottom: 8,
-              fontSize: 12,
-              opacity: 0.9,
-            }}>
-              <div style={{ fontWeight: 600, marginBottom: 2, color: isContact ? accent : 'rgba(255,255,255,.9)' }}>
-                {m.replyTo.authorName}
-              </div>
-              <div style={{ color: isContact ? txt2 : 'rgba(255,255,255,.8)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 320 }}>
-                {m.replyTo.mediaKind === 'image' ? '📷 Imagem'
-                  : m.replyTo.mediaKind === 'audio' ? '🎤 Áudio'
-                  : m.replyTo.mediaKind === 'video' ? '📹 Vídeo'
-                  : m.replyTo.content}
-              </div>
-            </div>
-          )}
-          {m.mediaKind === 'image' && resolvedMediaSrc && (
-            <InlineChatMedia
-              src={resolvedMediaSrc}
-              mediaKind="image"
-              imageStyle={{
-                maxHeight: 280,
-                marginBottom: showCaption ? 8 : 0,
-              }}
-            />
-          )}
-          {m.mediaKind === 'audio' && resolvedMediaSrc && (
-            <audio
-              src={resolvedMediaSrc}
-              controls
-              style={{
-                width: '100%',
-                maxWidth: 280,
-                minHeight: 40,
-                marginBottom: showCaption ? 8 : 0,
-              }}
-            />
-          )}
-          {m.mediaKind === 'video' && resolvedMediaSrc && (
-            <InlineChatMedia
-              src={resolvedMediaSrc}
-              mediaKind="video"
-              videoContainerStyle={{ marginBottom: showCaption ? 8 : 0 }}
-              videoStyle={{
-                maxWidth: 320,
-                maxHeight: 280,
-              }}
-            />
-          )}
-          {mediaLoading && (
-            <p style={{ margin: '0 0 8px', fontSize: 12, opacity: 0.85 }}>A carregar…</p>
-          )}
-          {showCaption && (
-            <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>
-              {highlight ? <HighlightText text={m.content || ''} query={highlight} /> : m.content}
-            </p>
-          )}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 5 }}>
-            <span style={{ fontSize: 10, color: isContact ? txt3 : 'rgba(255,255,255,.6)' }}>{t}</span>
-            {!isContact && <MessageStatusIcon status={m.whatsappStatus} isWhatsapp={isWhatsapp} />}
-          </div>
-        </div>
-        {/* Botão Responder — visível somente em mensagens reais (não otimistas) */}
-        {onReply && !m._optimistic && !String(m.id).startsWith('_opt') && (
-          <button
-            type="button"
-            onClick={() => onReply(m)}
-            title="Responder"
-            style={{
-              background: 'none', border: 'none', cursor: 'pointer', padding: '4px 6px',
-              color: txt3, fontSize: 11, borderRadius: 6, alignSelf: 'center', flexShrink: 0,
-              opacity: 0.6, transition: 'opacity .15s',
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.opacity = '1')}
-            onMouseLeave={(e) => (e.currentTarget.style.opacity = '0.6')}
-          >
-            ↩
-          </button>
-        )}
-      </div>
-    </div>
-  );
-});
 
 // ── main component ────────────────────────────────────────────────────────────
 type AttachmentKind = 'image' | 'audio' | 'video';
@@ -869,6 +646,9 @@ export default function AtendimentoPage() {
   const [panelOpen, setPanelOpen] = useState(() => {
     try { return localStorage.getItem('atend_panel_open') !== 'false'; } catch { return true; }
   });
+  /** Fallback SSR/hidratação: `normal`; depois lê `CHAT_DENSITY_STORAGE_KEY`. */
+  const [chatDensity, setChatDensity] = useState<ChatDensityMode>(DEFAULT_CHAT_DENSITY_MODE);
+  const [chatDensityHydrated, setChatDensityHydrated] = useState(false);
   const attachFileInputRef = useRef<HTMLInputElement>(null);
   const [messageMediaUrls, setMessageMediaUrls] = useState<Record<string, string>>({});
   const [sending, setSending] = useState(false);
@@ -892,12 +672,23 @@ export default function AtendimentoPage() {
   const [startContactSearch, setStartContactSearch] = useState('');
   const [startingConv, setStartingConv] = useState(false);
   const [loadingStartContacts, setLoadingStartContacts] = useState(false);
+  // Busca de cliente no modal
+  const [startClientInput, setStartClientInput] = useState('');
+  const [startClientResults, setStartClientResults] = useState<any[]>([]);
+  const [startClientSearching, setStartClientSearching] = useState(false);
+  const [startClientDropdown, setStartClientDropdown] = useState(false);
   // Modo "Por número"
   const [startPhone, setStartPhone] = useState('');
   const [startPhoneChecking, setStartPhoneChecking] = useState(false);
   const [startPhoneResult, setStartPhoneResult] = useState<{ exists: boolean; jid: string | null; normalized: string } | null>(null);
   // Mensagem inicial (ambos os modos)
   const [startFirstMessage, setStartFirstMessage] = useState('');
+  const [startMsgMode, setStartMsgMode] = useState<'text' | 'template'>('text');
+  const [startTemplateName, setStartTemplateName] = useState('');
+  const [startTemplateLang, setStartTemplateLang] = useState('pt_BR');
+  const [startTemplateParams, setStartTemplateParams] = useState<string[]>([]);
+  const [metaTemplates, setMetaTemplates] = useState<{ name: string; language: string; status: string; body: string; paramCount: number }[]>([]);
+  const [loadingTemplates, setLoadingTemplates] = useState(false);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
   const [networks, setNetworks] = useState<any[]>([]);
   const [createCustomers, setCreateCustomers] = useState<any[]>([]);
@@ -1500,6 +1291,7 @@ export default function AtendimentoPage() {
       setKeepOpenReason('');
       showToast('Atendimento encerrado. Ticket mantido aberto.');
       loadConversations(true, true);
+      invalidateMyOpenTicketsCount();
     } catch (e: any) { showToast(e?.response?.data?.message || 'Erro ao encerrar', 'error'); }
   };
 
@@ -1529,6 +1321,7 @@ export default function AtendimentoPage() {
       setShowCloseForm(false);
       showToast('Chamado marcado como resolvido! O cliente será notificado para confirmar.');
       loadConversations(true, true);
+      invalidateMyOpenTicketsCount();
     } catch (e: any) { showToast(e?.response?.data?.message || 'Erro ao encerrar', 'error'); }
   };
 
@@ -1552,6 +1345,7 @@ export default function AtendimentoPage() {
       setShowTransferModal(false);
       showToast('Atendimento transferido!');
       await reloadMessages(selected);
+      invalidateMyOpenTicketsCount();
     } catch (e: any) { showToast(e?.response?.data?.message || 'Erro ao transferir', 'error'); }
     setTransferLoading(false);
   };
@@ -1559,11 +1353,46 @@ export default function AtendimentoPage() {
   // ── start conversation ──
   const openStartModal = () => {
     setStartMode('contact');
-    setStartClientId(''); setStartClientName(''); setStartContactId(''); setStartContacts([]); setStartContactSearch('');
+    setStartClientId(''); setStartClientName(''); setStartClientInput(''); setStartClientResults([]); setStartClientDropdown(false);
+    setStartContactId(''); setStartContacts([]); setStartContactSearch('');
     setStartPhone(''); setStartPhoneResult(null); setStartPhoneChecking(false);
-    setStartFirstMessage('');
-    if (customers.length === 0) api.getCustomers({ perPage: 200 }).then((r: any) => setCustomers(r?.data || r || [])).catch(() => {});
+    setStartFirstMessage(''); setStartMsgMode('text'); setStartTemplateName(''); setStartTemplateLang('pt_BR');
     setShowStartModal(true);
+    if (metaTemplates.length === 0) {
+      setLoadingTemplates(true);
+      api.getWhatsappTemplates().then((r: any) => setMetaTemplates(r?.data ?? r ?? [])).catch(() => {}).finally(() => setLoadingTemplates(false));
+    }
+  };
+
+  const handleClientSearchInput = async (val: string) => {
+    setStartClientInput(val);
+    setStartClientId('');
+    setStartClientName('');
+    setStartContactId(''); setStartContacts([]); setStartContactSearch('');
+    if (!val.trim()) { setStartClientResults(customers.slice(0, 8)); setStartClientDropdown(true); return; }
+    const local = customers.filter((c: any) => (c.tradeName || c.companyName || c.name || '').toLowerCase().includes(val.toLowerCase()));
+    setStartClientResults(local.slice(0, 10));
+    setStartClientDropdown(true);
+    if (val.trim().length >= 2) {
+      setStartClientSearching(true);
+      try {
+        const r: any = await api.searchCustomers(val.trim());
+        const apiRes: any[] = r?.data ?? r ?? [];
+        const apiIds = new Set(apiRes.map((c: any) => c.id));
+        const merged = [...apiRes, ...local.filter((c: any) => !apiIds.has(c.id))].slice(0, 12);
+        setStartClientResults(merged);
+      } catch {}
+      setStartClientSearching(false);
+    }
+  };
+
+  const handleClientSelect = (c: any) => {
+    const name = c.tradeName || c.companyName || c.name || '';
+    setStartClientId(c.id);
+    setStartClientName(name);
+    setStartClientInput(name);
+    setStartClientDropdown(false);
+    handleStartClientChange(c.id, name);
   };
 
   const handleStartClientChange = async (clientId: string, clientName: string) => {
@@ -1661,6 +1490,7 @@ export default function AtendimentoPage() {
         setSelected({ ...selected, ticketId });
         await loadConversations(false, true);
         loadChat({ ...selected, ticketId });
+        invalidateMyOpenTicketsCount();
       }
       setShowCreateModal(false);
     } catch (e: any) { showToast(e?.response?.data?.message || 'Erro ao criar ticket', 'error'); }
@@ -1680,6 +1510,7 @@ export default function AtendimentoPage() {
       setShowLinkModal(false); setLinkSelectedId(null); setLinkReason('');
       await loadConversations(false, true);
       loadChat({ ...selected, ticketId: linkSelectedId });
+      invalidateMyOpenTicketsCount();
     } catch (e: any) { showToast(e?.response?.data?.message || 'Erro ao vincular', 'error'); }
   };
 
@@ -1910,6 +1741,16 @@ export default function AtendimentoPage() {
 
   // ── effects ──
   useEffect(() => {
+    setChatDensity(readChatDensityFromStorage());
+    setChatDensityHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!chatDensityHydrated) return;
+    writeChatDensityToStorage(chatDensity);
+  }, [chatDensity, chatDensityHydrated]);
+
+  useEffect(() => {
     try { localStorage.setItem('atend_filter', filter); localStorage.setItem('atend_channel', channelFilter); } catch {}
     loadConversations(true, false);
   }, [filter, channelFilter, loadConversations]);
@@ -2133,11 +1974,13 @@ export default function AtendimentoPage() {
       const byName = payload.assignedByName || 'outro agente';
       showToast(`🎯 ${label} transferido para você por ${byName}`, 'success');
       loadConversations(false, true);
+      invalidateMyOpenTicketsCount();
     }
 
     // 2. Ticket foi tirado de mim (transferido para outro) → atualiza silenciosamente
     if (String(payload.prevAssignedTo) === String(myId) && String(payload.assignedTo) !== String(myId)) {
       loadConversations(false, true);
+      invalidateMyOpenTicketsCount();
     }
   });
 
@@ -2153,6 +1996,7 @@ export default function AtendimentoPage() {
     }
     // Remove badge de não lidas
     setUnreadCounts(p => { const next = { ...p }; delete next[conversationId]; return next; });
+    invalidateMyOpenTicketsCount();
   });
 
   // ── styles (shared) ──
@@ -2510,6 +2354,7 @@ export default function AtendimentoPage() {
                   </div>
                   {/* Actions */}
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
+                    <ChatDensityToggle value={chatDensity} onChange={setChatDensity} />
                     {/* Busca dentro da conversa */}
                     <button
                       onClick={() => { setMsgSearchOpen(v => !v); if (msgSearchOpen) { setMsgSearchQuery(''); setMsgSearchIdx(0); } }}
@@ -2626,69 +2471,37 @@ export default function AtendimentoPage() {
 
               {/* Messages — wrapper com position:relative para o botão flutuante */}
               <div style={{ flex: 1, position: 'relative', overflow: 'hidden', background: S.bg2 }}>
-                <div
-                  ref={scrollContainerRef}
+                <ConversationMessageList
+                  scrollContainerRef={scrollContainerRef}
+                  messagesEndRef={messagesEndRef}
                   onScroll={handleScroll}
-                  style={{ height: '100%', overflowY: 'auto', padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: 16 }}
-                >
-                  {loadingChat && messages.length === 0 ? (
-                    // Primeira carga: skeleton animado em vez de spinner bloqueante
-                    <MessageSkeleton />
-                  ) : messages.length === 0 ? (
-                    <div style={{ margin: 'auto', textAlign: 'center', color: S.txt3, fontSize: 13 }}>
-                      <MessageSquare size={32} style={{ margin: '0 auto 10px', opacity: 0.25 }} />
-                      <p style={{ margin: 0 }}>Nenhuma mensagem ainda</p>
-                    </div>
-                  ) : (
-                    // Mensagens ficam visíveis durante troca; opacidade reduzida enquanto carrega
-                    <div style={{ display: 'contents', opacity: loadingChat ? 0.55 : 1, transition: 'opacity 0.18s' }}>
-                      {/* Indicador de histórico no topo */}
-                      {loadingMoreMsgs && (
-                        <div style={{ textAlign: 'center', padding: '8px 0', color: S.txt3, fontSize: 12 }}>
-                          Carregando histórico...
-                        </div>
-                      )}
-                      {!loadingMoreMsgs && hasMoreMsgs && (
-                        <div style={{ textAlign: 'center', padding: '4px 0' }}>
-                          <button
-                            onClick={loadMoreMessages}
-                            style={{ background: 'none', border: S.border2, borderRadius: 12, padding: '4px 14px', fontSize: 12, color: S.txt3, cursor: 'pointer', fontFamily: 'inherit' }}
-                          >
-                            Carregar mensagens anteriores
-                          </button>
-                        </div>
-                      )}
-                      {messages.filter((m: any) => m.messageType !== 'internal').map((m: any, _i: number) => {
-                        const isCurrentMatch = msgSearchQuery.trim() !== '' && msgMatchIds[Math.min(msgSearchIdx, msgMatchIds.length - 1)] === m.id && msgMatchIds.length > 0;
-                        return (
-                          <div
-                            key={m.id}
-                            id={`msg-${m.id}`}
-                            style={isCurrentMatch ? { borderRadius: 14, outline: '2px solid #FDE68A', outlineOffset: 3 } : undefined}
-                          >
-                            <MessageItem m={m} isWhatsapp={isWhatsapp} highlight={msgSearchQuery.trim() || undefined} mediaUrl={messageMediaUrls[m.id] ?? null} onReply={setReplyingTo} />
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                  {/* Indicador "contato digitando..." */}
-                  {isContactTyping && isWhatsapp && (
-                    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, marginTop: 4 }}>
-                      <div style={{ width: 26, height: 26, borderRadius: '50%', background: avatarColor(selected?.contactName || '?'), display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 9, fontWeight: 700, flexShrink: 0 }}>
-                        {initials(selected?.contactName || '?')}
-                      </div>
-                      <div style={{ background: '#FFFFFF', border: '1px solid rgba(0,0,0,.09)', borderRadius: '18px 18px 18px 4px', padding: '10px 16px', boxShadow: '0 1px 3px rgba(0,0,0,.06)', display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <span style={{ display: 'inline-flex', gap: 3, alignItems: 'center' }}>
-                          {[0,1,2].map(i => (
-                            <span key={i} style={{ width: 7, height: 7, borderRadius: '50%', background: '#A8A8BE', display: 'inline-block', animation: `typingDot 1.2s ${i * 0.2}s infinite ease-in-out` }} />
-                          ))}
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                  <div ref={messagesEndRef} />
-                </div>
+                  containerStyle={{
+                    height: '100%',
+                    overflowY: 'auto',
+                    padding: '10px 12px 14px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 0,
+                  }}
+                  theme={{
+                    border2: S.border2,
+                    txt3: S.txt3,
+                  }}
+                  messages={messages}
+                  loadingChat={loadingChat}
+                  loadingMoreMsgs={loadingMoreMsgs}
+                  hasMoreMsgs={hasMoreMsgs}
+                  onLoadMore={loadMoreMessages}
+                  messageMediaUrls={messageMediaUrls}
+                  isWhatsapp={isWhatsapp}
+                  msgSearchQuery={msgSearchQuery}
+                  msgSearchIdx={msgSearchIdx}
+                  msgMatchIds={msgMatchIds}
+                  onReply={setReplyingTo}
+                  isContactTyping={isContactTyping}
+                  typingContactName={selected?.contactName}
+                  chatDensity={chatDensity}
+                />
 
                 {/* Botão flutuante: nova mensagem enquanto usuário lê histórico */}
                 {showScrollBtn && (
@@ -3138,7 +2951,7 @@ export default function AtendimentoPage() {
         const contactsPhoneOnly = filteredContacts.filter((c: any) => !c.whatsapp?.trim() && c.phone?.trim());
 
         const canStartByContact = !!startContactId && !startingConv;
-        const canStartByPhone = startPhoneResult?.exists !== false && startPhone.trim().replace(/\D/g,'').length >= 8 && !startingConv;
+        const canStartByPhone = startPhone.trim().replace(/\D/g,'').length >= 8 && !startingConv && !!startClientId;
 
         const S_TAB = (active: boolean) => ({
           flex: 1, padding: '8px 0', fontSize: 13, fontWeight: active ? 700 : 500,
@@ -3180,13 +2993,27 @@ export default function AtendimentoPage() {
                 {/* ── Modo: Por contato ── */}
                 {startMode === 'contact' && (
                   <>
-                    <div style={{ marginBottom: 16 }}>
+                    <div style={{ marginBottom: 16, position: 'relative' }}>
                       <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#64748B', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6 }}>Cliente</label>
-                      <select value={startClientId} onChange={(e) => { const opt = e.target.options[e.target.selectedIndex]; handleStartClientChange(e.target.value, opt.text); }}
-                        style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1.5px solid #E2E8F0', fontSize: 14, color: '#0F172A', background: '#fff', outline: 'none' }}>
-                        <option value="">Selecione um cliente...</option>
-                        {customers.map((c: any) => <option key={c.id} value={c.id}>{c.tradeName || c.companyName || c.name}</option>)}
-                      </select>
+                      <input
+                        value={startClientInput}
+                        onChange={e => handleClientSearchInput(e.target.value)}
+                        onFocus={() => { if (!startClientId) { setStartClientResults(customers.slice(0, 8)); setStartClientDropdown(true); } }}
+                        onBlur={() => setTimeout(() => setStartClientDropdown(false), 150)}
+                        placeholder="Buscar cliente por nome..."
+                        style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: `1.5px solid ${startClientId ? '#4F46E5' : '#E2E8F0'}`, fontSize: 13, outline: 'none', boxSizing: 'border-box' as const, background: startClientId ? '#F5F3FF' : '#fff' }}
+                      />
+                      {startClientSearching && <span style={{ position: 'absolute', right: 12, top: 34, fontSize: 11, color: '#94A3B8' }}>Buscando...</span>}
+                      {startClientDropdown && startClientResults.length > 0 && (
+                        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1.5px solid #E2E8F0', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', zIndex: 100, maxHeight: 200, overflowY: 'auto', marginTop: 2 }}>
+                          {startClientResults.map((c: any) => (
+                            <button key={c.id} onMouseDown={() => handleClientSelect(c)}
+                              style={{ display: 'block', width: '100%', padding: '9px 14px', textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: '#0F172A', borderBottom: '1px solid #F1F5F9' }}>
+                              {c.tradeName || c.companyName || c.name}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                     {startClientId && (
                       <div style={{ marginBottom: 12 }}>
@@ -3294,31 +3121,85 @@ export default function AtendimentoPage() {
                         )}
                       </div>
                     )}
-                    <div style={{ marginBottom: 10 }}>
-                      <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#64748B', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6 }}>Cliente (opcional)</label>
-                      <select value={startClientId} onChange={(e) => setStartClientId(e.target.value)}
-                        style={{ width: '100%', padding: '9px 12px', borderRadius: 10, border: '1.5px solid #E2E8F0', fontSize: 13, color: '#0F172A', background: '#fff', outline: 'none' }}>
-                        <option value="">Sem cliente (vincular depois)</option>
-                        {customers.map((c: any) => <option key={c.id} value={c.id}>{c.tradeName || c.companyName || c.name}</option>)}
-                      </select>
+                    <div style={{ marginBottom: 10, position: 'relative' }}>
+                      <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#64748B', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6 }}>Cliente <span style={{ color: '#EF4444' }}>*</span> <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: '#94A3B8' }}>(obrigatório — o contato será cadastrado nesta empresa)</span></label>
+                      <input
+                        value={startClientInput}
+                        onChange={e => handleClientSearchInput(e.target.value)}
+                        onFocus={() => { setStartClientResults(customers.slice(0, 8)); setStartClientDropdown(true); }}
+                        onBlur={() => setTimeout(() => setStartClientDropdown(false), 150)}
+                        placeholder="Buscar cliente por nome..."
+                        style={{ width: '100%', padding: '9px 12px', borderRadius: 10, border: `1.5px solid ${startClientId ? '#4F46E5' : '#E2E8F0'}`, fontSize: 13, outline: 'none', boxSizing: 'border-box' as const, background: startClientId ? '#F5F3FF' : '#fff' }}
+                      />
+                      {startClientSearching && <span style={{ position: 'absolute', right: 12, top: 32, fontSize: 11, color: '#94A3B8' }}>Buscando...</span>}
+                      {startClientDropdown && startClientResults.length > 0 && (
+                        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1.5px solid #E2E8F0', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', zIndex: 100, maxHeight: 200, overflowY: 'auto', marginTop: 2 }}>
+                          {startClientResults.map((c: any) => (
+                            <button key={c.id} onMouseDown={() => handleClientSelect(c)}
+                              style={{ display: 'block', width: '100%', padding: '9px 14px', textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: '#0F172A', borderBottom: '1px solid #F1F5F9' }}>
+                              {c.tradeName || c.companyName || c.name}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
+                    {!startClientId && (
+                      <p style={{ margin: '6px 0 0', fontSize: 12, color: '#EF4444' }}>
+                        Selecione uma empresa para que o contato seja cadastrado automaticamente ao iniciar.
+                      </p>
+                    )}
                   </div>
                 )}
 
-                {/* ── Mensagem inicial (ambos os modos) ── */}
+                {/* ── Template obrigatório (ambos os modos) ── */}
                 {(startMode === 'phone' || (startMode === 'contact' && startContactId)) && (
-                  <div style={{ marginTop: 4 }}>
-                    <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#64748B', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6 }}>
-                      Mensagem inicial <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: '#94A3B8' }}>(opcional)</span>
+                  <div style={{ marginTop: 8, padding: '14px', borderRadius: 12, border: '1.5px solid #FDE68A', background: '#FFFBEB' }}>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#92400E', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 8 }}>
+                      Template de abertura
                     </label>
-                    <textarea
-                      value={startFirstMessage}
-                      onChange={e => setStartFirstMessage(e.target.value)}
-                      placeholder="Olá! Entramos em contato para..."
-                      rows={3}
-                      style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1.5px solid #E2E8F0', fontSize: 13, resize: 'vertical', outline: 'none', boxSizing: 'border-box' as const, fontFamily: 'inherit' }}
-                    />
-                    <p style={{ margin: '3px 0 0', fontSize: 11, color: '#94A3B8' }}>Se preenchida, a mensagem será enviada imediatamente ao criar a conversa.</p>
+                    {loadingTemplates ? (
+                      <div style={{ fontSize: 13, color: '#94A3B8', padding: '8px 0' }}>Carregando templates...</div>
+                    ) : metaTemplates.length > 0 ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {metaTemplates.map(t => {
+                          const sel = startTemplateName === t.name && startTemplateLang === t.language;
+                          return (
+                            <button key={`${t.name}-${t.language}`} onClick={() => { setStartTemplateName(t.name); setStartTemplateLang(t.language); setStartMsgMode('template'); setStartTemplateParams(Array(t.paramCount).fill('')); }}
+                              style={{ display: 'flex', flexDirection: 'column', gap: 3, padding: '10px 13px', borderRadius: 10, border: `2px solid ${sel ? '#D97706' : '#E2E8F0'}`, background: sel ? '#FEF3C7' : '#fff', cursor: 'pointer', textAlign: 'left' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' as const }}>
+                                <span style={{ fontSize: 13, fontWeight: 700, color: '#0F172A' }}>{t.name}</span>
+                                <span style={{ fontSize: 11, color: '#64748B', background: '#F1F5F9', borderRadius: 4, padding: '1px 6px' }}>{t.language}</span>
+                                <span style={{ fontSize: 11, borderRadius: 4, padding: '1px 6px', background: t.status === 'APPROVED' ? '#DCFCE7' : '#FEF9C3', color: t.status === 'APPROVED' ? '#16A34A' : '#854D0E', fontWeight: 600 }}>{t.status}</span>
+                                {sel && <span style={{ fontSize: 11, color: '#D97706', fontWeight: 700, marginLeft: 'auto' }}>✓ selecionado</span>}
+                              </div>
+                              {t.body && <span style={{ fontSize: 12, color: '#64748B' }}>{t.body}</span>}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p style={{ fontSize: 12, color: '#92400E', margin: 0 }}>Nenhum template aprovado encontrado. Verifique o WABA ID e o token nas configurações.</p>
+                    )}
+
+                    {/* Campos de parâmetros do template selecionado */}
+                    {startTemplateParams.length > 0 && (
+                      <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        <label style={{ fontSize: 11, fontWeight: 700, color: '#92400E', letterSpacing: '0.06em', textTransform: 'uppercase' as const }}>
+                          Parâmetros do template
+                        </label>
+                        {startTemplateParams.map((val, i) => (
+                          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ fontSize: 12, color: '#64748B', minWidth: 28 }}>{`{{${i + 1}}}`}</span>
+                            <input
+                              style={{ flex: 1, padding: '8px 10px', borderRadius: 8, border: '1.5px solid #E2E8F0', fontSize: 13, outline: 'none' }}
+                              placeholder={`Valor para {{${i + 1}}}`}
+                              value={val}
+                              onChange={e => setStartTemplateParams(p => p.map((v, j) => j === i ? e.target.value : v))}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -3344,7 +3225,9 @@ export default function AtendimentoPage() {
                             contactId: startContactId,
                             clientId: startClientId,
                             subject: selectedContact?.name ? `WhatsApp - ${selectedContact.name}` : undefined,
-                            firstMessage: startFirstMessage.trim() || undefined,
+                            templateName: startTemplateName.trim() || undefined,
+                            templateLanguage: startTemplateName.trim() ? startTemplateLang : undefined,
+                            templateParams: startTemplateParams.length > 0 ? startTemplateParams : undefined,
                           });
                           const d = res?.data ?? res;
                           await afterConvCreated(d.conversation);
@@ -3370,7 +3253,9 @@ export default function AtendimentoPage() {
                         const res: any = await api.startOutboundConversation({
                           phone: startPhone.trim(),
                           clientId: startClientId || undefined,
-                          firstMessage: startFirstMessage.trim() || undefined,
+                          templateName: startTemplateName.trim() || undefined,
+                          templateLanguage: startTemplateName.trim() ? startTemplateLang : undefined,
+                          templateParams: startTemplateParams.length > 0 ? startTemplateParams : undefined,
                         });
                         const d = res?.data ?? res;
                         await afterConvCreated(d.conversation);

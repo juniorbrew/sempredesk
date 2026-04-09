@@ -101,12 +101,16 @@ class ApiClient {
     this.client.post('/webhooks/whatsapp/send-from-ticket', { ticketId, text, replyToId: replyToId ?? undefined });
   checkWhatsappNumber = (phone: string) =>
     this.client.post('/webhooks/whatsapp/check-number', { phone });
-  startOutboundConversation = (data: { phone?: string; contactId?: string; clientId?: string; subject?: string; firstMessage?: string }) =>
+  searchCustomers = (q: string) => this.client.get('/customers/search', { params: { q } });
+  getWhatsappTemplates = () => this.client.get('/webhooks/whatsapp/templates');
+  startOutboundConversation = (data: { phone?: string; contactId?: string; clientId?: string; subject?: string; firstMessage?: string; templateName?: string; templateLanguage?: string; templateParams?: string[] }) =>
     this.client.post('/webhooks/whatsapp/start-outbound', data);
 
   getConversations = (params?: { channel?: string; hasTicket?: string; status?: string }) =>
     this.client.get('/conversations', { params });
   getConversationsActiveCount = () => this.client.get('/conversations/active-count');
+  /** Tickets em aberto (open / in_progress / waiting_client) atribuídos ao agente logado no tenant atual */
+  getMyOpenAssignedTicketsCount = () => this.client.get('/tickets/me/open-assigned-count');
   getConversation = (id: string) => this.client.get(`/conversations/${id}`);
   getConversationMessages = (id: string, params?: { limit?: number; before?: string }) =>
     this.client.get(`/conversations/${id}/messages`, { params });

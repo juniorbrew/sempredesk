@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
@@ -11,6 +11,7 @@ import {
 import { useAuthStore, hasPermission } from '@/store/auth.store';
 import { useTheme } from '@/components/ThemeProvider';
 import { api } from '@/lib/api';
+import { useMyOpenTicketsCount } from '@/hooks/useMyOpenTicketsCount';
 import clsx from 'clsx';
 
 const MAIN_NAV = [
@@ -56,20 +57,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
   const isCadastrosActive = CADASTROS_PATHS.some(p => pathname.startsWith(p));
   const [cadastrosOpen, setCadastrosOpen] = useState(isCadastrosActive);
   const visibleCadastros = CADASTROS_NAV.filter((n) => hasPermission(user, n.perm));
-  const [atendimentoCount, setAtendimentoCount] = useState(0);
-
-  useEffect(() => {
-    if (typeof window === 'undefined' || !localStorage.getItem('accessToken')) return;
-    api.getConversationsActiveCount()
-      .then((r: any) => setAtendimentoCount((r?.total ?? r?.data?.total ?? 0) || 0))
-      .catch(() => {});
-    const interval = setInterval(() => {
-      api.getConversationsActiveCount()
-        .then((r: any) => setAtendimentoCount((r?.total ?? r?.data?.total ?? 0) || 0))
-        .catch(() => {});
-    }, 30_000);
-    return () => clearInterval(interval);
-  }, []);
+  const { count: atendimentoCount } = useMyOpenTicketsCount();
 
   const logout = async () => {
     try { await api.logout(); } catch {}
