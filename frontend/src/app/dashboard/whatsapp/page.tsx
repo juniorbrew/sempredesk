@@ -259,10 +259,6 @@ export default function WhatsappPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-    if (tab === 'channels') fetchChannels();
-  }, [tab, fetchChannels]);
-
   // ── Actions ─────────────────────────────────────────────────────────────
 
   const handleConnect = async () => {
@@ -461,6 +457,11 @@ export default function WhatsappPage() {
       setDeletingChannelId(null);
     }
   };
+
+  // useEffect de channels — declarado APÓS fetchChannels para evitar TDZ
+  useEffect(() => {
+    if (tab === 'channels') fetchChannels();
+  }, [tab, fetchChannels]);
 
   // ── Derived ──────────────────────────────────────────────────────────────
 
