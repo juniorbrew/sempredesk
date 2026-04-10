@@ -9,6 +9,10 @@ import { TicketsService } from '../tickets/tickets.service';
 import { CustomersService } from '../customers/customers.service';
 import { TicketMessage, TicketOrigin } from '../tickets/entities/ticket.entity';
 import { RealtimeEmitterService } from '../realtime/realtime-emitter.service';
+import {
+  fetchWhatsappPrefixAgentEnabled,
+  prependWhatsappAgentLine,
+} from '../whatsapp/whatsapp-outbound-agent-prefix.util';
 
 @Injectable()
 export class ConversationsService {
@@ -1035,6 +1039,18 @@ export class ConversationsService {
               };
             } else {
               outboundPayload = content;
+            }
+            const prefixAgent = await fetchWhatsappPrefixAgentEnabled(this.dataSource, tenantId);
+            if (prefixAgent && authorName?.trim()) {
+              if (typeof outboundPayload === 'string') {
+                outboundPayload = prependWhatsappAgentLine(authorName, outboundPayload);
+              } else if (outboundPayload && typeof outboundPayload === 'object' && 'kind' in outboundPayload) {
+                const cap = (outboundPayload as { caption?: string }).caption ?? '';
+                outboundPayload = {
+                  ...outboundPayload,
+                  caption: prependWhatsappAgentLine(authorName, cap) || undefined,
+                };
+              }
             }
             // Resolve mensagem citada para reply nativo no WhatsApp
             let quotedMsg: { externalId: string; content: string; fromMe: boolean } | null = null;

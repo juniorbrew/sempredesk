@@ -37,7 +37,8 @@ $files = @(
   "infra/postgres/migrations/20260402_ticket_reply_attachments.sql",
   "infra/postgres/migrations/015_perf_indexes.sql",
   "infra/postgres/migrations/016_whatsapp_multi_channel.sql",
-  "infra/postgres/migrations/017_whatsapp_connection_meta_waba_id.sql"
+  "infra/postgres/migrations/017_whatsapp_connection_meta_waba_id.sql",
+  "infra/postgres/migrations/018_whatsapp_prefix_agent_name.sql"
 )
 
 Write-Host "Repo: $root" -ForegroundColor Cyan

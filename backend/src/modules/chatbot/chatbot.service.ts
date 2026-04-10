@@ -56,7 +56,8 @@ export class ChatbotService implements OnModuleInit {
     await this.dataSource.query(`
       ALTER TABLE chatbot_configs
         ADD COLUMN IF NOT EXISTS collect_name boolean NOT NULL DEFAULT false,
-        ADD COLUMN IF NOT EXISTS name_request_message text NOT NULL DEFAULT 'Olá! Para começarmos, pode me informar seu nome completo?'
+        ADD COLUMN IF NOT EXISTS name_request_message text NOT NULL DEFAULT 'Olá! Para começarmos, pode me informar seu nome completo?',
+        ADD COLUMN IF NOT EXISTS whatsapp_prefix_agent_name boolean NOT NULL DEFAULT false
     `).catch((err: Error) => this.logger.warn('chatbot_configs schema migration skipped: ' + err.message));
   }
 

@@ -30,6 +30,8 @@ interface ChatbotConfig {
   sessionTimeoutMinutes: number;
   collectName: boolean;
   nameRequestMessage: string;
+  /** Respostas do atendente ao cliente no WhatsApp com *nome* em negrito (formato do app). */
+  whatsappPrefixAgentName?: boolean;
   menuItems?: MenuItem[];
 }
 
@@ -342,6 +344,29 @@ export default function ChatbotConfigPage() {
               </button>
             </div>
           ))}
+
+          <div style={{ marginTop: 8, padding: '16px 18px', borderRadius: 12, border: `1.5px solid ${config.whatsappPrefixAgentName ? S.accent : '#E2E8F0'}`, background: config.whatsappPrefixAgentName ? S.accentL : '#FAFAFA' }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
+              <div style={{ width: 40, height: 40, borderRadius: 10, background: '#fff', border: '1.5px solid #E2E8F0', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <Smartphone size={20} color="#25D366" />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 700, color: S.txt, fontSize: 14, marginBottom: 4 }}>Nome do agente nas respostas (WhatsApp)</div>
+                <div style={{ fontSize: 12, color: S.txt2, lineHeight: 1.55, marginBottom: 10 }}>
+                  Quando <strong>ativado</strong>, cada mensagem do atendente enviada ao cliente pelo WhatsApp começa com o nome em negrito, no formato do próprio WhatsApp (<code style={{ background: '#EEF2FF', padding: '1px 5px', borderRadius: 4 }}>*Nome Sobrenome*</code>), seguido do texto. O histórico no painel continua <strong>sem</strong> esse prefixo — só o cliente vê no aplicativo.
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setConfig(c => (c ? { ...c, whatsappPrefixAgentName: !c.whatsappPrefixAgentName } : c))}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: config.whatsappPrefixAgentName ? S.accent : S.txt3, display: 'flex', alignItems: 'center', gap: 8, padding: 0, fontSize: 13, fontWeight: 600 }}
+                >
+                  {config.whatsappPrefixAgentName ? <ToggleRight size={26} /> : <ToggleLeft size={26} />}
+                  {config.whatsappPrefixAgentName ? 'Ativado: mostrar nome do agente' : 'Desativado'}
+                </button>
+              </div>
+            </div>
+          </div>
+
           <SaveBtn saving={saving} onClick={saveConfig} />
         </div>
       )}

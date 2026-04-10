@@ -109,6 +109,13 @@ export class ChatbotConfig {
   @Column({ name: 'rating_thanks_message', type: 'text', nullable: true, default: null })
   ratingThanksMessage: string | null;
 
+  /**
+   * Se true, respostas do atendente ao cliente pelo WhatsApp incluem linha *Nome do agente* (negrito no app)
+   * antes do texto. O histórico no painel continua sem esse prefixo.
+   */
+  @Column({ name: 'whatsapp_prefix_agent_name', default: false })
+  whatsappPrefixAgentName: boolean;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

@@ -22,6 +22,10 @@ import { normalizeWhatsappNumber, restoreBrNinthDigit } from '../../common/utils
 import { readFilePrefixSync } from '../../common/utils/read-file-prefix.util';
 import { validateFileSignature, resolveValidatedConversationMime } from '../../common/utils/validate-file-signature.util';
 import { filePathToStorageKey, TICKET_ATTACHMENTS_ROOT } from '../../common/utils/multer-disk-storage.util';
+import {
+  fetchWhatsappPrefixAgentEnabled,
+  prependWhatsappAgentLine,
+} from './whatsapp-outbound-agent-prefix.util';
 
 /** Mesmos documentos permitidos no chat de conversa — envio WA é só texto informativo. */
 const WA_TICKET_MEDIA_DOCUMENT_MIMES = new Set([
@@ -763,16 +767,20 @@ export class WhatsappService {
       } catch { /* lookup falhou — segue sem reply */ }
     }
 
+    const prefixAgent = await fetchWhatsappPrefixAgentEnabled(this.dataSource, tenantId);
+    const textToSend =
+      prefixAgent && authorName.trim() ? prependWhatsappAgentLine(authorName, text) : text;
+
     // Tenta Baileys (QR) primeiro; fallback Meta API
     let sent = false;
     let externalMsgId: string | null = null;
     if (this.baileysService) {
-      const result = await this.baileysService.sendMessage(tenantId, destination.raw, text, { quoted: quotedMsg ?? undefined });
+      const result = await this.baileysService.sendMessage(tenantId, destination.raw, textToSend, { quoted: quotedMsg ?? undefined });
       sent = result.success;
       externalMsgId = result.messageId ?? null; // ID para rastreamento de ACK (delivered/read)
     }
     if (!sent) {
-      const wamid = await this.sendWhatsappMessage(tenantId, destination.phone, text, quotedMsg?.externalId ?? null, whatsappChannelId);
+      const wamid = await this.sendWhatsappMessage(tenantId, destination.phone, textToSend, quotedMsg?.externalId ?? null, whatsappChannelId);
       if (wamid) { externalMsgId = wamid; sent = true; }
     }
 
@@ -938,14 +946,19 @@ export class WhatsappService {
       }
     }
 
+    const prefixAgent = await fetchWhatsappPrefixAgentEnabled(this.dataSource, tenantId);
+    const waPrefix = prefixAgent && authorName.trim() ? (s: string) => prependWhatsappAgentLine(authorName, s) : (s: string) => s;
+
     const caption = (opts?.content ?? '').trim() || undefined;
     let waOk = false;
 
     if (mediaKind === 'file') {
       const cap = (opts?.content ?? '').trim();
-      const txt = cap
-        ? `📎 Documento anexado: ${cap}\n(O ficheiro completo fica no historico do chamado no painel.)`
-        : '📎 Documento anexado. O ficheiro completo fica no historico do chamado no painel.';
+      const txt = waPrefix(
+        cap
+          ? `📎 Documento anexado: ${cap}\n(O ficheiro completo fica no historico do chamado no painel.)`
+          : '📎 Documento anexado. O ficheiro completo fica no historico do chamado no painel.',
+      );
       if (this.baileysService) {
         const r = await this.baileysService.sendMessage(tenantId, destination.raw, txt, { quoted: quotedMsg ?? undefined });
         waOk = r.success;
@@ -955,9 +968,13 @@ export class WhatsappService {
         waOk = !!wamid;
       }
     } else {
+      const captionForWa =
+        prefixAgent && authorName.trim()
+          ? prependWhatsappAgentLine(authorName, (opts?.content ?? '').trim()) || undefined
+          : caption;
       if (this.baileysService) {
         const r = await this.baileysService.sendMedia(tenantId, destination.raw, mediaKind, file.path, {
-          caption,
+          caption: captionForWa,
           mime: effectiveMime,
           quoted: quotedMsg ?? undefined,
         });
@@ -966,7 +983,7 @@ export class WhatsappService {
       }
       if (!waOk) {
         const wamid = await this.sendMetaMedia(tenantId, destination.phone, mediaKind, file.path, {
-          caption,
+          caption: captionForWa,
           mime: effectiveMime,
           contextMessageId: quotedMsg?.externalId ?? null,
           whatsappChannelId,

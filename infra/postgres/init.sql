@@ -430,6 +430,7 @@ CREATE TABLE chatbot_configs (
   rating_request_message       TEXT,
   rating_comment_message       TEXT,
   rating_thanks_message        TEXT,
+  whatsapp_prefix_agent_name   BOOLEAN  NOT NULL DEFAULT false,
   created_at                   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at                   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
