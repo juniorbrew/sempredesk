@@ -2,7 +2,7 @@ import { Body, Controller, Get, Post, Param, Query, UseGuards, BadRequestExcepti
 import * as fs from 'fs';
 import * as path from 'path';
 import { Throttle } from '@nestjs/throttler';
-import { validateFileSignature } from '../../common/utils/validate-file-signature.util';
+import { resolveValidatedConversationMime, validateFileSignature } from '../../common/utils/validate-file-signature.util';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { conversationMediaDiskStorage, CONVERSATION_MEDIA_ROOT, filePathToStorageKey } from '../../common/utils/multer-disk-storage.util';
 import { readFilePrefixSync } from '../../common/utils/read-file-prefix.util';
@@ -16,6 +16,67 @@ import { RequirePermission } from '../../common/decorators/require-permission.de
 import { TenantId } from '../../common/decorators/tenant-id.decorator';
 import { StartConversationDto, StartAgentConversationDto, CreateTicketForConversationDto, LinkTicketDto, AddConversationMessageDto, CloseConversationDto, UpdateConversationTagsDto } from './dto/conversation.dto';
 import { ConversationChannel } from './entities/conversation.entity';
+
+const CONVERSATION_DOCUMENT_MIMES = new Set([
+  'application/pdf',
+  'text/plain',
+  'text/csv',
+  'application/csv',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/zip',
+  'application/x-zip-compressed',
+  'application/x-rar-compressed',
+  'application/vnd.rar',
+]);
+
+function conversationMimeFromOriginalname(name: string): string | null {
+  const ext = path.extname(name).toLowerCase().replace(/^\./, '');
+  const map: Record<string, string> = {
+    pdf: 'application/pdf',
+    txt: 'text/plain',
+    csv: 'text/csv',
+    doc: 'application/msword',
+    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    xls: 'application/vnd.ms-excel',
+    xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    zip: 'application/zip',
+    rar: 'application/vnd.rar',
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    png: 'image/png',
+    gif: 'image/gif',
+    webp: 'image/webp',
+    heic: 'image/heic',
+    heif: 'image/heif',
+    svg: 'image/svg+xml',
+    mp3: 'audio/mpeg',
+    wav: 'audio/wav',
+    m4a: 'audio/mp4',
+    mp4: 'video/mp4',
+  };
+  return map[ext] ?? null;
+}
+
+/** Browsers/OS enviam aliases; validateFileSignature usa MIME canónico. */
+function normalizeConversationDeclaredMime(raw: string): string {
+  const m = raw.split(';')[0].trim().toLowerCase();
+  const map: Record<string, string> = {
+    'image/jpg': 'image/jpeg',
+    'image/pjpeg': 'image/jpeg',
+    'image/x-png': 'image/png',
+    'audio/mp3': 'audio/mpeg',
+    'audio/x-mp3': 'audio/mpeg',
+    'audio/x-m4a': 'audio/mp4',
+    'audio/m4a': 'audio/mp4',
+    'application/x-pdf': 'application/pdf',
+    'audio/wave': 'audio/wav',
+    'audio/x-wav': 'audio/wav',
+  };
+  return map[m] ?? m;
+}
 
 @Controller('conversations')
 export class ConversationsController {
@@ -190,25 +251,42 @@ export class ConversationsController {
     const isPortal = req.user?.isPortal === true;
     const authorType = isPortal ? 'contact' : 'user';
     const contentRaw = (dto.content ?? '').trim();
-    let mediaKind: 'image' | 'audio' | 'video' | null = null;
+    let mediaKind: 'image' | 'audio' | 'video' | 'file' | null = null;
     let mediaStorageKey: string | null = null;
     let mediaMime: string | null = null;
     if (file?.path && (file.size ?? 0) > 0) {
-      const mime = file.mimetype || '';
+      const origName = String((file as { originalname?: string }).originalname || '');
+      let mime = normalizeConversationDeclaredMime(
+        String(file.mimetype || '')
+          .split(';')[0]
+          .trim(),
+      );
+      if (!mime || mime === 'application/octet-stream') {
+        const guessed = origName ? conversationMimeFromOriginalname(origName) : null;
+        if (guessed) mime = guessed;
+      }
       if (mime.startsWith('image/')) mediaKind = 'image';
       else if (mime.startsWith('audio/')) mediaKind = 'audio';
       else if (mime === 'video/mp4' || mime.startsWith('video/mp4;')) mediaKind = 'video';
       else if (mime.startsWith('video/'))
         throw new BadRequestException('Para vídeo no WhatsApp use MP4 (video/mp4).');
+      else if (CONVERSATION_DOCUMENT_MIMES.has(mime)) mediaKind = 'file';
       else
         throw new BadRequestException(
-          'Envie uma imagem, um áudio ou um vídeo MP4 (tipos: image/*, audio/*, video/mp4).',
+          'Tipo de arquivo não permitido (imagem, áudio, vídeo MP4, PDF, Office, CSV, TXT, ZIP, RAR).',
         );
-      const head = readFilePrefixSync(file.path, 12);
-      if (!validateFileSignature(head, mime)) {
+      const head = readFilePrefixSync(file.path, 512);
+      const resolvedMime =
+        mediaKind === 'file'
+          ? validateFileSignature(head, mime)
+            ? mime
+            : null
+          : resolveValidatedConversationMime(head, mime, mediaKind);
+      if (!resolvedMime) {
         await fs.promises.unlink(file.path).catch(() => {});
         throw new BadRequestException('Tipo de arquivo não permitido');
       }
+      mime = resolvedMime;
       mediaStorageKey = filePathToStorageKey(CONVERSATION_MEDIA_ROOT, file.path);
       mediaMime =
         mime ||
@@ -216,7 +294,15 @@ export class ConversationsController {
     }
     const display =
       contentRaw ||
-      (mediaKind === 'image' ? '📷 Imagem' : mediaKind === 'audio' ? '🎤 Áudio' : mediaKind === 'video' ? '📹 Vídeo' : '');
+      (mediaKind === 'image'
+        ? '📷 Imagem'
+        : mediaKind === 'audio'
+          ? '🎤 Áudio'
+          : mediaKind === 'video'
+            ? '📹 Vídeo'
+            : mediaKind === 'file'
+              ? '📎 Documento'
+              : '');
     if (!display && !mediaKind) {
       throw new BadRequestException('Mensagem vazia ou ficheiro em falta.');
     }

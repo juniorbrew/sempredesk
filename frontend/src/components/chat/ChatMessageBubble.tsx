@@ -84,6 +84,69 @@ type ChatPalette = {
   replyBtn: string;
 };
 
+/** Classificação para bolha do Atendimento: áudio/imagem/vídeo inalterados; resto → arquivo compacto. */
+type BubbleMediaKind = 'image' | 'audio' | 'video' | 'file' | null;
+
+function resolveBubbleMediaKind(m: {
+  hasMedia?: boolean;
+  mediaKind?: string | null;
+  mediaMime?: string | null;
+  attachments?: Array<{ kind?: string; mime?: string | null }> | null;
+}): BubbleMediaKind {
+  let has = !!(m.hasMedia || m.mediaKind);
+  let mediaMime = m.mediaMime;
+  let mk = m.mediaKind;
+  const att0 = Array.isArray(m.attachments) && m.attachments.length ? m.attachments[0] : null;
+  if (!has && att0?.kind === 'ticket_reply_file' && att0.mime) {
+    has = true;
+    mediaMime = att0.mime;
+    mk = null;
+  }
+  if (!has) return null;
+  const mkStr = String(mk || '').toLowerCase();
+  const mime = String(mediaMime || '').toLowerCase().split(';')[0].trim();
+  if (mkStr === 'audio' || mime.startsWith('audio/')) return 'audio';
+  if (mkStr === 'image' || mime.startsWith('image/')) return 'image';
+  if (mkStr === 'video' || mime.startsWith('video/')) return 'video';
+  if (mkStr === 'file') return 'file';
+  if (mime && !mime.startsWith('image/') && !mime.startsWith('audio/') && !mime.startsWith('video/')) return 'file';
+  return null;
+}
+
+function bubbleFileTypeLabel(mime: string): string {
+  const m = String(mime || '').toLowerCase().split(';')[0].trim();
+  if (m === 'application/pdf' || m === 'application/x-pdf') return 'PDF';
+  if (m.includes('wordprocessingml.document') || m === 'application/msword') return 'Documento';
+  if (m.includes('spreadsheetml.sheet') || m.includes('ms-excel') || m === 'text/csv' || m === 'application/csv') return 'Planilha';
+  if (m === 'application/zip' || m === 'application/x-zip-compressed') return 'ZIP';
+  if (m === 'application/x-rar-compressed' || m === 'application/vnd.rar') return 'RAR';
+  if (m === 'text/plain') return 'Arquivo TXT';
+  return 'Arquivo';
+}
+
+function bubbleFileDownloadName(m: { content?: string | null; mediaMime?: string | null }): string {
+  const line = String(m.content || '')
+    .trim()
+    .split('\n')
+    .pop()
+    ?.trim();
+  if (line && line.length <= 200 && /\.[a-z0-9]{2,8}$/i.test(line) && !/[\\/:*?"<>|\r\n]/.test(line)) {
+    return line;
+  }
+  const mime = String(m.mediaMime || '').toLowerCase().split(';')[0].trim();
+  let ext = 'bin';
+  if (mime === 'application/pdf') ext = 'pdf';
+  else if (mime.includes('wordprocessingml.document')) ext = 'docx';
+  else if (mime === 'application/msword') ext = 'doc';
+  else if (mime.includes('spreadsheetml.sheet')) ext = 'xlsx';
+  else if (mime.includes('ms-excel')) ext = 'xls';
+  else if (mime === 'text/csv' || mime === 'application/csv') ext = 'csv';
+  else if (mime === 'text/plain') ext = 'txt';
+  else if (mime === 'application/zip' || mime === 'application/x-zip-compressed') ext = 'zip';
+  else if (mime === 'application/x-rar-compressed' || mime === 'application/vnd.rar') ext = 'rar';
+  return `anexo.${ext}`;
+}
+
 function chatPalette(theme: 'light' | 'dark'): ChatPalette {
   if (theme === 'dark') {
     return {
@@ -151,12 +214,15 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
   const t = useMemo(() => new Date(m.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }), [m.createdAt]);
   const localPreview = m._localPreviewUrl as string | undefined;
   const resolvedMediaSrc = mediaUrl || localPreview || null;
-  const showMedia =
-    (m.hasMedia || m.mediaKind === 'image' || m.mediaKind === 'audio' || m.mediaKind === 'video') &&
-    (m.mediaKind === 'image' || m.mediaKind === 'audio' || m.mediaKind === 'video');
+  const bubbleMedia = resolveBubbleMediaKind(m);
+  const showMedia = bubbleMedia !== null;
   const mediaLoading = showMedia && !resolvedMediaSrc && !m._optimistic;
   const hidePlaceholderCaption =
-    !!resolvedMediaSrc && (m.content === '📷 Imagem' || m.content === '🎤 Áudio' || m.content === '📹 Vídeo');
+    !!resolvedMediaSrc &&
+    (m.content === '📷 Imagem' ||
+      m.content === '🎤 Áudio' ||
+      m.content === '📹 Vídeo' ||
+      m.content === '📎 Documento');
   const showCaption = !!(m.content && !hidePlaceholderCaption);
 
   const bubbleMax = density === 'compact' ? 580 : 520;
@@ -335,12 +401,14 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
                     ? '🎤 Áudio'
                     : m.replyTo.mediaKind === 'video'
                       ? '📹 Vídeo'
-                      : m.replyTo.content}
+                      : m.replyTo.mediaKind === 'file'
+                        ? '📎 Documento'
+                        : m.replyTo.content}
               </div>
             </div>
           )}
 
-          {m.mediaKind === 'image' && resolvedMediaSrc && (
+          {bubbleMedia === 'image' && resolvedMediaSrc && (
             <div style={{ maxWidth: '100%', minWidth: 0 }}>
               <InlineChatMedia
                 src={resolvedMediaSrc}
@@ -355,7 +423,7 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
               />
             </div>
           )}
-          {m.mediaKind === 'audio' && resolvedMediaSrc && (
+          {bubbleMedia === 'audio' && resolvedMediaSrc && (
             <div
               style={{
                 marginBottom: showCaption ? replyMb : 0,
@@ -368,7 +436,7 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
               <AudioMessagePlayer src={resolvedMediaSrc} variant={isContact ? 'received' : 'sent'} density={density} />
             </div>
           )}
-          {m.mediaKind === 'video' && resolvedMediaSrc && (
+          {bubbleMedia === 'video' && resolvedMediaSrc && (
             <div style={{ maxWidth: '100%', minWidth: 0 }}>
               <InlineChatMedia
                 src={resolvedMediaSrc}
@@ -381,6 +449,51 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
                   borderRadius: density === 'compact' ? 6 : 8,
                 }}
               />
+            </div>
+          )}
+          {bubbleMedia === 'file' && resolvedMediaSrc && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: density === 'compact' ? 5 : 6,
+                marginBottom: showCaption ? replyMb : 0,
+                maxWidth: '100%',
+                minWidth: 0,
+              }}
+            >
+              <span style={{ fontSize: density === 'compact' ? 12 : 13, fontWeight: 600, color: bubbleBase.color }}>
+                {bubbleFileTypeLabel(String(m.mediaMime || ''))}
+              </span>
+              <span style={{ fontSize: 11, color: P.loadingText }}>—</span>
+              <a
+                href={resolvedMediaSrc}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  fontSize: density === 'compact' ? 12 : 13,
+                  fontWeight: 700,
+                  color: isContact ? '#0D9488' : '#5B21B6',
+                  textDecoration: 'none',
+                }}
+              >
+                Abrir
+              </a>
+              <span style={{ fontSize: 11, color: P.loadingText }}>•</span>
+              <a
+                href={resolvedMediaSrc}
+                download={bubbleFileDownloadName(m)}
+                rel="noopener"
+                style={{
+                  fontSize: density === 'compact' ? 12 : 13,
+                  fontWeight: 700,
+                  color: isContact ? '#0D9488' : '#5B21B6',
+                  textDecoration: 'none',
+                }}
+              >
+                Baixar
+              </a>
             </div>
           )}
           {mediaLoading && (

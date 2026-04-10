@@ -832,7 +832,7 @@ export class ConversationsService {
       skipOutbound?: boolean;
       initialWhatsappStatus?: string;
       initialExternalId?: string | null;
-      mediaKind?: 'image' | 'audio' | 'video' | null;
+      mediaKind?: 'image' | 'audio' | 'video' | 'file' | null;
       mediaStorageKey?: string | null;
       mediaMime?: string | null;
       /** Texto real do usuário para usar como caption no WhatsApp (sem emoji de placeholder). */
@@ -944,9 +944,11 @@ export class ConversationsService {
               ? '[Áudio]'
               : saved.mediaKind === 'video'
                 ? '[Vídeo]' + (content ? `: ${content.slice(0, 40)}` : '')
-                : content.length > 80
-                ? `${content.slice(0, 77)}…`
-                : content || '(mensagem)';
+                : saved.mediaKind === 'file'
+                  ? '[Documento]' + (content ? `: ${content.slice(0, 40)}` : '')
+                  : content.length > 80
+                    ? `${content.slice(0, 77)}…`
+                    : content || '(mensagem)';
         this.realtimeEmitter.emitTenantTicketMessageNotify(tenantId, {
           ticketId: conv.ticketId!,
           ticketNumber: tk.ticketNumber,
@@ -968,9 +970,11 @@ export class ConversationsService {
               ? '[Áudio]'
               : saved.mediaKind === 'video'
                 ? '[Vídeo]' + (content ? `: ${content.slice(0, 40)}` : '')
-                : content.length > 80
-                ? content.slice(0, 77) + '…'
-                : content,
+                : saved.mediaKind === 'file'
+                  ? '[Documento]' + (content ? `: ${content.slice(0, 40)}` : '')
+                  : content.length > 80
+                    ? content.slice(0, 77) + '…'
+                    : content,
       });
     }
 
@@ -989,15 +993,29 @@ export class ConversationsService {
               opts?.mediaKind && opts?.mediaStorageKey
                 ? path.join(this.mediaRoot, opts.mediaStorageKey)
                 : null;
-            const outboundPayload =
-              opts?.mediaKind && absMedia && await fs.promises.access(absMedia).then(() => true).catch(() => false)
-                ? {
-                    kind: opts.mediaKind,
-                    filePath: absMedia,
-                    caption: (opts && 'mediaCaption' in opts) ? (opts.mediaCaption || undefined) : (content || undefined),
-                    mime: opts.mediaMime || undefined,
-                  }
-                : content;
+            const mediaPathOk =
+              opts?.mediaKind &&
+              opts.mediaKind !== 'file' &&
+              absMedia &&
+              (await fs.promises.access(absMedia).then(() => true).catch(() => false));
+            const cap = ((opts && 'mediaCaption' in opts ? opts.mediaCaption : null) || '').trim();
+            let outboundPayload:
+              | string
+              | { kind: 'image' | 'audio' | 'video'; filePath: string; caption?: string; mime?: string };
+            if (opts?.mediaKind === 'file') {
+              outboundPayload = cap
+                ? `📎 Documento anexado: ${cap}\n(O ficheiro completo fica no historico desta conversa no painel.)`
+                : '📎 Documento anexado. O ficheiro completo esta no historico desta conversa no painel.';
+            } else if (mediaPathOk && opts?.mediaKind) {
+              outboundPayload = {
+                kind: opts.mediaKind as 'image' | 'audio' | 'video',
+                filePath: absMedia!,
+                caption: (opts && 'mediaCaption' in opts) ? (opts.mediaCaption || undefined) : (content || undefined),
+                mime: opts.mediaMime || undefined,
+              };
+            } else {
+              outboundPayload = content;
+            }
             // Resolve mensagem citada para reply nativo no WhatsApp
             let quotedMsg: { externalId: string; content: string; fromMe: boolean } | null = null;
             if (opts?.replyToId) {

@@ -15,7 +15,17 @@ import {
   HttpStatus,
   Logger,
   RawBodyRequest,
+  Param,
+  UploadedFile,
+  UseInterceptors,
+  BadRequestException,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { Throttle } from '@nestjs/throttler';
+import { ticketItem4AttachmentsDiskStorage } from '../../common/utils/multer-disk-storage.util';
+import { StorageQuotaGuard } from '../../common/guards/storage-quota.guard';
+import { UploadThrottlerGuard } from '../../common/guards/upload-throttler.guard';
+import { StorageQuotaService } from '../storage/storage-quota.service';
 import { Observable } from 'rxjs';
 import { Response, Request as ExpressRequest } from 'express';
 import { createHmac, timingSafeEqual } from 'crypto';
@@ -34,6 +44,7 @@ export class WhatsappController {
   constructor(
     private readonly whatsappService: WhatsappService,
     private readonly baileysService: BaileysService,
+    private readonly quotaService: StorageQuotaService,
   ) {}
 
   // ── Meta webhook verification (GET) ──────────────────────────────────
@@ -157,6 +168,49 @@ export class WhatsappController {
       return { success: false, message: 'tenantId, ticketId e text são obrigatórios' };
     }
     return this.whatsappService.sendReplyFromTicket(tenantId, body.ticketId, userId, userName, body.text.trim(), body.replyToId ?? null);
+  }
+
+  /** Ticket WhatsApp sem conversa: multipart `file` + opcional `content` / `replyToId` — envia WA e grava em ticket_messages. */
+  @UseGuards(JwtAuthGuard, PermissionsGuard, StorageQuotaGuard, UploadThrottlerGuard)
+  @RequirePermission('ticket.reply')
+  @Throttle({ upload: { limit: parseInt(process.env.UPLOAD_RATE_LIMIT ?? '30', 10) || 30, ttl: 60_000 } })
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: ticketItem4AttachmentsDiskStorage(),
+      limits: { fileSize: 16 * 1024 * 1024 },
+    }),
+  )
+  @Post('send-media-from-ticket/:ticketId')
+  async sendMediaFromTicket(
+    @Request() req: any,
+    @TenantId() tenantId: string,
+    @Param('ticketId') ticketId: string,
+    @Body('content') content?: string,
+    @Body('replyToId') replyToId?: string,
+    @UploadedFile() file?: { path?: string; mimetype?: string; originalname?: string; size?: number },
+  ) {
+    if (!file?.path || (file.size ?? 0) <= 0) {
+      throw new BadRequestException('Envie o ficheiro no campo file.');
+    }
+    const userId = req.user?.id || req.user?.sub;
+    const userName = req.user?.name || req.user?.email || 'Equipe';
+    const result = await this.whatsappService.sendMediaReplyFromTicket(
+      tenantId,
+      ticketId,
+      userId,
+      userName,
+      { path: file.path, mimetype: file.mimetype, originalname: file.originalname, size: file.size },
+      { content: content ?? undefined, replyToId: replyToId ?? null },
+    );
+    this.logger.log(JSON.stringify({
+      event: 'upload.whatsapp_ticket_media',
+      tenantId,
+      ticketId,
+      sizeBytes: file.size,
+      mime: file.mimetype,
+    }));
+    this.quotaService.invalidateCache(tenantId);
+    return result;
   }
 
   // ──────────────────────────────────────────────────────────────────────

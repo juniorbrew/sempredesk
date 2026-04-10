@@ -7,7 +7,7 @@ import { useAuthStore, hasPermission } from '@/store/auth.store';
 import {
   MessageSquare, Send, Phone, RefreshCw, Lock, ExternalLink, Plus, Link2, Globe,
   Check, Search, X, CheckCircle2, User, Mail, MapPin, Building2, Hash, Tag, Edit2,
-  Paperclip, Image as ImageIcon, Mic, StopCircle, Video, ChevronLeft, ChevronRight,
+  Paperclip, Mic, StopCircle, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { EmojiPicker } from '@/components/ui/EmojiPicker';
 import ContactValidationBanner, { type ResolvedData } from '@/components/atendimento/ContactValidationBanner';
@@ -67,6 +67,35 @@ function avatarColor(name: string) {
   return COLORS[Math.abs(hash) % COLORS.length];
 }
 
+/** Accept do composer + validação alinhada ao backend (conversations POST). */
+const CHAT_DOCUMENT_ACCEPT =
+  '.pdf,.txt,.doc,.docx,.xls,.xlsx,.csv,.zip,.rar,application/pdf,text/plain,text/csv,application/csv,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/zip,application/x-zip-compressed,application/x-rar-compressed,application/vnd.rar';
+const CHAT_FULL_FILE_ACCEPT = `image/*,audio/*,video/mp4,${CHAT_DOCUMENT_ACCEPT}`;
+const CHAT_DOC_EXT = new Set(['pdf', 'txt', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'zip', 'rar']);
+const CHAT_DOC_MIME = new Set([
+  'application/pdf',
+  'text/plain',
+  'text/csv',
+  'application/csv',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/zip',
+  'application/x-zip-compressed',
+  'application/x-rar-compressed',
+  'application/vnd.rar',
+]);
+
+function isAllowedChatAttachmentFile(f: File): boolean {
+  if (f.type.startsWith('image/') || f.type.startsWith('audio/')) return true;
+  if (f.type === 'video/mp4' || f.type.startsWith('video/mp4;')) return true;
+  const t = f.type.split(';')[0].trim().toLowerCase();
+  if (t && CHAT_DOC_MIME.has(t)) return true;
+  const ext = f.name.split('.').pop()?.toLowerCase() ?? '';
+  return CHAT_DOC_EXT.has(ext);
+}
+
 // ── sub-components ────────────────────────────────────────────────────────────
 function ChannelDot({ channel }: { channel: string }) {
   const isWa = channel === 'whatsapp';
@@ -87,8 +116,6 @@ function ChannelDot({ channel }: { channel: string }) {
 }
 
 // ── main component ────────────────────────────────────────────────────────────
-type AttachmentKind = 'image' | 'audio' | 'video';
-
 type ChatComposerProps = {
   accentColor: string;
   borderColor: string;
@@ -107,6 +134,7 @@ type ChatComposerProps = {
   onSubmit: (e: React.FormEvent) => void;
   onInputChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
   onInputKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+  onComposerPaste: (e: React.ClipboardEvent<HTMLTextAreaElement>) => void;
   onPendingFileChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onRecordedAudio: (file: File) => void;
   onRemovePendingFile: () => void;
@@ -133,6 +161,7 @@ function ChatComposer({
   onSubmit,
   onInputChange,
   onInputKeyDown,
+  onComposerPaste,
   onPendingFileChange,
   onRecordedAudio,
   onRemovePendingFile,
@@ -140,27 +169,14 @@ function ChatComposer({
   replyingTo,
   onCancelReply,
 }: ChatComposerProps) {
-  const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [recordingError, setRecordingError] = useState('');
-  const attachmentMenuRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const shouldSaveRecordingRef = useRef(false);
-
-  useEffect(() => {
-    if (!showAttachmentMenu) return;
-    const handleOutsideClick = (event: MouseEvent) => {
-      if (!attachmentMenuRef.current?.contains(event.target as Node)) {
-        setShowAttachmentMenu(false);
-      }
-    };
-    document.addEventListener('mousedown', handleOutsideClick);
-    return () => document.removeEventListener('mousedown', handleOutsideClick);
-  }, [showAttachmentMenu]);
 
   const clearRecordingTimer = useCallback(() => {
     if (recordingTimerRef.current) {
@@ -215,17 +231,11 @@ function ChatComposer({
     }
   }, [conversationScopeKey, disposeRecorder, resetRecordingState, stopMediaStream]);
 
-  const openFilePicker = useCallback((kind: AttachmentKind) => {
+  const openAttachmentPicker = useCallback(() => {
     const input = attachFileInputRef.current;
     if (!input) return;
-    input.accept =
-      kind === 'image'
-        ? 'image/*'
-        : kind === 'audio'
-          ? 'audio/*'
-          : 'video/mp4';
+    input.accept = CHAT_FULL_FILE_ACCEPT;
     input.click();
-    setShowAttachmentMenu(false);
   }, [attachFileInputRef]);
 
   const finalizeRecording = useCallback((saveRecording: boolean) => {
@@ -254,7 +264,6 @@ function ChatComposer({
 
     try {
       setRecordingError('');
-      setShowAttachmentMenu(false);
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaStreamRef.current = stream;
       audioChunksRef.current = [];
@@ -323,11 +332,6 @@ function ChatComposer({
     }
   }, [canSend, disposeRecorder, isRecording, isSending, onRecordedAudio, pendingFile, resetRecordingState, stopMediaStream]);
 
-  const attachmentOptions: Array<{ kind: AttachmentKind; label: string; icon: ReactNode; description: string }> = [
-    { kind: 'image', label: 'Imagem', icon: <ImageIcon size={15} strokeWidth={2} />, description: 'Enviar imagem' },
-    { kind: 'audio', label: 'Audio', icon: <Mic size={15} strokeWidth={2} />, description: 'Enviar audio' },
-    { kind: 'video', label: 'Video MP4', icon: <Video size={15} strokeWidth={2} />, description: 'Enviar video MP4' },
-  ];
   const recordingLabel = `${String(Math.floor(recordingSeconds / 60)).padStart(2, '0')}:${String(recordingSeconds % 60).padStart(2, '0')}`;
   const showMicButton = canSend && !isSending && !inputValue.trim() && !pendingFile && !isRecording;
 
@@ -336,7 +340,7 @@ function ChatComposer({
       <input
         ref={attachFileInputRef}
         type="file"
-        accept="image/*,audio/*,video/mp4"
+        accept={CHAT_FULL_FILE_ACCEPT}
         style={{ display: 'none' }}
         onChange={onPendingFileChange}
       />
@@ -359,6 +363,7 @@ function ChatComposer({
                 {replyingTo.mediaKind === 'image' ? '📷 Imagem'
                   : replyingTo.mediaKind === 'audio' ? '🎤 Áudio'
                   : replyingTo.mediaKind === 'video' ? '📹 Vídeo'
+                  : replyingTo.mediaKind === 'file' ? '📎 Documento'
                   : replyingTo.content}
               </div>
             </div>
@@ -373,90 +378,31 @@ function ChatComposer({
           </div>
         )}
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, padding: '12px 16px' }}>
-          <div ref={attachmentMenuRef} style={{ position: 'relative', flexShrink: 0 }}>
-            <button
-              type="button"
-              onClick={() => setShowAttachmentMenu((open) => !open)}
-              disabled={!canSend || isSending || isRecording}
-              title="Anexos"
-              style={{
-                width: 40,
-                height: 40,
-                borderRadius: 11,
-                border: '1px solid rgba(0,0,0,.08)',
-                background: !canSend || isSending || isRecording ? '#F1F5F9' : '#F8FAFC',
-                color: !canSend || isSending || isRecording ? '#94A3B8' : mutedTextColor,
-                cursor: !canSend || isSending || isRecording ? 'not-allowed' : 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                transition: 'background .15s, border-color .15s',
-              }}
-            >
-              <Paperclip size={16} strokeWidth={2} />
-            </button>
-
-            {showAttachmentMenu && (
-              <div
-                style={{
-                  position: 'absolute',
-                  bottom: 48,
-                  left: 0,
-                  minWidth: 210,
-                  padding: 8,
-                  borderRadius: 14,
-                  background: '#FFFFFF',
-                  border: '1px solid rgba(0,0,0,.08)',
-                  boxShadow: '0 18px 42px rgba(15,23,42,.18)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 4,
-                  zIndex: 20,
-                }}
-              >
-                {attachmentOptions.map((option) => (
-                  <button
-                    key={option.kind}
-                    type="button"
-                    onClick={() => openFilePicker(option.kind)}
-                    style={{
-                      border: 'none',
-                      background: 'transparent',
-                      borderRadius: 10,
-                      padding: '9px 10px',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 10,
-                      textAlign: 'left',
-                      color: textColor,
-                      fontFamily: 'inherit',
-                    }}
-                  >
-                    <span
-                      style={{
-                        width: 28,
-                        height: 28,
-                        borderRadius: 9,
-                        background: '#EEF2FF',
-                        color: accentColor,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        flexShrink: 0,
-                      }}
-                    >
-                      {option.icon}
-                    </span>
-                    <span style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                      <span style={{ fontSize: 13, fontWeight: 600 }}>{option.label}</span>
-                      <span style={{ fontSize: 11, color: mutedTextColor }}>{option.description}</span>
-                    </span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          <button
+            type="button"
+            onClick={() => {
+              if (!canSend || isSending || isRecording) return;
+              openAttachmentPicker();
+            }}
+            disabled={!canSend || isSending || isRecording}
+            title="Anexar arquivo (imagem, audio, video MP4, documentos)"
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 11,
+              border: '1px solid rgba(0,0,0,.08)',
+              background: !canSend || isSending || isRecording ? '#F1F5F9' : '#F8FAFC',
+              color: !canSend || isSending || isRecording ? '#94A3B8' : mutedTextColor,
+              cursor: !canSend || isSending || isRecording ? 'not-allowed' : 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+              transition: 'background .15s, border-color .15s',
+            }}
+          >
+            <Paperclip size={16} strokeWidth={2} />
+          </button>
 
           <div style={{ flex: 1, minWidth: 0 }}>
             {recordingError && (
@@ -518,6 +464,7 @@ function ChatComposer({
                 value={inputValue}
                 onChange={onInputChange}
                 onKeyDown={onInputKeyDown}
+                onPaste={onComposerPaste}
                 placeholder={canSend ? (isWhatsapp ? 'Mensagem WhatsApp... (Enter para enviar)' : 'Digite sua mensagem...') : 'Conversa indisponivel para envio'}
                 disabled={!canSend || isRecording}
                 rows={1}
@@ -1536,9 +1483,11 @@ export default function AtendimentoPage() {
     const previewKind = file
       ? (file.type.startsWith('audio/')
           ? 'audio'
-          : file.type.startsWith('video/')
+          : file.type === 'video/mp4' || file.type.startsWith('video/mp4;')
             ? 'video'
-            : 'image')
+            : file.type.startsWith('image/')
+              ? 'image'
+              : 'file')
       : null;
     const localPreviewUrl = file ? URL.createObjectURL(file) : null;
     setMessages(m => [...m, {
@@ -1547,7 +1496,15 @@ export default function AtendimentoPage() {
       authorName: 'Você',
       content:
         text ||
-        (previewKind === 'image' ? '📷 Imagem' : previewKind === 'audio' ? '🎤 Áudio' : previewKind === 'video' ? '📹 Vídeo' : ''),
+        (previewKind === 'image'
+          ? '📷 Imagem'
+          : previewKind === 'audio'
+            ? '🎤 Áudio'
+            : previewKind === 'video'
+              ? '📹 Vídeo'
+              : previewKind === 'file'
+                ? '📎 Documento'
+                : ''),
       createdAt: new Date().toISOString(),
       whatsappStatus: channel === 'whatsapp' ? 'sending' : null,
       _optimistic: true,
@@ -1573,21 +1530,30 @@ export default function AtendimentoPage() {
     try {
       let res: any;
       if (file) {
-        // Sempre POST em /conversations/:conversationId/messages — precisamos do UUID da conversa.
-        // Linha "ticket" no inbox: id pode ser ticket:...; usar conversationId do ticket carregado.
         const convTarget = !isTicketType
           ? selected.id
           : (currentTicket?.conversationId ?? selected?.conversationId ?? null);
-        if (!convTarget) {
-          throw new Error('Conversa não encontrada para enviar ficheiro. Vincule ou abra a conversa do ticket.');
+        if (convTarget) {
+          res = await api.addConversationMessage(convTarget, { content: text || undefined, file, replyToId: currentReplyingTo?.id ?? null });
+        } else if (isTicketType && ticketId && channel === 'whatsapp') {
+          res = await api.sendWhatsappMediaFromTicket(ticketId, {
+            file,
+            content: text || undefined,
+            replyToId: currentReplyingTo?.id ?? null,
+          });
+        } else {
+          throw new Error(
+            'Conversa não encontrada para enviar ficheiro. Vincule a conversa ao ticket ou use um ticket WhatsApp sem conversa (envio direto).',
+          );
         }
-        res = await api.addConversationMessage(convTarget, { content: text || undefined, file, replyToId: currentReplyingTo?.id ?? null });
+      } else if (channel === 'whatsapp' && whatsappConvId) {
+        // Texto (e fluxo igual ao anexo): conversa real — dispara outbound WhatsApp. Tem prioridade sobre
+        // `addMessage` do ticket, senão a linha "ticket" no inbox só gravava comentário e não enviava ao contato.
+        res = await api.addConversationMessage(whatsappConvId, { content: text, replyToId: currentReplyingTo?.id ?? null });
+      } else if (channel === 'whatsapp' && ticketId && !whatsappConvId) {
+        res = await api.sendWhatsappFromTicket(ticketId, text, currentReplyingTo?.id ?? null);
       } else if (isTicketType && ticketId) {
         res = await api.addMessage(ticketId, { content: text, messageType: 'comment' });
-      } else if (channel === 'whatsapp' && whatsappConvId) {
-        res = await api.addConversationMessage(whatsappConvId, { content: text, replyToId: currentReplyingTo?.id ?? null });
-      } else if (channel === 'whatsapp' && ticketId) {
-        res = await api.sendWhatsappFromTicket(ticketId, text, currentReplyingTo?.id ?? null);
       } else {
         res = await api.addConversationMessage(selected.id, { content: text, replyToId: currentReplyingTo?.id ?? null });
       }
@@ -1600,11 +1566,17 @@ export default function AtendimentoPage() {
         : null;
 
       if (real?.id) {
+        // Mensagens vindas de ticket_messages (send-from-ticket) não têm whatsappStatus; o WA já foi enviado.
+        const ticketRow = (real as any).messageType != null;
+        const withStatus =
+          channel === 'whatsapp' && ticketRow && (real as any).whatsappStatus == null
+            ? { ...real, whatsappStatus: 'sent' as const }
+            : real;
         // Substitui otimista pelo objeto real em-place — sem flash, sem reload
         setMessages(m => m.map(msg => {
           if (msg.id !== tempId) return msg;
           if (msg._localPreviewUrl) URL.revokeObjectURL(msg._localPreviewUrl);
-          return { ...real };
+          return { ...withStatus };
         }));
         // Socket também entrega via ticket:message / conversation:message; dedup por ID evita duplicar
       } else {
@@ -1652,25 +1624,75 @@ export default function AtendimentoPage() {
     });
   };
 
+  // ── derived (envio / composer — antes de hooks que usam canSend) ──
+  const hasTicket = !!selected?.ticketId || isTicketType;
+  const isClosed = selected?.status === 'closed';
+  const isWhatsapp = selected?.channel === 'whatsapp';
+  const isPortalNoTicket = selected?.channel === 'portal' && !hasTicket && selected?.status !== 'closed';
+  const isConvNoTicket = !isTicketType && !hasTicket && !!selected?.id && selected?.status !== 'closed';
+  const canSend = hasTicket || isPortalNoTicket || isConvNoTicket;
+  const ticketIdForRealtime = isTicketType ? (selected?.ticketId || selected?.id?.replace?.(/^ticket:/, '')) : null;
+  const conversationIdForRealtime = !isTicketType ? selected?.id : null;
+
+  /** Mesmo critério do input file: um anexo pendente, validação centralizada. */
+  const acceptPendingAttachmentFile = useCallback(
+    (f: File): boolean => {
+      if (!isAllowedChatAttachmentFile(f)) {
+        showToast('Arquivo nao permitido (imagem, audio, video MP4 ou documentos listados).', 'error');
+        return false;
+      }
+      setPendingFile(f);
+      if (attachFileInputRef.current) attachFileInputRef.current.value = '';
+      return true;
+    },
+    [],
+  );
+
   const handlePendingFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     if (!f) return;
-    const ok =
-      f.type.startsWith('image/') ||
-      f.type.startsWith('audio/') ||
-      f.type === 'video/mp4' ||
-      f.type.startsWith('video/mp4;');
-    if (!ok) {
-      showToast('Envie imagem, audio ou video MP4.', 'error');
-      e.target.value = '';
-      return;
-    }
-    setPendingFile(f);
+    if (!acceptPendingAttachmentFile(f)) e.target.value = '';
   };
 
+  /** Ctrl+V / colar: só `image/*` do clipboard → mesmo fluxo que anexo pendente. */
+  const handleComposerPaste = useCallback(
+    (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+      if (!canSend || sending || pendingFile) return;
+      const items = e.clipboardData?.items;
+      if (!items?.length) return;
+      for (let i = 0; i < items.length; i++) {
+        const it = items[i];
+        if (it.kind !== 'file') continue;
+        const mimeRaw = (it.type || '').split(';')[0].trim().toLowerCase();
+        if (!mimeRaw.startsWith('image/')) continue;
+        const blob = it.getAsFile();
+        if (!blob || blob.size <= 0) continue;
+        e.preventDefault();
+        const ext =
+          mimeRaw === 'image/png'
+            ? 'png'
+            : mimeRaw === 'image/webp'
+              ? 'webp'
+              : mimeRaw === 'image/gif'
+                ? 'gif'
+                : mimeRaw === 'image/jpeg' || mimeRaw === 'image/jpg'
+                  ? 'jpg'
+                  : mimeRaw === 'image/bmp' || mimeRaw === 'image/x-ms-bmp'
+                    ? 'bmp'
+                    : 'png';
+        const rawName = blob.name?.trim();
+        const name =
+          rawName && rawName.length > 0 && /\.[a-z0-9]{2,8}$/i.test(rawName) ? rawName : `print-${Date.now()}.${ext}`;
+        const file = new File([blob], name, { type: blob.type || mimeRaw || 'image/png' });
+        acceptPendingAttachmentFile(file);
+        return;
+      }
+    },
+    [acceptPendingAttachmentFile, canSend, pendingFile, sending],
+  );
+
   const handleRecordedAudio = (file: File) => {
-    setPendingFile(file);
-    if (attachFileInputRef.current) attachFileInputRef.current.value = '';
+    acceptPendingAttachmentFile(file);
   };
 
   const clearPendingFile = () => {
@@ -1701,18 +1723,6 @@ export default function AtendimentoPage() {
       sendMessage(e as unknown as React.FormEvent);
     }
   };
-
-  // ── derived ──
-  const hasTicket = !!selected?.ticketId || isTicketType;
-  const isClosed = selected?.status === 'closed';
-  const isWhatsapp = selected?.channel === 'whatsapp';
-  const isPortalNoTicket = selected?.channel === 'portal' && !hasTicket && selected?.status !== 'closed';
-  // Conversa WhatsApp/canal sem ticket — ainda sem ticket vinculado (usado para exibição de estado)
-  const isConvNoTicket = !isTicketType && !hasTicket && !!selected?.id && selected?.status !== 'closed';
-  // Conversas ativas podem continuar trocando mensagens mesmo sem ticket vinculado.
-  const canSend = hasTicket || isPortalNoTicket || isConvNoTicket;
-  const ticketIdForRealtime = isTicketType ? (selected?.ticketId || selected?.id?.replace?.(/^ticket:/, '')) : null;
-  const conversationIdForRealtime = !isTicketType ? selected?.id : null;
 
   // IDs das mensagens que contêm a query de busca (excluindo internas e de sistema)
   const msgMatchIds: string[] = (() => {
@@ -1774,13 +1784,30 @@ export default function AtendimentoPage() {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
+      const sel = selectedRef.current;
+      const ticketRow = sel?.type === 'ticket' || sel?.id?.startsWith?.('ticket:');
+      const ticketIdForAtt = ticketRow
+        ? (sel?.ticketId || sel?.id?.replace?.(/^ticket:/, ''))
+        : null;
       for (const m of messages) {
         if (!m?.id || m._optimistic || String(m.id).startsWith('_opt')) continue;
-        if (!(m.hasMedia || m.mediaKind === 'image' || m.mediaKind === 'audio' || m.mediaKind === 'video')) continue;
+        const ticketFileAtt = Array.isArray(m.attachments)
+          ? m.attachments.find((a: any) => a?.kind === 'ticket_reply_file' && a?.id)
+          : null;
+        const convMedia =
+          m.hasMedia ||
+          m.mediaKind === 'image' ||
+          m.mediaKind === 'audio' ||
+          m.mediaKind === 'video' ||
+          m.mediaKind === 'file';
+        if (!ticketFileAtt && !convMedia) continue;
         if (messageMediaUrlsRef.current[m.id] || mediaInFlightRef.current.has(String(m.id))) continue;
         mediaInFlightRef.current.add(String(m.id));
         try {
-          const blob = await api.getConversationMessageMediaBlob(m.id);
+          const blob =
+            ticketFileAtt && ticketIdForAtt
+              ? await api.getTicketReplyAttachmentBlob(ticketIdForAtt, ticketFileAtt.id)
+              : await api.getConversationMessageMediaBlob(m.id);
           const url = URL.createObjectURL(blob);
           // Não verifica `cancelled` aqui: o fetch já completou com sucesso.
           // Se a conversa trocou, o effect de selected?.id já limpou messageMediaUrls,
@@ -2542,6 +2569,7 @@ export default function AtendimentoPage() {
                     onSubmit={sendMessage}
                     onInputChange={handleComposerInputChange}
                     onInputKeyDown={handleComposerKeyDown}
+                    onComposerPaste={handleComposerPaste}
                     onPendingFileChange={handlePendingFileChange}
                     onRecordedAudio={handleRecordedAudio}
                     onRemovePendingFile={clearPendingFile}

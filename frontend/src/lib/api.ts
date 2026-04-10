@@ -99,6 +99,18 @@ class ApiClient {
     this.client.get(`/tickets/${ticketId}/reply-attachments/${attachmentId}/media`, { responseType: 'blob' });
   sendWhatsappFromTicket = (ticketId: string, text: string, replyToId?: string | null) =>
     this.client.post('/webhooks/whatsapp/send-from-ticket', { ticketId, text, replyToId: replyToId ?? undefined });
+  /** Ticket WhatsApp sem conversa: multipart com `file` (mesmos tipos do chat); envia WA e grava em ticket_messages. */
+  sendWhatsappMediaFromTicket = (
+    ticketId: string,
+    data: { file: File; content?: string; replyToId?: string | null },
+  ) => {
+    const fd = new FormData();
+    const c = (data.content ?? '').trim();
+    if (c) fd.append('content', c);
+    if (data.replyToId) fd.append('replyToId', data.replyToId);
+    fd.append('file', data.file);
+    return this.client.post(`/webhooks/whatsapp/send-media-from-ticket/${ticketId}`, fd);
+  };
   checkWhatsappNumber = (phone: string) =>
     this.client.post('/webhooks/whatsapp/check-number', { phone });
   searchCustomers = (q: string) => this.client.get('/customers/search', { params: { q } });

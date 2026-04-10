@@ -15,10 +15,74 @@ import { ConversationsService } from '../conversations/conversations.service';
 import { RealtimePresenceService } from '../realtime/realtime-presence.service';
 import { BaileysService } from './baileys.service';
 import { ChatbotService } from '../chatbot/chatbot.service';
-import { TicketOrigin } from '../tickets/entities/ticket.entity';
+import { MessageType, TicketOrigin } from '../tickets/entities/ticket.entity';
 import { ConversationChannel } from '../conversations/entities/conversation.entity';
 import { detectCnpjInText, normalizeCnpj } from '../../common/utils/cnpj.utils';
 import { normalizeWhatsappNumber, restoreBrNinthDigit } from '../../common/utils/phone.utils';
+import { readFilePrefixSync } from '../../common/utils/read-file-prefix.util';
+import { validateFileSignature, resolveValidatedConversationMime } from '../../common/utils/validate-file-signature.util';
+import { filePathToStorageKey, TICKET_ATTACHMENTS_ROOT } from '../../common/utils/multer-disk-storage.util';
+
+/** Mesmos documentos permitidos no chat de conversa — envio WA é só texto informativo. */
+const WA_TICKET_MEDIA_DOCUMENT_MIMES = new Set([
+  'application/pdf',
+  'text/plain',
+  'text/csv',
+  'application/csv',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/zip',
+  'application/x-zip-compressed',
+  'application/x-rar-compressed',
+  'application/vnd.rar',
+]);
+
+function waTicketMimeFromOriginalname(name: string): string | null {
+  const ext = path.extname(name).toLowerCase().replace(/^\./, '');
+  const map: Record<string, string> = {
+    pdf: 'application/pdf',
+    txt: 'text/plain',
+    csv: 'text/csv',
+    doc: 'application/msword',
+    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    xls: 'application/vnd.ms-excel',
+    xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    zip: 'application/zip',
+    rar: 'application/vnd.rar',
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    png: 'image/png',
+    gif: 'image/gif',
+    webp: 'image/webp',
+    heic: 'image/heic',
+    heif: 'image/heif',
+    svg: 'image/svg+xml',
+    mp3: 'audio/mpeg',
+    wav: 'audio/wav',
+    m4a: 'audio/mp4',
+    mp4: 'video/mp4',
+  };
+  return map[ext] ?? null;
+}
+
+function normalizeWaTicketDeclaredMime(raw: string): string {
+  const m = raw.split(';')[0].trim().toLowerCase();
+  const map: Record<string, string> = {
+    'image/jpg': 'image/jpeg',
+    'image/pjpeg': 'image/jpeg',
+    'image/x-png': 'image/png',
+    'audio/mp3': 'audio/mpeg',
+    'audio/x-mp3': 'audio/mpeg',
+    'audio/x-m4a': 'audio/mp4',
+    'audio/m4a': 'audio/mp4',
+    'application/x-pdf': 'application/pdf',
+    'audio/wave': 'audio/wav',
+    'audio/x-wav': 'audio/wav',
+  };
+  return map[m] ?? m;
+}
 
 export interface NormalizedWhatsappMessage {
   provider: 'generic' | 'meta';
@@ -683,6 +747,12 @@ export class WhatsappService {
       if (wamid) { externalMsgId = wamid; sent = true; }
     }
 
+    if (!sent) {
+      throw new BadRequestException(
+        'Não foi possível enviar a mensagem pelo WhatsApp. Verifique a conexão (sessão Baileys ou API Meta).',
+      );
+    }
+
     let savedMessage: any = null;
     if (ticket.conversationId) {
       try {
@@ -696,10 +766,190 @@ export class WhatsappService {
       } catch {
         // Conversation may already be closed; WhatsApp message was still delivered
       }
+    } else {
+      // Inbox GET /tickets/conversations só lista tickets com conversation_id IS NULL — o histórico
+      // do painel vem de ticket_messages; antes não gravávamos nada e o frontend recebia message=null.
+      try {
+        savedMessage = await this.ticketsService.addMessage(tenantId, ticketId, authorId, authorName, 'user', {
+          content: text,
+          messageType: MessageType.COMMENT,
+          channel: 'whatsapp',
+        });
+      } catch (e) {
+        this.logger.warn(
+          `sendReplyFromTicket: envio WA ok mas falha ao gravar ticket_messages (ticketId=${ticketId})`,
+          e,
+        );
+      }
     }
 
     // Retorna a mensagem salva para o frontend substituir o otimista sem flash
     return { success: true, message: savedMessage };
+  }
+
+  /**
+   * Ticket WhatsApp sem conversa vinculada: envia mídia (imagem/áudio/MP4) ou aviso de documento pelo WA,
+   * depois grava anexo em ticket_messages (mesmo fluxo que POST /tickets/:id/attachments).
+   */
+  async sendMediaReplyFromTicket(
+    tenantId: string,
+    ticketId: string,
+    authorId: string,
+    authorName: string,
+    file: { path: string; mimetype?: string; originalname?: string; size?: number },
+    opts?: { content?: string | null; replyToId?: string | null },
+  ): Promise<{ success: true; message: any; attachment: any }> {
+    const unlinkUpload = async () => {
+      await fs.promises.unlink(file.path).catch(() => {});
+    };
+
+    const ticket = await this.ticketsService.findOne(tenantId, ticketId);
+    if (ticket.origin !== TicketOrigin.WHATSAPP) {
+      await unlinkUpload();
+      throw new BadRequestException('Este ticket não é originado via WhatsApp');
+    }
+    if (!ticket.contactId) {
+      await unlinkUpload();
+      throw new BadRequestException('Ticket sem contato associado');
+    }
+
+    const contact = await this.customersService.findContactById(tenantId, ticket.contactId);
+    if (!contact?.whatsapp && !contact?.metadata?.whatsappLid) {
+      await unlinkUpload();
+      throw new BadRequestException('Contato não possui número WhatsApp cadastrado');
+    }
+
+    const destination = this.resolveContactWhatsappTarget(contact);
+    if (!destination.digits || destination.digits.length < 10) {
+      await unlinkUpload();
+      throw new BadRequestException('Número WhatsApp do contato inválido');
+    }
+
+    const head = readFilePrefixSync(file.path, 512);
+    let mime = normalizeWaTicketDeclaredMime(String(file.mimetype || '').split(';')[0].trim());
+    if (!mime || mime === 'application/octet-stream') {
+      const guessed = waTicketMimeFromOriginalname(String(file.originalname || ''));
+      if (guessed) mime = guessed;
+    }
+
+    let mediaKind: 'image' | 'audio' | 'video' | 'file';
+    let effectiveMime: string;
+
+    if (mime.startsWith('image/')) {
+      mediaKind = 'image';
+      const resolved = resolveValidatedConversationMime(head, mime, 'image');
+      if (!resolved) {
+        await unlinkUpload();
+        throw new BadRequestException('Imagem inválida ou tipo não permitido.');
+      }
+      effectiveMime = resolved;
+    } else if (mime.startsWith('audio/')) {
+      mediaKind = 'audio';
+      const resolved = resolveValidatedConversationMime(head, mime, 'audio');
+      if (!resolved) {
+        await unlinkUpload();
+        throw new BadRequestException('Áudio inválido ou tipo não permitido.');
+      }
+      effectiveMime = resolved;
+    } else if (mime === 'video/mp4' || mime.startsWith('video/mp4;')) {
+      mediaKind = 'video';
+      const resolved = resolveValidatedConversationMime(head, mime, 'video');
+      if (!resolved) {
+        await unlinkUpload();
+        throw new BadRequestException('Para vídeo no WhatsApp use MP4 válido (video/mp4).');
+      }
+      effectiveMime = resolved;
+    } else if (mime.startsWith('video/')) {
+      await unlinkUpload();
+      throw new BadRequestException('Para vídeo no WhatsApp use MP4 (video/mp4).');
+    } else if (WA_TICKET_MEDIA_DOCUMENT_MIMES.has(mime)) {
+      mediaKind = 'file';
+      if (!validateFileSignature(head, mime)) {
+        await unlinkUpload();
+        throw new BadRequestException('Documento inválido ou assinatura não confere com o tipo declarado.');
+      }
+      effectiveMime = mime;
+    } else {
+      await unlinkUpload();
+      throw new BadRequestException(
+        'Tipo de arquivo não permitido (imagem, áudio, vídeo MP4, PDF, Office, CSV, TXT, ZIP, RAR).',
+      );
+    }
+
+    let quotedMsg: { externalId: string; content: string; fromMe: boolean } | null = null;
+    const replyToId = opts?.replyToId;
+    if (replyToId) {
+      try {
+        const rows: Array<{ external_id: string | null; content: string; author_type: string }> = await this.dataSource.query(
+          `SELECT external_id, content, author_type FROM conversation_messages WHERE id = $1 AND tenant_id = $2 LIMIT 1`,
+          [replyToId, tenantId],
+        );
+        const parent = rows[0];
+        if (parent?.external_id) {
+          quotedMsg = {
+            externalId: parent.external_id,
+            content: (parent.content ?? '').slice(0, 200),
+            fromMe: parent.author_type === 'user',
+          };
+        }
+      } catch {
+        /* segue sem reply */
+      }
+    }
+
+    const caption = (opts?.content ?? '').trim() || undefined;
+    let waOk = false;
+
+    if (mediaKind === 'file') {
+      const cap = (opts?.content ?? '').trim();
+      const txt = cap
+        ? `📎 Documento anexado: ${cap}\n(O ficheiro completo fica no historico do chamado no painel.)`
+        : '📎 Documento anexado. O ficheiro completo fica no historico do chamado no painel.';
+      if (this.baileysService) {
+        const r = await this.baileysService.sendMessage(tenantId, destination.raw, txt, { quoted: quotedMsg ?? undefined });
+        waOk = r.success;
+      }
+      if (!waOk) {
+        const wamid = await this.sendWhatsappMessage(tenantId, destination.phone, txt, quotedMsg?.externalId ?? null);
+        waOk = !!wamid;
+      }
+    } else {
+      if (this.baileysService) {
+        const r = await this.baileysService.sendMedia(tenantId, destination.raw, mediaKind, file.path, {
+          caption,
+          mime: effectiveMime,
+          quoted: quotedMsg ?? undefined,
+        });
+        if (r.success) waOk = true;
+        else this.logger.warn(`[sendMediaReplyFromTicket] Baileys falhou (${r.error}), tentando Meta`);
+      }
+      if (!waOk) {
+        const wamid = await this.sendMetaMedia(tenantId, destination.phone, mediaKind, file.path, {
+          caption,
+          mime: effectiveMime,
+          contextMessageId: quotedMsg?.externalId ?? null,
+        });
+        waOk = !!wamid;
+      }
+    }
+
+    if (!waOk) {
+      await unlinkUpload();
+      throw new BadRequestException(
+        'Não foi possível enviar a mídia pelo WhatsApp. Verifique a conexão (sessão Baileys ou API Meta).',
+      );
+    }
+
+    const storageKey = filePathToStorageKey(TICKET_ATTACHMENTS_ROOT, file.path);
+    const saved = await this.ticketsService.addTicketAttachmentItem4(tenantId, ticketId, authorId, authorName, 'user', {
+      content: opts?.content ?? undefined,
+      storageKey,
+      originalFilename: file.originalname,
+      mime: effectiveMime,
+      channel: 'whatsapp',
+    });
+
+    return { success: true, message: saved.message, attachment: saved.attachment };
   }
 
   /**

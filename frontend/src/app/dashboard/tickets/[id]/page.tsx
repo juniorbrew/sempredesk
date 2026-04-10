@@ -1,5 +1,6 @@
 'use client';
-import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useRealtimeTicket, useRealtimeConversation } from '@/lib/realtime';
@@ -9,7 +10,8 @@ import { ArrowLeft, RotateCw, Tag, Clock, AlertTriangle, Lock, Send, Paperclip, 
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { TagMultiSelect } from '@/components/ui/TagMultiSelect';
-import { InlineChatMedia } from '@/components/chat/InlineChatMedia';
+import AudioMessagePlayer from '@/components/chat/AudioMessagePlayer';
+import { MediaLightbox } from '@/components/chat/InlineChatMedia';
 
 const STATUS_CONFIG: Record<string,{ label:string; bg:string; color:string; dot:string }> = {
   open:           { label:'Aberto',             bg:'#EEF2FF', color:'#3730A3', dot:'#4F46E5' },
@@ -37,6 +39,85 @@ const inp = { width:'100%', padding:'8px 12px', background:'#F8FAFC', border:'1.
 /** Alinhado ao backend: imagem/PDF/Office/ZIP/texto; sem áudio/vídeo (isso continua na conversa / WhatsApp). */
 const TICKET_REPLY_FILE_ACCEPT =
   'image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.txt,application/pdf,text/plain,application/zip,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+/** MIME por vezes vem vazio ou genérico; usa extensão para lightbox (imagem/vídeo). */
+function inferTicketReplyMediaKind(mime: string, filename: string): 'image' | 'video' | null {
+  const m = String(mime || '').toLowerCase();
+  if (m.startsWith('image/')) return 'image';
+  if (m.startsWith('video/')) return 'video';
+  const ext = (filename || '').split('.').pop()?.toLowerCase() ?? '';
+  if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'heic', 'heif'].includes(ext)) return 'image';
+  if (['mp4', 'webm', 'mov', 'avi', 'mkv', 'm4v'].includes(ext)) return 'video';
+  return null;
+}
+
+/** Resumo da conversa (bloco do ticket): UI compacta por tipo — sem alterar API. */
+type ConversationTranscriptMediaUi =
+  | { bucket: 'audio' }
+  | { bucket: 'image' }
+  | { bucket: 'video' }
+  | { bucket: 'file'; typeLabel: string; downloadFilename: string };
+
+function extForConversationFileMime(mime: string): string {
+  const m = mime.toLowerCase();
+  if (m === 'application/pdf' || m === 'application/x-pdf') return 'pdf';
+  if (m.includes('wordprocessingml.document')) return 'docx';
+  if (m === 'application/msword') return 'doc';
+  if (m.includes('spreadsheetml.sheet')) return 'xlsx';
+  if (m.includes('ms-excel')) return 'xls';
+  if (m === 'text/csv' || m === 'application/csv') return 'csv';
+  if (m === 'text/plain') return 'txt';
+  return 'bin';
+}
+
+function pickConversationDownloadFilename(content: string | null | undefined, ext: string): string {
+  const line = String(content || '')
+    .trim()
+    .split('\n')
+    .pop()
+    ?.trim();
+  if (
+    line &&
+    line.length <= 200 &&
+    /\.[a-z0-9]{2,8}$/i.test(line) &&
+    !/[\\/:*?"<>|\r\n]/.test(line)
+  ) {
+    return line;
+  }
+  return `anexo.${ext}`;
+}
+
+function conversationTranscriptMediaUi(cm: {
+  hasMedia?: boolean;
+  mediaKind?: string | null;
+  mediaMime?: string | null;
+  content?: string | null;
+}): ConversationTranscriptMediaUi | null {
+  const has = !!(cm.hasMedia || cm.mediaKind);
+  if (!has) return null;
+  const mk = String(cm.mediaKind || '').toLowerCase();
+  const mimeRaw = String(cm.mediaMime || '').toLowerCase();
+  const mime = mimeRaw.split(';')[0].trim();
+  if (mk === 'audio' || mime.startsWith('audio/')) return { bucket: 'audio' };
+  if (mk === 'image' || mime.startsWith('image/')) return { bucket: 'image' };
+  if (mk === 'video' || mime.startsWith('video/')) return { bucket: 'video' };
+  const typeLabel =
+    mime === 'application/pdf' || mime === 'application/x-pdf'
+      ? 'PDF'
+      : mime.includes('wordprocessingml.document') || mime === 'application/msword'
+        ? 'Documento'
+        : mime.includes('spreadsheetml.sheet') ||
+            mime.includes('ms-excel') ||
+            mime === 'text/csv' ||
+            mime === 'application/csv'
+          ? 'Planilha'
+          : mime === 'text/plain'
+            ? 'Arquivo TXT'
+            : 'Arquivo';
+  const ext = extForConversationFileMime(mime);
+  const downloadFilename = pickConversationDownloadFilename(cm.content, ext);
+  return { bucket: 'file', typeLabel, downloadFilename };
+}
 
 export default function TicketDetailsPage() {
   const params = useParams();
@@ -69,12 +150,16 @@ export default function TicketDetailsPage() {
   const convMediaUrlsRef = useRef<Record<string, string>>({});
   convMediaUrlsRef.current = convMediaUrls;
   const convMediaInFlightRef = useRef<Set<string>>(new Set());
+  const [convMediaFailed, setConvMediaFailed] = useState<Record<string, boolean>>({});
   const [ticketReplyAttachUrls, setTicketReplyAttachUrls] = useState<Record<string, string>>({});
   const ticketReplyAttachUrlsRef = useRef<Record<string, string>>({});
   ticketReplyAttachUrlsRef.current = ticketReplyAttachUrls;
   const ticketReplyInflightRef = useRef<Set<string>>(new Set());
+  const [ticketReplyAttachFailed, setTicketReplyAttachFailed] = useState<Record<string, boolean>>({});
   const [showConversation, setShowConversation] = useState(false);
   const [showConvFilter, setShowConvFilter] = useState(true);
+  /** Mesmo modal do Atendimento: transcrição vinculada e anexos de resposta pública (imagem/vídeo). */
+  const [convMediaLightbox, setConvMediaLightbox] = useState<null | { src: string; mediaKind: 'image' | 'video' }>(null);
   const [interactionExpanded, setInteractionExpanded] = useState(false);
   const [edit, setEdit] = useState<any>({ priority:'medium', assignedTo:'', department:'', category:'', subcategory:'', tags:[] as string[] });
   const [showCloseModal, setShowCloseModal] = useState(false);
@@ -135,7 +220,9 @@ export default function TicketDetailsPage() {
     const toRevoke = { ...convMediaUrlsRef.current };
     const toRevokeTicket = { ...ticketReplyAttachUrlsRef.current };
     setConvMediaUrls({});
+    setConvMediaFailed({});
     setTicketReplyAttachUrls({});
+    setTicketReplyAttachFailed({});
     convMediaInFlightRef.current.clear();
     ticketReplyInflightRef.current.clear();
     Object.values(toRevoke).forEach((u) => URL.revokeObjectURL(u));
@@ -148,24 +235,30 @@ export default function TicketDetailsPage() {
     void (async () => {
       for (const m of conversationMsgs) {
         if (!m?.id) continue;
-        if (!(m.hasMedia || m.mediaKind === 'image' || m.mediaKind === 'audio' || m.mediaKind === 'video')) continue;
-        if (convMediaUrlsRef.current[m.id] || convMediaInFlightRef.current.has(String(m.id))) continue;
-        convMediaInFlightRef.current.add(String(m.id));
+        if (conversationTranscriptMediaUi(m) == null) continue;
+        const mid = String(m.id);
+        if (convMediaUrlsRef.current[mid] || convMediaInFlightRef.current.has(mid)) continue;
+        convMediaInFlightRef.current.add(mid);
         try {
-          const blob = await api.getConversationMessageMediaBlob(m.id);
+          const blob = await api.getConversationMessageMediaBlob(mid);
           if (cancelled) return;
           const url = URL.createObjectURL(blob);
           setConvMediaUrls((prev) => {
-            if (prev[m.id]) {
+            if (prev[mid]) {
               URL.revokeObjectURL(url);
               return prev;
             }
-            return { ...prev, [m.id]: url };
+            return { ...prev, [mid]: url };
+          });
+          setConvMediaFailed((prev) => {
+            const n = { ...prev };
+            delete n[mid];
+            return n;
           });
         } catch {
-          /* sem ficheiro ou sem permissão */
+          setConvMediaFailed((prev) => ({ ...prev, [mid]: true }));
         } finally {
-          convMediaInFlightRef.current.delete(String(m.id));
+          convMediaInFlightRef.current.delete(mid);
         }
       }
     })();
@@ -197,8 +290,13 @@ export default function TicketDetailsPage() {
               }
               return { ...prev, [aid]: url };
             });
+            setTicketReplyAttachFailed((prev) => {
+              const n = { ...prev };
+              delete n[aid];
+              return n;
+            });
           } catch {
-            /* sem ficheiro ou sem permissão */
+            setTicketReplyAttachFailed((prev) => ({ ...prev, [aid]: true }));
           } finally {
             ticketReplyInflightRef.current.delete(aid);
           }
@@ -209,6 +307,98 @@ export default function TicketDetailsPage() {
       cancelled = true;
     };
   }, [messages, id]);
+
+  const loadTicketReplyAttachmentUrl = useCallback(
+    async (attachmentId: string): Promise<string | null> => {
+      const aid = String(attachmentId);
+      if (!id) return null;
+      const existing = ticketReplyAttachUrlsRef.current[aid];
+      if (existing) return existing;
+      try {
+        const blob = await api.getTicketReplyAttachmentBlob(id, aid);
+        const url = URL.createObjectURL(blob);
+        setTicketReplyAttachUrls((prev) => ({ ...prev, [aid]: url }));
+        setTicketReplyAttachFailed((prev) => {
+          const n = { ...prev };
+          delete n[aid];
+          return n;
+        });
+        return url;
+      } catch {
+        toast.error('Não foi possível carregar o anexo.');
+        setTicketReplyAttachFailed((prev) => ({ ...prev, [aid]: true }));
+        return null;
+      }
+    },
+    [id],
+  );
+
+  const openTicketReplyAttachment = useCallback(
+    async (attachmentId: string, mediaKind: 'image' | 'video') => {
+      const url = await loadTicketReplyAttachmentUrl(attachmentId);
+      if (url) setConvMediaLightbox({ src: url, mediaKind });
+    },
+    [loadTicketReplyAttachmentUrl],
+  );
+
+  const loadConversationMessageMediaUrl = useCallback(async (messageId: string | number): Promise<string | null> => {
+    const mid = String(messageId);
+    const existing = convMediaUrlsRef.current[mid];
+    if (existing) return existing;
+    try {
+      const blob = await api.getConversationMessageMediaBlob(mid);
+      const url = URL.createObjectURL(blob);
+      setConvMediaUrls((prev) => {
+        if (prev[mid]) {
+          URL.revokeObjectURL(url);
+          return prev;
+        }
+        return { ...prev, [mid]: url };
+      });
+      setConvMediaFailed((prev) => {
+        const n = { ...prev };
+        delete n[mid];
+        return n;
+      });
+      return url;
+    } catch {
+      toast.error('Não foi possível carregar a mídia.');
+      setConvMediaFailed((prev) => ({ ...prev, [mid]: true }));
+      return null;
+    }
+  }, []);
+
+  const openConversationMessageMedia = useCallback(
+    async (messageId: string | number, mediaKind: 'image' | 'video') => {
+      const url = await loadConversationMessageMediaUrl(messageId);
+      if (url) setConvMediaLightbox({ src: url, mediaKind });
+    },
+    [loadConversationMessageMediaUrl],
+  );
+
+  const openConversationFileInTab = useCallback(
+    async (messageId: string | number) => {
+      const url = await loadConversationMessageMediaUrl(messageId);
+      if (url) window.open(url, '_blank', 'noopener,noreferrer');
+    },
+    [loadConversationMessageMediaUrl],
+  );
+
+  const downloadConversationMessageBlob = useCallback(
+    async (messageId: string | number, filename: string) => {
+      const mid = String(messageId);
+      const u = convMediaUrlsRef.current[mid] || (await loadConversationMessageMediaUrl(messageId));
+      if (!u) return;
+      const a = document.createElement('a');
+      a.href = u;
+      a.download = filename || 'anexo';
+      a.rel = 'noopener';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    },
+    [loadConversationMessageMediaUrl],
+  );
 
   const linkedConvIdRef = useRef<string | null>(null);
   linkedConvIdRef.current = ticket?.conversationId ?? null;
@@ -666,54 +856,54 @@ export default function TicketDetailsPage() {
     )}
 
       {/* Header bar */}
-      <div style={{ background:S.bg, borderBottom:`1px solid ${S.bd}`, padding:'0 24px', display:'flex', alignItems:'center', gap:12, height:54, flexShrink:0 }}>
+      <div style={{ background:S.bg, borderBottom:`1px solid ${S.bd}`, padding:'0 14px', display:'flex', alignItems:'center', gap:6, minHeight:42, flexShrink:0 }}>
         <button onClick={() => router.push('/dashboard/tickets')}
-          style={{ width:30, height:30, borderRadius:8, border:`1px solid ${S.bd2}`, background:S.bg2, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-          <ArrowLeft style={{ width:14, height:14, color:S.txt2 }} />
+          style={{ width:28, height:28, borderRadius:7, border:`1px solid ${S.bd2}`, background:S.bg2, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+          <ArrowLeft style={{ width:13, height:13, color:S.txt2 }} />
         </button>
-        <span style={{ fontFamily:"'DM Mono',monospace", fontSize:12, fontWeight:500, color:S.accent, background:S.accentL, border:`1px solid ${S.accentM}`, borderRadius:7, padding:'4px 10px' }}>
+        <span style={{ fontFamily:"'DM Mono',monospace", fontSize:11, fontWeight:500, color:S.accent, background:S.accentL, border:`1px solid ${S.accentM}`, borderRadius:6, padding:'3px 8px' }}>
           {ticket.ticketNumber}
         </span>
-        <span style={{ display:'inline-flex', alignItems:'center', gap:5, fontSize:12, fontWeight:500, padding:'4px 10px', borderRadius:7, background:status.bg, color:status.color, border:`1px solid ${status.dot}33` }}>
-          <span style={{ width:6, height:6, borderRadius:'50%', background:status.dot, flexShrink:0 }} />{status.label}
+        <span style={{ display:'inline-flex', alignItems:'center', gap:4, fontSize:11, fontWeight:500, padding:'3px 8px', borderRadius:6, background:status.bg, color:status.color, border:`1px solid ${status.dot}33` }}>
+          <span style={{ width:5, height:5, borderRadius:'50%', background:status.dot, flexShrink:0 }} />{status.label}
         </span>
-        <span style={{ display:'inline-flex', alignItems:'center', gap:5, fontSize:12, fontWeight:500, padding:'4px 10px', borderRadius:7, background:priority.bg, color:priority.color, border:`1px solid ${priority.dot}33` }}>
+        <span style={{ display:'inline-flex', alignItems:'center', gap:4, fontSize:11, fontWeight:500, padding:'3px 8px', borderRadius:6, background:priority.bg, color:priority.color, border:`1px solid ${priority.dot}33` }}>
           {priority.label}
         </span>
         {isWhatsapp && (
-          <span style={{ display:'inline-flex', alignItems:'center', gap:5, fontSize:12, fontWeight:500, padding:'4px 10px', borderRadius:7, background:'#DCFCE7', color:'#15803D', border:'1px solid #BBF7D0' }}>
-            <PhoneCall style={{ width:13, height:13 }} /> WhatsApp
+          <span style={{ display:'inline-flex', alignItems:'center', gap:4, fontSize:11, fontWeight:500, padding:'3px 8px', borderRadius:6, background:'#DCFCE7', color:'#15803D', border:'1px solid #BBF7D0' }}>
+            <PhoneCall style={{ width:12, height:12 }} /> WhatsApp
           </span>
         )}
         {ticket.escalated && (
-          <span style={{ display:'inline-flex', alignItems:'center', gap:5, fontSize:12, fontWeight:500, padding:'4px 10px', borderRadius:7, background:'#FEF2F2', color:'#DC2626', border:'1px solid #FECACA' }}>
-            <AlertTriangle style={{ width:13, height:13 }} /> Escalado
+          <span style={{ display:'inline-flex', alignItems:'center', gap:4, fontSize:11, fontWeight:500, padding:'3px 8px', borderRadius:6, background:'#FEF2F2', color:'#DC2626', border:'1px solid #FECACA' }}>
+            <AlertTriangle style={{ width:12, height:12 }} /> Escalado
           </span>
         )}
         <div style={{ flex:1 }} />
-        <div style={{ display:'flex', gap:8 }}>
+        <div style={{ display:'flex', gap:6, flexWrap:'wrap' as const, alignItems:'center' }}>
           {(ticket.status==='closed'||ticket.status==='resolved') && (
             <button onClick={reopenTicket}
-              style={{ padding:'6px 14px', background:S.bg2, border:`1px solid ${S.bd2}`, borderRadius:8, fontSize:12, fontWeight:500, color:S.txt2, cursor:'pointer', display:'flex', alignItems:'center', gap:6, fontFamily:'inherit' }}>
-              <RefreshCw style={{ width:13, height:13 }} /> Reabrir ticket
+              style={{ padding:'5px 11px', background:S.bg2, border:`1px solid ${S.bd2}`, borderRadius:7, fontSize:11, fontWeight:500, color:S.txt2, cursor:'pointer', display:'flex', alignItems:'center', gap:5, fontFamily:'inherit' }}>
+              <RefreshCw style={{ width:12, height:12 }} /> Reabrir ticket
             </button>
           )}
           {!isFinished && (
             <button onClick={resolveTicket}
-              style={{ padding:'6px 14px', background:'#10B981', border:'none', borderRadius:8, fontSize:12, fontWeight:600, color:'#fff', cursor:'pointer', display:'flex', alignItems:'center', gap:6, fontFamily:'inherit' }}>
-              <CheckCircle2 style={{ width:13, height:13 }} /> Resolver
+              style={{ padding:'5px 11px', background:'#10B981', border:'none', borderRadius:7, fontSize:11, fontWeight:600, color:'#fff', cursor:'pointer', display:'flex', alignItems:'center', gap:5, fontFamily:'inherit' }}>
+              <CheckCircle2 style={{ width:12, height:12 }} /> Resolver
             </button>
           )}
           {ticket.status!=='closed' && ticket.status!=='cancelled' && (
             <button onClick={closeTicket}
-              style={{ padding:'6px 12px', background:S.bg2, border:`1px solid ${S.bd2}`, borderRadius:8, fontSize:12, fontWeight:500, color:S.txt2, cursor:'pointer', display:'flex', alignItems:'center', gap:6, fontFamily:'inherit' }}>
-              <X style={{ width:13, height:13 }} /> Fechar
+              style={{ padding:'5px 10px', background:S.bg2, border:`1px solid ${S.bd2}`, borderRadius:7, fontSize:11, fontWeight:500, color:S.txt2, cursor:'pointer', display:'flex', alignItems:'center', gap:5, fontFamily:'inherit' }}>
+              <X style={{ width:12, height:12 }} /> Fechar
             </button>
           )}
           {ticket.status!=='cancelled' && ticket.status!=='closed' && (
             <button onClick={cancelTicket}
-              style={{ padding:'6px 12px', background:'#FEF2F2', border:'1px solid #FECACA', borderRadius:8, fontSize:12, fontWeight:500, color:'#DC2626', cursor:'pointer', display:'flex', alignItems:'center', gap:6, fontFamily:'inherit' }}>
-              <XCircle style={{ width:13, height:13 }} /> Cancelar
+              style={{ padding:'5px 10px', background:'#FEF2F2', border:'1px solid #FECACA', borderRadius:7, fontSize:11, fontWeight:500, color:'#DC2626', cursor:'pointer', display:'flex', alignItems:'center', gap:5, fontFamily:'inherit' }}>
+              <XCircle style={{ width:12, height:12 }} /> Cancelar
             </button>
           )}
         </div>
@@ -721,28 +911,28 @@ export default function TicketDetailsPage() {
 
       {/* Info card */}
       {!interactionExpanded && (
-      <div style={{ background:S.bg, borderBottom:`1px solid ${S.bd}`, padding:'14px 24px 18px', flexShrink:0 }}>
-        <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10, fontSize:11, color:S.txt2 }}>
-          <CalendarClock style={{ width:13, height:13, color:S.txt3 }} />
+      <div style={{ background:S.bg, borderBottom:`1px solid ${S.bd}`, padding:'5px 14px 6px', flexShrink:0 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:5, marginBottom:5, fontSize:10, color:S.txt2, flexWrap:'wrap' as const }}>
+          <CalendarClock style={{ width:12, height:12, color:S.txt3, flexShrink:0 }} />
           Abertura: <strong style={{ color:S.txt, fontWeight:500 }}>{format(new Date(ticket.createdAt), "dd/MM/yyyy 'às' HH:mm", { locale:ptBR })}</strong>
-          {ticket.closedAt && <><span style={{ color:S.txt3 }}>·</span><CalendarCheck style={{ width:13, height:13, color:S.txt3 }} />Fechamento: <strong style={{ color:S.txt, fontWeight:500 }}>{format(new Date(ticket.closedAt), "dd/MM/yyyy 'às' HH:mm", { locale:ptBR })}</strong></>}
-          {ticket.resolvedAt && !ticket.closedAt && <><span style={{ color:S.txt3 }}>·</span><CalendarCheck style={{ width:13, height:13, color:'#16A34A' }} />Resolução: <strong style={{ color:'#16A34A', fontWeight:500 }}>{format(new Date(ticket.resolvedAt), "dd/MM/yyyy 'às' HH:mm", { locale:ptBR })}</strong></>}
+          {ticket.closedAt && <><span style={{ color:S.txt3 }}>·</span><CalendarCheck style={{ width:12, height:12, color:S.txt3, flexShrink:0 }} />Fechamento: <strong style={{ color:S.txt, fontWeight:500 }}>{format(new Date(ticket.closedAt), "dd/MM/yyyy 'às' HH:mm", { locale:ptBR })}</strong></>}
+          {ticket.resolvedAt && !ticket.closedAt && <><span style={{ color:S.txt3 }}>·</span><CalendarCheck style={{ width:12, height:12, color:'#16A34A', flexShrink:0 }} />Resolução: <strong style={{ color:'#16A34A', fontWeight:500 }}>{format(new Date(ticket.resolvedAt), "dd/MM/yyyy 'às' HH:mm", { locale:ptBR })}</strong></>}
         </div>
-        <div style={{ display:'grid', gridTemplateColumns:'minmax(0, 0.95fr) minmax(0, 1.35fr)', gap:14 }}>
-          <div style={{ padding:'14px 16px', border:`1px solid ${S.bd}`, borderRadius:16, background:'linear-gradient(180deg,#FFFFFF 0%,#FBFBFE 100%)', boxShadow:'0 10px 24px rgba(15,23,42,0.04)' }}>
-            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:8, marginBottom:8 }}>
-              <div style={{ fontSize:10, fontWeight:700, color:S.txt3, textTransform:'uppercase' as const, letterSpacing:'0.08em' }}>Assunto</div>
+        <div style={{ display:'grid', gridTemplateColumns:'minmax(0, 0.95fr) minmax(0, 1.35fr)', gap:6 }}>
+          <div className="min-w-0" style={{ padding:'6px 10px', border:`1px solid ${S.bd}`, borderRadius:10, background:'linear-gradient(180deg,#FFFFFF 0%,#FBFBFE 100%)', boxShadow:'0 4px 14px rgba(15,23,42,0.04)' }}>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:5, marginBottom:3 }}>
+              <div style={{ fontSize:9, fontWeight:700, color:S.txt3, textTransform:'uppercase' as const, letterSpacing:'0.08em' }}>Assunto</div>
               {canEditContent && (
-                <button onClick={() => setShowContentModal(true)} style={{ border:'none', background:'none', color:S.accent, cursor:'pointer', display:'inline-flex', alignItems:'center', gap:5, fontSize:11, fontWeight:700, fontFamily:'inherit', padding:0 }}>
-                  <Pencil style={{ width:12, height:12 }} /> Editar
+                <button onClick={() => setShowContentModal(true)} style={{ border:'none', background:'none', color:S.accent, cursor:'pointer', display:'inline-flex', alignItems:'center', gap:4, fontSize:10, fontWeight:700, fontFamily:'inherit', padding:0, flexShrink:0 }}>
+                  <Pencil style={{ width:11, height:11 }} /> Editar
                 </button>
               )}
             </div>
-            <p style={{ margin:0, fontSize:16, fontWeight:700, color:S.txt, lineHeight:1.4 }}>{ticket.subject}</p>
+            <p className="truncate" title={String(ticket.subject || '')} style={{ margin:0, fontSize:13, fontWeight:700, color:S.txt, lineHeight:1.3 }}>{ticket.subject}</p>
           </div>
-          <div style={{ padding:'14px 16px', border:`1px solid ${S.bd}`, borderRadius:16, background:'linear-gradient(180deg,#FFFFFF 0%,#FBFBFE 100%)', boxShadow:'0 10px 24px rgba(15,23,42,0.04)' }}>
-            <div style={{ fontSize:10, fontWeight:700, color:S.txt3, textTransform:'uppercase' as const, letterSpacing:'0.08em', marginBottom:8 }}>Descricao</div>
-            <p style={{ margin:0, fontSize:13, color:S.txt2, lineHeight:1.7 }}>{ticket.description || 'Sem descricao informada.'}</p>
+          <div className="min-w-0" style={{ padding:'6px 10px', border:`1px solid ${S.bd}`, borderRadius:10, background:'linear-gradient(180deg,#FFFFFF 0%,#FBFBFE 100%)', boxShadow:'0 4px 14px rgba(15,23,42,0.04)' }}>
+            <div style={{ fontSize:9, fontWeight:700, color:S.txt3, textTransform:'uppercase' as const, letterSpacing:'0.08em', marginBottom:3 }}>Descricao</div>
+            <p className="truncate" title={ticket.description?.trim() ? String(ticket.description) : 'Sem descricao informada.'} style={{ margin:0, fontSize:12, color:S.txt2, lineHeight:1.3 }}>{ticket.description || 'Sem descricao informada.'}</p>
           </div>
         </div>
       </div>
@@ -752,10 +942,10 @@ export default function TicketDetailsPage() {
       <div style={{ display:'flex', flex:1, overflow:'hidden' }}>
 
         {/* Messages */}
-        <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden', padding:'20px 24px 20px', gap:14, background:S.bg3 }}>
-          <div style={{ padding:'10px 20px', borderBottom:`1px solid ${S.bd}`, background:S.bg, display:'flex', alignItems:'center', gap:10, flexShrink:0, justifyContent:'space-between' }}>
-            <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' as any }}>
-            <span style={{ fontSize:11, fontWeight:600, color:S.txt3, textTransform:'uppercase' as any, letterSpacing:'0.05em', marginRight:4 }}>Visualizar:</span>
+        <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden', padding:'6px 14px 4px', gap:6, background:S.bg3 }}>
+          <div style={{ padding:'4px 10px', borderBottom:`1px solid ${S.bd}`, background:S.bg, display:'flex', alignItems:'center', gap:6, flexShrink:0, justifyContent:'space-between' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:4, flexWrap:'wrap' as any }}>
+            <span style={{ fontSize:10, fontWeight:600, color:S.txt3, textTransform:'uppercase' as any, letterSpacing:'0.05em', marginRight:2 }}>Visualizar:</span>
             {([
               { key:'client',  active:showClient,  toggle:()=>setShowClient(v=>!v),  icon:User,        label:'Cliente' },
               { key:'agent',   active:showAgent,   toggle:()=>setShowAgent(v=>!v),   icon:Headphones,  label:'Agente' },
@@ -764,23 +954,23 @@ export default function TicketDetailsPage() {
               ...(conversationMsgs.length > 0 ? [{ key:'conv', active:showConvFilter, toggle:()=>setShowConvFilter(v=>!v), icon:MessageSquare, label:'Conversa' }] : []),
             ] as any[]).map(({ key, active, toggle, icon:Icon, label }) => (
               <button key={key} onClick={toggle}
-                style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'4px 10px', borderRadius:6, border:`1px solid ${active?S.bd2:S.bd}`, background:active?S.bg2:'transparent', fontSize:11, fontWeight:500, color:active?S.txt:S.txt2, cursor:'pointer', fontFamily:'inherit', transition:'all .1s' }}>
+                style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'3px 8px', borderRadius:5, border:`1px solid ${active?S.bd2:S.bd}`, background:active?S.bg2:'transparent', fontSize:10, fontWeight:500, color:active?S.txt:S.txt2, cursor:'pointer', fontFamily:'inherit', transition:'all .1s' }}>
                 <Icon style={{ width:11, height:11 }} /> {label}
               </button>
             ))}
             </div>
             <button
               onClick={() => setInteractionExpanded(v => !v)}
-              style={{ display:'inline-flex', alignItems:'center', gap:6, padding:'6px 12px', borderRadius:8, border:`1px solid ${interactionExpanded ? S.accentM : S.bd}`, background:interactionExpanded ? S.accentL : '#fff', color:interactionExpanded ? S.accent : S.txt2, cursor:'pointer', fontSize:11, fontWeight:700, fontFamily:'inherit', flexShrink:0 }}
+              style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'4px 10px', borderRadius:7, border:`1px solid ${interactionExpanded ? S.accentM : S.bd}`, background:interactionExpanded ? S.accentL : '#fff', color:interactionExpanded ? S.accent : S.txt2, cursor:'pointer', fontSize:10, fontWeight:700, fontFamily:'inherit', flexShrink:0 }}
             >
               {interactionExpanded ? <ChevronDown style={{ width:12, height:12 }} /> : <ChevronUp style={{ width:12, height:12 }} />}
               {interactionExpanded ? 'Recolher interação' : 'Expandir interação'}
             </button>
           </div>
-          <div style={{ flex:1, overflowY:'auto', padding:'16px 20px', background:S.bg2 }}>
+          <div style={{ flex:1, overflowY:'auto', padding:'4px 10px 8px', background:S.bg2, minHeight:0 }}>
             {/* Satisfaction banner */}
             {ticket.status === 'resolved' && ticket.satisfactionScore && (
-              <div style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 16px', borderRadius:10, marginBottom:12, background: ticket.satisfactionScore === 'approved' ? '#F0FDF4' : '#FEF2F2', border: `1.5px solid ${ticket.satisfactionScore === 'approved' ? '#86EFAC' : '#FCA5A5'}` }}>
+              <div style={{ display:'flex', alignItems:'center', gap:8, padding:'6px 10px', borderRadius:7, marginBottom:6, background: ticket.satisfactionScore === 'approved' ? '#F0FDF4' : '#FEF2F2', border: `1.5px solid ${ticket.satisfactionScore === 'approved' ? '#86EFAC' : '#FCA5A5'}` }}>
                 {ticket.satisfactionScore === 'approved' ? <ThumbsUp style={{ width:16, height:16, color:'#16A34A', flexShrink:0 }} /> : <ThumbsDown style={{ width:16, height:16, color:'#DC2626', flexShrink:0 }} />}
                 <p style={{ margin:0, fontSize:12, fontWeight:700, color: ticket.satisfactionScore === 'approved' ? '#15803D' : '#DC2626' }}>
                   Avaliação do cliente: {ticket.satisfactionScore === 'approved' ? 'Solução aceita (SIM)' : 'Solução rejeitada (NÃO)'}
@@ -899,26 +1089,91 @@ export default function TicketDetailsPage() {
                         <p style={{ margin:0, whiteSpace:'pre-wrap' }}>{resolveContent(m.content)}</p>
                         {Array.isArray(m.attachments) &&
                           m.attachments.filter((a: any) => a?.kind === 'ticket_reply_file' && a?.id).map((a: any) => {
-                            const src = ticketReplyAttachUrls[String(a.id)];
+                            const aid = String(a.id);
+                            const src = ticketReplyAttachUrls[aid];
+                            const failed = !!ticketReplyAttachFailed[aid];
                             const mime = String(a.mime || '').toLowerCase();
+                            const fname = String(a.filename || '');
+                            const mediaGuess = inferTicketReplyMediaKind(a.mime || '', fname);
                             return (
-                              <div key={String(a.id)} style={{ marginTop: 10 }}>
-                                {!src && (
-                                  <span style={{ fontSize: 11, color: S.txt3 }}>A carregar anexo…</span>
-                                )}
-                                {src && mime.startsWith('image/') && (
-                                  <img src={src} alt="" style={{ maxWidth: '100%', maxHeight: 220, borderRadius: 10, display: 'block', objectFit: 'cover' }} />
-                                )}
-                                {src && !mime.startsWith('image/') && (
-                                  <a
-                                    href={src}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    download={a.filename || 'anexo'}
-                                    style={{ fontSize: 12, fontWeight: 600, color: S.accent, textDecoration: 'underline' }}
-                                  >
-                                    {mime.includes('pdf') ? 'Abrir PDF' : `Download: ${a.filename || 'anexo'}`}
-                                  </a>
+                              <div key={aid} style={{ marginTop: 8 }}>
+                                {mediaGuess ? (
+                                  <>
+                                    {!src && !failed && (
+                                      <span style={{ fontSize: 11, color: S.txt3, display: 'block', marginBottom: 4 }}>
+                                        A carregar pré-visualização…
+                                      </span>
+                                    )}
+                                    {failed && !src && (
+                                      <span style={{ fontSize: 11, color: S.txt3, display: 'block', marginBottom: 4 }}>
+                                        Pré-carregamento falhou — use Abrir.
+                                      </span>
+                                    )}
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' as const }}>
+                                      <span style={{ fontSize: 12, fontWeight: 600, color: '#475569' }}>
+                                        {mediaGuess === 'video' ? 'Vídeo' : 'Imagem'}
+                                        {fname ? ` · ${fname}` : ''}
+                                      </span>
+                                      <span style={{ fontSize: 11, color: '#CBD5E1' }}>—</span>
+                                      <button
+                                        type="button"
+                                        onClick={() => void openTicketReplyAttachment(a.id, mediaGuess)}
+                                        style={{
+                                          fontSize: 12,
+                                          fontWeight: 700,
+                                          color: S.accent,
+                                          background: 'none',
+                                          border: 'none',
+                                          cursor: 'pointer',
+                                          padding: 0,
+                                          fontFamily: 'inherit',
+                                        }}
+                                      >
+                                        Abrir
+                                      </button>
+                                    </div>
+                                  </>
+                                ) : (
+                                  <>
+                                    {!src && !failed && (
+                                      <span style={{ fontSize: 11, color: S.txt3 }}>A carregar anexo…</span>
+                                    )}
+                                    {src && (
+                                      <a
+                                        href={src}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        download={fname || 'anexo'}
+                                        style={{ fontSize: 12, fontWeight: 600, color: S.accent, textDecoration: 'underline' }}
+                                      >
+                                        {mime.includes('pdf') ? 'Abrir PDF' : `Download: ${fname || 'anexo'}`}
+                                      </a>
+                                    )}
+                                    {!src && failed && (
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          void (async () => {
+                                            const u = await loadTicketReplyAttachmentUrl(a.id);
+                                            if (u) window.open(u, '_blank', 'noopener,noreferrer');
+                                          })()
+                                        }
+                                        style={{
+                                          fontSize: 12,
+                                          fontWeight: 700,
+                                          color: S.accent,
+                                          background: 'none',
+                                          border: 'none',
+                                          cursor: 'pointer',
+                                          padding: 0,
+                                          fontFamily: 'inherit',
+                                          textDecoration: 'underline',
+                                        }}
+                                      >
+                                        Tentar abrir / descarregar
+                                      </button>
+                                    )}
+                                  </>
                                 )}
                               </div>
                             );
@@ -940,86 +1195,180 @@ export default function TicketDetailsPage() {
                   <div style={{ position:'absolute', left:17, top:0, bottom:0, width:1, background:'linear-gradient(180deg, rgba(148,163,184,0.16) 0%, rgba(148,163,184,0.04) 100%)', pointerEvents:'none' }} />
                   {groups.map((group, i) => renderGroup(group, i + 1))}
                   {hasConv && showConvFilter && (
-                    <div style={{ border:'1px solid rgba(45,212,191,0.28)', borderRadius:22, background:'linear-gradient(180deg, #F7FFFD 0%, #EFFCF8 100%)', boxShadow:'0 20px 45px rgba(13,148,136,0.08)', overflow:'hidden', marginBottom:6, marginLeft:50 }}>
-                      <div style={{ display:'flex', alignItems:'center', gap:12, padding:'14px 18px', borderBottom:'1px solid rgba(45,212,191,0.20)' }}>
-                        <div style={{ width:36, height:36, borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, background:'#CCFBF1', color:'#0D9488', boxShadow:'0 10px 24px rgba(13,148,136,0.12)' }}>
-                          <MessageSquare style={{ width:15, height:15 }} />
+                    <div style={{ border:'1px solid rgba(45,212,191,0.28)', borderRadius:16, background:'linear-gradient(180deg, #F7FFFD 0%, #EFFCF8 100%)', boxShadow:'0 10px 28px rgba(13,148,136,0.07)', overflow:'hidden', marginBottom:4, marginLeft:50 }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' as const, padding:'10px 12px', borderBottom:'1px solid rgba(45,212,191,0.20)' }}>
+                        <div style={{ width:32, height:32, borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, background:'#CCFBF1', color:'#0D9488' }}>
+                          <MessageSquare style={{ width:14, height:14 }} />
                         </div>
-                        <div style={{ minWidth:0 }}>
-                          <div style={{ fontSize:13, fontWeight:700, color:'#0F766E' }}>{customerName(ticket.clientId)}</div>
-                          <div style={{ fontSize:11, color:'#0F766E', opacity:0.72, marginTop:2 }}>Transcricao da conversa vinculada ao ticket</div>
+                        <div style={{ minWidth:0, flex:'1 1 120px' }}>
+                          <div style={{ fontSize:12, fontWeight:700, color:'#0F766E', lineHeight:1.25 }}>{customerName(ticket.clientId)}</div>
+                          <div style={{ fontSize:10, color:'#0F766E', opacity:0.75, marginTop:1, lineHeight:1.3 }}>Transcrição da conversa vinculada ao ticket</div>
                         </div>
-                        <span style={{ fontSize:10, background:'#CCFBF1', color:'#0F766E', padding:'4px 9px', borderRadius:999, fontWeight:700, display:'inline-flex', alignItems:'center', gap:4 }}>
-                          <MessageSquare style={{width:9,height:9}}/> Chat
+                        <span style={{ fontSize:9, background:'#CCFBF1', color:'#0F766E', padding:'3px 8px', borderRadius:999, fontWeight:700, display:'inline-flex', alignItems:'center', gap:3 }}>
+                          <MessageSquare style={{width:8,height:8}}/> Chat
                         </span>
-                        <span style={{ fontSize:11, color:'#94A3B8', marginLeft:'auto', fontFamily:"'DM Mono',monospace" }}>{new Date(ticket.createdAt).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'})}</span>
-                        <button onClick={() => setShowConversation(v=>!v)}
-                          style={{ display:'flex', alignItems:'center', gap:5, padding:'7px 12px', background:'rgba(255,255,255,0.75)', border:'1px solid #5EEAD4', borderRadius:999, color:'#0F766E', fontSize:11, fontWeight:700, cursor:'pointer' }}>
-                          {showConversation ? <><ChevronUp style={{width:11,height:11}}/> ESCONDER</> : <><ChevronDown style={{width:11,height:11}}/> CARREGAR MAIS</>}
+                        <span style={{ fontSize:10, color:'#94A3B8', marginLeft:'auto', fontFamily:"'DM Mono',monospace" }}>{new Date(ticket.createdAt).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'})}</span>
+                        <button type="button" onClick={() => setShowConversation(v=>!v)}
+                          className="h-8 shrink-0 inline-flex items-center gap-1.5 px-3 rounded-full text-[11px] font-bold cursor-pointer font-inherit border"
+                          style={{ background:'rgba(255,255,255,0.85)', borderColor:'#5EEAD4', color:'#0F766E' }}>
+                          {showConversation ? <><ChevronUp style={{width:11,height:11}}/> Ocultar</> : <><ChevronDown style={{width:11,height:11}}/> Expandir</>}
                         </button>
-                        <span style={{ minWidth:28, height:28, borderRadius:10, background:'#FFFFFF', color:'#64748B', border:'1px solid rgba(148,163,184,0.18)', fontSize:12, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', padding:'0 6px', flexShrink:0 }}>1</span>
+                        <span style={{ minWidth:26, height:26, borderRadius:8, background:'#FFFFFF', color:'#64748B', border:'1px solid rgba(148,163,184,0.18)', fontSize:11, fontWeight:700, display:'inline-flex', alignItems:'center', justifyContent:'center', padding:'0 5px', flexShrink:0 }}>1</span>
                       </div>
                       {showConversation && (
-                        <div style={{ padding:'16px 18px 10px', display:'flex', flexDirection:'column', gap:10 }}>
-                          {conversationMsgs.map((cm:any)=>{
+                        <div style={{ padding:'10px 12px 8px', display:'flex', flexDirection:'column', gap:0 }}>
+                          {conversationMsgs.map((cm:any, cmIdx:number)=>{
                             const isC = cm.authorType==='contact';
-                            const t = new Date(cm.createdAt).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
-                            const src = convMediaUrls[cm.id];
+                            const tStr = new Date(cm.createdAt).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+                            const mid = String(cm.id);
+                            const src = convMediaUrls[mid];
+                            const convFailed = !!convMediaFailed[mid];
+                            const convUi = conversationTranscriptMediaUi(cm);
                             const hidePh =
-                              !!src &&
-                              (cm.content === '📷 Imagem' || cm.content === '🎤 Áudio' || cm.content === '📹 Vídeo');
+                              (cm.content === '📷 Imagem' && convUi?.bucket === 'image') ||
+                              (cm.content === '🎤 Áudio' && convUi?.bucket === 'audio') ||
+                              (cm.content === '📹 Vídeo' && convUi?.bucket === 'video');
                             const showCap = !!(cm.content && !hidePh);
-                            const showMedia =
-                              !!(cm.hasMedia || cm.mediaKind === 'image' || cm.mediaKind === 'audio' || cm.mediaKind === 'video') &&
-                              (cm.mediaKind === 'image' || cm.mediaKind === 'audio' || cm.mediaKind === 'video');
-                            const mediaLoading = showMedia && !src;
+                            const bubbleBg = isC
+                              ? { background:'#FFFFFF', border:'1px solid #E2E8F0', color:'#1E293B' as const }
+                              : { background:'#EDE9FE', border:'1px solid #DDD6FE', color:'#1E293B' as const };
+                            const linkColor = isC ? '#0D9488' : '#5B21B6';
+                            const nameColor = isC ? '#64748B' : '#6D28D9';
+                            const convActBtn: CSSProperties = {
+                              fontSize: 12,
+                              fontWeight: 700,
+                              color: linkColor,
+                              textDecoration: 'none',
+                              background: 'none',
+                              border: 'none',
+                              cursor: 'pointer',
+                              padding: 0,
+                              fontFamily: 'inherit',
+                            };
                             return (
-                              <div key={cm.id} style={{ display:'flex', justifyContent:isC?'flex-start':'flex-end', gap:8, alignItems:'flex-end' }}>
+                              <div
+                                key={cm.id}
+                                style={{
+                                  display:'flex',
+                                  justifyContent:isC?'flex-start':'flex-end',
+                                  gap:6,
+                                  alignItems:'flex-end',
+                                  marginTop: cmIdx === 0 ? 0 : 6,
+                                }}
+                              >
                                 {isC && (
-                                  <div style={{ width:28, height:28, borderRadius:'50%', flexShrink:0, background:'#CCFBF1', display:'flex', alignItems:'center', justifyContent:'center', color:'#0D9488', fontSize:10, fontWeight:700 }}>
+                                  <div style={{ width:24, height:24, borderRadius:'50%', flexShrink:0, background:'#E2E8F0', display:'flex', alignItems:'center', justifyContent:'center', color:'#475569', fontSize:9, fontWeight:700 }}>
                                     {cm.authorName?.charAt(0)?.toUpperCase()||'?'}
                                   </div>
                                 )}
-                                <div style={{ maxWidth:'72%', padding:'10px 12px', borderRadius:isC?'6px 18px 18px 18px':'18px 6px 18px 18px', background:isC?'rgba(255,255,255,0.88)':'#E0E7FF', border:`1px solid ${isC?'rgba(148,163,184,0.14)':'rgba(99,102,241,0.18)'}`, boxShadow:'0 10px 24px rgba(15,23,42,0.06)', fontSize:12, color:'#0F172A' }}>
-                                  <p style={{ margin:'0 0 4px', fontWeight:700, fontSize:10, color:isC?'#475569':'#4338CA' }}>{cm.authorName}</p>
-                                  {cm.mediaKind === 'image' && src && (
-                                    <InlineChatMedia
-                                      src={src}
-                                      mediaKind="image"
-                                      imageStyle={{ maxHeight: 200, marginBottom: showCap ? 8 : 0, borderRadius: 10 }}
-                                    />
+                                <div
+                                  style={{
+                                    maxWidth:'min(100%, 480px)',
+                                    padding:'6px 10px',
+                                    borderRadius:8,
+                                    fontSize:13,
+                                    lineHeight:1.3,
+                                    boxShadow:'none',
+                                    ...bubbleBg,
+                                  }}
+                                >
+                                  <div style={{ display:'flex', alignItems:'baseline', justifyContent:'space-between', gap:8, marginBottom:2 }}>
+                                    <span style={{ fontWeight:600, fontSize:10, color:nameColor, lineHeight:1.2 }}>{cm.authorName}</span>
+                                    <span style={{ fontSize:10, color:'#94A3B8', fontFamily:"'DM Mono',monospace", flexShrink:0 }}>{tStr}</span>
+                                  </div>
+                                  {convUi?.bucket === 'audio' && !src && !convFailed && (
+                                    <span style={{ display:'block', fontSize:11, color:'#64748B', marginBottom:showCap ? 4 : 0 }}>A carregar…</span>
                                   )}
-                                  {cm.mediaKind === 'audio' && src && (
-                                    <audio src={src} controls style={{ width:'100%', maxWidth:240, minHeight:36, marginBottom: showCap ? 8 : 0 }} />
+                                  {convUi?.bucket === 'audio' && !src && convFailed && (
+                                    <div style={{ marginBottom: showCap ? 4 : 0 }}>
+                                      <button
+                                        type="button"
+                                        onClick={() => void loadConversationMessageMediaUrl(cm.id)}
+                                        style={{
+                                          fontSize:12,
+                                          fontWeight:700,
+                                          color:linkColor,
+                                          textDecoration:'underline',
+                                          background:'none',
+                                          border:'none',
+                                          cursor:'pointer',
+                                          padding:0,
+                                          fontFamily:'inherit',
+                                        }}
+                                      >
+                                        Tentar carregar áudio
+                                      </button>
+                                    </div>
                                   )}
-                                  {cm.mediaKind === 'video' && src && (
-                                    <InlineChatMedia
-                                      src={src}
-                                      mediaKind="video"
-                                      videoContainerStyle={{ marginBottom: showCap ? 8 : 0 }}
-                                      videoStyle={{ maxWidth: 280, maxHeight: 200, borderRadius: 10 }}
-                                    />
+                                  {convUi?.bucket === 'audio' && src && (
+                                    <div style={{ width:'100%', maxWidth:260, minWidth:0, marginBottom: showCap ? 4 : 0 }}>
+                                      <AudioMessagePlayer src={src} variant={isC ? 'received' : 'sent'} density="compact" />
+                                    </div>
                                   )}
-                                  {mediaLoading && (
-                                    <span style={{ display:'block', fontSize:10, opacity:0.75, marginBottom:6 }}>A carregar…</span>
+                                  {convUi?.bucket === 'image' && (
+                                    <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' as const, marginBottom: showCap ? 4 : 0 }}>
+                                      <span style={{ fontSize:12, fontWeight:600, color:'#475569' }}>Imagem</span>
+                                      <span style={{ fontSize:11, color:'#CBD5E1' }}>—</span>
+                                      <button
+                                        type="button"
+                                        onClick={() => void openConversationMessageMedia(cm.id, 'image')}
+                                        style={convActBtn}
+                                      >
+                                        Abrir
+                                      </button>
+                                    </div>
+                                  )}
+                                  {convUi?.bucket === 'video' && (
+                                    <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' as const, marginBottom: showCap ? 4 : 0 }}>
+                                      <span style={{ fontSize:12, fontWeight:600, color:'#475569' }}>Vídeo</span>
+                                      <span style={{ fontSize:11, color:'#CBD5E1' }}>—</span>
+                                      <button
+                                        type="button"
+                                        onClick={() => void openConversationMessageMedia(cm.id, 'video')}
+                                        style={convActBtn}
+                                      >
+                                        Abrir
+                                      </button>
+                                    </div>
+                                  )}
+                                  {convUi?.bucket === 'file' && (
+                                    <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' as const, marginBottom: showCap ? 4 : 0 }}>
+                                      <span style={{ fontSize:12, fontWeight:600, color:'#475569' }}>{convUi.typeLabel}</span>
+                                      <span style={{ fontSize:11, color:'#CBD5E1' }}>—</span>
+                                      <button
+                                        type="button"
+                                        onClick={() => void openConversationFileInTab(cm.id)}
+                                        style={convActBtn}
+                                      >
+                                        Abrir
+                                      </button>
+                                      <span style={{ fontSize:11, color:'#CBD5E1' }}>•</span>
+                                      <button
+                                        type="button"
+                                        onClick={() => void downloadConversationMessageBlob(cm.id, convUi.downloadFilename)}
+                                        style={convActBtn}
+                                      >
+                                        Baixar
+                                      </button>
+                                    </div>
                                   )}
                                   {showCap && (
-                                    <p style={{ margin:0, whiteSpace:'pre-wrap', lineHeight:1.4 }}>{cm.content}</p>
+                                    <p style={{ margin:0, whiteSpace:'pre-wrap', wordBreak:'break-word' as const }}>{cm.content}</p>
                                   )}
-                                  <span style={{ fontSize:9, opacity:0.55, display:'block', textAlign:isC?'left':'right', marginTop:6, fontFamily:"'DM Mono',monospace" }}>{t}</span>
                                 </div>
                                 {!isC && (
-                                  <div style={{ width:28, height:28, borderRadius:'50%', flexShrink:0, background:'linear-gradient(135deg,#6366F1,#4F46E5)', display:'flex', alignItems:'center', justifyContent:'center', color:'#fff', fontSize:10, fontWeight:700 }}>
+                                  <div style={{ width:24, height:24, borderRadius:'50%', flexShrink:0, background:'linear-gradient(135deg,#6366F1,#4F46E5)', display:'flex', alignItems:'center', justifyContent:'center', color:'#fff', fontSize:8, fontWeight:700 }}>
                                     {cm.authorName?.split(' ').map((n:string)=>n[0]).join('').slice(0,2).toUpperCase()||'?'}
                                   </div>
                                 )}
                               </div>
                             );
                           })}
-                          <div style={{ textAlign:'center', padding:'6px 0 2px' }}>
-                            <button onClick={() => setShowConversation(false)}
-                              style={{ padding:'6px 14px', border:'1px solid #5EEAD4', borderRadius:999, background:'rgba(255,255,255,0.7)', color:'#0F766E', fontSize:11, fontWeight:700, cursor:'pointer' }}>
-                              ESCONDER
+                          <div style={{ textAlign:'center', padding:'8px 0 2px' }}>
+                            <button type="button" onClick={() => setShowConversation(false)}
+                              className="h-8 px-3 rounded-full text-[11px] font-bold cursor-pointer font-inherit border"
+                              style={{ borderColor:'#5EEAD4', background:'rgba(255,255,255,0.75)', color:'#0F766E' }}>
+                              Ocultar transcrição
                             </button>
                           </div>
                         </div>
@@ -1045,21 +1394,22 @@ export default function TicketDetailsPage() {
               setTimeout(() => setActiveTab(isFinished ? 'note' : 'comment'), 0);
             }
             return (
-            <div style={{ background:'linear-gradient(180deg, #FFFFFF 0%, #FBFBFE 100%)', border:`1px solid ${S.bd}`, borderRadius:20, flexShrink:0, overflow:'hidden', boxShadow:'0 20px 45px rgba(15,23,42,0.08)' }}>
-              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, padding:'14px 16px 0' }}>
+            <div className="p-3 pb-0" style={{ background:'linear-gradient(180deg, #FFFFFF 0%, #FBFBFE 100%)', border:`1px solid ${S.bd}`, borderRadius:20, flexShrink:0, overflow:'hidden', boxShadow:'0 20px 45px rgba(15,23,42,0.08)' }}>
+              <div className="flex items-center justify-between gap-2 pb-2">
                 <div>
                   <div style={{ fontSize:12, fontWeight:700, color:S.txt }}>Responder no ticket</div>
-                  <div style={{ fontSize:11, color:S.txt3, marginTop:4 }}>Mantenha o contexto da conversa e escolha o tipo de interacao abaixo.</div>
+                  <div className="mt-1" style={{ fontSize:10, color:S.txt3, lineHeight:1.35 }}>Mantenha o contexto da conversa e escolha o tipo de interacao abaixo.</div>
                 </div>
-                <div style={{ fontSize:10, fontWeight:700, color:S.txt3, padding:'5px 9px', borderRadius:999, background:S.bg2, border:`1px solid ${S.bd}` }}>
+                <div style={{ fontSize:9, fontWeight:700, color:S.txt3, padding:'4px 8px', borderRadius:999, background:S.bg2, border:`1px solid ${S.bd}` }}>
                   {activeTab === 'note' ? 'Privado' : 'Publico'}
                 </div>
               </div>
-              <div style={{ display:'flex', gap:8, padding:'14px 16px 0', borderBottom:`1px solid ${S.bd}` }}>
+              <div className="flex items-end gap-1.5 pb-0 -mx-3 px-3" style={{ borderBottom:`1px solid ${S.bd}` }}>
                 {(visibleReplyTabs as [string,string][]).map(([tab,label]) => (
                   <button key={tab} onClick={() => setActiveTab(tab as any)}
-                    style={{ padding:'10px 14px', fontSize:12, fontWeight:700, cursor:'pointer', color:activeTab===tab?(tab==='note'?'#B45309':S.accent):S.txt2, border:'1px solid', borderColor:activeTab===tab?(tab==='note'?'#FCD34D':S.accentM):'transparent', borderBottomColor:activeTab===tab?(tab==='note'?'#FCD34D':S.accentM):'transparent', marginBottom:-1, background:activeTab===tab?(tab==='note'?'#FFF7ED':'#EEF2FF'):'transparent', display:'flex', alignItems:'center', gap:6, fontFamily:'inherit', borderTopLeftRadius:12, borderTopRightRadius:12, transition:'all .15s' }}>
-                    {tab==='note' && <Lock style={{width:12,height:12}}/>}{label}
+                    className="h-8 px-3 text-xs rounded-md font-bold cursor-pointer flex items-center gap-1.5 font-inherit border transition-all duration-150 -mb-px"
+                    style={{ color:activeTab===tab?(tab==='note'?'#B45309':S.accent):S.txt2, borderColor:activeTab===tab?(tab==='note'?'#FCD34D':S.accentM):'transparent', borderBottomColor:activeTab===tab?(tab==='note'?'#FCD34D':S.accentM):'transparent', background:activeTab===tab?(tab==='note'?'#FFF7ED':'#EEF2FF'):'transparent' }}>
+                    {tab==='note' && <Lock className="h-3 w-3 shrink-0" />}{label}
                   </button>
                 ))}
               </div>
@@ -1080,10 +1430,10 @@ export default function TicketDetailsPage() {
                     setPendingFile(f);
                   }}
                 />
-                <div style={{ padding:'16px' }}>
+                <div className="pt-2 pb-2">
                   {activeTab === 'comment' && pendingFile && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, fontSize: 12, color: S.txt2 }}>
-                      <Paperclip style={{ width: 14, height: 14, flexShrink: 0 }} />
+                    <div className="mb-2 flex items-center gap-2 text-xs" style={{ color: S.txt2 }}>
+                      <Paperclip className="h-3.5 w-3.5 shrink-0" />
                       <span style={{ fontWeight: 600, color: S.txt }}>{pendingFile.name}</span>
                       <button
                         type="button"
@@ -1097,14 +1447,15 @@ export default function TicketDetailsPage() {
                       </button>
                     </div>
                   )}
-                  <textarea value={message} onChange={e => setMessage(e.target.value)} rows={3}
+                  <textarea value={message} onChange={e => setMessage(e.target.value)}
                     placeholder={activeTab==='note'?'Nota interna (visível só para a equipe)...':activeTab==='update'?'Descreva a atualização do ticket...':'Digite sua resposta para o cliente...'}
-                    style={{ width:'100%', background:'#FFFFFF', border:`1px solid ${activeTab==='note' ? '#FCD34D' : activeTab==='update' ? '#C7D2FE' : '#E2E8F0'}`, outline:'none', fontSize:13, color:S.txt, fontFamily:'inherit', lineHeight:1.7, resize:'none' as const, boxSizing:'border-box' as const, minHeight:108, borderRadius:18, padding:'14px 16px', boxShadow:activeTab==='note' ? 'inset 0 1px 0 rgba(255,255,255,0.8), 0 10px 24px rgba(251,146,60,0.08)' : activeTab==='update' ? 'inset 0 1px 0 rgba(255,255,255,0.8), 0 10px 24px rgba(99,102,241,0.08)' : 'inset 0 1px 0 rgba(255,255,255,0.8), 0 10px 24px rgba(15,23,42,0.05)' }} />
+                    className="min-h-[60px] max-h-[160px] w-full resize-none overflow-y-auto rounded-xl border box-border px-3 py-2 text-[13px] leading-snug outline-none"
+                    style={{ background:'#FFFFFF', borderColor:activeTab==='note' ? '#FCD34D' : activeTab==='update' ? '#C7D2FE' : '#E2E8F0', borderWidth:1, borderStyle:'solid', color:S.txt, fontFamily:'inherit', boxShadow:activeTab==='note' ? 'inset 0 1px 0 rgba(255,255,255,0.8), 0 10px 24px rgba(251,146,60,0.08)' : activeTab==='update' ? 'inset 0 1px 0 rgba(255,255,255,0.8), 0 10px 24px rgba(99,102,241,0.08)' : 'inset 0 1px 0 rgba(255,255,255,0.8), 0 10px 24px rgba(15,23,42,0.05)' }} />
                 </div>
-                <div style={{ display:'flex', alignItems:'center', gap:8, padding:'0 16px 16px' }}>
+                <div className="flex items-center gap-1.5 pb-3 pt-1">
                   {[
                     {
-                      icon: <Paperclip style={{ width: 14, height: 14 }} />,
+                      icon: <Paperclip style={{ width: 12, height: 12 }} />,
                       onClick: () => {
                         if (activeTab !== 'comment') {
                           toast.error('Use a aba «Resposta pública» para anexar ficheiro.');
@@ -1113,35 +1464,28 @@ export default function TicketDetailsPage() {
                         attachFileInputRef.current?.click();
                       },
                     },
-                    { icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18"/></svg> },
-                    { icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg> },
-                    { icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg> },
+                    { icon: <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18"/></svg> },
+                    { icon: <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg> },
+                    { icon: <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg> },
                   ].map((item, i) => (
                     <button
                       key={i}
                       type="button"
                       onClick={item.onClick}
                       title={i === 0 ? 'Anexar ficheiro ao ticket (imagem, PDF, Office…)' : undefined}
+                      className="h-8 w-8 shrink-0 flex items-center justify-center rounded-lg border bg-white cursor-pointer shadow-sm"
                       style={{
-                        width: 34,
-                        height: 34,
-                        borderRadius: 10,
-                        background: '#FFFFFF',
-                        border: `1px solid ${S.bd}`,
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
+                        borderColor: S.bd,
                         color: S.txt2,
-                        boxShadow: '0 6px 16px rgba(15,23,42,0.04)',
+                        boxShadow: '0 4px 12px rgba(15,23,42,0.04)',
                         opacity: i === 0 && activeTab !== 'comment' ? 0.45 : 1,
                       }}
                     >
                       {item.icon}
                     </button>
                   ))}
-                  <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ fontSize:11, color:S.txt3 }}>
+                  <div className="min-w-0 flex-1 pl-0.5">
+                    <div className="text-[10px] leading-tight" style={{ color:S.txt3 }}>
                       {activeTab==='note'
                         ? 'Visivel apenas para a equipe interna.'
                         : activeTab==='update'
@@ -1152,25 +1496,15 @@ export default function TicketDetailsPage() {
                   <button
                     type="submit"
                     disabled={sending || (activeTab === 'comment' ? !message.trim() && !pendingFile : !message.trim())}
+                    className="h-9 shrink-0 px-4 text-sm font-bold flex items-center gap-1.5 rounded-lg border-none cursor-pointer text-white font-inherit"
                     style={{
-                      padding:'10px 18px',
                       background:activeTab==='note' ? '#F59E0B' : S.accent,
-                      color:'#fff',
-                      border:'none',
-                      borderRadius:12,
-                      fontSize:12,
-                      fontWeight:700,
-                      cursor:'pointer',
-                      fontFamily:'inherit',
-                      display:'flex',
-                      alignItems:'center',
-                      gap:7,
                       opacity: (activeTab === 'comment' ? !message.trim() && !pendingFile : !message.trim()) || sending ? 0.5 : 1,
-                      boxShadow:activeTab==='note' ? '0 14px 30px rgba(245,158,11,0.25)' : '0 14px 30px rgba(79,70,229,0.22)',
+                      boxShadow:activeTab==='note' ? '0 8px 20px rgba(245,158,11,0.22)' : '0 8px 20px rgba(79,70,229,0.2)',
                       transition:'background .15s',
                     }}
                   >
-                    <Send style={{width:13,height:13}}/> {sending?'Enviando...':'Enviar resposta'}
+                    <Send className="h-3.5 w-3.5 shrink-0" /> {sending?'Enviando...':'Enviar resposta'}
                   </button>
                 </div>
               </form>
@@ -1185,15 +1519,15 @@ export default function TicketDetailsPage() {
           const cont = ticket.contactId ? contactObj(ticket.contactId) : null;
           const hasWa = cont?.whatsapp || cont?.phone;
           const secLabel = (txt: string, action?: React.ReactNode) => (
-            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8, paddingBottom:6, borderBottom:`1px solid ${S.bd}` }}>
               <span style={{ fontSize:10, fontWeight:700, color:S.txt3, textTransform:'uppercase' as const, letterSpacing:'0.07em' }}>{txt}</span>
               {action}
             </div>
           );
           const row = (label: string, value: React.ReactNode) => (
-            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', padding:'5px 0', gap:8 }}>
-              <span style={{ fontSize:12, color:S.txt2, flexShrink:0 }}>{label}</span>
-              <span style={{ fontSize:12, color:S.txt, fontWeight:500, textAlign:'right' as const }}>{value}</span>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', padding:'3px 0', gap:8 }}>
+              <span style={{ fontSize:11, color:S.txt2, flexShrink:0 }}>{label}</span>
+              <span className="min-w-0 flex-1 text-right" style={{ fontSize:11, color:S.txt, fontWeight:500 }}>{value}</span>
             </div>
           );
           // total time
@@ -1209,10 +1543,10 @@ export default function TicketDetailsPage() {
             return `${m}m`;
           })();
           return (
-        <div style={{ width:interactionExpanded ? 0 : 280, borderLeft:interactionExpanded ? 'none' : `1px solid ${S.bd}`, overflowY:'auto', flexShrink:0, background:S.bg, display:interactionExpanded ? 'none' : 'flex', flexDirection:'column', transition:'width .2s ease' }}>
+        <div className="[html[data-theme=dark]_&]:bg-slate-900" style={{ width:interactionExpanded ? 0 : 280, borderLeft:interactionExpanded ? 'none' : `1px solid ${S.bd}`, overflowY:'auto', flexShrink:0, background:S.bg, display:interactionExpanded ? 'none' : 'flex', flexDirection:'column', transition:'width .2s ease', padding:'8px 10px 10px', gap:8 }}>
 
           {/* DETALHES */}
-          <div style={{ padding:'14px 16px', borderBottom:`1px solid ${S.bd}` }}>
+          <div className="rounded-xl bg-white shadow-[0_1px_2px_rgba(15,23,42,0.05)] [html[data-theme=dark]_&]:bg-slate-900 [html[data-theme=dark]_&]:shadow-none [html[data-theme=dark]_&]:ring-1 [html[data-theme=dark]_&]:ring-slate-700/50" style={{ padding:'10px 12px', border:`1px solid ${S.bd}`, borderRadius:12 }}>
             {secLabel('Detalhes')}
             {row('Status',
               <span style={{ display:'inline-flex', alignItems:'center', gap:5, fontSize:12, fontWeight:500, padding:'3px 8px', borderRadius:5, background:status.bg, color:status.color }}>
@@ -1231,12 +1565,12 @@ export default function TicketDetailsPage() {
                 {ticket.satisfactionScore==='approved' ? <><ThumbsUp style={{width:11,height:11}}/> SIM</> : <><ThumbsDown style={{width:11,height:11}}/> NÃO</>}
               </span>
             )}
-            {ticket.rootCause && row('Causa raiz', <span style={{ fontSize:11 }}>{ticket.rootCause}</span>)}
+            {ticket.rootCause && row('Causa raiz', <span className="line-clamp-2 text-right" title={String(ticket.rootCause)} style={{ fontSize:11 }}>{ticket.rootCause}</span>)}
             {!!ticket.complexity && row('Complexidade', <span style={{ fontSize:11 }}>{COMPLEXITY_LABELS[ticket.complexity] || `${ticket.complexity}/5`}</span>)}
             {/* SLA inline */}
             {slaInfo && (
-              <div style={{ marginTop:8, paddingTop:8, borderTop:`1px solid ${S.bd}` }}>
-                <div style={{ display:'flex', justifyContent:'space-between', marginBottom:5 }}>
+              <div style={{ marginTop:6, paddingTop:6, borderTop:`1px solid ${S.bd}` }}>
+                <div style={{ display:'flex', justifyContent:'space-between', marginBottom:4 }}>
                   <span style={{ fontSize:11, color:slaInfo.violated?'#DC2626':'#D97706', fontWeight:700 }}>{slaInfo.violated?'SLA Violado':`${slaInfo.hours}h ${slaInfo.mins}min restantes`}</span>
                 </div>
                 <div style={{ height:4, background:S.bg3, borderRadius:99, overflow:'hidden' }}>
@@ -1248,21 +1582,21 @@ export default function TicketDetailsPage() {
 
           {/* DADOS DO CLIENTE */}
           {ticket.clientId && (
-            <div style={{ padding:'14px 16px', borderBottom:`1px solid ${S.bd}` }}>
+            <div className="rounded-xl bg-white shadow-[0_1px_2px_rgba(15,23,42,0.05)] [html[data-theme=dark]_&]:bg-slate-900 [html[data-theme=dark]_&]:shadow-none [html[data-theme=dark]_&]:ring-1 [html[data-theme=dark]_&]:ring-slate-700/50" style={{ padding:'10px 12px', border:`1px solid ${S.bd}`, borderRadius:12 }}>
               {secLabel('Dados do Cliente', <button onClick={() => setShowEditPanel(true)} style={{ fontSize:11, color:S.accent, cursor:'pointer', border:'none', background:'none', fontWeight:500, fontFamily:'inherit', padding:0 }}>Editar</button>)}
-              <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:10 }}>
-                <div style={{ width:38, height:38, borderRadius:'50%', background:'#DBEAFE', color:'#1E40AF', display:'flex', alignItems:'center', justifyContent:'center', fontSize:13, fontWeight:700, flexShrink:0 }}>
+              <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
+                <div style={{ width:36, height:36, borderRadius:'50%', background:'#DBEAFE', color:'#1E40AF', display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:700, flexShrink:0 }}>
                   {initials(customerName(ticket.clientId))}
                 </div>
-                <div>
-                  <div style={{ fontSize:13, fontWeight:700, color:S.txt }}>{customerName(ticket.clientId)}</div>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-semibold" title={customerName(ticket.clientId)} style={{ fontSize:12, color:S.txt }}>{customerName(ticket.clientId)}</div>
                   {cli?.cnpj && <div style={{ fontSize:11, color:S.txt2, fontFamily:"'DM Mono',monospace", marginTop:2 }}>{cli.cnpj}</div>}
                 </div>
               </div>
               {cont && (
-                <div style={{ borderTop:`1px solid ${S.bd}`, paddingTop:10 }}>
-                  <div style={{ fontSize:10, fontWeight:700, color:S.txt3, textTransform:'uppercase' as const, letterSpacing:'0.06em', marginBottom:8 }}>Contato</div>
-                  <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                <div style={{ borderTop:`1px solid ${S.bd}`, paddingTop:8 }}>
+                  <div style={{ fontSize:10, fontWeight:700, color:S.txt3, textTransform:'uppercase' as const, letterSpacing:'0.06em', marginBottom:6 }}>Contato</div>
+                  <div style={{ display:'flex', alignItems:'center', gap:8 }}>
                     <div style={{ width:30, height:30, borderRadius:'50%', background:'#10B981', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:10, fontWeight:700, flexShrink:0 }}>
                       {initials(cont.name||'?')}
                     </div>
@@ -1285,7 +1619,7 @@ export default function TicketDetailsPage() {
 
           {/* HISTÓRICO DO CLIENTE */}
           {ticket.clientId && (
-            <div style={{ padding:'14px 16px', borderBottom:`1px solid ${S.bd}` }}>
+            <div className="rounded-xl bg-white shadow-[0_1px_2px_rgba(15,23,42,0.05)] [html[data-theme=dark]_&]:bg-slate-900 [html[data-theme=dark]_&]:shadow-none [html[data-theme=dark]_&]:ring-1 [html[data-theme=dark]_&]:ring-slate-700/50" style={{ padding:'10px 12px', border:`1px solid ${S.bd}`, borderRadius:12 }}>
               {secLabel('Histórico do Cliente',
                 <a href={`/dashboard/tickets?clientId=${ticket.clientId}`} style={{ fontSize:11, color:S.accent, fontWeight:500, textDecoration:'none' }}>Ver todos</a>
               )}
@@ -1299,11 +1633,11 @@ export default function TicketDetailsPage() {
                     const diffDays = Math.floor(diffMs / 86400000);
                     const timeLabel = t.id===id ? 'Atual' : diffDays===0 ? 'hoje' : diffDays < 7 ? `${diffDays}d` : `${Math.floor(diffDays/7)} sem`;
                     return (
-                      <a key={t.id} href={`/dashboard/tickets/${t.id}`} style={{ display:'flex', alignItems:'center', gap:8, padding:'6px 0', borderBottom:`1px solid ${S.bd}`, textDecoration:'none' }}>
+                      <a key={t.id} href={`/dashboard/tickets/${t.id}`} style={{ display:'flex', alignItems:'center', gap:6, padding:'5px 0', borderBottom:`1px solid ${S.bd}`, textDecoration:'none' }}>
                         <span style={{ width:7, height:7, borderRadius:'50%', background:dot, flexShrink:0 }} />
                         <div style={{ flex:1, minWidth:0 }}>
                           <div style={{ fontSize:10, color:S.txt3, fontFamily:"'DM Mono',monospace" }}>{t.ticketNumber}</div>
-                          <div style={{ fontSize:12, color:S.txt, fontWeight:500, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{t.subject}</div>
+                          <div className="truncate" title={String(t.subject || '')} style={{ fontSize:11, color:S.txt, fontWeight:500 }}>{t.subject}</div>
                         </div>
                         <span style={{ fontSize:10, color:S.txt3, flexShrink:0 }}>{timeLabel}</span>
                       </a>
@@ -1314,9 +1648,9 @@ export default function TicketDetailsPage() {
           )}
 
           {/* ATRIBUIÇÃO */}
-          <div style={{ padding:'14px 16px' }}>
+          <div className="rounded-xl bg-white shadow-[0_1px_2px_rgba(15,23,42,0.05)] [html[data-theme=dark]_&]:bg-slate-900 [html[data-theme=dark]_&]:shadow-none [html[data-theme=dark]_&]:ring-1 [html[data-theme=dark]_&]:ring-slate-700/50" style={{ padding:'10px 12px', border:`1px solid ${S.bd}`, borderRadius:12 }}>
             {secLabel('Atribuição')}
-            <form onSubmit={saveEdit} style={{ display:'flex', flexDirection:'column', gap:10 }}>
+            <form onSubmit={saveEdit} style={{ display:'flex', flexDirection:'column', gap:8 }}>
               <div>
                 <label style={{ fontSize:10, color:S.txt3, fontWeight:700, letterSpacing:'0.06em', textTransform:'uppercase' as const, display:'block', marginBottom:4 }}>Prioridade</label>
                 <select style={inp} value={edit.priority} onChange={e => setEdit({...edit,priority:e.target.value})}>
@@ -1362,7 +1696,7 @@ export default function TicketDetailsPage() {
                 />
               </div>
               <button type="submit" disabled={saving}
-                style={{ width:'100%', padding:'10px', background:S.accent, color:'#fff', border:'none', borderRadius:9, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'inherit', display:'flex', alignItems:'center', justifyContent:'center', gap:6 }}>
+                style={{ width:'100%', padding:'9px 10px', background:S.accent, color:'#fff', border:'none', borderRadius:10, fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'inherit', display:'flex', alignItems:'center', justifyContent:'center', gap:6 }}>
                 <Save style={{width:14,height:14}} /> {saving?'Salvando...':'Salvar alterações'}
               </button>
             </form>
@@ -1371,6 +1705,13 @@ export default function TicketDetailsPage() {
           );
         })()}
       </div>
+
+      <MediaLightbox
+        open={!!convMediaLightbox}
+        onClose={() => setConvMediaLightbox(null)}
+        src={convMediaLightbox?.src ?? ''}
+        mediaKind={convMediaLightbox?.mediaKind ?? 'image'}
+      />
     </div>
   );
 }
