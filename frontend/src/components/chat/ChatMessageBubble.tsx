@@ -151,37 +151,37 @@ function chatPalette(theme: 'light' | 'dark'): ChatPalette {
   if (theme === 'dark') {
     return {
       received: { background: '#1E293B', border: '1px solid rgba(148,163,184,0.22)', color: '#E2E8F0' },
-      sent: { background: '#4F46E5', border: 'none', color: '#FFFFFF' },
+      sent: { background: 'rgba(91,33,182,0.35)', border: '1px solid rgba(167,139,250,0.45)', color: '#F1F5F9' },
       systemBg: '#1E293B',
       systemBorder: '1px solid rgba(148,163,184,0.22)',
       systemColor: '#94A3B8',
       authorLabel: '#94A3B8',
       replyBorderContact: '#64748B',
-      replyBorderSent: 'rgba(255,255,255,0.5)',
+      replyBorderSent: '#A78BFA',
       replyBgContact: 'rgba(148,163,184,0.14)',
-      replyBgSent: 'rgba(255,255,255,0.12)',
+      replyBgSent: 'rgba(139,92,246,0.2)',
       replyNameContact: '#CBD5E1',
-      replyNameSent: 'rgba(255,255,255,0.9)',
+      replyNameSent: '#DDD6FE',
       replySnippet: '#94A3B8',
       loadingText: '#94A3B8',
       replyBtn: '#64748B',
     };
   }
   return {
-    received: { background: '#FFFFFF', border: '1px solid rgba(0,0,0,0.07)', color: '#111118' },
-    sent: { background: '#4F46E5', border: 'none', color: '#FFFFFF' },
-    systemBg: '#EEF2FF',
-    systemBorder: '1px solid #C7D2FE',
-    systemColor: '#4338CA',
-    authorLabel: '#6B6B80',
-    replyBorderContact: '#C7D2FE',
-    replyBorderSent: 'rgba(255,255,255,0.55)',
-    replyBgContact: 'rgba(79,70,229,0.07)',
-    replyBgSent: 'rgba(255,255,255,0.15)',
-    replyNameContact: '#4F46E5',
-    replyNameSent: 'rgba(255,255,255,0.9)',
-    replySnippet: '#6B6B80',
-    loadingText: '#6B6B80',
+    received: { background: '#FFFFFF', border: '1px solid #E2E8F0', color: '#1E293B' },
+    sent: { background: '#EDE9FE', border: '1px solid #DDD6FE', color: '#1E293B' },
+    systemBg: '#F1F5F9',
+    systemBorder: '1px solid #E2E8F0',
+    systemColor: '#64748B',
+    authorLabel: '#64748B',
+    replyBorderContact: '#CBD5E1',
+    replyBorderSent: '#C4B5FD',
+    replyBgContact: 'rgba(241,245,249,0.95)',
+    replyBgSent: 'rgba(237,233,254,0.85)',
+    replyNameContact: '#475569',
+    replyNameSent: '#6D28D9',
+    replySnippet: '#64748B',
+    loadingText: '#64748B',
     replyBtn: '#94A3B8',
   };
 }
@@ -233,7 +233,7 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
   ).trim();
   const showAuthorLabel =
     !isSystem &&
-    !sameAuthorAsPrev &&
+    (isContact ? !sameAuthorAsPrev : true) &&
     (isContact || m.authorType === 'user') &&
     authorLabelText.length > 0;
   const showAvatar = density === 'normal' && isContact && !sameAuthorAsNext;
@@ -266,26 +266,21 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
       <div style={{ display: 'flex', justifyContent: 'center', width: '100%', marginTop: sysMt }}>
         <div
           style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: density === 'compact' ? 4 : 6,
+            display: 'inline-block',
             maxWidth: '92%',
-            padding: density === 'compact' ? '3px 10px' : '5px 14px',
+            width: 'fit-content',
+            padding: density === 'compact' ? '3px 8px' : '4px 10px',
             borderRadius: density === 'compact' ? 6 : 8,
             background: P.systemBg,
             border: P.systemBorder,
             color: P.systemColor,
-            fontSize: density === 'compact' ? 11 : 11,
-            fontWeight: 500,
+            fontSize: density === 'compact' ? 11 : 12,
             lineHeight: 1.35,
             boxShadow: 'none',
             textAlign: 'center',
             boxSizing: 'border-box',
           }}
         >
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v2z" />
-          </svg>
           {highlight ? <HighlightText text={m.content || ''} query={highlight} /> : m.content}
         </div>
       </div>
@@ -381,7 +376,7 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
             position: 'relative',
             ...bubbleBase,
             borderRadius,
-            boxShadow: isContact ? '0 1px 2px rgba(0,0,0,0.04)' : '0 1px 6px rgba(79,70,229,0.25)',
+            boxShadow: 'none',
             opacity: m._optimistic ? 0.75 : 1,
             transition: 'opacity 0.2s',
           }}
@@ -490,7 +485,7 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
                 style={{
                   fontSize: density === 'compact' ? 12 : 13,
                   fontWeight: 700,
-                  color: isContact ? '#0D9488' : 'rgba(255,255,255,0.9)',
+                  color: isContact ? '#0D9488' : '#5B21B6',
                   textDecoration: 'none',
                 }}
               >
@@ -504,7 +499,7 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
                 style={{
                   fontSize: density === 'compact' ? 12 : 13,
                   fontWeight: 700,
-                  color: isContact ? '#0D9488' : 'rgba(255,255,255,0.9)',
+                  color: isContact ? '#0D9488' : '#5B21B6',
                   textDecoration: 'none',
                 }}
               >
