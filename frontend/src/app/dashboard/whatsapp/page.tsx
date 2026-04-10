@@ -56,12 +56,18 @@ function getApiBase(): string {
   return 'http://localhost:4000/api/v1';
 }
 
-function StatusBadge({ status }: { status: ConnectionStatus }) {
-  const map: Record<ConnectionStatus, { label: string; bg: string; color: string; dot: string }> = {
+function StatusBadge({ status, variant = 'default' }: { status: ConnectionStatus; variant?: 'default' | 'baileys' }) {
+  const defaultMap: Record<ConnectionStatus, { label: string; bg: string; color: string; dot: string }> = {
     disconnected: { label: 'Desconectado', bg: '#FEF2F2', color: '#EF4444', dot: '#EF4444' },
     connecting:   { label: 'Conectando…',  bg: '#FFFBEB', color: '#D97706', dot: '#F59E0B' },
     connected:    { label: 'Conectado',    bg: '#ECFDF5', color: '#059669', dot: '#10B981' },
   };
+  const baileysMap: Record<ConnectionStatus, { label: string; bg: string; color: string; dot: string }> = {
+    disconnected: { label: 'QR (Baileys): inativo',     bg: '#FEF2F2', color: '#EF4444', dot: '#EF4444' },
+    connecting:   { label: 'QR (Baileys): conectando…', bg: '#FFFBEB', color: '#D97706', dot: '#F59E0B' },
+    connected:    { label: 'QR (Baileys): ativo',       bg: '#ECFDF5', color: '#059669', dot: '#10B981' },
+  };
+  const map = variant === 'baileys' ? baileysMap : defaultMap;
   const s = map[status];
   return (
     <span style={{
@@ -69,6 +75,10 @@ function StatusBadge({ status }: { status: ConnectionStatus }) {
       padding: '4px 12px', borderRadius: 20,
       background: s.bg, color: s.color,
       fontSize: 13, fontWeight: 600,
+      maxWidth: variant === 'baileys' ? 260 : undefined,
+      flexWrap: variant === 'baileys' ? 'wrap' : undefined,
+      justifyContent: variant === 'baileys' ? 'center' : undefined,
+      textAlign: variant === 'baileys' ? 'center' : undefined,
     }}>
       <span style={{
         width: 8, height: 8, borderRadius: '50%', background: s.dot,
@@ -95,6 +105,50 @@ const INPUT_STYLE: React.CSSProperties = {
   border: '1.5px solid #E2E8F0', background: '#F8FAFC',
   fontSize: 14, color: '#1E293B', outline: 'none',
 };
+
+/** Espelha backend/src/modules/whatsapp/whatsapp-meta-fields.util.ts */
+const META_PHONE_ID_MIN = 8;
+const META_PHONE_ID_MAX = 24;
+const META_WABA_ID_MIN = 6;
+const META_WABA_ID_MAX = 24;
+
+function getMetaPhoneNumberIdValidationError(raw: string): string | null {
+  const v = raw.trim();
+  if (!v) return null;
+  if (v.includes('@')) {
+    return 'Não use e-mail aqui. O Phone Number ID é um número (Meta Developer Console › WhatsApp).';
+  }
+  if (!/^\d+$/.test(v)) {
+    return 'Phone Number ID deve conter apenas dígitos, sem letras nem espaços.';
+  }
+  if (v.length < META_PHONE_ID_MIN || v.length > META_PHONE_ID_MAX) {
+    return `Phone Number ID deve ter entre ${META_PHONE_ID_MIN} e ${META_PHONE_ID_MAX} dígitos.`;
+  }
+  return null;
+}
+
+/** WABA ID no Meta é numérico; vazio é permitido (opcional). */
+function getMetaWabaIdValidationError(raw: string): string | null {
+  const v = raw.trim();
+  if (!v) return null;
+  if (v.includes('@')) {
+    return 'Não use e-mail neste campo. Informe o WhatsApp Business Account ID (só números) do Meta Business Suite.';
+  }
+  if (!/^\d+$/.test(v)) {
+    return 'O WABA ID deve conter apenas dígitos, sem letras nem espaços.';
+  }
+  if (v.length < META_WABA_ID_MIN || v.length > META_WABA_ID_MAX) {
+    return `O WABA ID deve ter entre ${META_WABA_ID_MIN} e ${META_WABA_ID_MAX} dígitos.`;
+  }
+  return null;
+}
+
+function nestErrorMessage(json: unknown): string {
+  const m = (json as { message?: string | string[] })?.message;
+  if (typeof m === 'string') return m;
+  if (Array.isArray(m) && m.length) return m.filter(Boolean).join(' ');
+  return '';
+}
 
 // ── Main Page ────────────────────────────────────────────────────────────────
 
@@ -308,6 +362,16 @@ export default function WhatsappPage() {
       setChannelFormError('Phone Number ID e Token são obrigatórios.');
       return;
     }
+    const phoneErr = getMetaPhoneNumberIdValidationError(channelForm.metaPhoneNumberId);
+    if (phoneErr) {
+      setChannelFormError(phoneErr);
+      return;
+    }
+    const wabaErr = getMetaWabaIdValidationError(channelForm.metaWabaId);
+    if (wabaErr) {
+      setChannelFormError(wabaErr);
+      return;
+    }
     setSavingChannel(true);
     try {
       const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
@@ -330,7 +394,7 @@ export default function WhatsappPage() {
       });
       const json = await res.json();
       if (!res.ok) {
-        setChannelFormError(json?.message || 'Erro ao adicionar canal.');
+        setChannelFormError(nestErrorMessage(json) || 'Erro ao adicionar canal.');
         return;
       }
       setShowAddForm(false);
@@ -393,6 +457,11 @@ export default function WhatsappPage() {
 
   const handleSaveEdit = async (id: string) => {
     setEditFormError('');
+    const wabaErr = getMetaWabaIdValidationError(editForm.metaWabaId);
+    if (wabaErr) {
+      setEditFormError(wabaErr);
+      return;
+    }
     setSavingEditId(id);
     try {
       const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
@@ -409,7 +478,7 @@ export default function WhatsappPage() {
         }),
       });
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) { setEditFormError(json?.message || 'Erro ao salvar.'); return; }
+      if (!res.ok) { setEditFormError(nestErrorMessage(json) || 'Erro ao salvar.'); return; }
       setEditingChannelId(null);
       await fetchChannels();
     } catch {
@@ -428,6 +497,9 @@ export default function WhatsappPage() {
 
   const status: ConnectionStatus = conn?.status ?? 'disconnected';
   const webhookUrl = `${getApiBase()}/webhooks/whatsapp`;
+  const phoneAddHintError = getMetaPhoneNumberIdValidationError(channelForm.metaPhoneNumberId);
+  const wabaAddHintError = getMetaWabaIdValidationError(channelForm.metaWabaId);
+  const wabaEditHintError = getMetaWabaIdValidationError(editForm.metaWabaId);
 
   // ── Render ───────────────────────────────────────────────────────────────
 
@@ -452,8 +524,11 @@ export default function WhatsappPage() {
           </p>
         </div>
         {!loadingConn && conn && (
-          <div style={{ marginLeft: 'auto' }}>
-            <StatusBadge status={status} />
+          <div style={{ marginLeft: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, maxWidth: 280, textAlign: 'right' }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: '#94A3B8', lineHeight: 1.35 }}>
+              Conexão pelo celular (Baileys — aba &quot;Conexão QR Code&quot;). Independente da API Meta.
+            </span>
+            <StatusBadge status={status} variant="baileys" />
           </div>
         )}
       </div>
@@ -497,7 +572,7 @@ export default function WhatsappPage() {
                   ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 12px', borderRadius: 20, background: '#F1F5F9', color: '#94A3B8', fontSize: 13, fontWeight: 600 }}>
                       <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> Verificando…
                     </span>
-                  : <StatusBadge status={status} />
+                  : <StatusBadge status={status} variant="baileys" />
                 }
                 {!loadingConn && status === 'connected' && conn?.phoneNumber && (
                   <p style={{ margin: '8px 0 0', fontSize: 14, color: '#1E293B', fontWeight: 600 }}>
@@ -673,6 +748,17 @@ export default function WhatsappPage() {
       {tab === 'channels' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
 
+          <div style={{
+            display: 'flex', alignItems: 'flex-start', gap: 10,
+            padding: '12px 14px', borderRadius: 10,
+            background: '#F8FAFC', border: '1.5px solid #E2E8F0',
+          }}>
+            <Info size={16} color="#64748B" style={{ flexShrink: 0, marginTop: 2 }} />
+            <p style={{ margin: 0, fontSize: 12, color: '#64748B', lineHeight: 1.5 }}>
+              Os canais abaixo usam a <strong>API Oficial Meta</strong>. O indicador colorido no <strong>topo da página</strong> mostra apenas se há sessão ativa pelo <strong>QR Code (Baileys)</strong> — os dois podem coexistir ou ficar em estados diferentes.
+            </p>
+          </div>
+
           {/* Status de conexão Meta — resumo dos canais configurados */}
           {channels.length > 0 && (
             <div style={{
@@ -774,21 +860,49 @@ export default function WhatsappPage() {
                     onChange={e => setChannelForm(f => ({ ...f, label: e.target.value }))}
                   />
                 </Field>
-                <Field label="Phone Number ID *" hint="Encontrado no Meta Developer Console › WhatsApp › Configuração">
+                <Field
+                  label="Phone Number ID *"
+                  hint={`Apenas dígitos (${META_PHONE_ID_MIN}–${META_PHONE_ID_MAX} caracteres). Meta Developer Console › WhatsApp › Configuração.`}
+                >
                   <input
-                    style={INPUT_STYLE}
+                    style={{
+                      ...INPUT_STYLE,
+                      borderColor: phoneAddHintError ? '#F97316' : '#E2E8F0',
+                      background: phoneAddHintError ? '#FFF7ED' : '#F8FAFC',
+                    }}
+                    inputMode="numeric"
+                    autoComplete="off"
                     placeholder="Ex: 123456789012345"
                     value={channelForm.metaPhoneNumberId}
                     onChange={e => setChannelForm(f => ({ ...f, metaPhoneNumberId: e.target.value }))}
                   />
+                  {phoneAddHintError && (
+                    <p style={{ margin: '6px 0 0', fontSize: 12, color: '#C2410C', fontWeight: 500 }}>
+                      {phoneAddHintError}
+                    </p>
+                  )}
                 </Field>
-                <Field label="WABA ID" hint="WhatsApp Business Account ID (opcional, para templates)">
+                <Field
+                  label="WABA ID (opcional)"
+                  hint="WhatsApp Business Account ID no Meta — apenas dígitos, sem e-mail. Deixe em branco se não for usar."
+                >
                   <input
-                    style={INPUT_STYLE}
+                    style={{
+                      ...INPUT_STYLE,
+                      borderColor: wabaAddHintError ? '#F97316' : '#E2E8F0',
+                      background: wabaAddHintError ? '#FFF7ED' : '#F8FAFC',
+                    }}
+                    inputMode="numeric"
+                    autoComplete="off"
                     placeholder="Ex: 123456789012345"
                     value={channelForm.metaWabaId}
                     onChange={e => setChannelForm(f => ({ ...f, metaWabaId: e.target.value }))}
                   />
+                  {wabaAddHintError && (
+                    <p style={{ margin: '6px 0 0', fontSize: 12, color: '#C2410C', fontWeight: 500 }}>
+                      {wabaAddHintError}
+                    </p>
+                  )}
                 </Field>
                 <Field label="Token de Acesso *" hint="Token permanente gerado no Meta Business Suite">
                   <div style={{ position: 'relative' }}>
@@ -1032,13 +1146,24 @@ export default function WhatsappPage() {
                         onChange={e => setEditForm(f => ({ ...f, label: e.target.value }))}
                       />
                     </Field>
-                    <Field label="WABA ID" hint="Opcional">
+                    <Field label="WABA ID" hint="Opcional; só dígitos (nunca e-mail)">
                       <input
-                        style={INPUT_STYLE}
+                        style={{
+                          ...INPUT_STYLE,
+                          borderColor: wabaEditHintError ? '#F97316' : '#E2E8F0',
+                          background: wabaEditHintError ? '#FFF7ED' : '#F8FAFC',
+                        }}
+                        inputMode="numeric"
+                        autoComplete="off"
                         placeholder="Ex: 123456789012345"
                         value={editForm.metaWabaId}
                         onChange={e => setEditForm(f => ({ ...f, metaWabaId: e.target.value }))}
                       />
+                      {wabaEditHintError && (
+                        <p style={{ margin: '6px 0 0', fontSize: 12, color: '#C2410C', fontWeight: 500 }}>
+                          {wabaEditHintError}
+                        </p>
+                      )}
                     </Field>
                     <Field label="Novo Token" hint="Deixe em branco para manter o atual">
                       <div style={{ position: 'relative' }}>

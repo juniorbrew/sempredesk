@@ -36,6 +36,7 @@ import { JwtAuthGuard, Public } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 import { TenantId } from '../../common/decorators/tenant-id.decorator';
+import { validateMetaPhoneNumberId, validateMetaWabaIdOptional } from './whatsapp-meta-fields.util';
 
 @Controller('webhooks/whatsapp')
 export class WhatsappController {
@@ -323,8 +324,12 @@ export class WhatsappController {
     @Body() body: { metaPhoneNumberId: string; metaToken?: string; metaVerifyToken?: string; metaWebhookUrl?: string; metaWabaId?: string },
   ) {
     if (!body.metaPhoneNumberId?.trim()) {
-      return { success: false, message: 'metaPhoneNumberId é obrigatório' };
+      throw new BadRequestException('metaPhoneNumberId é obrigatório');
     }
+    const phoneErr = validateMetaPhoneNumberId(body.metaPhoneNumberId);
+    if (phoneErr) throw new BadRequestException(phoneErr);
+    const wabaErr = validateMetaWabaIdOptional(body.metaWabaId);
+    if (wabaErr) throw new BadRequestException(wabaErr);
     await this.baileysService.saveMetaConfig(tenantId, {
       metaPhoneNumberId: body.metaPhoneNumberId.trim(),
       metaToken: body.metaToken?.trim() || null,
@@ -376,8 +381,12 @@ export class WhatsappController {
     },
   ) {
     if (!body.metaPhoneNumberId?.trim() || !body.metaToken?.trim()) {
-      return { success: false, message: 'metaPhoneNumberId e metaToken são obrigatórios' };
+      throw new BadRequestException('metaPhoneNumberId e metaToken são obrigatórios');
     }
+    const phoneErr = validateMetaPhoneNumberId(body.metaPhoneNumberId);
+    if (phoneErr) throw new BadRequestException(phoneErr);
+    const wabaErr = validateMetaWabaIdOptional(body.metaWabaId);
+    if (wabaErr) throw new BadRequestException(wabaErr);
     const channel = await this.baileysService.addChannel(tenantId, {
       label: body.label?.trim() || 'Número ' + body.metaPhoneNumberId.trim().slice(-4),
       metaPhoneNumberId: body.metaPhoneNumberId.trim(),
@@ -416,6 +425,10 @@ export class WhatsappController {
       metaWabaId?: string;
     },
   ) {
+    if (body.metaWabaId !== undefined) {
+      const wabaErr = validateMetaWabaIdOptional(body.metaWabaId);
+      if (wabaErr) throw new BadRequestException(wabaErr);
+    }
     await this.baileysService.updateChannel(tenantId, id, {
       label: body.label?.trim(),
       metaToken: body.metaToken?.trim(),
