@@ -397,6 +397,7 @@ CREATE TABLE whatsapp_connections (
   status               whatsapp_connections_status_enum   NOT NULL DEFAULT 'disconnected',
   phone_number         VARCHAR,
   meta_phone_number_id VARCHAR,
+  meta_waba_id         VARCHAR,
   meta_token           TEXT,
   meta_verify_token    VARCHAR,
   meta_webhook_url     VARCHAR,
