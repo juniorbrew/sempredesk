@@ -6,29 +6,17 @@ function stripWaMd(s: string): string {
 }
 
 /**
- * Cabeçalho no WhatsApp (negrito): *Departamento - Nome do agente:*
- * ou só *Nome:* se não houver departamento.
+ * Linha inicial no WhatsApp: *Nome do agente* (negrito) + quebra antes do texto.
  */
-export function buildWhatsappAgentHeaderLine(
-  department: string | null | undefined,
-  agentName: string,
-): string {
-  const name = stripWaMd(agentName);
-  if (!name) return '';
-  const dept = stripWaMd(department || '');
-  if (dept) {
-    return `*${dept} - ${name}:*\n`;
-  }
-  return `*${name}:*\n`;
+export function buildWhatsappAgentBoldLine(agentName: string): string {
+  const n = stripWaMd(agentName);
+  if (!n) return '';
+  return `*${n}*\n`;
 }
 
 /** Prefixa o corpo enviado ao WhatsApp (não altera o texto gravado no painel). */
-export function prependWhatsappAgentLine(
-  department: string | null | undefined,
-  agentName: string,
-  body: string,
-): string {
-  const line = buildWhatsappAgentHeaderLine(department, agentName);
+export function prependWhatsappAgentLine(agentName: string, body: string): string {
+  const line = buildWhatsappAgentBoldLine(agentName);
   if (!line) return body;
   return `${line}${body}`;
 }
