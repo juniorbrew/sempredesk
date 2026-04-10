@@ -199,6 +199,26 @@ export default function ChatbotConfigPage() {
         ))}
       </div>
 
+      {/* Visível em qualquer aba — evita não achar a opção no fim de Geral / só em Canais */}
+      <div
+        style={{
+          background: S.card,
+          border: S.border,
+          borderRadius: 14,
+          padding: '18px 20px',
+          marginBottom: 20,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 12,
+        }}
+      >
+        <div style={{ fontSize: 11, fontWeight: 800, color: S.accent, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+          WhatsApp · identificação do atendente
+        </div>
+        <WhatsappPrefixAgentCard config={config} setConfig={setConfig} />
+        <SaveBtn saving={saving} onClick={saveConfig} label="Salvar (inclui nome do agente no WhatsApp)" />
+      </div>
+
       {/* ── TAB: GERAL ── */}
       {tab === 'general' && (
         <div style={{ background: S.card, border: S.border, borderRadius: 14, padding: '22px 24px', display: 'flex', flexDirection: 'column', gap: 18 }}>
@@ -247,7 +267,6 @@ export default function ChatbotConfigPage() {
                 rows={2} style={{ ...inp, resize: 'vertical' }} />
             </Field>
           )}
-          <WhatsappPrefixAgentCard config={config} setConfig={setConfig} />
           <SaveBtn saving={saving} onClick={saveConfig} />
         </div>
       )}
@@ -355,8 +374,6 @@ export default function ChatbotConfigPage() {
             </div>
           ))}
 
-          <WhatsappPrefixAgentCard config={config} setConfig={setConfig} />
-
           <SaveBtn saving={saving} onClick={saveConfig} />
         </div>
       )}
@@ -422,7 +439,7 @@ function WhatsappPrefixAgentCard({
   return (
     <div
       style={{
-        marginTop: 8,
+        marginTop: 0,
         padding: '16px 18px',
         borderRadius: 12,
         border: `1.5px solid ${on ? S.accent : '#E2E8F0'}`,
@@ -446,12 +463,11 @@ function WhatsappPrefixAgentCard({
           <Smartphone size={20} color="#25D366" />
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 700, color: S.txt, fontSize: 14, marginBottom: 4 }}>Nome do agente nas respostas (WhatsApp)</div>
+          <div style={{ fontWeight: 700, color: S.txt, fontSize: 14, marginBottom: 4 }}>Mostrar nome do agente nas respostas ao cliente</div>
           <div style={{ fontSize: 12, color: S.txt2, lineHeight: 1.55, marginBottom: 10 }}>
-            Quando <strong>ativado</strong>, cada resposta ao cliente começa com o <strong>nome do atendente</strong> em negrito, no formato do WhatsApp (
-            <code style={{ background: '#EEF2FF', padding: '1px 5px', borderRadius: 4 }}>*Nome do agente*</code>
-            ), numa linha, e o texto na linha seguinte. O histórico no painel continua <strong>sem</strong> esse prefixo. Use <strong>Salvar</strong> nesta página
-            após alterar.
+            O nome vem do <strong>seu utilizador no painel</strong> (não é um campo separado). Com a opção <strong>ativada</strong>, cada mensagem enviada ao WhatsApp começa com{' '}
+            <code style={{ background: '#EEF2FF', padding: '1px 5px', borderRadius: 4 }}>*O seu nome*</code> numa linha e o texto na linha seguinte. O histórico interno do
+            atendimento continua <strong>sem</strong> esse prefixo. Clique em <strong>Salvar</strong> abaixo depois de alterar o interruptor.
           </div>
           <button
             type="button"
