@@ -351,9 +351,13 @@ export default function ChatbotConfigPage() {
                 <Smartphone size={20} color="#25D366" />
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 700, color: S.txt, fontSize: 14, marginBottom: 4 }}>Nome do agente nas respostas (WhatsApp)</div>
+                <div style={{ fontWeight: 700, color: S.txt, fontSize: 14, marginBottom: 4 }}>Cabeçalho do atendente no WhatsApp</div>
                 <div style={{ fontSize: 12, color: S.txt2, lineHeight: 1.55, marginBottom: 10 }}>
-                  Quando <strong>ativado</strong>, cada mensagem do atendente enviada ao cliente pelo WhatsApp começa com o nome em negrito, no formato do próprio WhatsApp (<code style={{ background: '#EEF2FF', padding: '1px 5px', borderRadius: 4 }}>*Nome Sobrenome*</code>), seguido do texto. O histórico no painel continua <strong>sem</strong> esse prefixo — só o cliente vê no aplicativo.
+                  Quando <strong>ativado</strong>, cada resposta ao cliente começa com uma linha em negrito (formatação do WhatsApp):{' '}
+                  <code style={{ background: '#EEF2FF', padding: '1px 5px', borderRadius: 4 }}>*Departamento - Nome do agente:*</code>
+                  {' '}e o texto na linha seguinte. O <strong>departamento</strong> vem do chamado vinculado; sem ticket ou sem departamento, usa só{' '}
+                  <code style={{ background: '#EEF2FF', padding: '1px 5px', borderRadius: 4 }}>*Nome:*</code>.
+                  O painel continua <strong>sem</strong> esse prefixo — só o cliente vê no aplicativo.
                 </div>
                 <button
                   type="button"

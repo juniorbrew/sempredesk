@@ -768,8 +768,9 @@ export class WhatsappService {
     }
 
     const prefixAgent = await fetchWhatsappPrefixAgentEnabled(this.dataSource, tenantId);
+    const dept = ticket.department?.trim() || null;
     const textToSend =
-      prefixAgent && authorName.trim() ? prependWhatsappAgentLine(authorName, text) : text;
+      prefixAgent && authorName.trim() ? prependWhatsappAgentLine(dept, authorName, text) : text;
 
     // Tenta Baileys (QR) primeiro; fallback Meta API
     let sent = false;
@@ -947,7 +948,11 @@ export class WhatsappService {
     }
 
     const prefixAgent = await fetchWhatsappPrefixAgentEnabled(this.dataSource, tenantId);
-    const waPrefix = prefixAgent && authorName.trim() ? (s: string) => prependWhatsappAgentLine(authorName, s) : (s: string) => s;
+    const deptMedia = ticket.department?.trim() || null;
+    const waPrefix =
+      prefixAgent && authorName.trim()
+        ? (s: string) => prependWhatsappAgentLine(deptMedia, authorName, s)
+        : (s: string) => s;
 
     const caption = (opts?.content ?? '').trim() || undefined;
     let waOk = false;
@@ -970,7 +975,7 @@ export class WhatsappService {
     } else {
       const captionForWa =
         prefixAgent && authorName.trim()
-          ? prependWhatsappAgentLine(authorName, (opts?.content ?? '').trim()) || undefined
+          ? prependWhatsappAgentLine(deptMedia, authorName, (opts?.content ?? '').trim()) || undefined
           : caption;
       if (this.baileysService) {
         const r = await this.baileysService.sendMedia(tenantId, destination.raw, mediaKind, file.path, {

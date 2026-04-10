@@ -1,17 +1,34 @@
 import { DataSource } from 'typeorm';
 
-/**
- * WhatsApp trata *texto* como negrito. Remove asteriscos do nome para não quebrar o markdown.
- */
-export function buildWhatsappAgentBoldLine(agentName: string): string {
-  const n = String(agentName || '').trim().replace(/\*/g, '');
-  if (!n) return '';
-  return `*${n}*\n`;
+/** Remove asteriscos para não quebrar o negrito do WhatsApp (*…*). */
+function stripWaMd(s: string): string {
+  return String(s || '').trim().replace(/\*/g, '');
 }
 
-/** Prefixa o corpo da mensagem enviada ao WhatsApp (não altera o texto gravado no painel). */
-export function prependWhatsappAgentLine(agentName: string, body: string): string {
-  const line = buildWhatsappAgentBoldLine(agentName);
+/**
+ * Cabeçalho no WhatsApp (negrito): *Departamento - Nome do agente:*
+ * ou só *Nome:* se não houver departamento.
+ */
+export function buildWhatsappAgentHeaderLine(
+  department: string | null | undefined,
+  agentName: string,
+): string {
+  const name = stripWaMd(agentName);
+  if (!name) return '';
+  const dept = stripWaMd(department || '');
+  if (dept) {
+    return `*${dept} - ${name}:*\n`;
+  }
+  return `*${name}:*\n`;
+}
+
+/** Prefixa o corpo enviado ao WhatsApp (não altera o texto gravado no painel). */
+export function prependWhatsappAgentLine(
+  department: string | null | undefined,
+  agentName: string,
+  body: string,
+): string {
+  const line = buildWhatsappAgentHeaderLine(department, agentName);
   if (!line) return body;
   return `${line}${body}`;
 }

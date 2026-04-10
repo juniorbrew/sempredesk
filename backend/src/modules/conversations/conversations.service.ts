@@ -1040,15 +1040,28 @@ export class ConversationsService {
             } else {
               outboundPayload = content;
             }
+            let ticketDepartment: string | null = null;
+            if (conv.ticketId) {
+              try {
+                const tr: Array<{ department: string | null }> = await this.dataSource.query(
+                  `SELECT department FROM tickets WHERE id = $1 AND tenant_id = $2 LIMIT 1`,
+                  [conv.ticketId, tenantId],
+                );
+                const d = tr[0]?.department?.trim();
+                ticketDepartment = d || null;
+              } catch {
+                /* segue sem departamento */
+              }
+            }
             const prefixAgent = await fetchWhatsappPrefixAgentEnabled(this.dataSource, tenantId);
             if (prefixAgent && authorName?.trim()) {
               if (typeof outboundPayload === 'string') {
-                outboundPayload = prependWhatsappAgentLine(authorName, outboundPayload);
+                outboundPayload = prependWhatsappAgentLine(ticketDepartment, authorName, outboundPayload);
               } else if (outboundPayload && typeof outboundPayload === 'object' && 'kind' in outboundPayload) {
                 const cap = (outboundPayload as { caption?: string }).caption ?? '';
                 outboundPayload = {
                   ...outboundPayload,
-                  caption: prependWhatsappAgentLine(authorName, cap) || undefined,
+                  caption: prependWhatsappAgentLine(ticketDepartment, authorName, cap) || undefined,
                 };
               }
             }
