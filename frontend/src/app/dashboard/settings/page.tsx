@@ -15,6 +15,8 @@ interface ChatbotConfig {
   enabled: boolean; channelWhatsapp: boolean; channelWeb: boolean; channelPortal: boolean;
   transferMessage: string; noAgentMessage: string; invalidOptionMessage: string;
   sessionTimeoutMinutes: number; menuItems?: ChatbotMenuItem[];
+  /** Prefixo *nome* nas respostas do atendente ao cliente no WhatsApp. */
+  whatsappPrefixAgentName?: boolean;
   postTicketMessage?: string | null;
   postTicketMessageNoAgent?: string | null;
   ratingRequestMessage?: string | null;
@@ -33,6 +35,7 @@ const BOT_DEFAULT: ChatbotConfig = {
   noAgentMessage: 'Todos os atendentes estão ocupados. Entraremos em contato em breve.',
   invalidOptionMessage: 'Opção inválida. Por favor escolha uma opção do menu:',
   sessionTimeoutMinutes: 30,
+  whatsappPrefixAgentName: false,
 };
 
 interface Settings {
@@ -105,6 +108,9 @@ function coalesceChatbot(raw: Partial<ChatbotConfig> | null | undefined): Chatbo
   m.channelWhatsapp = !!m.channelWhatsapp;
   m.channelWeb = !!m.channelWeb;
   m.channelPortal = !!m.channelPortal;
+  const rawAny = raw as { whatsappPrefixAgentName?: unknown; whatsapp_prefix_agent_name?: unknown } | null | undefined;
+  const wpRaw = rawAny?.whatsappPrefixAgentName ?? rawAny?.whatsapp_prefix_agent_name;
+  m.whatsappPrefixAgentName = wpRaw === true || wpRaw === 1 || wpRaw === 'true';
   return m;
 }
 
@@ -314,7 +320,8 @@ export default function SettingsPage() {
   const saveBotConfig = async () => {
     setBotSaving(true);
     try {
-      const { menuItems, id, ...dto } = botConfig as any;
+      const { menuItems, id, ...rest } = botConfig as any;
+      const dto = { ...rest, whatsappPrefixAgentName: !!rest.whatsappPrefixAgentName };
       await (api as any).updateChatbotConfig(dto);
       setSaved(true); setTimeout(() => setSaved(false), 2000);
     } catch { alert('Erro ao salvar chatbot'); }
@@ -837,6 +844,29 @@ X-Api-Secret: {INBOUND_EMAIL_SECRET}`}</pre>
                   ))}
                 </div>
               )}
+
+              {/* Mesma opção que em /dashboard/configuracoes/chatbot — aqui é onde a maioria entra (Configurações → Chatbot) */}
+              <div style={{ background:'#F8FAFC', borderRadius:12, border:'1.5px solid #A5B4FC', padding:'16px 18px' }}>
+                <p style={{ fontSize:11, fontWeight:800, color:'#4F46E5', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:10 }}>WhatsApp · nome do agente nas respostas</p>
+                <p style={{ fontSize:13, fontWeight:700, color:'#0F172A', marginBottom:8 }}>Mostrar nome do atendente na primeira linha (negrito) nas mensagens ao cliente</p>
+                <p style={{ fontSize:12, color:'#64748B', lineHeight:1.55, marginBottom:14 }}>
+                  O texto usa o <strong>nome do utilizador com sessão iniciada no painel</strong>, no formato{' '}
+                  <code style={{ fontFamily:'monospace', background:'#EEF2FF', padding:'2px 6px', borderRadius:4 }}>*Nome*</code>.
+                  O histórico interno do atendimento não leva este prefixo. Depois de mudar o interruptor, clique em{' '}
+                  <strong>Salvar configurações do bot</strong> (botão mais abaixo, após os canais).
+                </p>
+                <div style={{ display:'flex', flexWrap:'wrap', alignItems:'center', gap:14 }}>
+                  <Toggle
+                    checked={!!botConfig.whatsappPrefixAgentName}
+                    onChange={(v) => setBotConfig((c) => ({ ...c, whatsappPrefixAgentName: v }))}
+                    label={botConfig.whatsappPrefixAgentName ? 'Ativado' : 'Desativado'}
+                  />
+                  <button type="button" onClick={saveBotConfig} disabled={botSaving} className="btn-primary">
+                    {botSaving ? <RefreshCw className="w-4 h-4 animate-spin"/> : <Save className="w-4 h-4"/>}
+                    Salvar nome no WhatsApp
+                  </button>
+                </div>
+              </div>
 
               {/* Mensagens */}
               <div style={{ borderTop:'1px solid #F1F5F9', paddingTop:20 }}>
