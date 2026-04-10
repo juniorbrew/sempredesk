@@ -3,7 +3,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { api } from '@/lib/api';
 import {
   Smartphone, Wifi, WifiOff, RefreshCw, LogOut, CheckCircle,
-  AlertCircle, Loader2, Save, Eye, EyeOff, Copy,
+  AlertCircle, Loader2, Save, Eye, EyeOff, Copy, Info,
 } from 'lucide-react';
 
 // ── Types ────────────────────────────────────────────────────────────────────
