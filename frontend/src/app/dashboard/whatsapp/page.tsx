@@ -124,6 +124,11 @@ export default function WhatsappPage() {
   const [deletingChannelId, setDeletingChannelId] = useState<string | null>(null);
   const [settingDefaultId, setSettingDefaultId] = useState<string | null>(null);
   const [showChannelToken, setShowChannelToken] = useState(false);
+  const [editingChannelId, setEditingChannelId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState({ label: '', metaToken: '', metaVerifyToken: '', metaWebhookUrl: '', metaWabaId: '' });
+  const [showEditToken, setShowEditToken] = useState(false);
+  const [savingEditId, setSavingEditId] = useState<string | null>(null);
+  const [editFormError, setEditFormError] = useState('');
 
   const [copied, setCopied] = useState(false);
 
@@ -376,6 +381,41 @@ export default function WhatsappPage() {
       alert('Erro de conexão ao remover canal.');
     } finally {
       setDeletingChannelId(null);
+    }
+  };
+
+  const handleStartEdit = (ch: ChannelInfo) => {
+    setEditingChannelId(ch.id);
+    setEditForm({ label: ch.label, metaToken: '', metaVerifyToken: ch.metaVerifyToken || '', metaWebhookUrl: ch.metaWebhookUrl || '', metaWabaId: ch.metaWabaId || '' });
+    setEditFormError('');
+    setShowEditToken(false);
+  };
+
+  const handleSaveEdit = async (id: string) => {
+    setEditFormError('');
+    setSavingEditId(id);
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+      const base = getApiBase();
+      const res = await fetch(`${base}/webhooks/whatsapp/channels/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({
+          label: editForm.label.trim() || undefined,
+          metaToken: editForm.metaToken.trim() || undefined,
+          metaVerifyToken: editForm.metaVerifyToken.trim() || undefined,
+          metaWebhookUrl: editForm.metaWebhookUrl.trim() || undefined,
+          metaWabaId: editForm.metaWabaId.trim() || undefined,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) { setEditFormError(json?.message || 'Erro ao salvar.'); return; }
+      setEditingChannelId(null);
+      await fetchChannels();
+    } catch {
+      setEditFormError('Erro de conexão ao salvar.');
+    } finally {
+      setSavingEditId(null);
     }
   };
 
@@ -918,6 +958,21 @@ export default function WhatsappPage() {
 
                 {/* Ações */}
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
+                  <button
+                    onClick={() => editingChannelId === ch.id ? setEditingChannelId(null) : handleStartEdit(ch)}
+                    title="Editar canal"
+                    style={{
+                      padding: '7px 14px', borderRadius: 8,
+                      background: editingChannelId === ch.id ? '#F1F5F9' : '#F8FAFC',
+                      color: '#475569',
+                      border: '1.5px solid #E2E8F0',
+                      fontWeight: 600, fontSize: 12, cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', gap: 5,
+                    }}
+                  >
+                    <Save size={12} />
+                    {editingChannelId === ch.id ? 'Cancelar' : 'Editar'}
+                  </button>
                   {!ch.isDefault && (
                     <button
                       onClick={() => handleSetDefault(ch.id)}
@@ -960,6 +1015,100 @@ export default function WhatsappPage() {
                   </button>
                 </div>
               </div>
+
+              {/* Formulário de edição inline */}
+              {editingChannelId === ch.id && (
+                <div style={{
+                  marginTop: 16, paddingTop: 16,
+                  borderTop: '1.5px solid #E2E8F0',
+                  display: 'flex', flexDirection: 'column', gap: 12,
+                }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <Field label="Nome / Rótulo">
+                      <input
+                        style={INPUT_STYLE}
+                        placeholder="Ex: Suporte"
+                        value={editForm.label}
+                        onChange={e => setEditForm(f => ({ ...f, label: e.target.value }))}
+                      />
+                    </Field>
+                    <Field label="WABA ID" hint="Opcional">
+                      <input
+                        style={INPUT_STYLE}
+                        placeholder="Ex: 123456789012345"
+                        value={editForm.metaWabaId}
+                        onChange={e => setEditForm(f => ({ ...f, metaWabaId: e.target.value }))}
+                      />
+                    </Field>
+                    <Field label="Novo Token" hint="Deixe em branco para manter o atual">
+                      <div style={{ position: 'relative' }}>
+                        <input
+                          style={{ ...INPUT_STYLE, paddingRight: 40 }}
+                          type={showEditToken ? 'text' : 'password'}
+                          placeholder="Cole o novo token aqui"
+                          value={editForm.metaToken}
+                          onChange={e => setEditForm(f => ({ ...f, metaToken: e.target.value }))}
+                        />
+                        <button type="button" onClick={() => setShowEditToken(v => !v)} style={{
+                          position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
+                          background: 'none', border: 'none', cursor: 'pointer', color: '#94A3B8',
+                          display: 'flex', alignItems: 'center',
+                        }}>
+                          {showEditToken ? <EyeOff size={14} /> : <Eye size={14} />}
+                        </button>
+                      </div>
+                    </Field>
+                    <Field label="Verify Token">
+                      <input
+                        style={INPUT_STYLE}
+                        placeholder="sempredesk-verify"
+                        value={editForm.metaVerifyToken}
+                        onChange={e => setEditForm(f => ({ ...f, metaVerifyToken: e.target.value }))}
+                      />
+                    </Field>
+                  </div>
+
+                  {editFormError && (
+                    <div style={{
+                      padding: '8px 12px', borderRadius: 8,
+                      background: '#FEF2F2', border: '1.5px solid #FECACA',
+                      display: 'flex', alignItems: 'center', gap: 8, color: '#DC2626', fontSize: 12,
+                    }}>
+                      <AlertCircle size={13} style={{ flexShrink: 0 }} />
+                      {editFormError}
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                    <button
+                      onClick={() => setEditingChannelId(null)}
+                      style={{
+                        padding: '7px 16px', borderRadius: 8, background: '#F1F5F9',
+                        color: '#475569', border: '1.5px solid #E2E8F0',
+                        fontWeight: 600, fontSize: 13, cursor: 'pointer',
+                      }}
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      onClick={() => handleSaveEdit(ch.id)}
+                      disabled={savingEditId === ch.id}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 6,
+                        padding: '7px 18px', borderRadius: 8,
+                        background: savingEditId === ch.id ? '#A5B4FC' : '#4F46E5',
+                        color: '#fff', border: 'none',
+                        fontWeight: 600, fontSize: 13, cursor: savingEditId === ch.id ? 'not-allowed' : 'pointer',
+                      }}
+                    >
+                      {savingEditId === ch.id
+                        ? <><Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> Salvando…</>
+                        : <><Save size={13} /> Salvar</>
+                      }
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           ))}
         </div>
