@@ -30,6 +30,15 @@ export class ChatbotSession {
   @Column({ type: 'jsonb', nullable: true })
   metadata: Record<string, unknown> | null;
 
+  /**
+   * ID do canal WhatsApp (whatsapp_connections.id) pelo qual esta sessão chegou.
+   * Propagado desde o webhook inbound para garantir que as respostas do chatbot
+   * saiam sempre pelo mesmo número que recebeu a mensagem do contato.
+   * Nullable para compatibilidade retroativa e para sessões web/portal.
+   */
+  @Column({ name: 'whatsapp_channel_id', nullable: true })
+  whatsappChannelId: string | null;
+
   /** ISO timestamp of last activity for expiry checks */
   @Column({ name: 'last_activity' })
   lastActivity: Date;

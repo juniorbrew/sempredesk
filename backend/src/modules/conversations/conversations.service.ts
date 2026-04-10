@@ -56,6 +56,8 @@ export class ConversationsService {
           | string
           | { kind: 'image' | 'audio' | 'video'; filePath: string; caption?: string; mime?: string },
         quotedMsg?: { externalId: string; content: string; fromMe: boolean } | null,
+        /** ID do canal WhatsApp (whatsapp_connections.id) — garante saída pelo número correto */
+        whatsappChannelId?: string | null,
       ) => Promise<{ success: boolean; jid?: string | null; messageId?: string | null; error?: string } | boolean>)
     | null = null;
   setOutboundSender(
@@ -64,6 +66,7 @@ export class ConversationsService {
       toWhatsapp: string,
       payload: string | { kind: 'image' | 'audio' | 'video'; filePath: string; caption?: string; mime?: string },
       quotedMsg?: { externalId: string; content: string; fromMe: boolean } | null,
+      whatsappChannelId?: string | null,
     ) => Promise<{ success: boolean; jid?: string | null; messageId?: string | null; error?: string } | boolean>,
   ) {
     this.outboundSender = fn;
@@ -214,7 +217,18 @@ export class ConversationsService {
     clientId: string | null,
     contactId: string,
     channel: ConversationChannel,
-    opts?: { chatAlert?: boolean; firstMessage?: string; contactName?: string; department?: string; autoCreateTicket?: boolean },
+    opts?: {
+      chatAlert?: boolean;
+      firstMessage?: string;
+      contactName?: string;
+      department?: string;
+      autoCreateTicket?: boolean;
+      /**
+       * ID do canal WhatsApp (whatsapp_connections.id) pelo qual esta conversa chegou.
+       * Salvo em Conversation.whatsappChannelId para garantir respostas pelo canal correto.
+       */
+      whatsappChannelId?: string | null;
+    },
   ): Promise<{ conversation: Conversation; ticket: any; ticketCreated: boolean }> {
     // Busca por contactId+channel+status sem filtrar por clientId.
     // Evita criar conversa paralela quando o vínculo do contato com um cliente muda
@@ -294,7 +308,7 @@ export class ConversationsService {
       });
       return { conversation: active, ticket: null, ticketCreated: false };
     }
-    const result = await this.startConversation(tenantId, clientId, contactId, channel, opts as any);
+    const result = await this.startConversation(tenantId, clientId, contactId, channel, opts as any ?? {});
     if (opts?.autoCreateTicket) {
       const ticket = await this.createTicketForConversation(
         tenantId,
@@ -419,6 +433,11 @@ export class ConversationsService {
       description?: string;
       departmentId?: string;
       department?: string;
+      /**
+       * ID do canal WhatsApp (whatsapp_connections.id) pelo qual esta conversa chegou.
+       * Salvo em Conversation.whatsappChannelId para garantir respostas pelo canal correto.
+       */
+      whatsappChannelId?: string | null;
     },
   ): Promise<{ conversation: Conversation; ticket: any | null }> {
     const conv = this.convRepo.create({
@@ -429,6 +448,7 @@ export class ConversationsService {
       status: ConversationStatus.ACTIVE,
       chatAlert: opts?.chatAlert ?? false,
       initiatedBy: ConversationInitiatedBy.CONTACT,
+      whatsappChannelId: opts?.whatsappChannelId ?? null,
     });
     const savedConv = await this.convRepo.save(conv);
     return { conversation: savedConv, ticket: null };
@@ -1028,7 +1048,8 @@ export class ConversationsService {
                 };
               }
             }
-            const raw = await this.outboundSender(tenantId, contact.whatsapp, outboundPayload as any, quotedMsg);
+            // Passa o canal da conversa para garantir que a resposta saia pelo número correto
+            const raw = await this.outboundSender(tenantId, contact.whatsapp, outboundPayload as any, quotedMsg, conv.whatsappChannelId ?? null);
             const sendResult = typeof raw === 'boolean' ? { success: raw } : raw;
             if (sendResult.success) {
               const externalId = sendResult.messageId ?? null;

@@ -159,6 +159,8 @@ export default function SettingsPage() {
   const [departments, setDepartments] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const [loadError, setLoadError] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [smtpTesting, setSmtpTesting] = useState(false);
   const [smtpResult, setSmtpResult] = useState<{success:boolean;message:string}|null>(null);
@@ -216,7 +218,9 @@ export default function SettingsPage() {
       }
       if (permsData) setAllPerms(permsData);
       if (rolesData) setRoles(Array.isArray(rolesData) ? rolesData : rolesData?.data || []);
-    } catch {}
+    } catch {
+      setLoadError('Falha ao carregar configurações. Verifique a conexão.');
+    }
   }, []);
   useEffect(() => { load(); }, [load]);
 
@@ -227,7 +231,15 @@ export default function SettingsPage() {
 
   const handleSave = async () => {
     setSaving(true);
-    try { await (api as any).updateSettings(settings); setSaved(true); setTimeout(() => setSaved(false), 2500); } catch {}
+    setSaveError('');
+    try {
+      await (api as any).updateSettings(settings);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } catch (e: any) {
+      setSaveError(e?.response?.data?.message || 'Erro ao salvar. Verifique a conexão.');
+      setTimeout(() => setSaveError(''), 4000);
+    }
     setSaving(false);
   };
 
@@ -359,12 +371,24 @@ export default function SettingsPage() {
           <p className="page-subtitle">Gerencie as configurações do sistema</p>
         </div>
         {!['profile','perfis','routing','webhooks','apikeys','inbound_email','chatbot'].includes(tab) && (
-          <button onClick={handleSave} disabled={saving} className="btn-primary">
-            {saving ? <RefreshCw className="w-4 h-4 animate-spin" /> : saved ? <CheckCircle className="w-4 h-4" /> : <Save className="w-4 h-4" />}
-            {saved ? 'Salvo!' : 'Salvar alterações'}
-          </button>
+          <div className="flex items-center gap-3">
+            {saveError && <span style={{ fontSize:12, fontWeight:600, color:'#DC2626' }}>{saveError}</span>}
+            <button onClick={handleSave} disabled={saving} className="btn-primary">
+              {saving ? <RefreshCw className="w-4 h-4 animate-spin" /> : saved ? <CheckCircle className="w-4 h-4" /> : <Save className="w-4 h-4" />}
+              {saved ? 'Salvo!' : 'Salvar alterações'}
+            </button>
+          </div>
         )}
       </div>
+
+      {loadError && (
+        <div style={{ background:'#FEE2E2', color:'#DC2626', padding:'10px 16px', borderRadius:10, fontSize:13, fontWeight:600, display:'flex', alignItems:'center', justifyContent:'space-between', gap:12 }}>
+          <span>{loadError}</span>
+          <button onClick={() => { setLoadError(''); load(); }} style={{ background:'none', border:'1.5px solid #DC2626', borderRadius:6, padding:'4px 10px', fontSize:12, fontWeight:700, color:'#DC2626', cursor:'pointer' }}>
+            Tentar novamente
+          </button>
+        </div>
+      )}
 
       <div className="flex gap-5 flex-col lg:flex-row">
         {/* Sidebar */}
@@ -509,7 +533,7 @@ export default function SettingsPage() {
           {tab === 'visual' && (
             <div className="space-y-5">
               <div><h2 style={{ fontSize:16,fontWeight:700,color:'#0F172A' }}>Personalização visual</h2><p style={{ fontSize:13,color:'#94A3B8',marginTop:2 }}>Cores do sistema e identidade visual</p></div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {([['primaryColor','Cor primária','Botões e destaques'],['secondaryColor','Cor secundária','Gradientes e apoio']] as const).map(([key,label,hint])=>(
                   <Field key={key} label={label} hint={hint}>
                     <div style={{ display:'flex',alignItems:'center',gap:12 }}>

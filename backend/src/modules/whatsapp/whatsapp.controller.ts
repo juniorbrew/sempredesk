@@ -92,15 +92,17 @@ export class WhatsappController {
       }
     }
 
-    // Tenta resolver o tenantId pelo phoneNumberId da Meta (mais confiável que campo no body)
+    // Tenta resolver o tenant e o canal pelo phoneNumberId da Meta
     const metaPhoneNumberId = body?.entry?.[0]?.changes?.[0]?.value?.metadata?.phone_number_id as string | undefined;
-    const resolvedTenantId = metaPhoneNumberId
+    const resolved = metaPhoneNumberId
       ? await this.baileysService.findTenantByMetaPhoneNumberId(metaPhoneNumberId).catch(() => null)
       : null;
 
     // Nunca usar fallback hardcoded para tenant real — isso contaminaria dados entre empresas.
     // Se não for possível resolver o tenant, descartar o payload (200 para Meta não reenviar).
-    const tenantId = resolvedTenantId || body?.tenantId || body?.tenant_id || body?.tenant;
+    const tenantId = resolved?.tenantId || body?.tenantId || body?.tenant_id || body?.tenant;
+    /** ID do registro whatsapp_connections que recebeu esta mensagem — propaga o canal correto */
+    const inboundChannelId: string | undefined = resolved?.connectionId;
     if (!tenantId) {
       this.logger.warn(`[webhook] Payload descartado: meta_phone_number_id="${metaPhoneNumberId ?? 'N/A'}" não mapeado a nenhum tenant`);
       return { success: true };
@@ -138,7 +140,7 @@ export class WhatsappController {
         // Conexões Meta (provider='meta') DEVEM ser processadas por este webhook mesmo que
         // o status apareça como connected — o socket Baileys não existe para elas.
         if (connection?.provider === 'baileys' && connection?.status === 'connected') return;
-        await this.whatsappService.handleIncomingMessage(tenantId, msg);
+        await this.whatsappService.handleIncomingMessage(tenantId, msg, undefined, undefined, inboundChannelId);
       } catch (err) {
         this.logger.error(`Erro ao processar mensagem WhatsApp (tenant=${tenantId}): ${err}`);
       }
@@ -331,5 +333,114 @@ export class WhatsappController {
       metaWabaId: body.metaWabaId?.trim() || undefined,
     });
     return { success: true, message: 'Configuração Meta salva com sucesso!' };
+  }
+
+  // ── Multi-channel management ──────────────────────────────────────────
+
+  /** GET /channels — lista todos os canais WhatsApp do tenant */
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermission('ticket.view')
+  @Get('channels')
+  async listChannels(@TenantId() tenantId: string) {
+    const channels = await this.baileysService.listChannels(tenantId);
+    return channels.map(c => ({
+      id: c.id,
+      label: c.label,
+      provider: c.provider,
+      isDefault: c.isDefault,
+      status: c.status,
+      metaPhoneNumberId: c.metaPhoneNumberId,
+      metaToken: c.metaToken ? '••••••••' + c.metaToken.slice(-4) : null,
+      metaVerifyToken: c.metaVerifyToken,
+      metaWebhookUrl: c.metaWebhookUrl,
+      metaWabaId: c.metaWabaId,
+      configured: !!(c.metaPhoneNumberId && c.metaToken),
+      createdAt: c.createdAt,
+    }));
+  }
+
+  /** POST /channels — adiciona novo canal Meta ao tenant */
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermission('ticket.view')
+  @Post('channels')
+  async addChannel(
+    @TenantId() tenantId: string,
+    @Body() body: {
+      label?: string;
+      metaPhoneNumberId: string;
+      metaToken: string;
+      metaVerifyToken?: string;
+      metaWebhookUrl?: string;
+      metaWabaId?: string;
+      isDefault?: boolean;
+    },
+  ) {
+    if (!body.metaPhoneNumberId?.trim() || !body.metaToken?.trim()) {
+      return { success: false, message: 'metaPhoneNumberId e metaToken são obrigatórios' };
+    }
+    const channel = await this.baileysService.addChannel(tenantId, {
+      label: body.label?.trim() || 'Número ' + body.metaPhoneNumberId.trim().slice(-4),
+      metaPhoneNumberId: body.metaPhoneNumberId.trim(),
+      metaToken: body.metaToken.trim(),
+      metaVerifyToken: body.metaVerifyToken?.trim() || 'sempredesk-verify',
+      metaWebhookUrl: body.metaWebhookUrl?.trim(),
+      metaWabaId: body.metaWabaId?.trim(),
+      isDefault: body.isDefault ?? false,
+    });
+    return {
+      success: true,
+      message: 'Canal adicionado com sucesso!',
+      channel: {
+        id: channel.id,
+        label: channel.label,
+        provider: channel.provider,
+        isDefault: channel.isDefault,
+        metaPhoneNumberId: channel.metaPhoneNumberId,
+        configured: !!(channel.metaPhoneNumberId && channel.metaToken),
+      },
+    };
+  }
+
+  /** PUT /channels/:id — atualiza label / token de um canal existente */
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermission('ticket.view')
+  @Put('channels/:id')
+  async updateChannel(
+    @TenantId() tenantId: string,
+    @Param('id') id: string,
+    @Body() body: {
+      label?: string;
+      metaToken?: string;
+      metaVerifyToken?: string;
+      metaWebhookUrl?: string;
+      metaWabaId?: string;
+    },
+  ) {
+    await this.baileysService.updateChannel(tenantId, id, {
+      label: body.label?.trim(),
+      metaToken: body.metaToken?.trim(),
+      metaVerifyToken: body.metaVerifyToken?.trim(),
+      metaWebhookUrl: body.metaWebhookUrl?.trim(),
+      metaWabaId: body.metaWabaId?.trim(),
+    });
+    return { success: true, message: 'Canal atualizado com sucesso!' };
+  }
+
+  /** PUT /channels/:id/default — define este canal como padrão do tenant */
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermission('ticket.view')
+  @Put('channels/:id/default')
+  async setDefaultChannel(@TenantId() tenantId: string, @Param('id') id: string) {
+    await this.baileysService.setDefaultChannel(tenantId, id);
+    return { success: true, message: 'Canal padrão atualizado!' };
+  }
+
+  /** DELETE /channels/:id — remove canal (não pode ser o único nem o padrão) */
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermission('ticket.view')
+  @Delete('channels/:id')
+  async deleteChannel(@TenantId() tenantId: string, @Param('id') id: string) {
+    await this.baileysService.deleteChannel(tenantId, id);
+    return { success: true, message: 'Canal removido com sucesso!' };
   }
 }

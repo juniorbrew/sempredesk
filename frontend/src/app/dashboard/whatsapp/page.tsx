@@ -10,7 +10,7 @@ import {
 
 type ConnectionStatus = 'disconnected' | 'connecting' | 'connected';
 type ConnectionMode = 'idle' | 'user-initiated' | 'auto-reconnecting';
-type ActiveTab = 'qr' | 'meta';
+type ActiveTab = 'qr' | 'meta' | 'channels';
 
 interface ConnectionInfo {
   status: ConnectionStatus;
@@ -33,6 +33,31 @@ interface MetaForm {
   metaVerifyToken: string;
   metaWebhookUrl: string;
   metaWabaId: string;
+}
+
+interface ChannelInfo {
+  id: string;
+  label: string;
+  provider: 'baileys' | 'meta';
+  isDefault: boolean;
+  status: string | null;
+  metaPhoneNumberId: string | null;
+  metaToken: string | null;
+  metaVerifyToken: string | null;
+  metaWebhookUrl: string | null;
+  metaWabaId: string | null;
+  configured: boolean;
+  createdAt: string;
+}
+
+interface ChannelForm {
+  label: string;
+  metaPhoneNumberId: string;
+  metaToken: string;
+  metaVerifyToken: string;
+  metaWebhookUrl: string;
+  metaWabaId: string;
+  isDefault: boolean;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -100,6 +125,21 @@ export default function WhatsappPage() {
   const [disconnecting, setDisconnecting] = useState(false);
   const [connectionMode, setConnectionMode] = useState<ConnectionMode>('idle');
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Channels tab state
+  const [channels, setChannels] = useState<ChannelInfo[]>([]);
+  const [loadingChannels, setLoadingChannels] = useState(false);
+  const [channelsError, setChannelsError] = useState('');
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [channelForm, setChannelForm] = useState<ChannelForm>({
+    label: '', metaPhoneNumberId: '', metaToken: '',
+    metaVerifyToken: 'sempredesk-verify', metaWebhookUrl: '', metaWabaId: '', isDefault: false,
+  });
+  const [savingChannel, setSavingChannel] = useState(false);
+  const [channelFormError, setChannelFormError] = useState('');
+  const [deletingChannelId, setDeletingChannelId] = useState<string | null>(null);
+  const [settingDefaultId, setSettingDefaultId] = useState<string | null>(null);
+  const [showChannelToken, setShowChannelToken] = useState(false);
 
   // Meta tab state
   const [metaForm, setMetaForm] = useState<MetaForm>({
@@ -219,6 +259,10 @@ export default function WhatsappPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    if (tab === 'channels') fetchChannels();
+  }, [tab, fetchChannels]);
+
   // ── Actions ─────────────────────────────────────────────────────────────
 
   const handleConnect = async () => {
@@ -315,6 +359,109 @@ export default function WhatsappPage() {
     });
   };
 
+  // ── Channels actions ────────────────────────────────────────────────────
+
+  const fetchChannels = useCallback(async () => {
+    setLoadingChannels(true);
+    setChannelsError('');
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+      const base = getApiBase();
+      const res = await fetch(`${base}/webhooks/whatsapp/channels`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) throw new Error('Erro ao carregar canais');
+      const json = await res.json();
+      setChannels(json?.data ?? json ?? []);
+    } catch {
+      setChannelsError('Não foi possível carregar os canais. Verifique a conexão.');
+    } finally {
+      setLoadingChannels(false);
+    }
+  }, []);
+
+  const handleAddChannel = async () => {
+    setChannelFormError('');
+    if (!channelForm.metaPhoneNumberId.trim() || !channelForm.metaToken.trim()) {
+      setChannelFormError('Phone Number ID e Token são obrigatórios.');
+      return;
+    }
+    setSavingChannel(true);
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+      const base = getApiBase();
+      const res = await fetch(`${base}/webhooks/whatsapp/channels`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          label: channelForm.label.trim() || undefined,
+          metaPhoneNumberId: channelForm.metaPhoneNumberId.trim(),
+          metaToken: channelForm.metaToken.trim(),
+          metaVerifyToken: channelForm.metaVerifyToken.trim() || 'sempredesk-verify',
+          metaWebhookUrl: channelForm.metaWebhookUrl.trim() || undefined,
+          metaWabaId: channelForm.metaWabaId.trim() || undefined,
+          isDefault: channelForm.isDefault,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setChannelFormError(json?.message || 'Erro ao adicionar canal.');
+        return;
+      }
+      setShowAddForm(false);
+      setChannelForm({ label: '', metaPhoneNumberId: '', metaToken: '', metaVerifyToken: 'sempredesk-verify', metaWebhookUrl: '', metaWabaId: '', isDefault: false });
+      setShowChannelToken(false);
+      await fetchChannels();
+    } catch {
+      setChannelFormError('Erro de conexão ao salvar canal.');
+    } finally {
+      setSavingChannel(false);
+    }
+  };
+
+  const handleSetDefault = async (id: string) => {
+    setSettingDefaultId(id);
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+      const base = getApiBase();
+      await fetch(`${base}/webhooks/whatsapp/channels/${id}/default`, {
+        method: 'PUT',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      await fetchChannels();
+    } catch {
+      // silent — user verá a lista inalterada
+    } finally {
+      setSettingDefaultId(null);
+    }
+  };
+
+  const handleDeleteChannel = async (id: string, label: string) => {
+    if (!window.confirm(`Remover o canal "${label}"? Esta ação não pode ser desfeita.`)) return;
+    setDeletingChannelId(id);
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+      const base = getApiBase();
+      const res = await fetch(`${base}/webhooks/whatsapp/channels/${id}`, {
+        method: 'DELETE',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        alert(json?.message || 'Não foi possível remover o canal.');
+        return;
+      }
+      await fetchChannels();
+    } catch {
+      alert('Erro de conexão ao remover canal.');
+    } finally {
+      setDeletingChannelId(null);
+    }
+  };
+
   // ── Derived ──────────────────────────────────────────────────────────────
 
   const status: ConnectionStatus = conn?.status ?? 'disconnected';
@@ -354,6 +501,7 @@ export default function WhatsappPage() {
         {([
           { key: 'qr', label: 'Conexão QR Code' },
           { key: 'meta', label: 'API Oficial Meta' },
+          { key: 'channels', label: 'Canais WhatsApp' },
         ] as { key: ActiveTab; label: string }[]).map(t => (
           <button
             key={t.key}
@@ -752,6 +900,281 @@ export default function WhatsappPage() {
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ── Tab: Canais WhatsApp ── */}
+      {tab === 'channels' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+          {/* Header da aba */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+            <div>
+              <p style={{ margin: 0, fontSize: 14, color: '#64748B' }}>
+                Gerencie múltiplos números da API Oficial Meta. O canal <strong>padrão</strong> é usado como fallback quando a conversa não tem canal definido.
+              </p>
+            </div>
+            <button
+              onClick={() => { setShowAddForm(v => !v); setChannelFormError(''); }}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 7,
+                padding: '9px 18px', borderRadius: 9,
+                background: showAddForm ? '#F1F5F9' : '#4F46E5',
+                color: showAddForm ? '#475569' : '#fff',
+                border: showAddForm ? '1.5px solid #E2E8F0' : 'none',
+                fontWeight: 600, fontSize: 14, cursor: 'pointer',
+              }}
+            >
+              {showAddForm ? '✕ Cancelar' : '+ Adicionar Canal'}
+            </button>
+          </div>
+
+          {/* Formulário de adição */}
+          {showAddForm && (
+            <div style={{
+              background: '#fff', borderRadius: 14, border: '1.5px solid #C7D2FE',
+              padding: '22px 24px', boxShadow: '0 1px 3px rgba(0,0,0,.06)',
+            }}>
+              <p style={{ margin: '0 0 18px', fontWeight: 700, fontSize: 15, color: '#1E293B' }}>
+                Novo Canal Meta
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <Field label="Nome / Rótulo" hint="Ex: Suporte, Vendas, Número Principal">
+                  <input
+                    style={INPUT_STYLE}
+                    placeholder="Ex: Suporte"
+                    value={channelForm.label}
+                    onChange={e => setChannelForm(f => ({ ...f, label: e.target.value }))}
+                  />
+                </Field>
+                <Field label="Phone Number ID *" hint="Encontrado no Meta Developer Console › WhatsApp › Configuração">
+                  <input
+                    style={INPUT_STYLE}
+                    placeholder="Ex: 123456789012345"
+                    value={channelForm.metaPhoneNumberId}
+                    onChange={e => setChannelForm(f => ({ ...f, metaPhoneNumberId: e.target.value }))}
+                  />
+                </Field>
+                <Field label="WABA ID" hint="WhatsApp Business Account ID (opcional, para templates)">
+                  <input
+                    style={INPUT_STYLE}
+                    placeholder="Ex: 123456789012345"
+                    value={channelForm.metaWabaId}
+                    onChange={e => setChannelForm(f => ({ ...f, metaWabaId: e.target.value }))}
+                  />
+                </Field>
+                <Field label="Token de Acesso *" hint="Token permanente gerado no Meta Business Suite">
+                  <div style={{ position: 'relative' }}>
+                    <input
+                      style={{ ...INPUT_STYLE, paddingRight: 42 }}
+                      type={showChannelToken ? 'text' : 'password'}
+                      placeholder="Cole o token aqui"
+                      value={channelForm.metaToken}
+                      onChange={e => setChannelForm(f => ({ ...f, metaToken: e.target.value }))}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowChannelToken(v => !v)}
+                      style={{
+                        position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
+                        background: 'none', border: 'none', cursor: 'pointer', color: '#94A3B8',
+                        display: 'flex', alignItems: 'center',
+                      }}
+                    >
+                      {showChannelToken ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                </Field>
+                <Field label="Verify Token" hint="Token de verificação configurado no Meta">
+                  <input
+                    style={INPUT_STYLE}
+                    placeholder="sempredesk-verify"
+                    value={channelForm.metaVerifyToken}
+                    onChange={e => setChannelForm(f => ({ ...f, metaVerifyToken: e.target.value }))}
+                  />
+                </Field>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <input
+                    id="channel-is-default"
+                    type="checkbox"
+                    checked={channelForm.isDefault}
+                    onChange={e => setChannelForm(f => ({ ...f, isDefault: e.target.checked }))}
+                    style={{ width: 16, height: 16, cursor: 'pointer' }}
+                  />
+                  <label htmlFor="channel-is-default" style={{ fontSize: 13, color: '#475569', cursor: 'pointer' }}>
+                    Definir como canal padrão
+                  </label>
+                </div>
+              </div>
+
+              {channelFormError && (
+                <div style={{
+                  marginTop: 14, padding: '10px 14px', borderRadius: 8,
+                  background: '#FEF2F2', border: '1.5px solid #FECACA',
+                  display: 'flex', alignItems: 'center', gap: 8, color: '#DC2626', fontSize: 13,
+                }}>
+                  <AlertCircle size={15} style={{ flexShrink: 0 }} />
+                  {channelFormError}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 20, gap: 10 }}>
+                <button
+                  onClick={() => { setShowAddForm(false); setChannelFormError(''); }}
+                  style={{
+                    padding: '9px 18px', borderRadius: 9, background: '#F1F5F9',
+                    color: '#475569', border: '1.5px solid #E2E8F0',
+                    fontWeight: 600, fontSize: 14, cursor: 'pointer',
+                  }}
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleAddChannel}
+                  disabled={savingChannel}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 7,
+                    padding: '9px 20px', borderRadius: 9,
+                    background: savingChannel ? '#A5B4FC' : '#4F46E5',
+                    color: '#fff', border: 'none',
+                    fontWeight: 600, fontSize: 14, cursor: savingChannel ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  {savingChannel
+                    ? <><Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Salvando…</>
+                    : <><Save size={14} /> Adicionar Canal</>
+                  }
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Erro ao carregar */}
+          {channelsError && (
+            <div style={{
+              padding: '14px 18px', borderRadius: 10,
+              background: '#FEF2F2', border: '1.5px solid #FECACA',
+              display: 'flex', alignItems: 'center', gap: 10, color: '#DC2626', fontSize: 13,
+            }}>
+              <AlertCircle size={16} style={{ flexShrink: 0 }} />
+              {channelsError}
+              <button onClick={fetchChannels} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#DC2626', cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>
+                Tentar novamente
+              </button>
+            </div>
+          )}
+
+          {/* Loading */}
+          {loadingChannels && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 40, color: '#94A3B8', gap: 10 }}>
+              <Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} />
+              <span style={{ fontSize: 14 }}>Carregando canais…</span>
+            </div>
+          )}
+
+          {/* Lista de canais */}
+          {!loadingChannels && !channelsError && channels.length === 0 && (
+            <div style={{
+              background: '#F8FAFC', borderRadius: 14, border: '1.5px dashed #CBD5E1',
+              padding: '36px 24px', textAlign: 'center',
+            }}>
+              <p style={{ margin: '0 0 6px', fontSize: 15, fontWeight: 600, color: '#64748B' }}>
+                Nenhum canal configurado
+              </p>
+              <p style={{ margin: 0, fontSize: 13, color: '#94A3B8' }}>
+                Clique em &ldquo;Adicionar Canal&rdquo; para configurar o primeiro número WhatsApp via API Oficial Meta.
+              </p>
+            </div>
+          )}
+
+          {!loadingChannels && channels.map(ch => (
+            <div
+              key={ch.id}
+              style={{
+                background: '#fff', borderRadius: 14,
+                border: ch.isDefault ? '1.5px solid #C7D2FE' : '1.5px solid #E2E8F0',
+                padding: '18px 22px', boxShadow: '0 1px 3px rgba(0,0,0,.06)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, flexWrap: 'wrap' }}>
+                {/* Info */}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
+                    <span style={{ fontWeight: 700, fontSize: 15, color: '#1E293B' }}>{ch.label}</span>
+                    {ch.isDefault && (
+                      <span style={{
+                        fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20,
+                        background: '#EEF2FF', color: '#4F46E5',
+                      }}>
+                        PADRÃO
+                      </span>
+                    )}
+                    <span style={{
+                      fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 20,
+                      background: ch.configured ? '#ECFDF5' : '#FEF2F2',
+                      color: ch.configured ? '#059669' : '#DC2626',
+                    }}>
+                      {ch.configured ? 'Configurado' : 'Incompleto'}
+                    </span>
+                  </div>
+                  {ch.metaPhoneNumberId && (
+                    <p style={{ margin: '0 0 2px', fontSize: 12, color: '#64748B' }}>
+                      Phone Number ID: <code style={{ fontSize: 12, color: '#334155' }}>{ch.metaPhoneNumberId}</code>
+                    </p>
+                  )}
+                  {ch.metaToken && (
+                    <p style={{ margin: 0, fontSize: 12, color: '#94A3B8' }}>
+                      Token: {ch.metaToken}
+                    </p>
+                  )}
+                </div>
+
+                {/* Ações */}
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
+                  {!ch.isDefault && (
+                    <button
+                      onClick={() => handleSetDefault(ch.id)}
+                      disabled={settingDefaultId === ch.id}
+                      title="Definir como padrão"
+                      style={{
+                        padding: '7px 14px', borderRadius: 8,
+                        background: '#EEF2FF', color: '#4F46E5',
+                        border: '1.5px solid #C7D2FE',
+                        fontWeight: 600, fontSize: 12, cursor: settingDefaultId === ch.id ? 'not-allowed' : 'pointer',
+                        display: 'flex', alignItems: 'center', gap: 5,
+                        opacity: settingDefaultId === ch.id ? 0.6 : 1,
+                      }}
+                    >
+                      {settingDefaultId === ch.id
+                        ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} />
+                        : <CheckCircle size={12} />
+                      }
+                      Definir padrão
+                    </button>
+                  )}
+                  <button
+                    onClick={() => handleDeleteChannel(ch.id, ch.label)}
+                    disabled={deletingChannelId === ch.id}
+                    title="Remover canal"
+                    style={{
+                      padding: '7px 14px', borderRadius: 8,
+                      background: '#FEF2F2', color: '#EF4444',
+                      border: '1.5px solid #FECACA',
+                      fontWeight: 600, fontSize: 12, cursor: deletingChannelId === ch.id ? 'not-allowed' : 'pointer',
+                      display: 'flex', alignItems: 'center', gap: 5,
+                      opacity: deletingChannelId === ch.id ? 0.6 : 1,
+                    }}
+                  >
+                    {deletingChannelId === ch.id
+                      ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} />
+                      : <WifiOff size={12} />
+                    }
+                    Remover
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
       )}
 

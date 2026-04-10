@@ -184,7 +184,18 @@ export class WhatsappService {
     }
   }
 
-  async handleIncomingMessage(tenantId: string, msg: NormalizedWhatsappMessage, department?: string, chatbotClientId?: string) {
+  async handleIncomingMessage(
+    tenantId: string,
+    msg: NormalizedWhatsappMessage,
+    department?: string,
+    chatbotClientId?: string,
+    /**
+     * ID do registro whatsapp_connections pelo qual esta mensagem chegou.
+     * Propagado desde o webhook via findTenantByMetaPhoneNumberId().
+     * Garante que respostas do chatbot e do atendimento saiam pelo canal correto.
+     */
+    whatsappChannelId?: string,
+  ) {
     let wa = (msg.resolvedDigits || msg.from).replace(/\D/g, '');
     // BR: PN resolvido de @lid ou JID legado pode vir com 12 dígitos sem o 9 após o DDD.
     // restoreBrNinthDigit é no-op para LIDs longos e números já com 13 dígitos.
@@ -225,11 +236,15 @@ export class WhatsappService {
 
       if (!skipChatbot && text) {
         try {
-          const botResult = await this.chatbotService.processMessage(tenantId, msg.from, text, 'whatsapp', msg.senderName);
+          // Propaga whatsappChannelId para o chatbot registrar na sessão e para rotear respostas
+          const botResult = await this.chatbotService.processMessage(
+            tenantId, msg.from, text, 'whatsapp', msg.senderName, whatsappChannelId,
+          );
           if (botResult.handled) {
             // Send replies via Meta API — usa wa (número normalizado) e não msg.from bruto
+            // Passa whatsappChannelId para garantir que saia pelo número correto
             for (const reply of botResult.replies) {
-              this.sendWhatsappMessage(tenantId, wa, reply).catch(() => {});
+              this.sendWhatsappMessage(tenantId, wa, reply, null, whatsappChannelId).catch(() => {});
             }
             if (!botResult.transfer) {
               return { created: false, reason: 'CHATBOT_HANDLED' };
@@ -528,6 +543,8 @@ export class WhatsappService {
         contactName: contact.name || contact.email || wa,
         department: resolvedDepartment,
         autoCreateTicket: true,
+        // Preserva o canal de origem — garante que respostas saiam pelo número correto
+        whatsappChannelId: whatsappChannelId ?? null,
       },
     );
     this.logWhatsappResolution({
@@ -715,6 +732,18 @@ export class WhatsappService {
       throw new BadRequestException('Número WhatsApp do contato inválido');
     }
 
+    // Resolve canal WhatsApp da conversa para garantir saída pelo número correto
+    let whatsappChannelId: string | null = null;
+    if (ticket.conversationId) {
+      try {
+        const rows: Array<{ whatsapp_channel_id: string | null }> = await this.dataSource.query(
+          `SELECT whatsapp_channel_id FROM conversations WHERE id = $1 AND tenant_id = $2 LIMIT 1`,
+          [ticket.conversationId, tenantId],
+        );
+        whatsappChannelId = rows[0]?.whatsapp_channel_id ?? null;
+      } catch { /* segue sem canal específico */ }
+    }
+
     // Resolve mensagem citada para reply nativo no WhatsApp
     let quotedMsg: { externalId: string; content: string; fromMe: boolean } | null = null;
     if (replyToId) {
@@ -743,7 +772,7 @@ export class WhatsappService {
       externalMsgId = result.messageId ?? null; // ID para rastreamento de ACK (delivered/read)
     }
     if (!sent) {
-      const wamid = await this.sendWhatsappMessage(tenantId, destination.phone, text, quotedMsg?.externalId ?? null);
+      const wamid = await this.sendWhatsappMessage(tenantId, destination.phone, text, quotedMsg?.externalId ?? null, whatsappChannelId);
       if (wamid) { externalMsgId = wamid; sent = true; }
     }
 
@@ -823,6 +852,18 @@ export class WhatsappService {
     if (!destination.digits || destination.digits.length < 10) {
       await unlinkUpload();
       throw new BadRequestException('Número WhatsApp do contato inválido');
+    }
+
+    // Resolve canal WhatsApp da conversa para garantir saída pelo número correto
+    let whatsappChannelId: string | null = null;
+    if (ticket.conversationId) {
+      try {
+        const rows: Array<{ whatsapp_channel_id: string | null }> = await this.dataSource.query(
+          `SELECT whatsapp_channel_id FROM conversations WHERE id = $1 AND tenant_id = $2 LIMIT 1`,
+          [ticket.conversationId, tenantId],
+        );
+        whatsappChannelId = rows[0]?.whatsapp_channel_id ?? null;
+      } catch { /* segue sem canal específico */ }
     }
 
     const head = readFilePrefixSync(file.path, 512);
@@ -910,7 +951,7 @@ export class WhatsappService {
         waOk = r.success;
       }
       if (!waOk) {
-        const wamid = await this.sendWhatsappMessage(tenantId, destination.phone, txt, quotedMsg?.externalId ?? null);
+        const wamid = await this.sendWhatsappMessage(tenantId, destination.phone, txt, quotedMsg?.externalId ?? null, whatsappChannelId);
         waOk = !!wamid;
       }
     } else {
@@ -928,6 +969,7 @@ export class WhatsappService {
           caption,
           mime: effectiveMime,
           contextMessageId: quotedMsg?.externalId ?? null,
+          whatsappChannelId,
         });
         waOk = !!wamid;
       }
@@ -1362,10 +1404,13 @@ export class WhatsappService {
     to: string,
     kind: 'image' | 'audio' | 'video',
     filePath: string,
-    opts?: { caption?: string; mime?: string; contextMessageId?: string | null },
+    opts?: { caption?: string; mime?: string; contextMessageId?: string | null; whatsappChannelId?: string | null },
   ): Promise<string | null> {
     const metaConfig = this.baileysService
-      ? await this.baileysService.getMetaConfig(tenantId).catch(() => null)
+      ? (opts?.whatsappChannelId
+          ? await this.baileysService.getChannelConfigById(opts.whatsappChannelId).catch(() => null)
+          : null) ??
+        await this.baileysService.getDefaultChannelConfig(tenantId).catch(() => null)
       : null;
     const phoneNumberId = metaConfig?.metaPhoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID;
     const token = metaConfig?.metaToken || process.env.WHATSAPP_TOKEN;
@@ -1505,11 +1550,29 @@ export class WhatsappService {
 
   /**
    * Envio de mensagem via Meta Cloud API (Graph API).
-   * Credenciais lidas do banco (por tenant) com fallback em variáveis de ambiente.
+   *
+   * @param tenantId      - ID do tenant (sempre obrigatório)
+   * @param to            - Número do destinatário (apenas dígitos)
+   * @param text          - Texto da mensagem
+   * @param contextMessageId - wamid para reply nativo (opcional)
+   * @param whatsappChannelId - ID do registro whatsapp_connections a usar.
+   *   Se fornecido, usa as credenciais desse canal específico.
+   *   Se omitido, usa o canal default do tenant (is_default = true).
+   *   Isso garante que respostas sempre saiam pelo mesmo número que recebeu a conversa.
    */
-  async sendWhatsappMessage(tenantId: string, to: string, text: string, contextMessageId?: string | null) {
+  async sendWhatsappMessage(
+    tenantId: string,
+    to: string,
+    text: string,
+    contextMessageId?: string | null,
+    whatsappChannelId?: string | null,
+  ) {
+    // Resolve credenciais: canal específico > canal default do tenant > variáveis de ambiente
     const metaConfig = this.baileysService
-      ? await this.baileysService.getMetaConfig(tenantId).catch(() => null)
+      ? (whatsappChannelId
+          ? await this.baileysService.getChannelConfigById(whatsappChannelId).catch(() => null)
+          : null) ??
+        await this.baileysService.getDefaultChannelConfig(tenantId).catch(() => null)
       : null;
 
     const phoneNumberId =

@@ -66,4 +66,13 @@ export class Conversation {
 
   @Column({ type: 'simple-array', nullable: true })
   tags: string[] | null;
+
+  /**
+   * ID do canal WhatsApp (whatsapp_connections.id) pelo qual esta conversa chegou.
+   * Presente apenas em conversas com channel = WHATSAPP.
+   * Usado para garantir que respostas saiam sempre pelo mesmo número que recebeu.
+   * Nullable para compatibilidade retroativa com conversas criadas antes da migração 016.
+   */
+  @Column({ name: 'whatsapp_channel_id', nullable: true })
+  whatsappChannelId: string | null;
 }

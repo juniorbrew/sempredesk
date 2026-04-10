@@ -143,6 +143,13 @@ export class ChatbotService implements OnModuleInit {
     text: string,
     channel: 'whatsapp' | 'web' | 'portal' = 'whatsapp',
     senderName?: string,
+    /**
+     * ID do canal WhatsApp (whatsapp_connections.id) pelo qual esta mensagem chegou.
+     * Persistido na ChatbotSession para contexto de roteamento e para garantir que
+     * respostas do chatbot saiam pelo mesmo número que recebeu a mensagem.
+     * Nullable — omitido em canais web/portal ou quando não aplicável.
+     */
+    whatsappChannelId?: string | null,
   ): Promise<ProcessResult> {
     const config = await this.getOrCreateConfig(tenantId);
 
@@ -184,10 +191,16 @@ export class ChatbotService implements OnModuleInit {
           channel,
           step: initialStep,
           lastActivity: new Date(),
+          // Preserva o canal de origem para roteamento/envio correto de respostas
+          whatsappChannelId: whatsappChannelId ?? null,
         }));
       } else {
         session.step = initialStep;
         session.lastActivity = new Date();
+        // Atualiza channelId se ainda não estava definido (sessão antiga pré-migração)
+        if (!session.whatsappChannelId && whatsappChannelId) {
+          session.whatsappChannelId = whatsappChannelId;
+        }
         await this.sessionRepo.save(session);
       }
 
