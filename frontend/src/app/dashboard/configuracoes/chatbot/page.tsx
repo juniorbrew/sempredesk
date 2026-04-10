@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, type Dispatch, type SetStateAction } from 'react';
 import { api } from '@/lib/api';
 import { Bot, Save, Plus, Trash2, ChevronUp, ChevronDown, ToggleLeft, ToggleRight, MessageSquare, Zap, Users, Globe, Smartphone, RefreshCw } from 'lucide-react';
 
@@ -74,7 +74,15 @@ export default function ChatbotConfigPage() {
         (api as any).getChatbotStats().catch(() => null),
         api.me(),
       ]);
-      setConfig(cfg);
+      const wpRaw = cfg?.whatsappPrefixAgentName ?? cfg?.whatsapp_prefix_agent_name;
+      setConfig(
+        cfg
+          ? {
+              ...cfg,
+              whatsappPrefixAgentName: wpRaw === true || wpRaw === 1 || wpRaw === 'true',
+            }
+          : cfg,
+      );
       setMenu((cfg?.menuItems || []).map((m: any) => ({ ...m })));
       setStats(st);
       setTenantId(me?.tenantId || me?.data?.tenantId || '');
@@ -88,7 +96,8 @@ export default function ChatbotConfigPage() {
     if (!config) return;
     setSaving(true);
     try {
-      const { menuItems, id, ...dto } = config as any;
+      const { menuItems, id, ...rest } = config as any;
+      const dto = { ...rest, whatsappPrefixAgentName: !!rest.whatsappPrefixAgentName };
       await (api as any).updateChatbotConfig(dto);
       toast('Configurações salvas!');
     } catch (e: any) { toast(e?.response?.data?.message || 'Erro ao salvar', false); }
@@ -238,6 +247,7 @@ export default function ChatbotConfigPage() {
                 rows={2} style={{ ...inp, resize: 'vertical' }} />
             </Field>
           )}
+          <WhatsappPrefixAgentCard config={config} setConfig={setConfig} />
           <SaveBtn saving={saving} onClick={saveConfig} />
         </div>
       )}
@@ -345,29 +355,7 @@ export default function ChatbotConfigPage() {
             </div>
           ))}
 
-          <div style={{ marginTop: 8, padding: '16px 18px', borderRadius: 12, border: `1.5px solid ${config.whatsappPrefixAgentName ? S.accent : '#E2E8F0'}`, background: config.whatsappPrefixAgentName ? S.accentL : '#FAFAFA' }}>
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
-              <div style={{ width: 40, height: 40, borderRadius: 10, background: '#fff', border: '1.5px solid #E2E8F0', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <Smartphone size={20} color="#25D366" />
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 700, color: S.txt, fontSize: 14, marginBottom: 4 }}>Nome do agente nas respostas (WhatsApp)</div>
-                <div style={{ fontSize: 12, color: S.txt2, lineHeight: 1.55, marginBottom: 10 }}>
-                  Quando <strong>ativado</strong>, cada resposta ao cliente começa com o <strong>nome do atendente</strong> em negrito, no formato do WhatsApp (
-                  <code style={{ background: '#EEF2FF', padding: '1px 5px', borderRadius: 4 }}>*Nome do agente*</code>
-                  ), numa linha, e o texto na linha seguinte. O histórico no painel continua <strong>sem</strong> esse prefixo.
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setConfig(c => (c ? { ...c, whatsappPrefixAgentName: !c.whatsappPrefixAgentName } : c))}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: config.whatsappPrefixAgentName ? S.accent : S.txt3, display: 'flex', alignItems: 'center', gap: 8, padding: 0, fontSize: 13, fontWeight: 600 }}
-                >
-                  {config.whatsappPrefixAgentName ? <ToggleRight size={26} /> : <ToggleLeft size={26} />}
-                  {config.whatsappPrefixAgentName ? 'Ativado: mostrar nome do agente' : 'Desativado'}
-                </button>
-              </div>
-            </div>
-          </div>
+          <WhatsappPrefixAgentCard config={config} setConfig={setConfig} />
 
           <SaveBtn saving={saving} onClick={saveConfig} />
         </div>
@@ -422,6 +410,75 @@ export default function ChatbotConfigPage() {
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
+
+function WhatsappPrefixAgentCard({
+  config,
+  setConfig,
+}: {
+  config: ChatbotConfig;
+  setConfig: Dispatch<SetStateAction<ChatbotConfig | null>>;
+}) {
+  const on = !!config.whatsappPrefixAgentName;
+  return (
+    <div
+      style={{
+        marginTop: 8,
+        padding: '16px 18px',
+        borderRadius: 12,
+        border: `1.5px solid ${on ? S.accent : '#E2E8F0'}`,
+        background: on ? S.accentL : '#FAFAFA',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
+        <div
+          style={{
+            width: 40,
+            height: 40,
+            borderRadius: 10,
+            background: '#fff',
+            border: '1.5px solid #E2E8F0',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+          }}
+        >
+          <Smartphone size={20} color="#25D366" />
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 700, color: S.txt, fontSize: 14, marginBottom: 4 }}>Nome do agente nas respostas (WhatsApp)</div>
+          <div style={{ fontSize: 12, color: S.txt2, lineHeight: 1.55, marginBottom: 10 }}>
+            Quando <strong>ativado</strong>, cada resposta ao cliente começa com o <strong>nome do atendente</strong> em negrito, no formato do WhatsApp (
+            <code style={{ background: '#EEF2FF', padding: '1px 5px', borderRadius: 4 }}>*Nome do agente*</code>
+            ), numa linha, e o texto na linha seguinte. O histórico no painel continua <strong>sem</strong> esse prefixo. Use <strong>Salvar</strong> nesta página
+            após alterar.
+          </div>
+          <button
+            type="button"
+            onClick={() =>
+              setConfig((c) => (c ? { ...c, whatsappPrefixAgentName: !Boolean(c.whatsappPrefixAgentName) } : c))
+            }
+            style={{
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              color: on ? S.accent : S.txt3,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: 0,
+              fontSize: 13,
+              fontWeight: 600,
+            }}
+          >
+            {on ? <ToggleRight size={26} /> : <ToggleLeft size={26} />}
+            {on ? 'Ativado: mostrar nome do agente' : 'Desativado'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (

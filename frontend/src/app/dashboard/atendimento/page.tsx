@@ -1688,7 +1688,12 @@ export default function AtendimentoPage() {
         setMessages(m => m.map(msg => {
           if (msg.id !== tempId) return msg;
           if (msg._localPreviewUrl) URL.revokeObjectURL(msg._localPreviewUrl);
-          return { ...withStatus };
+          const merged: any = { ...withStatus };
+          const fromApi = String(merged.authorName ?? merged.author_name ?? '').trim();
+          if (merged.authorType === 'user' && !fromApi) merged.authorName = agentDisplayName;
+          else merged.authorName = fromApi || merged.authorName || '';
+          delete merged.author_name;
+          return merged;
         }));
         // Socket também entrega via ticket:message / conversation:message; dedup por ID evita duplicar
       } else {

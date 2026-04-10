@@ -228,7 +228,9 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
   const bubbleMax = density === 'compact' ? 580 : 520;
   const bubbleMaxCss = `min(100%, ${bubbleMax}px)`;
   const marginTop = sameAuthorAsPrev ? (density === 'compact' ? 2 : 4) : density === 'compact' ? 8 : 12;
-  const authorLabelText = String(m.authorName || '').trim();
+  const authorLabelText = String(
+    m.authorName ?? (m as { author_name?: string }).author_name ?? '',
+  ).trim();
   const showAuthorLabel =
     !isSystem &&
     !sameAuthorAsPrev &&
