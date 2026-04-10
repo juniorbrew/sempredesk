@@ -3,36 +3,20 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { api } from '@/lib/api';
 import {
   Smartphone, Wifi, WifiOff, RefreshCw, LogOut, CheckCircle,
-  AlertCircle, Loader2, Save, Eye, EyeOff, Copy, Info, ExternalLink,
+  AlertCircle, Loader2, Save, Eye, EyeOff, Copy,
 } from 'lucide-react';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
 type ConnectionStatus = 'disconnected' | 'connecting' | 'connected';
 type ConnectionMode = 'idle' | 'user-initiated' | 'auto-reconnecting';
-type ActiveTab = 'qr' | 'meta' | 'channels';
+type ActiveTab = 'qr' | 'channels';
 
 interface ConnectionInfo {
   status: ConnectionStatus;
   provider: 'baileys' | 'meta';
   phoneNumber?: string | null;
   reconnecting?: boolean;
-  meta?: {
-    metaPhoneNumberId: string | null;
-    metaToken: string | null;
-    metaVerifyToken: string | null;
-    metaWebhookUrl: string | null;
-    metaWabaId: string | null;
-    configured: boolean;
-  } | null;
-}
-
-interface MetaForm {
-  metaPhoneNumberId: string;
-  metaToken: string;
-  metaVerifyToken: string;
-  metaWebhookUrl: string;
-  metaWabaId: string;
 }
 
 interface ChannelInfo {
@@ -141,18 +125,6 @@ export default function WhatsappPage() {
   const [settingDefaultId, setSettingDefaultId] = useState<string | null>(null);
   const [showChannelToken, setShowChannelToken] = useState(false);
 
-  // Meta tab state
-  const [metaForm, setMetaForm] = useState<MetaForm>({
-    metaPhoneNumberId: '',
-    metaToken: '',
-    metaVerifyToken: 'sempredesk-verify',
-    metaWebhookUrl: '',
-    metaWabaId: '',
-  });
-  const [showToken, setShowToken] = useState(false);
-  const [savingMeta, setSavingMeta] = useState(false);
-  const [metaSaved, setMetaSaved] = useState(false);
-  const [metaError, setMetaError] = useState('');
   const [copied, setCopied] = useState(false);
 
   // ── Fetch connection info ───────────────────────────────────────────────
@@ -169,16 +141,6 @@ export default function WhatsappPage() {
       const data: ConnectionInfo = json?.data ?? json;
       if (data) {
         setConn(data);
-        if (data.meta) {
-          const m = data.meta;
-          setMetaForm(f => ({
-            ...f,
-            metaPhoneNumberId: m.metaPhoneNumberId || '',
-            metaVerifyToken: m.metaVerifyToken || 'sempredesk-verify',
-            metaWebhookUrl: m.metaWebhookUrl || '',
-            metaWabaId: m.metaWabaId || '',
-          }));
-        }
       }
       return data ?? null;
     } catch {
@@ -307,49 +269,8 @@ export default function WhatsappPage() {
     }
   };
 
-  const handleSaveMeta = async () => {
-    setMetaError('');
-    if (!metaForm.metaPhoneNumberId.trim()) {
-      setMetaError('Phone Number ID é obrigatório.');
-      return;
-    }
-    setSavingMeta(true);
-    try {
-      const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
-      const base = getApiBase();
-      const res = await fetch(`${base}/webhooks/whatsapp/config/meta`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
-          metaPhoneNumberId: metaForm.metaPhoneNumberId.trim(),
-          metaToken: metaForm.metaToken.trim(),
-          metaVerifyToken: metaForm.metaVerifyToken.trim() || 'sempredesk-verify',
-          metaWebhookUrl: metaForm.metaWebhookUrl.trim() || undefined,
-          metaWabaId: metaForm.metaWabaId.trim() || undefined,
-        }),
-      });
-      if (res.ok) {
-        setMetaSaved(true);
-        setTimeout(() => setMetaSaved(false), 3000);
-        await fetchConn();
-      } else {
-        const json = await res.json().catch(() => ({}));
-        setMetaError(json?.message || 'Erro ao salvar configuração.');
-      }
-    } catch {
-      setMetaError('Erro de conexão ao salvar configuração.');
-    } finally {
-      setSavingMeta(false);
-    }
-  };
-
   const copyWebhookUrl = () => {
-    const base = getApiBase();
-    const url = `${base}/webhooks/whatsapp`;
-    navigator.clipboard.writeText(url).then(() => {
+    navigator.clipboard.writeText(webhookUrl).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });
@@ -501,7 +422,6 @@ export default function WhatsappPage() {
       <div style={{ display: 'flex', gap: 4, marginBottom: 24, borderBottom: '1.5px solid #E2E8F0', paddingBottom: 0 }}>
         {([
           { key: 'qr', label: 'Conexão QR Code' },
-          { key: 'meta', label: 'API Oficial Meta' },
           { key: 'channels', label: 'Canais WhatsApp' },
         ] as { key: ActiveTab; label: string }[]).map(t => (
           <button
@@ -709,38 +629,48 @@ export default function WhatsappPage() {
         </div>
       )}
 
-      {/* ── Tab: Meta API ── */}
-      {tab === 'meta' && (
+      {/* ── Tab: Canais WhatsApp ── */}
+      {tab === 'channels' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
 
-          {/* Meta config status */}
-          {conn?.meta?.configured && (
+          {/* Status de conexão Meta — resumo dos canais configurados */}
+          {channels.length > 0 && (
             <div style={{
-              background: '#EFF6FF', borderRadius: 14, border: '1.5px solid #BFDBFE',
+              background: channels.some(c => c.configured) ? '#ECFDF5' : '#FEF2F2',
+              borderRadius: 14,
+              border: `1.5px solid ${channels.some(c => c.configured) ? '#A7F3D0' : '#FECACA'}`,
               padding: '14px 20px', display: 'flex', alignItems: 'center', gap: 10,
             }}>
-              <CheckCircle size={18} color="#2563EB" style={{ flexShrink: 0 }} />
-              <span style={{ fontSize: 13, color: '#1D4ED8', fontWeight: 500 }}>
-                API Oficial Meta está configurada.
+              {channels.some(c => c.configured)
+                ? <CheckCircle size={18} color="#059669" style={{ flexShrink: 0 }} />
+                : <AlertCircle size={18} color="#DC2626" style={{ flexShrink: 0 }} />
+              }
+              <span style={{
+                fontSize: 13, fontWeight: 500,
+                color: channels.some(c => c.configured) ? '#065F46' : '#991B1B',
+              }}>
+                {channels.some(c => c.configured)
+                  ? `${channels.filter(c => c.configured).length} canal(is) Meta configurado(s) e pronto(s) para receber mensagens.`
+                  : 'Nenhum canal está totalmente configurado. Verifique o Phone Number ID e o Token.'
+                }
               </span>
             </div>
           )}
 
-          {/* Webhook URL */}
+          {/* URL do Webhook */}
           <div style={{
             background: '#fff', borderRadius: 14, border: '1.5px solid #E2E8F0',
-            padding: '20px 24px',
-            boxShadow: '0 1px 3px rgba(0,0,0,.06)',
+            padding: '16px 20px', boxShadow: '0 1px 3px rgba(0,0,0,.06)',
           }}>
-            <p style={{ margin: '0 0 10px', fontWeight: 700, fontSize: 15, color: '#1E293B' }}>
+            <p style={{ margin: '0 0 8px', fontWeight: 700, fontSize: 14, color: '#1E293B' }}>
               URL do Webhook
             </p>
-            <p style={{ margin: '0 0 12px', fontSize: 13, color: '#64748B' }}>
-              Configure esta URL no Meta Developer Console como a Callback URL do seu webhook.
+            <p style={{ margin: '0 0 10px', fontSize: 12, color: '#64748B' }}>
+              Configure esta URL no Meta Developer Console como <em>Callback URL</em>. Use o <strong>Verify Token</strong> configurado em cada canal.
             </p>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <code style={{
-                flex: 1, padding: '9px 12px', borderRadius: 8,
+                flex: 1, padding: '8px 12px', borderRadius: 8,
                 background: '#F1F5F9', border: '1.5px solid #E2E8F0',
                 fontSize: 13, color: '#334155', wordBreak: 'break-all',
               }}>
@@ -750,7 +680,7 @@ export default function WhatsappPage() {
                 onClick={copyWebhookUrl}
                 title="Copiar URL"
                 style={{
-                  padding: '9px 12px', borderRadius: 8,
+                  padding: '8px 12px', borderRadius: 8,
                   background: copied ? '#ECFDF5' : '#F1F5F9',
                   border: `1.5px solid ${copied ? '#A7F3D0' : '#E2E8F0'}`,
                   color: copied ? '#059669' : '#475569',
@@ -763,150 +693,6 @@ export default function WhatsappPage() {
               </button>
             </div>
           </div>
-
-          {/* Meta config form */}
-          <div style={{
-            background: '#fff', borderRadius: 14, border: '1.5px solid #E2E8F0',
-            padding: '20px 24px',
-            boxShadow: '0 1px 3px rgba(0,0,0,.06)',
-          }}>
-            <p style={{ margin: '0 0 18px', fontWeight: 700, fontSize: 15, color: '#1E293B' }}>
-              Credenciais Meta
-            </p>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              <Field label="Phone Number ID" hint="Encontrado em: Meta Developer Console › Seu App › WhatsApp › Configuração">
-                <input
-                  style={INPUT_STYLE}
-                  placeholder="Ex: 123456789012345"
-                  value={metaForm.metaPhoneNumberId}
-                  onChange={e => setMetaForm(f => ({ ...f, metaPhoneNumberId: e.target.value }))}
-                />
-              </Field>
-
-              <Field label="WhatsApp Business Account ID (WABA ID)" hint="Necessário para listar templates. Encontrado em: Meta Business Suite › Configurações › WhatsApp">
-                <input
-                  style={INPUT_STYLE}
-                  placeholder="Ex: 123456789012345"
-                  value={metaForm.metaWabaId}
-                  onChange={e => setMetaForm(f => ({ ...f, metaWabaId: e.target.value }))}
-                />
-              </Field>
-
-              <Field label="Token de Acesso (Permanente)" hint="Deixe em branco para manter o token atual. Use um token permanente gerado no Meta Business Suite">
-                <div style={{ position: 'relative' }}>
-                  <input
-                    style={{ ...INPUT_STYLE, paddingRight: 42 }}
-                    type={showToken ? 'text' : 'password'}
-                    placeholder={conn?.meta?.metaToken ? conn.meta.metaToken : 'Cole o token aqui'}
-                    value={metaForm.metaToken}
-                    onChange={e => setMetaForm(f => ({ ...f, metaToken: e.target.value }))}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowToken(v => !v)}
-                    style={{
-                      position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
-                      background: 'none', border: 'none', cursor: 'pointer', color: '#94A3B8',
-                      display: 'flex', alignItems: 'center',
-                    }}
-                  >
-                    {showToken ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
-                </div>
-              </Field>
-
-              <Field label="Verify Token" hint="Token de verificação que você definir no Meta Developer Console">
-                <input
-                  style={INPUT_STYLE}
-                  placeholder="Ex: sempredesk-verify"
-                  value={metaForm.metaVerifyToken}
-                  onChange={e => setMetaForm(f => ({ ...f, metaVerifyToken: e.target.value }))}
-                />
-              </Field>
-
-              <Field label="Webhook URL (opcional)" hint="Deixe em branco para usar a URL padrão do sistema">
-                <input
-                  style={INPUT_STYLE}
-                  placeholder={webhookUrl}
-                  value={metaForm.metaWebhookUrl}
-                  onChange={e => setMetaForm(f => ({ ...f, metaWebhookUrl: e.target.value }))}
-                />
-              </Field>
-            </div>
-
-            {metaError && (
-              <div style={{
-                marginTop: 14, padding: '10px 14px', borderRadius: 8,
-                background: '#FEF2F2', border: '1.5px solid #FECACA',
-                display: 'flex', alignItems: 'center', gap: 8, color: '#DC2626', fontSize: 13,
-              }}>
-                <AlertCircle size={15} style={{ flexShrink: 0 }} />
-                {metaError}
-              </div>
-            )}
-
-            {metaSaved && (
-              <div style={{
-                marginTop: 14, padding: '10px 14px', borderRadius: 8,
-                background: '#ECFDF5', border: '1.5px solid #A7F3D0',
-                display: 'flex', alignItems: 'center', gap: 8, color: '#059669', fontSize: 13,
-              }}>
-                <CheckCircle size={15} style={{ flexShrink: 0 }} />
-                Configuração salva com sucesso!
-              </div>
-            )}
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 20 }}>
-              <button
-                onClick={handleSaveMeta}
-                disabled={savingMeta}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 7,
-                  padding: '10px 22px', borderRadius: 9,
-                  background: savingMeta ? '#A5B4FC' : '#4F46E5',
-                  color: '#fff', border: 'none',
-                  fontWeight: 600, fontSize: 14,
-                  cursor: savingMeta ? 'not-allowed' : 'pointer',
-                  transition: 'background .15s',
-                }}
-              >
-                {savingMeta
-                  ? <><Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} /> Salvando…</>
-                  : <><Save size={15} /> Salvar Configuração</>
-                }
-              </button>
-            </div>
-          </div>
-
-          {/* Instructions */}
-          <div style={{
-            background: '#FFFBEB', borderRadius: 14, border: '1.5px solid #FDE68A',
-            padding: '20px 24px',
-          }}>
-            <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-              <Info size={18} color="#D97706" style={{ flexShrink: 0, marginTop: 1 }} />
-              <div>
-                <p style={{ margin: '0 0 10px', fontWeight: 700, color: '#92400E', fontSize: 14 }}>
-                  Como configurar no Meta Developer Console
-                </p>
-                <ol style={{ margin: 0, paddingLeft: 18, color: '#78350F', fontSize: 13, lineHeight: 1.8 }}>
-                  <li>Acesse <a href="https://developers.facebook.com" target="_blank" rel="noopener noreferrer" style={{ color: '#B45309' }}>developers.facebook.com <ExternalLink size={11} style={{ verticalAlign: 'middle' }} /></a></li>
-                  <li>Crie ou selecione seu aplicativo e adicione o produto <strong>WhatsApp</strong></li>
-                  <li>Em <strong>Configuração</strong>, copie o <strong>Phone Number ID</strong> e gere um <strong>Token Permanente</strong></li>
-                  <li>Em <strong>Webhooks</strong>, defina a URL acima como <em>Callback URL</em></li>
-                  <li>Use o mesmo <strong>Verify Token</strong> configurado aqui</li>
-                  <li>Assine os eventos: <code>messages</code></li>
-                </ol>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Tab: Canais WhatsApp ── */}
-      {tab === 'channels' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
 
           {/* Header da aba */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
