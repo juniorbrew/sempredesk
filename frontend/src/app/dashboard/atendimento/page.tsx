@@ -96,6 +96,108 @@ function isAllowedChatAttachmentFile(f: File): boolean {
   return CHAT_DOC_EXT.has(ext);
 }
 
+const CLIPBOARD_IMAGE_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp']);
+
+function clipboardImageMimeToExt(mimeRaw: string): string {
+  const m = mimeRaw.split(';')[0].trim().toLowerCase();
+  if (m === 'image/png' || m === 'image/x-png') return 'png';
+  if (m === 'image/webp') return 'webp';
+  if (m === 'image/gif') return 'gif';
+  if (m === 'image/jpeg' || m === 'image/jpg' || m === 'image/pjpeg') return 'jpg';
+  if (m === 'image/bmp' || m === 'image/x-ms-bmp') return 'bmp';
+  return 'png';
+}
+
+/** Extrai um único ficheiro de imagem do paste (Chrome/Edge no Windows usa muitas vezes `files`, não só `items`). */
+function extractClipboardImageFile(e: React.ClipboardEvent<HTMLTextAreaElement>): File | null {
+  const cd = e.clipboardData;
+  if (!cd) return null;
+
+  if (cd.files && cd.files.length > 0) {
+    for (let i = 0; i < cd.files.length; i++) {
+      const raw = cd.files[i];
+      if (!raw || !raw.size) continue;
+      let mt = (raw.type || '').split(';')[0].trim().toLowerCase();
+      const rawName = raw.name?.trim() ?? '';
+      const extGuess = rawName.includes('.') ? (rawName.split('.').pop()?.toLowerCase() ?? '') : '';
+      if (!mt.startsWith('image/')) {
+        if (CLIPBOARD_IMAGE_EXT.has(extGuess)) {
+          const byExt: Record<string, string> = {
+            jpg: 'image/jpeg',
+            jpeg: 'image/jpeg',
+            png: 'image/png',
+            gif: 'image/gif',
+            webp: 'image/webp',
+            bmp: 'image/bmp',
+          };
+          mt = byExt[extGuess] ?? 'image/png';
+        } else if (!mt || mt === 'application/octet-stream') {
+          mt = 'image/png';
+        } else {
+          continue;
+        }
+      }
+      const ext = clipboardImageMimeToExt(mt);
+      const name =
+        rawName && rawName.length > 0 && /\.[a-z0-9]{2,8}$/i.test(rawName) ? rawName : `print-${Date.now()}.${ext}`;
+      return new File([raw], name, { type: raw.type || mt || 'image/png' });
+    }
+  }
+
+  const items = cd.items;
+  if (!items?.length) return null;
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i];
+    if (it.kind !== 'file') continue;
+    const blob = it.getAsFile();
+    if (!blob || blob.size <= 0) continue;
+    let mimeRaw = (it.type || blob.type || '').split(';')[0].trim().toLowerCase();
+    if (mimeRaw === 'image/x-png') mimeRaw = 'image/png';
+    if (!mimeRaw.startsWith('image/')) {
+      const n = blob.name?.trim() ?? '';
+      const extGuess = n.includes('.') ? (n.split('.').pop()?.toLowerCase() ?? '') : '';
+      if (CLIPBOARD_IMAGE_EXT.has(extGuess)) {
+        const byExt: Record<string, string> = {
+          jpg: 'image/jpeg',
+          jpeg: 'image/jpeg',
+          png: 'image/png',
+          gif: 'image/gif',
+          webp: 'image/webp',
+          bmp: 'image/bmp',
+        };
+        mimeRaw = byExt[extGuess] ?? 'image/png';
+      } else if (!mimeRaw || mimeRaw === 'application/octet-stream') {
+        // Recorte/Print Screen: tipo vazio é comum — assumir PNG para passar validação e backend (sniff).
+        mimeRaw = 'image/png';
+      } else {
+        continue;
+      }
+    }
+    const ext = clipboardImageMimeToExt(mimeRaw);
+    const rawName = blob.name?.trim();
+    const name =
+      rawName && rawName.length > 0 && /\.[a-z0-9]{2,8}$/i.test(rawName) ? rawName : `print-${Date.now()}.${ext}`;
+    return new File([blob], name, { type: blob.type || mimeRaw || 'image/png' });
+  }
+
+  return null;
+}
+
+/** Normaliza corpos `{ success, message }`, `{ success, data }` e entidades cruas após o interceptor Axios. */
+function extractSavedMessageFromSendResponse(res: any): any | null {
+  if (res == null || typeof res !== 'object') return null;
+  if (res.success === false) return null;
+  const wrap = res.message;
+  if (wrap && typeof wrap === 'object' && wrap.id) return wrap;
+  if (res.id) return res;
+  const d = res.data;
+  if (d && typeof d === 'object') {
+    if (d.id) return d;
+    if (d.message && typeof d.message === 'object' && d.message.id) return d.message;
+  }
+  return null;
+}
+
 // ── sub-components ────────────────────────────────────────────────────────────
 function ChannelDot({ channel }: { channel: string }) {
   const isWa = channel === 'whatsapp';
@@ -1529,11 +1631,14 @@ export default function AtendimentoPage() {
 
     try {
       let res: any;
+      /** Onde a mensagem foi gravada — para recarregar o histórico certo (ticket_messages vs conversation_messages). */
+      let reloadConversationId: string | null = null;
       if (file) {
         const convTarget = !isTicketType
           ? selected.id
           : (currentTicket?.conversationId ?? selected?.conversationId ?? null);
         if (convTarget) {
+          reloadConversationId = convTarget;
           res = await api.addConversationMessage(convTarget, { content: text || undefined, file, replyToId: currentReplyingTo?.id ?? null });
         } else if (isTicketType && ticketId && channel === 'whatsapp') {
           res = await api.sendWhatsappMediaFromTicket(ticketId, {
@@ -1549,29 +1654,35 @@ export default function AtendimentoPage() {
       } else if (channel === 'whatsapp' && whatsappConvId) {
         // Texto (e fluxo igual ao anexo): conversa real — dispara outbound WhatsApp. Tem prioridade sobre
         // `addMessage` do ticket, senão a linha "ticket" no inbox só gravava comentário e não enviava ao contato.
+        reloadConversationId = whatsappConvId;
         res = await api.addConversationMessage(whatsappConvId, { content: text, replyToId: currentReplyingTo?.id ?? null });
       } else if (channel === 'whatsapp' && ticketId && !whatsappConvId) {
         res = await api.sendWhatsappFromTicket(ticketId, text, currentReplyingTo?.id ?? null);
       } else if (isTicketType && ticketId) {
         res = await api.addMessage(ticketId, { content: text, messageType: 'comment' });
       } else {
+        reloadConversationId = selected.id;
         res = await api.addConversationMessage(selected.id, { content: text, replyToId: currentReplyingTo?.id ?? null });
       }
 
-      // Extrai objeto de mensagem da resposta da API (vários formatos possíveis)
-      // sendWhatsappFromTicket agora retorna { success, message: { id, ... } }
-      const real = res?.message?.id ? res.message
-        : res?.id ? res
-        : res?.data?.id ? res.data
-        : null;
+      if (res && typeof res === 'object' && res.success === false) {
+        const m = res.message;
+        throw new Error(typeof m === 'string' && m.trim() ? m : 'Envio recusado pela API');
+      }
+
+      const real = extractSavedMessageFromSendResponse(res);
 
       if (real?.id) {
         // Mensagens vindas de ticket_messages (send-from-ticket) não têm whatsappStatus; o WA já foi enviado.
         const ticketRow = (real as any).messageType != null;
-        const withStatus =
-          channel === 'whatsapp' && ticketRow && (real as any).whatsappStatus == null
-            ? { ...real, whatsappStatus: 'sent' as const }
+        const withMedia =
+          (real as any).mediaKind && !(real as any).hasMedia
+            ? { ...real, hasMedia: true }
             : real;
+        const withStatus =
+          channel === 'whatsapp' && ticketRow && (withMedia as any).whatsappStatus == null
+            ? { ...withMedia, whatsappStatus: 'sent' as const }
+            : withMedia;
         // Substitui otimista pelo objeto real em-place — sem flash, sem reload
         setMessages(m => m.map(msg => {
           if (msg.id !== tempId) return msg;
@@ -1587,11 +1698,16 @@ export default function AtendimentoPage() {
             if (!m.some((x: any) => x.id === tempId)) return m; // socket já substituiu
             return m.filter((x: any) => x.id !== tempId); // remove otimista pendente
           });
-          const fresh = isTicketType && ticketId
-            ? await api.getMessages(ticketId, false).catch(() => null)
-            : await api.getConversationMessages(selected.id).catch(() => null);
+          let fresh: any = null;
+          if (reloadConversationId) {
+            fresh = await api.getConversationMessages(reloadConversationId).catch(() => null);
+          } else if (isTicketType && ticketId) {
+            fresh = await api.getMessages(ticketId, false).catch(() => null);
+          } else {
+            fresh = await api.getConversationMessages(selected.id).catch(() => null);
+          }
           if (fresh) {
-            const arr = Array.isArray(fresh) ? fresh : (fresh as any)?.data ?? [];
+            const arr = Array.isArray(fresh) ? fresh : (fresh as any)?.messages ?? (fresh as any)?.data ?? [];
             setMessages(m => m.some((x: any) => x._optimistic) ? m : arr);
           }
         }, 1500);
@@ -1654,39 +1770,15 @@ export default function AtendimentoPage() {
     if (!acceptPendingAttachmentFile(f)) e.target.value = '';
   };
 
-  /** Ctrl+V / colar: só `image/*` do clipboard → mesmo fluxo que anexo pendente. */
+  /** Ctrl+V / colar: só imagem do clipboard → mesmo fluxo que anexo pendente. */
   const handleComposerPaste = useCallback(
     (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
       if (!canSend || sending || pendingFile) return;
-      const items = e.clipboardData?.items;
-      if (!items?.length) return;
-      for (let i = 0; i < items.length; i++) {
-        const it = items[i];
-        if (it.kind !== 'file') continue;
-        const mimeRaw = (it.type || '').split(';')[0].trim().toLowerCase();
-        if (!mimeRaw.startsWith('image/')) continue;
-        const blob = it.getAsFile();
-        if (!blob || blob.size <= 0) continue;
-        e.preventDefault();
-        const ext =
-          mimeRaw === 'image/png'
-            ? 'png'
-            : mimeRaw === 'image/webp'
-              ? 'webp'
-              : mimeRaw === 'image/gif'
-                ? 'gif'
-                : mimeRaw === 'image/jpeg' || mimeRaw === 'image/jpg'
-                  ? 'jpg'
-                  : mimeRaw === 'image/bmp' || mimeRaw === 'image/x-ms-bmp'
-                    ? 'bmp'
-                    : 'png';
-        const rawName = blob.name?.trim();
-        const name =
-          rawName && rawName.length > 0 && /\.[a-z0-9]{2,8}$/i.test(rawName) ? rawName : `print-${Date.now()}.${ext}`;
-        const file = new File([blob], name, { type: blob.type || mimeRaw || 'image/png' });
-        acceptPendingAttachmentFile(file);
-        return;
-      }
+      const file = extractClipboardImageFile(e);
+      if (!file) return;
+      e.preventDefault();
+      e.stopPropagation();
+      acceptPendingAttachmentFile(file);
     },
     [acceptPendingAttachmentFile, canSend, pendingFile, sending],
   );
