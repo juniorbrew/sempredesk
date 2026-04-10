@@ -860,7 +860,7 @@ export default function TicketDetailsPage() {
     )}
 
       {/* Header bar */}
-      <div style={{ background:S.bg, borderBottom:`1px solid ${S.bd}`, padding:'0 14px', display:'flex', alignItems:'center', gap:6, minHeight:42, flexShrink:0 }}>
+      <div style={{ background:S.bg, borderBottom:`1px solid ${S.bd}`, padding:'0 10px', display:'flex', alignItems:'center', gap:5, minHeight:36, flexShrink:0 }}>
         <button onClick={() => router.push('/dashboard/tickets')}
           style={{ width:28, height:28, borderRadius:7, border:`1px solid ${S.bd2}`, background:S.bg2, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
           <ArrowLeft style={{ width:13, height:13, color:S.txt2 }} />
@@ -915,16 +915,16 @@ export default function TicketDetailsPage() {
 
       {/* Info card */}
       {!interactionExpanded && (
-      <div style={{ background:S.bg, borderBottom:`1px solid ${S.bd}`, padding:'5px 14px 6px', flexShrink:0 }}>
-        <div style={{ display:'flex', alignItems:'center', gap:5, marginBottom:5, fontSize:10, color:S.txt2, flexWrap:'wrap' as const }}>
+      <div style={{ background:S.bg, borderBottom:`1px solid ${S.bd}`, padding:'4px 12px 5px', flexShrink:0 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:4, marginBottom:4, fontSize:10, color:S.txt2, flexWrap:'wrap' as const }}>
           <CalendarClock style={{ width:12, height:12, color:S.txt3, flexShrink:0 }} />
           Abertura: <strong style={{ color:S.txt, fontWeight:500 }}>{format(new Date(ticket.createdAt), "dd/MM/yyyy 'às' HH:mm", { locale:ptBR })}</strong>
           {ticket.closedAt && <><span style={{ color:S.txt3 }}>·</span><CalendarCheck style={{ width:12, height:12, color:S.txt3, flexShrink:0 }} />Fechamento: <strong style={{ color:S.txt, fontWeight:500 }}>{format(new Date(ticket.closedAt), "dd/MM/yyyy 'às' HH:mm", { locale:ptBR })}</strong></>}
           {ticket.resolvedAt && !ticket.closedAt && <><span style={{ color:S.txt3 }}>·</span><CalendarCheck style={{ width:12, height:12, color:'#16A34A', flexShrink:0 }} />Resolução: <strong style={{ color:'#16A34A', fontWeight:500 }}>{format(new Date(ticket.resolvedAt), "dd/MM/yyyy 'às' HH:mm", { locale:ptBR })}</strong></>}
         </div>
-        <div style={{ display:'grid', gridTemplateColumns:'minmax(0, 0.95fr) minmax(0, 1.35fr)', gap:6 }}>
-          <div className="min-w-0" style={{ padding:'6px 10px', border:`1px solid ${S.bd}`, borderRadius:10, background:'linear-gradient(180deg,#FFFFFF 0%,#FBFBFE 100%)', boxShadow:'0 4px 14px rgba(15,23,42,0.04)' }}>
-            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:5, marginBottom:3 }}>
+        <div style={{ display:'grid', gridTemplateColumns:'minmax(0, 0.95fr) minmax(0, 1.35fr)', gap:5 }}>
+          <div className="min-w-0" style={{ padding:'5px 8px', border:`1px solid ${S.bd}`, borderRadius:8, background:'linear-gradient(180deg,#FFFFFF 0%,#FBFBFE 100%)', boxShadow:'0 2px 8px rgba(15,23,42,0.04)' }}>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:4, marginBottom:2 }}>
               <div style={{ fontSize:9, fontWeight:700, color:S.txt3, textTransform:'uppercase' as const, letterSpacing:'0.08em' }}>Assunto</div>
               {canEditContent && (
                 <button onClick={() => setShowContentModal(true)} style={{ border:'none', background:'none', color:S.accent, cursor:'pointer', display:'inline-flex', alignItems:'center', gap:4, fontSize:10, fontWeight:700, fontFamily:'inherit', padding:0, flexShrink:0 }}>
@@ -932,11 +932,11 @@ export default function TicketDetailsPage() {
                 </button>
               )}
             </div>
-            <p className="truncate" title={String(ticket.subject || '')} style={{ margin:0, fontSize:13, fontWeight:700, color:S.txt, lineHeight:1.3 }}>{ticket.subject}</p>
+            <p className="truncate" title={String(ticket.subject || '')} style={{ margin:0, fontSize:12, fontWeight:700, color:S.txt, lineHeight:1.25 }}>{ticket.subject}</p>
           </div>
-          <div className="min-w-0" style={{ padding:'6px 10px', border:`1px solid ${S.bd}`, borderRadius:10, background:'linear-gradient(180deg,#FFFFFF 0%,#FBFBFE 100%)', boxShadow:'0 4px 14px rgba(15,23,42,0.04)' }}>
-            <div style={{ fontSize:9, fontWeight:700, color:S.txt3, textTransform:'uppercase' as const, letterSpacing:'0.08em', marginBottom:3 }}>Descricao</div>
-            <p className="truncate" title={ticket.description?.trim() ? String(ticket.description) : 'Sem descricao informada.'} style={{ margin:0, fontSize:12, color:S.txt2, lineHeight:1.3 }}>{ticket.description || 'Sem descricao informada.'}</p>
+          <div className="min-w-0" style={{ padding:'5px 8px', border:`1px solid ${S.bd}`, borderRadius:8, background:'linear-gradient(180deg,#FFFFFF 0%,#FBFBFE 100%)', boxShadow:'0 2px 8px rgba(15,23,42,0.04)' }}>
+            <div style={{ fontSize:9, fontWeight:700, color:S.txt3, textTransform:'uppercase' as const, letterSpacing:'0.08em', marginBottom:2 }}>Descricao</div>
+            <p className="truncate" title={ticket.description?.trim() ? String(ticket.description) : 'Sem descricao informada.'} style={{ margin:0, fontSize:11, color:S.txt2, lineHeight:1.3 }}>{ticket.description || 'Sem descricao informada.'}</p>
           </div>
         </div>
       </div>
@@ -946,8 +946,8 @@ export default function TicketDetailsPage() {
       <div style={{ display:'flex', flex:1, overflow:'hidden' }}>
 
         {/* Messages */}
-        <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden', padding:'6px 14px 4px', gap:6, background:S.bg3 }}>
-          <div style={{ padding:'4px 10px', borderBottom:`1px solid ${S.bd}`, background:S.bg, display:'flex', alignItems:'center', gap:6, flexShrink:0, justifyContent:'space-between' }}>
+        <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden', padding:'4px 10px 2px', gap:4, background:S.bg3 }}>
+          <div style={{ padding:'3px 8px', borderBottom:`1px solid ${S.bd}`, background:S.bg, display:'flex', alignItems:'center', gap:5, flexShrink:0, justifyContent:'space-between' }}>
             <div style={{ display:'flex', alignItems:'center', gap:4, flexWrap:'wrap' as any }}>
             <span style={{ fontSize:10, fontWeight:600, color:S.txt3, textTransform:'uppercase' as any, letterSpacing:'0.05em', marginRight:2 }}>Visualizar:</span>
             {([
@@ -965,16 +965,16 @@ export default function TicketDetailsPage() {
             </div>
             <button
               onClick={() => setInteractionExpanded(v => !v)}
-              style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'4px 10px', borderRadius:7, border:`1px solid ${interactionExpanded ? S.accentM : S.bd}`, background:interactionExpanded ? S.accentL : '#fff', color:interactionExpanded ? S.accent : S.txt2, cursor:'pointer', fontSize:10, fontWeight:700, fontFamily:'inherit', flexShrink:0 }}
+              style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'3px 8px', borderRadius:6, border:`1px solid ${interactionExpanded ? S.accentM : S.bd}`, background:interactionExpanded ? S.accentL : '#fff', color:interactionExpanded ? S.accent : S.txt2, cursor:'pointer', fontSize:9, fontWeight:700, fontFamily:'inherit', flexShrink:0 }}
             >
               {interactionExpanded ? <ChevronDown style={{ width:12, height:12 }} /> : <ChevronUp style={{ width:12, height:12 }} />}
               {interactionExpanded ? 'Recolher interação' : 'Expandir interação'}
             </button>
           </div>
-          <div style={{ flex:1, overflowY:'auto', padding:'4px 10px 8px', background:S.bg2, minHeight:0 }}>
+          <div style={{ flex:1, overflowY:'auto', padding:'3px 8px 6px', background:S.bg2, minHeight:0 }}>
             {/* Satisfaction banner */}
             {ticket.status === 'resolved' && ticket.satisfactionScore && (
-              <div style={{ display:'flex', alignItems:'center', gap:8, padding:'6px 10px', borderRadius:7, marginBottom:6, background: ticket.satisfactionScore === 'approved' ? '#F0FDF4' : '#FEF2F2', border: `1.5px solid ${ticket.satisfactionScore === 'approved' ? '#86EFAC' : '#FCA5A5'}` }}>
+              <div style={{ display:'flex', alignItems:'center', gap:6, padding:'5px 8px', borderRadius:6, marginBottom:4, background: ticket.satisfactionScore === 'approved' ? '#F0FDF4' : '#FEF2F2', border: `1.5px solid ${ticket.satisfactionScore === 'approved' ? '#86EFAC' : '#FCA5A5'}` }}>
                 {ticket.satisfactionScore === 'approved' ? <ThumbsUp style={{ width:16, height:16, color:'#16A34A', flexShrink:0 }} /> : <ThumbsDown style={{ width:16, height:16, color:'#DC2626', flexShrink:0 }} />}
                 <p style={{ margin:0, fontSize:12, fontWeight:700, color: ticket.satisfactionScore === 'approved' ? '#15803D' : '#DC2626' }}>
                   Avaliação do cliente: {ticket.satisfactionScore === 'approved' ? 'Solução aceita (SIM)' : 'Solução rejeitada (NÃO)'}
@@ -1036,12 +1036,12 @@ export default function TicketDetailsPage() {
                 const iconColor = ev.messageType==='escalation'?'#DC2626':ev.messageType==='sla'?'#F97316':'#6366F1';
                 const evTime = new Date(ev.createdAt).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
                 return (
-                  <div key={ev.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'0 0 0 22px', position:'relative' }}>
-                    <span style={{ position:'absolute', left:3, top:-10, bottom:-10, width:1, background:'rgba(148,163,184,0.18)' }} />
-                    <div style={{ width:24, height:24, borderRadius:'50%', background:iconBg, border:'1px solid rgba(255,255,255,0.85)', boxShadow:'0 6px 16px rgba(15,23,42,0.08)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                      <Icon style={{ width:10, height:10, color:iconColor }} />
+                  <div key={ev.id} style={{ display:'flex', alignItems:'center', gap:8, padding:'0 0 0 20px', position:'relative' }}>
+                    <span style={{ position:'absolute', left:3, top:-8, bottom:-8, width:1, background:'rgba(148,163,184,0.18)' }} />
+                    <div style={{ width:22, height:22, borderRadius:'50%', background:iconBg, border:'1px solid rgba(255,255,255,0.85)', boxShadow:'0 4px 10px rgba(15,23,42,0.06)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                      <Icon style={{ width:9, height:9, color:iconColor }} />
                     </div>
-                    <div style={{ flex:1, minWidth:0, display:'flex', alignItems:'center', gap:8, padding:'7px 10px', borderRadius:12, background:'rgba(255,255,255,0.72)', border:'1px solid rgba(148,163,184,0.12)' }}>
+                    <div style={{ flex:1, minWidth:0, display:'flex', alignItems:'center', gap:6, padding:'5px 8px', borderRadius:8, background:'rgba(255,255,255,0.72)', border:'1px solid rgba(148,163,184,0.12)' }}>
                       <span style={{ fontSize:11, color:'#64748B', flex:1, lineHeight:1.5 }}>{translateStatus(resolveContent(ev.content))}</span>
                       <span style={{ fontSize:10, color:'#94A3B8', fontWeight:600, fontFamily:"'DM Mono',monospace", flexShrink:0 }}>{evTime}</span>
                     </div>
@@ -1064,32 +1064,32 @@ export default function TicketDetailsPage() {
                 const roleLabel = isNt ? 'Nota Interna' : isCl ? 'Cliente' : 'Agente';
                 const roleBg = isNt ? '#FFF7ED' : isCl ? '#DCFCE7' : '#EEF2FF';
                 const roleColor = isNt ? '#9A3412' : isCl ? '#166534' : '#4338CA';
-                const shadow = isNt ? '0 14px 30px rgba(251,146,60,0.08)' : isCl ? '0 18px 36px rgba(15,23,42,0.06)' : '0 18px 36px rgba(79,70,229,0.08)';
+                const shadow = isNt ? '0 6px 16px rgba(251,146,60,0.06)' : isCl ? '0 6px 16px rgba(15,23,42,0.05)' : '0 6px 16px rgba(79,70,229,0.06)';
 
                 return (
-                  <div key={m.id} style={{ display:'flex', gap:14, padding:'0 0 20px', position:'relative' }}>
-                    <span style={{ position:'absolute', left:17, top:32, bottom:-8, width:1, background:'linear-gradient(180deg, rgba(148,163,184,0.22) 0%, rgba(148,163,184,0.06) 100%)' }} />
-                    <div style={{ width:36, height:36, borderRadius:'50%', background:avatarBg, border:`1px solid ${cardBorder}`, boxShadow:'0 10px 24px rgba(15,23,42,0.08)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, color:avatarColor, fontSize:11, fontWeight:700, marginTop:4, position:'relative', zIndex:1 }}>
-                      {isNt ? <Lock style={{width:12,height:12}}/> : ini}
+                  <div key={m.id} style={{ display:'flex', gap:10, padding:'0 0 12px', position:'relative' }}>
+                    <span style={{ position:'absolute', left:15, top:28, bottom:-6, width:1, background:'linear-gradient(180deg, rgba(148,163,184,0.22) 0%, rgba(148,163,184,0.06) 100%)' }} />
+                    <div style={{ width:32, height:32, borderRadius:'50%', background:avatarBg, border:`1px solid ${cardBorder}`, boxShadow:'0 4px 12px rgba(15,23,42,0.06)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, color:avatarColor, fontSize:10, fontWeight:700, marginTop:2, position:'relative', zIndex:1 }}>
+                      {isNt ? <Lock style={{width:11,height:11}}/> : ini}
                     </div>
                     <div style={{ flex:1, minWidth:0 }}>
-                      <div style={{ display:'flex', alignItems:'flex-start', gap:10, marginBottom:8 }}>
+                      <div style={{ display:'flex', alignItems:'flex-start', gap:8, marginBottom:5 }}>
                         <div style={{ flex:1, minWidth:0 }}>
-                          <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' as const }}>
-                            <span style={{ fontSize:13, fontWeight:700, color:S.txt }}>{m.authorName}</span>
-                            <span style={{ fontSize:10, fontWeight:700, padding:'4px 8px', borderRadius:999, background:roleBg, color:roleColor, letterSpacing:'0.01em' }}>{roleLabel}</span>
-                            {isWhatsappMsg && <span style={{ fontSize:10, fontWeight:700, padding:'4px 8px', borderRadius:999, background:'#DCFCE7', color:'#15803D', letterSpacing:'0.01em' }}>WhatsApp</span>}
+                          <div style={{ display:'flex', alignItems:'center', gap:5, flexWrap:'wrap' as const }}>
+                            <span style={{ fontSize:12, fontWeight:700, color:S.txt }}>{m.authorName}</span>
+                            <span style={{ fontSize:9, fontWeight:700, padding:'2px 6px', borderRadius:999, background:roleBg, color:roleColor, letterSpacing:'0.01em' }}>{roleLabel}</span>
+                            {isWhatsappMsg && <span style={{ fontSize:9, fontWeight:700, padding:'2px 6px', borderRadius:999, background:'#DCFCE7', color:'#15803D', letterSpacing:'0.01em' }}>WhatsApp</span>}
                           </div>
-                          <div style={{ marginTop:4, display:'flex', alignItems:'center', gap:8, color:S.txt3 }}>
-                            <span style={{ fontSize:11 }}>{isNt ? 'Observacao privada da equipe' : isCl ? 'Mensagem recebida do cliente' : 'Interacao da equipe no ticket'}</span>
+                          <div style={{ marginTop:2, display:'flex', alignItems:'center', gap:6, color:S.txt3 }}>
+                            <span style={{ fontSize:10 }}>{isNt ? 'Observacao privada da equipe' : isCl ? 'Mensagem recebida do cliente' : 'Interacao da equipe no ticket'}</span>
                           </div>
                         </div>
-                        <div style={{ paddingTop:2, textAlign:'right' as const }}>
-                          <span style={{ display:'block', fontSize:11, color:S.txt3, fontFamily:"'DM Mono',monospace" }}>{timeStr}</span>
-                          <span style={{ display:'block', marginTop:3, fontSize:10, color:'#B4B4C4' }}>#{num}</span>
+                        <div style={{ paddingTop:1, textAlign:'right' as const }}>
+                          <span style={{ display:'block', fontSize:10, color:S.txt3, fontFamily:"'DM Mono',monospace" }}>{timeStr}</span>
+                          <span style={{ display:'block', marginTop:2, fontSize:9, color:'#B4B4C4' }}>#{num}</span>
                         </div>
                       </div>
-                      <div style={{ fontSize:13, color:S.txt, lineHeight:1.75, background:cardBg, borderRadius:18, padding:'14px 16px', border:`1px solid ${cardBorder}`, boxShadow:shadow }}>
+                      <div style={{ fontSize:12, color:S.txt, lineHeight:1.5, background:cardBg, borderRadius:12, padding:'10px 12px', border:`1px solid ${cardBorder}`, boxShadow:shadow }}>
                         <p style={{ margin:0, whiteSpace:'pre-wrap' }}>{resolveContent(m.content)}</p>
                         {Array.isArray(m.attachments) &&
                           m.attachments.filter((a: any) => a?.kind === 'ticket_reply_file' && a?.id).map((a: any) => {
@@ -1172,7 +1172,7 @@ export default function TicketDetailsPage() {
                           })}
                       </div>
                       {group.events.length > 0 && showUpdates && (
-                        <div style={{ marginTop:10, display:'flex', flexDirection:'column', gap:8 }}>
+                        <div style={{ marginTop:6, display:'flex', flexDirection:'column', gap:5 }}>
                           {group.events.map(ev => renderEventRow(ev))}
                         </div>
                       )}
@@ -1184,13 +1184,13 @@ export default function TicketDetailsPage() {
               // Render groups ASC (oldest first) + conversation in chronological flow
               return (
                 <div style={{ position:'relative' }}>
-                  <div style={{ position:'absolute', left:17, top:0, bottom:0, width:1, background:'linear-gradient(180deg, rgba(148,163,184,0.16) 0%, rgba(148,163,184,0.04) 100%)', pointerEvents:'none' }} />
+                  <div style={{ position:'absolute', left:15, top:0, bottom:0, width:1, background:'linear-gradient(180deg, rgba(148,163,184,0.16) 0%, rgba(148,163,184,0.04) 100%)', pointerEvents:'none' }} />
                   {groups.map((group, i) => renderGroup(group, i + 1))}
                   {hasConv && showConvFilter && (
-                    <div style={{ border:'1px solid rgba(45,212,191,0.28)', borderRadius:16, background:'linear-gradient(180deg, #F7FFFD 0%, #EFFCF8 100%)', boxShadow:'0 10px 28px rgba(13,148,136,0.07)', overflow:'hidden', marginBottom:4, marginLeft:50 }}>
-                      <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' as const, padding:'10px 12px', borderBottom:'1px solid rgba(45,212,191,0.20)' }}>
-                        <div style={{ width:32, height:32, borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, background:'#CCFBF1', color:'#0D9488' }}>
-                          <MessageSquare style={{ width:14, height:14 }} />
+                    <div style={{ border:'1px solid rgba(45,212,191,0.28)', borderRadius:12, background:'linear-gradient(180deg, #F7FFFD 0%, #EFFCF8 100%)', boxShadow:'0 6px 18px rgba(13,148,136,0.06)', overflow:'hidden', marginBottom:3, marginLeft:44 }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' as const, padding:'7px 10px', borderBottom:'1px solid rgba(45,212,191,0.20)' }}>
+                        <div style={{ width:28, height:28, borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, background:'#CCFBF1', color:'#0D9488' }}>
+                          <MessageSquare style={{ width:12, height:12 }} />
                         </div>
                         <div style={{ minWidth:0, flex:'1 1 120px' }}>
                           <div style={{ fontSize:12, fontWeight:700, color:'#0F766E', lineHeight:1.25 }}>{customerName(ticket.clientId)}</div>
@@ -1201,14 +1201,14 @@ export default function TicketDetailsPage() {
                         </span>
                         <span style={{ fontSize:10, color:'#94A3B8', marginLeft:'auto', fontFamily:"'DM Mono',monospace" }}>{new Date(ticket.createdAt).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'})}</span>
                         <button type="button" onClick={() => setShowConversation(v=>!v)}
-                          className="h-8 shrink-0 inline-flex items-center gap-1.5 px-3 rounded-full text-[11px] font-bold cursor-pointer font-inherit border"
+                          className="h-7 shrink-0 inline-flex items-center gap-1 px-2.5 rounded-full text-[10px] font-bold cursor-pointer font-inherit border"
                           style={{ background:'rgba(255,255,255,0.85)', borderColor:'#5EEAD4', color:'#0F766E' }}>
-                          {showConversation ? <><ChevronUp style={{width:11,height:11}}/> Ocultar</> : <><ChevronDown style={{width:11,height:11}}/> Expandir</>}
+                          {showConversation ? <><ChevronUp style={{width:10,height:10}}/> Ocultar</> : <><ChevronDown style={{width:10,height:10}}/> Expandir</>}
                         </button>
-                        <span style={{ minWidth:26, height:26, borderRadius:8, background:'#FFFFFF', color:'#64748B', border:'1px solid rgba(148,163,184,0.18)', fontSize:11, fontWeight:700, display:'inline-flex', alignItems:'center', justifyContent:'center', padding:'0 5px', flexShrink:0 }}>1</span>
+                        <span style={{ minWidth:22, height:22, borderRadius:6, background:'#FFFFFF', color:'#64748B', border:'1px solid rgba(148,163,184,0.18)', fontSize:10, fontWeight:700, display:'inline-flex', alignItems:'center', justifyContent:'center', padding:'0 4px', flexShrink:0 }}>1</span>
                       </div>
                       {showConversation && (
-                        <div style={{ padding:'10px 12px 8px', display:'flex', flexDirection:'column', gap:0 }}>
+                        <div style={{ padding:'8px 10px 6px', display:'flex', flexDirection:'column', gap:0 }}>
                           {conversationMsgs.map((cm:any, cmIdx:number)=>{
                             const isC = cm.authorType==='contact';
                             const tStr = new Date(cm.createdAt).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
@@ -1386,20 +1386,20 @@ export default function TicketDetailsPage() {
               setTimeout(() => setActiveTab(isFinished ? 'note' : 'comment'), 0);
             }
             return (
-            <div className="p-3 pb-0" style={{ background:'linear-gradient(180deg, #FFFFFF 0%, #FBFBFE 100%)', border:`1px solid ${S.bd}`, borderRadius:20, flexShrink:0, overflow:'hidden', boxShadow:'0 20px 45px rgba(15,23,42,0.08)' }}>
-              <div className="flex items-center justify-between gap-2 pb-2">
+            <div className="p-2 pb-0" style={{ background:'linear-gradient(180deg, #FFFFFF 0%, #FBFBFE 100%)', border:`1px solid ${S.bd}`, borderRadius:14, flexShrink:0, overflow:'hidden', boxShadow:'0 8px 24px rgba(15,23,42,0.06)' }}>
+              <div className="flex items-center justify-between gap-2 pb-1">
                 <div>
-                  <div style={{ fontSize:12, fontWeight:700, color:S.txt }}>Responder no ticket</div>
-                  <div className="mt-1" style={{ fontSize:10, color:S.txt3, lineHeight:1.35 }}>Mantenha o contexto da conversa e escolha o tipo de interacao abaixo.</div>
+                  <div style={{ fontSize:11, fontWeight:700, color:S.txt }}>Responder no ticket</div>
+                  <div className="mt-0.5" style={{ fontSize:9, color:S.txt3, lineHeight:1.3 }}>Mantenha o contexto da conversa e escolha o tipo de interacao abaixo.</div>
                 </div>
-                <div style={{ fontSize:9, fontWeight:700, color:S.txt3, padding:'4px 8px', borderRadius:999, background:S.bg2, border:`1px solid ${S.bd}` }}>
+                <div style={{ fontSize:9, fontWeight:700, color:S.txt3, padding:'3px 7px', borderRadius:999, background:S.bg2, border:`1px solid ${S.bd}` }}>
                   {activeTab === 'note' ? 'Privado' : 'Publico'}
                 </div>
               </div>
-              <div className="flex items-end gap-1.5 pb-0 -mx-3 px-3" style={{ borderBottom:`1px solid ${S.bd}` }}>
+              <div className="flex items-end gap-1 pb-0 -mx-2 px-2" style={{ borderBottom:`1px solid ${S.bd}` }}>
                 {(visibleReplyTabs as [string,string][]).map(([tab,label]) => (
                   <button key={tab} onClick={() => setActiveTab(tab as any)}
-                    className="h-8 px-3 text-xs rounded-md font-bold cursor-pointer flex items-center gap-1.5 font-inherit border transition-all duration-150 -mb-px"
+                    className="h-7 px-2.5 text-[11px] rounded-md font-bold cursor-pointer flex items-center gap-1 font-inherit border transition-all duration-150 -mb-px"
                     style={{ color:activeTab===tab?(tab==='note'?'#B45309':S.accent):S.txt2, borderColor:activeTab===tab?(tab==='note'?'#FCD34D':S.accentM):'transparent', borderBottomColor:activeTab===tab?(tab==='note'?'#FCD34D':S.accentM):'transparent', background:activeTab===tab?(tab==='note'?'#FFF7ED':'#EEF2FF'):'transparent' }}>
                     {tab==='note' && <Lock className="h-3 w-3 shrink-0" />}{label}
                   </button>
@@ -1422,9 +1422,9 @@ export default function TicketDetailsPage() {
                     setPendingFile(f);
                   }}
                 />
-                <div className="pt-2 pb-2">
+                <div className="pt-1.5 pb-1.5">
                   {activeTab === 'comment' && pendingFile && (
-                    <div className="mb-2 flex items-center gap-2 text-xs" style={{ color: S.txt2 }}>
+                    <div className="mb-1.5 flex items-center gap-2 text-[11px]" style={{ color: S.txt2 }}>
                       <Paperclip className="h-3.5 w-3.5 shrink-0" />
                       <span style={{ fontWeight: 600, color: S.txt }}>{pendingFile.name}</span>
                       <button
@@ -1441,10 +1441,10 @@ export default function TicketDetailsPage() {
                   )}
                   <textarea value={message} onChange={e => setMessage(e.target.value)}
                     placeholder={activeTab==='note'?'Nota interna (visível só para a equipe)...':activeTab==='update'?'Descreva a atualização do ticket...':'Digite sua resposta para o cliente...'}
-                    className="min-h-[60px] max-h-[160px] w-full resize-none overflow-y-auto rounded-xl border box-border px-3 py-2 text-[13px] leading-snug outline-none"
+                    className="min-h-[52px] max-h-[140px] w-full resize-none overflow-y-auto rounded-lg border box-border px-2.5 py-1.5 text-[12px] leading-snug outline-none"
                     style={{ background:'#FFFFFF', borderColor:activeTab==='note' ? '#FCD34D' : activeTab==='update' ? '#C7D2FE' : '#E2E8F0', borderWidth:1, borderStyle:'solid', color:S.txt, fontFamily:'inherit', boxShadow:activeTab==='note' ? 'inset 0 1px 0 rgba(255,255,255,0.8), 0 10px 24px rgba(251,146,60,0.08)' : activeTab==='update' ? 'inset 0 1px 0 rgba(255,255,255,0.8), 0 10px 24px rgba(99,102,241,0.08)' : 'inset 0 1px 0 rgba(255,255,255,0.8), 0 10px 24px rgba(15,23,42,0.05)' }} />
                 </div>
-                <div className="flex items-center gap-1.5 pb-3 pt-1">
+                <div className="flex items-center gap-1.5 pb-2 pt-0.5">
                   {[
                     {
                       icon: <Paperclip style={{ width: 12, height: 12 }} />,
@@ -1465,11 +1465,11 @@ export default function TicketDetailsPage() {
                       type="button"
                       onClick={item.onClick}
                       title={i === 0 ? 'Anexar ficheiro ao ticket (imagem, PDF, Office…)' : undefined}
-                      className="h-8 w-8 shrink-0 flex items-center justify-center rounded-lg border bg-white cursor-pointer shadow-sm"
+                      className="h-7 w-7 shrink-0 flex items-center justify-center rounded-md border bg-white cursor-pointer shadow-sm"
                       style={{
                         borderColor: S.bd,
                         color: S.txt2,
-                        boxShadow: '0 4px 12px rgba(15,23,42,0.04)',
+                        boxShadow: '0 2px 8px rgba(15,23,42,0.04)',
                         opacity: i === 0 && activeTab !== 'comment' ? 0.45 : 1,
                       }}
                     >
@@ -1488,11 +1488,11 @@ export default function TicketDetailsPage() {
                   <button
                     type="submit"
                     disabled={sending || (activeTab === 'comment' ? !message.trim() && !pendingFile : !message.trim())}
-                    className="h-9 shrink-0 px-4 text-sm font-bold flex items-center gap-1.5 rounded-lg border-none cursor-pointer text-white font-inherit"
+                    className="h-8 shrink-0 px-3 text-xs font-bold flex items-center gap-1 rounded-md border-none cursor-pointer text-white font-inherit"
                     style={{
                       background:activeTab==='note' ? '#F59E0B' : S.accent,
                       opacity: (activeTab === 'comment' ? !message.trim() && !pendingFile : !message.trim()) || sending ? 0.5 : 1,
-                      boxShadow:activeTab==='note' ? '0 8px 20px rgba(245,158,11,0.22)' : '0 8px 20px rgba(79,70,229,0.2)',
+                      boxShadow:activeTab==='note' ? '0 4px 14px rgba(245,158,11,0.2)' : '0 4px 14px rgba(79,70,229,0.18)',
                       transition:'background .15s',
                     }}
                   >
@@ -1511,15 +1511,15 @@ export default function TicketDetailsPage() {
           const cont = ticket.contactId ? contactObj(ticket.contactId) : null;
           const hasWa = cont?.whatsapp || cont?.phone;
           const secLabel = (txt: string, action?: React.ReactNode) => (
-            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8, paddingBottom:6, borderBottom:`1px solid ${S.bd}` }}>
-              <span style={{ fontSize:10, fontWeight:700, color:S.txt3, textTransform:'uppercase' as const, letterSpacing:'0.07em' }}>{txt}</span>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6, paddingBottom:4, borderBottom:`1px solid ${S.bd}` }}>
+              <span style={{ fontSize:9, fontWeight:700, color:S.txt3, textTransform:'uppercase' as const, letterSpacing:'0.07em' }}>{txt}</span>
               {action}
             </div>
           );
           const row = (label: string, value: React.ReactNode) => (
-            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', padding:'3px 0', gap:8 }}>
-              <span style={{ fontSize:11, color:S.txt2, flexShrink:0 }}>{label}</span>
-              <span className="min-w-0 flex-1 text-right" style={{ fontSize:11, color:S.txt, fontWeight:500 }}>{value}</span>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', padding:'2px 0', gap:6 }}>
+              <span style={{ fontSize:10, color:S.txt2, flexShrink:0 }}>{label}</span>
+              <span className="min-w-0 flex-1 text-right" style={{ fontSize:10, color:S.txt, fontWeight:500 }}>{value}</span>
             </div>
           );
           // total time
@@ -1535,10 +1535,10 @@ export default function TicketDetailsPage() {
             return `${m}m`;
           })();
           return (
-        <div className="[html[data-theme=dark]_&]:bg-slate-900" style={{ width:interactionExpanded ? 0 : 280, borderLeft:interactionExpanded ? 'none' : `1px solid ${S.bd}`, overflowY:'auto', flexShrink:0, background:S.bg, display:interactionExpanded ? 'none' : 'flex', flexDirection:'column', transition:'width .2s ease', padding:'8px 10px 10px', gap:8 }}>
+        <div className="[html[data-theme=dark]_&]:bg-slate-900" style={{ width:interactionExpanded ? 0 : 272, borderLeft:interactionExpanded ? 'none' : `1px solid ${S.bd}`, overflowY:'auto', flexShrink:0, background:S.bg, display:interactionExpanded ? 'none' : 'flex', flexDirection:'column', transition:'width .2s ease', padding:'6px 8px 8px', gap:6 }}>
 
           {/* DETALHES */}
-          <div className="rounded-xl bg-white shadow-[0_1px_2px_rgba(15,23,42,0.05)] [html[data-theme=dark]_&]:bg-slate-900 [html[data-theme=dark]_&]:shadow-none [html[data-theme=dark]_&]:ring-1 [html[data-theme=dark]_&]:ring-slate-700/50" style={{ padding:'10px 12px', border:`1px solid ${S.bd}`, borderRadius:12 }}>
+          <div className="rounded-xl bg-white shadow-[0_1px_2px_rgba(15,23,42,0.05)] [html[data-theme=dark]_&]:bg-slate-900 [html[data-theme=dark]_&]:shadow-none [html[data-theme=dark]_&]:ring-1 [html[data-theme=dark]_&]:ring-slate-700/50" style={{ padding:'8px 10px', border:`1px solid ${S.bd}`, borderRadius:10 }}>
             {secLabel('Detalhes')}
             {row('Status',
               <span style={{ display:'inline-flex', alignItems:'center', gap:5, fontSize:12, fontWeight:500, padding:'3px 8px', borderRadius:5, background:status.bg, color:status.color }}>
@@ -1574,10 +1574,10 @@ export default function TicketDetailsPage() {
 
           {/* DADOS DO CLIENTE */}
           {ticket.clientId && (
-            <div className="rounded-xl bg-white shadow-[0_1px_2px_rgba(15,23,42,0.05)] [html[data-theme=dark]_&]:bg-slate-900 [html[data-theme=dark]_&]:shadow-none [html[data-theme=dark]_&]:ring-1 [html[data-theme=dark]_&]:ring-slate-700/50" style={{ padding:'10px 12px', border:`1px solid ${S.bd}`, borderRadius:12 }}>
-              {secLabel('Dados do Cliente', <button onClick={() => setShowEditPanel(true)} style={{ fontSize:11, color:S.accent, cursor:'pointer', border:'none', background:'none', fontWeight:500, fontFamily:'inherit', padding:0 }}>Editar</button>)}
-              <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
-                <div style={{ width:36, height:36, borderRadius:'50%', background:'#DBEAFE', color:'#1E40AF', display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:700, flexShrink:0 }}>
+            <div className="rounded-xl bg-white shadow-[0_1px_2px_rgba(15,23,42,0.05)] [html[data-theme=dark]_&]:bg-slate-900 [html[data-theme=dark]_&]:shadow-none [html[data-theme=dark]_&]:ring-1 [html[data-theme=dark]_&]:ring-slate-700/50" style={{ padding:'8px 10px', border:`1px solid ${S.bd}`, borderRadius:10 }}>
+              {secLabel('Dados do Cliente', <button onClick={() => setShowEditPanel(true)} style={{ fontSize:10, color:S.accent, cursor:'pointer', border:'none', background:'none', fontWeight:500, fontFamily:'inherit', padding:0 }}>Editar</button>)}
+              <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:6 }}>
+                <div style={{ width:32, height:32, borderRadius:'50%', background:'#DBEAFE', color:'#1E40AF', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:700, flexShrink:0 }}>
                   {initials(customerName(ticket.clientId))}
                 </div>
                 <div className="min-w-0 flex-1">
@@ -1611,7 +1611,7 @@ export default function TicketDetailsPage() {
 
           {/* HISTÓRICO DO CLIENTE */}
           {ticket.clientId && (
-            <div className="rounded-xl bg-white shadow-[0_1px_2px_rgba(15,23,42,0.05)] [html[data-theme=dark]_&]:bg-slate-900 [html[data-theme=dark]_&]:shadow-none [html[data-theme=dark]_&]:ring-1 [html[data-theme=dark]_&]:ring-slate-700/50" style={{ padding:'10px 12px', border:`1px solid ${S.bd}`, borderRadius:12 }}>
+            <div className="rounded-xl bg-white shadow-[0_1px_2px_rgba(15,23,42,0.05)] [html[data-theme=dark]_&]:bg-slate-900 [html[data-theme=dark]_&]:shadow-none [html[data-theme=dark]_&]:ring-1 [html[data-theme=dark]_&]:ring-slate-700/50" style={{ padding:'8px 10px', border:`1px solid ${S.bd}`, borderRadius:10 }}>
               {secLabel('Histórico do Cliente',
                 <a href={`/dashboard/tickets?clientId=${ticket.clientId}`} style={{ fontSize:11, color:S.accent, fontWeight:500, textDecoration:'none' }}>Ver todos</a>
               )}
@@ -1640,9 +1640,9 @@ export default function TicketDetailsPage() {
           )}
 
           {/* ATRIBUIÇÃO */}
-          <div className="rounded-xl bg-white shadow-[0_1px_2px_rgba(15,23,42,0.05)] [html[data-theme=dark]_&]:bg-slate-900 [html[data-theme=dark]_&]:shadow-none [html[data-theme=dark]_&]:ring-1 [html[data-theme=dark]_&]:ring-slate-700/50" style={{ padding:'10px 12px', border:`1px solid ${S.bd}`, borderRadius:12 }}>
+          <div className="rounded-xl bg-white shadow-[0_1px_2px_rgba(15,23,42,0.05)] [html[data-theme=dark]_&]:bg-slate-900 [html[data-theme=dark]_&]:shadow-none [html[data-theme=dark]_&]:ring-1 [html[data-theme=dark]_&]:ring-slate-700/50" style={{ padding:'8px 10px', border:`1px solid ${S.bd}`, borderRadius:10 }}>
             {secLabel('Atribuição')}
-            <form onSubmit={saveEdit} style={{ display:'flex', flexDirection:'column', gap:8 }}>
+            <form onSubmit={saveEdit} style={{ display:'flex', flexDirection:'column', gap:6 }}>
               <div>
                 <label style={{ fontSize:10, color:S.txt3, fontWeight:700, letterSpacing:'0.06em', textTransform:'uppercase' as const, display:'block', marginBottom:4 }}>Prioridade</label>
                 <select style={inp} value={edit.priority} onChange={e => setEdit({...edit,priority:e.target.value})}>
