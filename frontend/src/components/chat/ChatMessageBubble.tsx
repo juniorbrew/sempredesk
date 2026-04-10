@@ -233,7 +233,6 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
   ).trim();
   const showAuthorLabel =
     !isSystem &&
-    (isContact ? !sameAuthorAsPrev : true) &&
     (isContact || m.authorType === 'user') &&
     authorLabelText.length > 0;
   const showAvatar = density === 'normal' && isContact && !sameAuthorAsNext;
