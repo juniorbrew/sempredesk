@@ -1592,10 +1592,11 @@ export default function AtendimentoPage() {
               : 'file')
       : null;
     const localPreviewUrl = file ? URL.createObjectURL(file) : null;
+    const agentDisplayName = (user?.name || '').trim() || 'Você';
     setMessages(m => [...m, {
       id: tempId,
       authorType: 'user',
-      authorName: 'Você',
+      authorName: agentDisplayName,
       content:
         text ||
         (previewKind === 'image'

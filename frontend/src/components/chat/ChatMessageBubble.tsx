@@ -228,7 +228,12 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
   const bubbleMax = density === 'compact' ? 580 : 520;
   const bubbleMaxCss = `min(100%, ${bubbleMax}px)`;
   const marginTop = sameAuthorAsPrev ? (density === 'compact' ? 2 : 4) : density === 'compact' ? 8 : 12;
-  const showAuthorLabel = isContact && !isSystem && !sameAuthorAsPrev;
+  const authorLabelText = String(m.authorName || '').trim();
+  const showAuthorLabel =
+    !isSystem &&
+    !sameAuthorAsPrev &&
+    (isContact || m.authorType === 'user') &&
+    authorLabelText.length > 0;
   const showAvatar = density === 'normal' && isContact && !sameAuthorAsNext;
   const avatarColWidth = density === 'normal' && isContact ? 36 : 0;
 
@@ -297,13 +302,17 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
         <span
           style={{
             fontSize: 12,
-            fontWeight: 500,
+            fontWeight: m.authorType === 'user' ? 700 : 500,
             color: P.authorLabel,
             marginBottom: density === 'compact' ? 1 : 2,
-            paddingLeft: avatarColWidth > 0 ? 4 : 2,
+            paddingLeft: isContact ? (avatarColWidth > 0 ? 4 : 2) : 0,
+            paddingRight: isContact ? 0 : 2,
+            alignSelf: isContact ? 'flex-start' : 'flex-end',
+            textAlign: isContact ? 'left' : 'right',
+            maxWidth: '100%',
           }}
         >
-          {m.authorName}
+          {authorLabelText}
         </span>
       )}
       <div
