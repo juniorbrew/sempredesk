@@ -108,12 +108,24 @@ function coalesceChatbot(raw: Partial<ChatbotConfig> | null | undefined): Chatbo
   return m;
 }
 
-function Field({ label, hint, children, compact }: { label: string; hint?: string; children: React.ReactNode; compact?: boolean }) {
+function mapBotMenuFromApi(bot: any): ChatbotMenuItem[] {
+  return (bot.menuItems || []).map((item: any) => ({
+    ...item,
+    label: item?.label == null ? '' : String(item.label),
+    autoReplyText: item?.autoReplyText == null ? '' : String(item.autoReplyText),
+    department: item?.department == null ? undefined : String(item.department),
+    order: typeof item?.order === 'number' ? item.order : 0,
+    enabled: !!item?.enabled,
+    action: item?.action === 'transfer' ? 'transfer' : 'auto_reply',
+  }));
+}
+
+function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
-    <div className={compact ? 'space-y-1' : 'space-y-1.5'}>
-      <label className="text-slate-600 [html[data-theme=dark]_&]:text-slate-300" style={{ fontSize: compact ? 11 : 12, fontWeight:600, display:'block' }}>{label}</label>
+    <div className="space-y-1.5">
+      <label style={{ fontSize:12, fontWeight:600, color:'#64748B', display:'block' }}>{label}</label>
       {children}
-      {hint && <p className="text-slate-500 [html[data-theme=dark]_&]:text-slate-400 leading-snug" style={{ fontSize: compact ? 10 : 11 }}>{hint}</p>}
+      {hint && <p style={{ fontSize:11, color:'#CBD5E1' }}>{hint}</p>}
     </div>
   );
 }
@@ -195,17 +207,7 @@ export default function SettingsPage() {
       setApiKeys(Array.isArray(ak) ? ak : ak?.data || []);
       if (bot) {
         setBotConfig(coalesceChatbot(bot));
-        setBotMenu(
-          (bot.menuItems || []).map((item: any) => ({
-            ...item,
-            label: item?.label == null ? '' : String(item.label),
-            autoReplyText: item?.autoReplyText == null ? '' : String(item.autoReplyText),
-            department: item?.department == null ? undefined : String(item.department),
-            order: typeof item?.order === 'number' ? item.order : 0,
-            enabled: !!item?.enabled,
-            action: item?.action === 'transfer' ? 'transfer' : 'auto_reply',
-          })),
-        );
+        setBotMenu(mapBotMenuFromApi(bot));
       }
       if (bst) setBotStats(bst);
       if (depts) {
@@ -313,17 +315,7 @@ export default function SettingsPage() {
       const bot = await (api as any).getChatbotConfig().catch(() => null);
       if (bot) {
         setBotConfig(coalesceChatbot(bot));
-        setBotMenu(
-          (bot.menuItems || []).map((item: any) => ({
-            ...item,
-            label: item?.label == null ? '' : String(item.label),
-            autoReplyText: item?.autoReplyText == null ? '' : String(item.autoReplyText),
-            department: item?.department == null ? undefined : String(item.department),
-            order: typeof item?.order === 'number' ? item.order : 0,
-            enabled: !!item?.enabled,
-            action: item?.action === 'transfer' ? 'transfer' : 'auto_reply',
-          })),
-        );
+        setBotMenu(mapBotMenuFromApi(bot));
       }
       setSaved(true); setTimeout(() => setSaved(false), 2000);
     } catch { alert('Erro ao salvar menu'); }
@@ -360,321 +352,172 @@ export default function SettingsPage() {
   const WH_EVENTS = ['ticket.created','ticket.updated','ticket.resolved','ticket.closed','sla.warning'];
 
   return (
-    <div className="min-h-full w-full bg-slate-50 [html[data-theme=dark]_&]:bg-slate-950">
-      <div className="max-w-5xl mx-auto px-4 py-5 sm:px-6 lg:px-8 space-y-5">
-        <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4 pb-4 border-b border-slate-200/90 [html[data-theme=dark]_&]:border-slate-700/80">
-          <div className="min-w-0 flex-1 space-y-1">
-            <h1 className="text-2xl sm:text-[1.65rem] font-bold tracking-tight text-slate-900 [html[data-theme=dark]_&]:text-white">
-              Configurações
-            </h1>
-            <p className="text-sm text-slate-600 [html[data-theme=dark]_&]:text-slate-400 leading-snug max-w-2xl">
-              Ajuste dados da empresa, notificações, SLA, personalização e integrações. Use o menu ao lado para alternar entre as seções.
-            </p>
-          </div>
-          {!['profile','perfis','routing','webhooks','apikeys','inbound_email','chatbot'].includes(tab) && (
-            <button onClick={handleSave} disabled={saving} className="btn-primary shrink-0 h-9 py-0 text-sm px-4 inline-flex items-center justify-center self-start sm:self-center">
-              {saving ? <RefreshCw className="w-4 h-4 animate-spin" /> : saved ? <CheckCircle className="w-4 h-4" /> : <Save className="w-4 h-4" />}
-              {saved ? 'Salvo!' : 'Salvar alterações'}
-            </button>
-          )}
-        </header>
+    <div className="space-y-5">
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="page-title">Configurações</h1>
+          <p className="page-subtitle">Gerencie as configurações do sistema</p>
+        </div>
+        {!['profile','perfis','routing','webhooks','apikeys','inbound_email','chatbot'].includes(tab) && (
+          <button onClick={handleSave} disabled={saving} className="btn-primary">
+            {saving ? <RefreshCw className="w-4 h-4 animate-spin" /> : saved ? <CheckCircle className="w-4 h-4" /> : <Save className="w-4 h-4" />}
+            {saved ? 'Salvo!' : 'Salvar alterações'}
+          </button>
+        )}
+      </div>
 
-        <div className="flex flex-col lg:flex-row gap-3 lg:gap-4">
+      <div className="flex gap-5 flex-col lg:flex-row">
         {/* Sidebar */}
-        <nav className="shrink-0 h-fit w-full lg:w-56 rounded-xl border border-slate-200/90 bg-white/95 p-1.5 [html[data-theme=dark]_&]:border-slate-600 [html[data-theme=dark]_&]:bg-slate-900/95 [html[data-theme=dark]_&]:shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)]">
+        <div className="card p-2 lg:w-56 shrink-0 h-fit">
           {TABS.map(({ key, label, icon:Icon }) => (
             <button key={key} onClick={() => { setTab(key as any); setSaved(false); setProfileError(''); }}
-              style={{ width:'100%', display:'flex', alignItems:'center', gap:6, padding:'6px 8px', borderRadius:8, border:'none', cursor:'pointer', background: tab===key ? '#EEF2FF' : 'transparent', color: tab===key ? '#4F46E5' : '#64748B', fontWeight: tab===key ? 700 : 500, fontSize:11, marginBottom:1 }}>
-              <Icon className="w-3.5 h-3.5 shrink-0 opacity-90" /><span className="truncate flex-1 text-left">{label}</span>
-              {tab===key && <ChevronRight className="w-3 h-3 shrink-0 opacity-70" />}
+              style={{ width:'100%', display:'flex', alignItems:'center', gap:10, padding:'9px 12px', borderRadius:10, border:'none', cursor:'pointer', background: tab===key ? '#EEF2FF' : 'transparent', color: tab===key ? '#4F46E5' : '#64748B', fontWeight: tab===key ? 700 : 500, fontSize:12, marginBottom:2 }}>
+              <Icon className="w-4 h-4 shrink-0" /><span className="truncate flex-1 text-left">{label}</span>
+              {tab===key && <ChevronRight className="w-3.5 h-3.5" />}
             </button>
           ))}
-        </nav>
+        </div>
 
         {/* Content */}
-        <div className="flex-1 min-w-0 rounded-xl border border-slate-300/90 bg-white p-4 shadow-sm [html[data-theme=dark]_&]:border-slate-600 [html[data-theme=dark]_&]:bg-slate-900 [html[data-theme=dark]_&]:shadow-[0_1px_3px_rgba(0,0,0,0.35)] [&_input.input]:!h-9 [&_input.input]:!min-h-[36px] [&_input.input]:!py-2 [&_input.input]:!px-3 [&_select.input]:!h-9 [&_select.input]:!min-h-[36px] [&_select.input]:!py-0 [&_select.input]:!px-3 [&_textarea.input]:!h-auto [&_textarea.input]:!min-h-[4.5rem] [&_textarea.input]:!py-2 [&_textarea.input]:!px-3">
+        <div className="flex-1 card p-6 min-w-0">
 
           {/* Company */}
           {tab === 'company' && (
-            <div className="space-y-2">
-              <div className="pb-2 border-b border-slate-200/90 [html[data-theme=dark]_&]:border-slate-600/50">
-                <h2 className="text-base font-semibold tracking-tight text-slate-900 [html[data-theme=dark]_&]:text-slate-100">Empresa cadastrada</h2>
-                <p className="text-[11px] text-slate-500 [html[data-theme=dark]_&]:text-slate-400 mt-1 leading-snug max-w-2xl">
-                  Revise os blocos abaixo e use <strong className="font-medium text-slate-600 [html[data-theme=dark]_&]:text-slate-300">Salvar alterações</strong> no topo para gravar. Nada é enviado automaticamente ao sair da página.
-                </p>
-              </div>
-              <DangerZone compact />
-              <div className="space-y-2">
-                <div className="rounded-xl border border-slate-300/85 bg-white p-4 shadow-sm [html[data-theme=dark]_&]:border-slate-600 [html[data-theme=dark]_&]:bg-slate-900/70 [html[data-theme=dark]_&]:shadow-[0_1px_2px_rgba(0,0,0,0.25)]">
-                  <div className="pb-2 mb-3 border-b border-slate-100 [html[data-theme=dark]_&]:border-slate-600/50">
-                    <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-600 [html[data-theme=dark]_&]:text-slate-300">Dados da empresa</h3>
-                    <p className="text-[11px] text-slate-500 [html[data-theme=dark]_&]:text-slate-400 mt-0.5 leading-snug">Identificação exibida no painel, relatórios e telas internas.</p>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <Field label="Nome exibido no sistema" compact hint="Como a equipe e os relatórios devem chamar esta empresa.">
-                      <input value={settings.companyName} onChange={e=>upd('companyName',e.target.value)} className="input" placeholder="Ex.: SempreDesk Tecnologia Ltda." />
-                    </Field>
-                    <Field label="CNPJ (opcional)" compact hint="Opcional. Pode incluir pontos e barra ou só números.">
-                      <input value={settings.companyCnpj} onChange={e=>upd('companyCnpj',e.target.value)} className="input" placeholder="Ex.: 12.345.678/0001-90" />
-                    </Field>
-                  </div>
-                </div>
-                <div className="rounded-xl border border-slate-300/85 bg-white p-4 shadow-sm [html[data-theme=dark]_&]:border-slate-600 [html[data-theme=dark]_&]:bg-slate-900/70 [html[data-theme=dark]_&]:shadow-[0_1px_2px_rgba(0,0,0,0.25)]">
-                  <div className="pb-2 mb-3 border-b border-slate-100 [html[data-theme=dark]_&]:border-slate-600/50">
-                    <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-600 [html[data-theme=dark]_&]:text-slate-300">Contato</h3>
-                    <p className="text-[11px] text-slate-500 [html[data-theme=dark]_&]:text-slate-400 mt-0.5 leading-snug">Dados de contato institucional; úteis em rodapés e comunicações quando o sistema as utilizar.</p>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <Field label="E-mail institucional" compact hint="Formato nome@dominio. Usado como referência de contato da empresa.">
-                      <input value={settings.companyEmail} onChange={e=>upd('companyEmail',e.target.value)} className="input" placeholder="Ex.: contato@empresa.com.br" />
-                    </Field>
-                    <Field label="Telefone (opcional)" compact hint="Opcional. Telefone ou WhatsApp comercial, com DDD.">
-                      <input value={settings.companyPhone} onChange={e=>upd('companyPhone',e.target.value)} className="input" inputMode="tel" placeholder="Ex.: (47) 99999-9999" />
-                    </Field>
-                  </div>
-                </div>
-                <div className="rounded-xl border border-slate-300/85 bg-white p-4 shadow-sm [html[data-theme=dark]_&]:border-slate-600 [html[data-theme=dark]_&]:bg-slate-900/70 [html[data-theme=dark]_&]:shadow-[0_1px_2px_rgba(0,0,0,0.25)]">
-                  <div className="pb-2 mb-3 border-b border-slate-100 [html[data-theme=dark]_&]:border-slate-600/50">
-                    <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-600 [html[data-theme=dark]_&]:text-slate-300">Endereço</h3>
-                    <p className="text-[11px] text-slate-500 [html[data-theme=dark]_&]:text-slate-400 mt-0.5 leading-snug">Opcional. Endereço de sede ou correspondência, em uma única linha.</p>
-                  </div>
-                  <Field label="Endereço completo (opcional)" compact hint="Inclua rua, número, complemento, bairro, cidade e UF, se desejar exibir ou arquivar.">
-                    <input value={settings.companyAddress} onChange={e=>upd('companyAddress',e.target.value)} className="input" placeholder="Ex.: Av. Brasil, 1500, Sala 12 — Centro, Joinville, SC" />
-                  </Field>
-                </div>
-                <div className="rounded-xl border border-slate-300/85 bg-white p-4 shadow-sm [html[data-theme=dark]_&]:border-slate-600 [html[data-theme=dark]_&]:bg-slate-900/70 [html[data-theme=dark]_&]:shadow-[0_1px_2px_rgba(0,0,0,0.25)]">
-                  <div className="pb-2 mb-3 border-b border-slate-100 [html[data-theme=dark]_&]:border-slate-600/50">
-                    <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-600 [html[data-theme=dark]_&]:text-slate-300">Marca e exibição</h3>
-                    <p className="text-[11px] text-slate-500 [html[data-theme=dark]_&]:text-slate-400 mt-0.5 leading-snug">Imagem da marca no portal do cliente e em materiais gerados pelo sistema, quando houver suporte.</p>
-                  </div>
-                  <Field label="URL do logotipo (opcional)" compact hint="Opcional. Link HTTPS direto para PNG, JPG ou SVG. Evite páginas HTML; use o arquivo da imagem.">
-                    <input value={settings.companyLogo} onChange={e=>upd('companyLogo',e.target.value)} className="input" placeholder="Ex.: https://empresa.com.br/assets/logo.svg" />
-                  </Field>
-                </div>
+            <div className="space-y-5">
+              <div><h2 style={{ fontSize:16,fontWeight:700,color:'#0F172A' }}>Dados da empresa</h2><p style={{ fontSize:13,color:'#94A3B8',marginTop:2 }}>Informações do seu negócio exibidas no sistema</p></div>
+              {/* Zona de Perigo */}
+              <DangerZone />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Field label="Nome da empresa"><input value={settings.companyName} onChange={e=>upd('companyName',e.target.value)} className="input" placeholder="Empresa Ltda." /></Field>
+                <Field label="CNPJ"><input value={settings.companyCnpj} onChange={e=>upd('companyCnpj',e.target.value)} className="input" placeholder="00.000.000/0001-00" /></Field>
+                <Field label="E-mail"><input value={settings.companyEmail} onChange={e=>upd('companyEmail',e.target.value)} className="input" placeholder="contato@empresa.com" /></Field>
+                <Field label="Telefone"><input value={settings.companyPhone} onChange={e=>upd('companyPhone',e.target.value)} className="input" placeholder="(00) 0000-0000" /></Field>
+                <Field label="Endereço"><input value={settings.companyAddress} onChange={e=>upd('companyAddress',e.target.value)} className="input" placeholder="Rua, número, cidade - UF" /></Field>
+                <Field label="URL do logotipo"><input value={settings.companyLogo} onChange={e=>upd('companyLogo',e.target.value)} className="input" placeholder="https://..." /></Field>
               </div>
             </div>
           )}
 
-
           {/* SMTP */}
           {tab === 'smtp' && (
-            <div className="space-y-2">
-              <div className="pb-2 border-b border-slate-200/90 [html[data-theme=dark]_&]:border-slate-600/50">
-                <h2 className="text-base font-semibold tracking-tight text-slate-900 [html[data-theme=dark]_&]:text-slate-100">E-mail (SMTP)</h2>
-                <p className="text-[11px] text-slate-500 [html[data-theme=dark]_&]:text-slate-400 mt-1 leading-snug max-w-2xl">
-                  Envio das notificações do sistema. Dados do seu provedor ou TI. Use <strong className="font-medium text-slate-600 [html[data-theme=dark]_&]:text-slate-300">Salvar alterações</strong> no topo para gravar.
-                </p>
+            <div className="space-y-5">
+              <div><h2 style={{ fontSize:16,fontWeight:700,color:'#0F172A' }}>Configurações de e-mail</h2><p style={{ fontSize:13,color:'#94A3B8',marginTop:2 }}>Servidor SMTP para envio de notificações</p></div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Field label="Servidor SMTP"><input value={settings.smtpHost} onChange={e=>upd('smtpHost',e.target.value)} className="input" placeholder="smtp.gmail.com" /></Field>
+                <Field label="Porta">
+                  <select value={settings.smtpPort} onChange={e=>upd('smtpPort',e.target.value)} className="input">
+                    <option value="587">587 (TLS)</option><option value="465">465 (SSL)</option><option value="25">25</option>
+                  </select>
+                </Field>
+                <Field label="Usuário SMTP"><input value={settings.smtpUser} onChange={e=>upd('smtpUser',e.target.value)} className="input" placeholder="seu@email.com" /></Field>
+                <Field label="Senha SMTP">
+                  <div style={{ position:'relative' }}>
+                    <input type={showPass?'text':'password'} value={settings.smtpPass} onChange={e=>upd('smtpPass',e.target.value)} className="input" placeholder="••••••••" style={{ paddingRight:40 }} />
+                    <button type="button" onClick={()=>setShowPass(p=>!p)} style={{ position:'absolute',right:12,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:'#94A3B8' }}>
+                      {showPass?<EyeOff className="w-4 h-4"/>:<Eye className="w-4 h-4"/>}
+                    </button>
+                  </div>
+                </Field>
+                <Field label="Remetente (From)"><input value={settings.smtpFrom} onChange={e=>upd('smtpFrom',e.target.value)} className="input" placeholder="Sistema <no-reply@empresa.com>" /></Field>
+                <Field label="Segurança">
+                  <select value={settings.smtpSecure} onChange={e=>upd('smtpSecure',e.target.value)} className="input">
+                    <option value="false">STARTTLS (587)</option><option value="true">SSL/TLS (465)</option>
+                  </select>
+                </Field>
               </div>
-              <div className="space-y-2">
-                <div className="rounded-xl border border-slate-300/85 bg-white p-4 shadow-sm [html[data-theme=dark]_&]:border-slate-600 [html[data-theme=dark]_&]:bg-slate-900/70 [html[data-theme=dark]_&]:shadow-[0_1px_2px_rgba(0,0,0,0.25)]">
-                  <div className="pb-2 mb-3 border-b border-slate-100 [html[data-theme=dark]_&]:border-slate-600/50">
-                    <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-600 [html[data-theme=dark]_&]:text-slate-300">Servidor SMTP</h3>
-                    <p className="text-[11px] text-slate-500 [html[data-theme=dark]_&]:text-slate-400 mt-0.5 leading-snug">Host, porta e criptografia conforme a documentação do provedor.</p>
-                  </div>
-                  <div className="space-y-2">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <Field label="Servidor SMTP (host)" compact hint="Endereço do servidor SMTP fornecido pelo seu provedor de e-mail ou hospedagem.">
-                        <input value={settings.smtpHost} onChange={e=>upd('smtpHost',e.target.value)} className="input" placeholder="Ex.: smtp.gmail.com ou smtp.sempredesk.com" />
-                      </Field>
-                      <Field label="Porta do servidor" compact hint="Portas comuns: 587 (TLS) ou 465 (SSL). Escolha a mesma combinação que o provedor documenta.">
-                        <select value={settings.smtpPort} onChange={e=>upd('smtpPort',e.target.value)} className="input">
-                          <option value="587">587 (TLS)</option><option value="465">465 (SSL)</option><option value="25">25</option>
-                        </select>
-                      </Field>
-                    </div>
-                    <div className="rounded-lg border border-slate-200/70 bg-slate-50/60 px-2.5 py-2 [html[data-theme=dark]_&]:border-slate-600/60 [html[data-theme=dark]_&]:bg-slate-800/35">
-                      <div className="max-w-md">
-                        <Field label="Criptografia" compact hint="587 → STARTTLS; 465 → SSL/TLS (como no manual do provedor).">
-                          <select value={settings.smtpSecure} onChange={e=>upd('smtpSecure',e.target.value)} className="input">
-                            <option value="false">STARTTLS (587)</option><option value="true">SSL/TLS (465)</option>
-                          </select>
-                        </Field>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <form
-                  onSubmit={(e) => e.preventDefault()}
-                  className="rounded-xl border border-slate-300/85 bg-white p-4 shadow-sm [html[data-theme=dark]_&]:border-slate-600 [html[data-theme=dark]_&]:bg-slate-900/70 [html[data-theme=dark]_&]:shadow-[0_1px_2px_rgba(0,0,0,0.25)]"
-                >
-                  <div className="pb-2 mb-3 border-b border-slate-100 [html[data-theme=dark]_&]:border-slate-600/50">
-                    <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-600 [html[data-theme=dark]_&]:text-slate-300">Autenticação</h3>
-                    <p className="text-[11px] text-slate-500 [html[data-theme=dark]_&]:text-slate-400 mt-0.5 leading-snug">Credenciais com permissão de envio pelo SMTP configurado acima.</p>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <Field label="Usuário SMTP" compact hint="Normalmente é o mesmo e-mail da conta no servidor (ou o usuário indicado pelo provedor).">
-                      <input value={settings.smtpUser} onChange={e=>upd('smtpUser',e.target.value)} className="input" placeholder="Ex.: contato@empresa.com.br" />
-                    </Field>
-                    <Field label="Senha SMTP" compact hint="Senha da conta ou token de aplicativo, conforme o provedor (ex.: senha de app no Gmail).">
-                      <div className="relative">
-                        <input type={showPass?'text':'password'} value={settings.smtpPass} onChange={e=>upd('smtpPass',e.target.value)} className="input pr-10" placeholder="••••••••" />
-                        <button type="button" onClick={()=>setShowPass(p=>!p)} className="absolute right-3 top-1/2 -translate-y-1/2 bg-transparent border-0 cursor-pointer text-slate-400 hover:text-slate-600 [html[data-theme=dark]_&]:text-slate-500 [html[data-theme=dark]_&]:hover:text-slate-300 p-0.5" aria-label={showPass ? 'Ocultar senha' : 'Mostrar senha'}>
-                          {showPass?<EyeOff className="w-4 h-4"/>:<Eye className="w-4 h-4"/>}
-                        </button>
-                      </div>
-                    </Field>
-                  </div>
-                </form>
-                <div className="rounded-xl border border-slate-300/85 bg-white p-4 shadow-sm [html[data-theme=dark]_&]:border-slate-600 [html[data-theme=dark]_&]:bg-slate-900/70 [html[data-theme=dark]_&]:shadow-[0_1px_2px_rgba(0,0,0,0.25)]">
-                  <div className="pb-2 mb-3 border-b border-slate-100 [html[data-theme=dark]_&]:border-slate-600/50">
-                    <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-600 [html[data-theme=dark]_&]:text-slate-300">Remetente</h3>
-                    <p className="text-[11px] text-slate-500 [html[data-theme=dark]_&]:text-slate-400 mt-0.5 leading-snug">O que o destinatário vê no &quot;De:&quot; (precisa ser autorizado pelo provedor).</p>
-                  </div>
-                  <Field label="Remetente (campo &quot;De&quot; do e-mail)" compact hint={'Só o e-mail ou Nome <email@dominio>. Ex.: no-reply@empresa.com.br'}>
-                    <input value={settings.smtpFrom} onChange={e=>upd('smtpFrom',e.target.value)} className="input" placeholder={'Ex.: no-reply@empresa.com.br ou SempreDesk <suporte@empresa.com.br>'} />
-                  </Field>
-                </div>
-                <div className="flex flex-wrap items-center gap-2 sm:gap-2.5 pt-2 border-t border-slate-200/90 [html[data-theme=dark]_&]:border-slate-600/50">
-                  <button type="button" onClick={async()=>{ setSmtpTesting(true);setSmtpResult(null);try{const r=await(api as any).testSmtp();setSmtpResult(r);}catch{setSmtpResult({success:false,message:'Erro ao testar'});}setSmtpTesting(false);}} disabled={smtpTesting||!settings.smtpHost} className="btn-secondary h-9 shrink-0 inline-flex items-center justify-center gap-2 text-sm px-4">
-                    {smtpTesting?<RefreshCw className="w-4 h-4 animate-spin"/>:<Send className="w-4 h-4"/>} Testar SMTP
-                  </button>
-                  {smtpResult && <span className={`text-xs sm:text-sm font-medium leading-snug min-w-0 ${smtpResult.success ? 'text-green-600 [html[data-theme=dark]_&]:text-green-400' : 'text-red-600 [html[data-theme=dark]_&]:text-red-400'}`}>{smtpResult.success?'✓':'✗'} {smtpResult.message}</span>}
-                </div>
+              <div style={{ display:'flex',alignItems:'center',gap:12,flexWrap:'wrap',paddingTop:4,borderTop:'1px solid #F1F5F9' }}>
+                <button onClick={async()=>{ setSmtpTesting(true);setSmtpResult(null);try{const r=await(api as any).testSmtp();setSmtpResult(r);}catch{setSmtpResult({success:false,message:'Erro ao testar'});}setSmtpTesting(false);}} disabled={smtpTesting||!settings.smtpHost} className="btn-secondary">
+                  {smtpTesting?<RefreshCw className="w-4 h-4 animate-spin"/>:<Send className="w-4 h-4"/>} Testar SMTP
+                </button>
+                {smtpResult && <span style={{ fontSize:13,fontWeight:600,color:smtpResult.success?'#16A34A':'#DC2626' }}>{smtpResult.success?'✓':'✗'} {smtpResult.message}</span>}
               </div>
             </div>
           )}
 
           {/* Notifications */}
           {tab === 'notifications' && (
-            <div className="space-y-2">
-              <div className="pb-2 border-b border-slate-200/90 [html[data-theme=dark]_&]:border-slate-600/50">
-                <h2 className="text-base font-semibold tracking-tight text-slate-900 [html[data-theme=dark]_&]:text-slate-100">Notificações por e-mail</h2>
-                <p className="text-[11px] text-slate-500 [html[data-theme=dark]_&]:text-slate-400 mt-1 leading-snug max-w-2xl">
-                  Escolha quando o sistema envia e-mails automáticos. Use <strong className="font-medium text-slate-600 [html[data-theme=dark]_&]:text-slate-300">Salvar alterações</strong> no topo para gravar.
-                </p>
+            <div className="space-y-5">
+              <div><h2 style={{ fontSize:16,fontWeight:700,color:'#0F172A' }}>Notificações por e-mail</h2><p style={{ fontSize:13,color:'#94A3B8',marginTop:2 }}>Configure quando enviar e-mails automáticos</p></div>
+              <div className="space-y-4">
+                {[
+                  { key:'ticketCreatedNotify', label:'Ticket criado', desc:'Enviar e-mail ao cliente quando um ticket é aberto' },
+                  { key:'ticketResolvedNotify', label:'Ticket resolvido', desc:'Enviar e-mail ao cliente quando o ticket é resolvido (com link de avaliação)' },
+                  { key:'slaWarningNotify', label:'SLA em risco', desc:'Notificar por e-mail quando um ticket estiver próximo do vencimento do SLA' },
+                ].map(({ key, label, desc }) => (
+                  <div key={key} style={{ display:'flex',alignItems:'center',justifyContent:'space-between',padding:'14px 16px',background:'#F8FAFC',borderRadius:12,border:'1.5px solid #E2E8F0' }}>
+                    <div>
+                      <p style={{ fontSize:14,fontWeight:600,color:'#0F172A' }}>{label}</p>
+                      <p style={{ fontSize:12,color:'#94A3B8',marginTop:2 }}>{desc}</p>
+                    </div>
+                    <Toggle checked={settings[key as keyof Settings]==='true'} onChange={v=>upd(key as keyof Settings, String(v))} />
+                  </div>
+                ))}
+                <Field label="E-mail para alertas de SLA" hint="Endereço que receberá os alertas de SLA em risco (ex: supervisor@empresa.com)">
+                  <input value={settings.escalationEmail} onChange={e=>upd('escalationEmail',e.target.value)} className="input" placeholder="supervisor@empresa.com" />
+                </Field>
               </div>
-              <div className="space-y-2">
-                <div className="rounded-xl border border-slate-300/85 bg-white p-4 shadow-sm [html[data-theme=dark]_&]:border-slate-600 [html[data-theme=dark]_&]:bg-slate-900/70 [html[data-theme=dark]_&]:shadow-[0_1px_2px_rgba(0,0,0,0.25)]">
-                  <div className="pb-2 mb-3 border-b border-slate-100 [html[data-theme=dark]_&]:border-slate-600/50">
-                    <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-600 [html[data-theme=dark]_&]:text-slate-300">Eventos automáticos</h3>
-                    <p className="text-[11px] text-slate-500 [html[data-theme=dark]_&]:text-slate-400 mt-0.5 leading-snug">Ative ou desative o envio de e-mail para cada tipo de notificação ao cliente ou à operação.</p>
-                  </div>
-                  <div className="space-y-2">
-                    {[
-                      { key:'ticketCreatedNotify', label:'Ticket criado', desc:'E-mail ao cliente quando um novo chamado é aberto.' },
-                      { key:'ticketResolvedNotify', label:'Ticket resolvido', desc:'E-mail ao cliente quando o chamado é encerrado (inclui link de avaliação, quando aplicável).' },
-                      { key:'slaWarningNotify', label:'SLA em risco', desc:'Aviso por e-mail quando o prazo de SLA do ticket estiver próximo do limite.' },
-                    ].map(({ key, label, desc }) => (
-                      <div key={key} className="flex items-center justify-between gap-3 rounded-lg border border-slate-200/80 bg-slate-50/60 px-3 py-2.5 [html[data-theme=dark]_&]:border-slate-600/60 [html[data-theme=dark]_&]:bg-slate-800/35">
-                        <div className="min-w-0 pr-2">
-                          <p className="text-sm font-semibold text-slate-900 [html[data-theme=dark]_&]:text-slate-100">{label}</p>
-                          <p className="text-[11px] text-slate-500 [html[data-theme=dark]_&]:text-slate-400 mt-0.5 leading-snug">{desc}</p>
-                        </div>
-                        <Toggle checked={settings[key as keyof Settings]==='true'} onChange={v=>upd(key as keyof Settings, String(v))} />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <div className="rounded-xl border border-slate-300/85 bg-white p-4 shadow-sm [html[data-theme=dark]_&]:border-slate-600 [html[data-theme=dark]_&]:bg-slate-900/70 [html[data-theme=dark]_&]:shadow-[0_1px_2px_rgba(0,0,0,0.25)]">
-                  <div className="pb-2 mb-3 border-b border-slate-100 [html[data-theme=dark]_&]:border-slate-600/50">
-                    <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-600 [html[data-theme=dark]_&]:text-slate-300">Destino dos alertas de SLA</h3>
-                    <p className="text-[11px] text-slate-500 [html[data-theme=dark]_&]:text-slate-400 mt-0.5 leading-snug">Quem recebe o aviso quando a opção &quot;SLA em risco&quot; estiver ativa.</p>
-                  </div>
-                  <Field label="E-mail para alertas de SLA" compact hint="Caixa que receberá os alertas (supervisão, NOC, etc.). Exige SMTP válido na aba E-mail (SMTP).">
-                    <input value={settings.escalationEmail} onChange={e=>upd('escalationEmail',e.target.value)} className="input" placeholder="Ex.: supervisor@empresa.com.br" />
-                  </Field>
-                </div>
-                <div className="rounded-xl border border-indigo-200/90 bg-indigo-50/70 p-4 text-[11px] text-indigo-950 leading-snug shadow-sm [html[data-theme=dark]_&]:border-indigo-500/35 [html[data-theme=dark]_&]:bg-indigo-950/45 [html[data-theme=dark]_&]:text-indigo-100 [html[data-theme=dark]_&]:shadow-[0_1px_2px_rgba(0,0,0,0.25)]">
-                  <span className="font-semibold">Dica:</span> o envio real depende de uma configuração SMTP válida na aba &quot;E-mail (SMTP)&quot;.
-                </div>
+              <div style={{ background:'#EEF2FF',borderRadius:12,padding:'12px 16px',border:'1.5px solid #C7D2FE' }}>
+                <p style={{ fontSize:12,color:'#4338CA' }}>💡 As notificações por e-mail requerem configuração de SMTP válida na aba &quot;E-mail (SMTP)&quot;.</p>
               </div>
             </div>
           )}
 
           {/* SLA */}
           {tab === 'sla' && (
-            <div className="space-y-2">
-              <div className="pb-2 border-b border-slate-200/90 [html[data-theme=dark]_&]:border-slate-600/50">
-                <h2 className="text-base font-semibold tracking-tight text-slate-900 [html[data-theme=dark]_&]:text-slate-100">SLA — prazos por prioridade</h2>
-                <p className="text-[11px] text-slate-500 [html[data-theme=dark]_&]:text-slate-400 mt-1 leading-snug max-w-2xl">
-                  Tempo máximo de resolução em <strong className="font-medium text-slate-600 [html[data-theme=dark]_&]:text-slate-300">horas</strong> para cada nível de prioridade do ticket. Use <strong className="font-medium text-slate-600 [html[data-theme=dark]_&]:text-slate-300">Salvar alterações</strong> no topo para gravar.
-                </p>
-              </div>
-              <div className="rounded-xl border border-slate-300/85 bg-white p-4 shadow-sm [html[data-theme=dark]_&]:border-slate-600 [html[data-theme=dark]_&]:bg-slate-900/70 [html[data-theme=dark]_&]:shadow-[0_1px_2px_rgba(0,0,0,0.25)]">
-                <div className="pb-2 mb-3 border-b border-slate-100 [html[data-theme=dark]_&]:border-slate-600/50">
-                  <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-600 [html[data-theme=dark]_&]:text-slate-300">Metas em horas</h3>
-                  <p className="text-[11px] text-slate-500 [html[data-theme=dark]_&]:text-slate-400 mt-0.5 leading-snug">Ajuste conforme o acordo de serviço da sua operação (valores entre 1 e 720).</p>
-                </div>
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                  {([
-                    ['slaLowHours','Baixa','text-slate-600','bg-slate-100 border-slate-200/90 [html[data-theme=dark]_&]:bg-slate-800/50 [html[data-theme=dark]_&]:border-slate-600 [html[data-theme=dark]_&]:text-slate-200'],
-                    ['slaMediumHours','Média','text-blue-700','bg-blue-50 border-blue-200/80 [html[data-theme=dark]_&]:bg-blue-950/40 [html[data-theme=dark]_&]:border-blue-800/60 [html[data-theme=dark]_&]:text-blue-200'],
-                    ['slaHighHours','Alta','text-orange-700','bg-orange-50 border-orange-200/80 [html[data-theme=dark]_&]:bg-orange-950/35 [html[data-theme=dark]_&]:border-orange-900/50 [html[data-theme=dark]_&]:text-orange-200'],
-                    ['slaCriticalHours','Crítica','text-red-700','bg-red-50 border-red-200/80 [html[data-theme=dark]_&]:bg-red-950/35 [html[data-theme=dark]_&]:border-red-900/50 [html[data-theme=dark]_&]:text-red-200'],
-                  ] as const).map(([key,label,textCls,boxCls])=>(
-                    <div key={key} className={`rounded-xl border p-3 shadow-sm [html[data-theme=dark]_&]:shadow-[0_1px_2px_rgba(0,0,0,0.2)] ${boxCls}`}>
-                      <p className={`text-[11px] font-bold uppercase tracking-wider mb-2 ${textCls}`}>{label}</p>
-                      <div className="flex items-center gap-2">
-                        <input type="number" min={1} max={720} value={settings[key]} onChange={e=>upd(key,e.target.value)} className="input w-[4.5rem] text-center font-semibold tabular-nums bg-white text-slate-900 [html[data-theme=dark]_&]:bg-slate-900 [html[data-theme=dark]_&]:text-slate-100" />
-                        <span className="text-xs font-semibold text-slate-500 [html[data-theme=dark]_&]:text-slate-400">horas</span>
-                      </div>
+            <div className="space-y-5">
+              <div><h2 style={{ fontSize:16,fontWeight:700,color:'#0F172A' }}>Configurações de SLA</h2><p style={{ fontSize:13,color:'#94A3B8',marginTop:2 }}>Tempo máximo de resolução por prioridade (em horas)</p></div>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                {([['slaLowHours','Baixa','#64748B','#F8FAFC'],['slaMediumHours','Média','#1D4ED8','#DBEAFE'],['slaHighHours','Alta','#C2410C','#FFEDD5'],['slaCriticalHours','Crítica','#DC2626','#FEE2E2']] as const).map(([key,label,color,bg])=>(
+                  <div key={key} style={{ background:bg,borderRadius:14,padding:'14px 16px',border:'1.5px solid '+color+'22' }}>
+                    <p style={{ fontSize:11,fontWeight:700,color,textTransform:'uppercase',letterSpacing:1,marginBottom:8 }}>{label}</p>
+                    <div className="flex items-center gap-2">
+                      <input type="number" min={1} max={720} value={settings[key]} onChange={e=>upd(key,e.target.value)} className="input" style={{ width:80,textAlign:'center',fontWeight:700,fontSize:18,color,background:'#fff',padding:'8px 6px' }} />
+                      <span style={{ fontSize:13,fontWeight:600,color:'#94A3B8' }}>horas</span>
                     </div>
-                  ))}
-                </div>
+                  </div>
+                ))}
               </div>
             </div>
           )}
 
           {/* Business Hours */}
           {tab === 'business_hours' && (
-            <div className="space-y-2">
-              <div className="pb-2 border-b border-slate-200/90 [html[data-theme=dark]_&]:border-slate-600/50">
-                <h2 className="text-base font-semibold tracking-tight text-slate-900 [html[data-theme=dark]_&]:text-slate-100">Horário comercial</h2>
-                <p className="text-[11px] text-slate-500 [html[data-theme=dark]_&]:text-slate-400 mt-1 leading-snug max-w-2xl">
-                  Dias e intervalos em que o atendimento é considerado &quot;aberto&quot; para regras e indicadores que usem este calendário. Use <strong className="font-medium text-slate-600 [html[data-theme=dark]_&]:text-slate-300">Salvar alterações</strong> no topo para gravar.
-                </p>
-              </div>
-              <div className="rounded-xl border border-slate-300/85 bg-white p-4 shadow-sm [html[data-theme=dark]_&]:border-slate-600 [html[data-theme=dark]_&]:bg-slate-900/70 [html[data-theme=dark]_&]:shadow-[0_1px_2px_rgba(0,0,0,0.25)]">
-                <div className="pb-2 mb-3 border-b border-slate-100 [html[data-theme=dark]_&]:border-slate-600/50">
-                  <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-600 [html[data-theme=dark]_&]:text-slate-300">Dias da semana</h3>
-                  <p className="text-[11px] text-slate-500 [html[data-theme=dark]_&]:text-slate-400 mt-0.5 leading-snug">Ative o dia e defina início e fim do expediente, ou deixe desligado para marcar como fechado.</p>
-                </div>
-                <div className="space-y-2">
-                  {Object.entries(DAY_LABELS).map(([day,label])=>{
-                    const bh = settings.businessHours?.[day] || { open:false,start:'08:00',end:'18:00' };
-                    return (
-                      <div key={day} className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-200/80 bg-slate-50/60 px-3 py-2.5 [html[data-theme=dark]_&]:border-slate-600/60 [html[data-theme=dark]_&]:bg-slate-800/35">
-                        <Toggle checked={!!bh.open} onChange={v=>updBH(day,'open',v)} />
-                        <span className="text-sm font-semibold text-slate-900 [html[data-theme=dark]_&]:text-slate-100 min-w-[5.5rem]">{label}</span>
-                        {bh.open ? (
-                          <div className="flex flex-wrap items-center gap-2">
-                            <input type="time" value={bh.start||'08:00'} onChange={e=>updBH(day,'start',e.target.value)} className="input w-[7rem]" />
-                            <span className="text-xs text-slate-500 [html[data-theme=dark]_&]:text-slate-400">até</span>
-                            <input type="time" value={bh.end||'18:00'} onChange={e=>updBH(day,'end',e.target.value)} className="input w-[7rem]" />
-                          </div>
-                        ) : <span className="text-[11px] text-slate-500 [html[data-theme=dark]_&]:text-slate-400">Fechado</span>}
-                      </div>
-                    );
-                  })}
-                </div>
+            <div className="space-y-5">
+              <div><h2 style={{ fontSize:16,fontWeight:700,color:'#0F172A' }}>Horário Comercial</h2><p style={{ fontSize:13,color:'#94A3B8',marginTop:2 }}>Configure os horários de atendimento por dia da semana</p></div>
+              <div className="space-y-3">
+                {Object.entries(DAY_LABELS).map(([day,label])=>{
+                  const bh = settings.businessHours?.[day] || { open:false,start:'08:00',end:'18:00' };
+                  return (
+                    <div key={day} style={{ display:'flex',alignItems:'center',gap:16,padding:'12px 16px',background:'#F8FAFC',borderRadius:12,border:'1.5px solid #E2E8F0',flexWrap:'wrap' }}>
+                      <Toggle checked={!!bh.open} onChange={v=>updBH(day,'open',v)} />
+                      <span style={{ fontSize:13,fontWeight:600,color:'#0F172A',minWidth:80 }}>{label}</span>
+                      {bh.open ? (
+                        <div className="flex items-center gap-2">
+                          <input type="time" value={bh.start||'08:00'} onChange={e=>updBH(day,'start',e.target.value)} className="input" style={{ width:110 }} />
+                          <span style={{ color:'#94A3B8',fontSize:13 }}>até</span>
+                          <input type="time" value={bh.end||'18:00'} onChange={e=>updBH(day,'end',e.target.value)} className="input" style={{ width:110 }} />
+                        </div>
+                      ) : <span style={{ fontSize:12,color:'#94A3B8' }}>Fechado</span>}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
 
           {/* Visual */}
           {tab === 'visual' && (
-            <div className="space-y-2">
-              <div className="pb-2 border-b border-slate-200/90 [html[data-theme=dark]_&]:border-slate-600/50">
-                <h2 className="text-base font-semibold tracking-tight text-slate-900 [html[data-theme=dark]_&]:text-slate-100">Personalização visual</h2>
-                <p className="text-[11px] text-slate-500 [html[data-theme=dark]_&]:text-slate-400 mt-1 leading-snug max-w-2xl">
-                  Cores principais do painel e materiais alinhados à marca. Use hex (#RRGGBB). Use <strong className="font-medium text-slate-600 [html[data-theme=dark]_&]:text-slate-300">Salvar alterações</strong> no topo para gravar.
-                </p>
-              </div>
-              <div className="rounded-xl border border-slate-300/85 bg-white p-4 shadow-sm [html[data-theme=dark]_&]:border-slate-600 [html[data-theme=dark]_&]:bg-slate-900/70 [html[data-theme=dark]_&]:shadow-[0_1px_2px_rgba(0,0,0,0.25)]">
-                <div className="pb-2 mb-3 border-b border-slate-100 [html[data-theme=dark]_&]:border-slate-600/50">
-                  <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-600 [html[data-theme=dark]_&]:text-slate-300">Cores do tema</h3>
-                  <p className="text-[11px] text-slate-500 [html[data-theme=dark]_&]:text-slate-400 mt-0.5 leading-snug">Primária para botões e destaques; secundária para gradientes e elementos de apoio.</p>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {([['primaryColor','Cor primária','Usada em botões, links e destaques principais.'],['secondaryColor','Cor secundária','Apoio visual, gradientes e detalhes complementares.']] as const).map(([key,label,hint])=>(
-                    <Field key={key} label={label} compact hint={hint}>
-                      <div className="flex items-center gap-3">
-                        <input type="color" value={settings[key]} onChange={e=>upd(key,e.target.value)} className="h-9 w-9 shrink-0 cursor-pointer rounded-lg border-2 border-slate-200 p-0.5 [html[data-theme=dark]_&]:border-slate-600" />
-                        <input value={settings[key]} onChange={e=>upd(key,e.target.value)} className="input flex-1 min-w-0 font-mono font-semibold text-sm" placeholder={key === 'primaryColor' ? 'Ex.: #6366F1' : 'Ex.: #4F46E5'} />
-                      </div>
-                    </Field>
-                  ))}
-                </div>
+            <div className="space-y-5">
+              <div><h2 style={{ fontSize:16,fontWeight:700,color:'#0F172A' }}>Personalização visual</h2><p style={{ fontSize:13,color:'#94A3B8',marginTop:2 }}>Cores do sistema e identidade visual</p></div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {([['primaryColor','Cor primária','Botões e destaques'],['secondaryColor','Cor secundária','Gradientes e apoio']] as const).map(([key,label,hint])=>(
+                  <Field key={key} label={label} hint={hint}>
+                    <div style={{ display:'flex',alignItems:'center',gap:12 }}>
+                      <input type="color" value={settings[key]} onChange={e=>upd(key,e.target.value)} style={{ width:48,height:48,borderRadius:10,border:'2px solid #E2E8F0',cursor:'pointer',padding:2 }} />
+                      <input value={settings[key]} onChange={e=>upd(key,e.target.value)} className="input" style={{ flex:1,fontFamily:'monospace',fontWeight:700 }} />
+                    </div>
+                  </Field>
+                ))}
               </div>
             </div>
           )}
@@ -1129,61 +972,32 @@ X-Api-Secret: {INBOUND_EMAIL_SECRET}`}</pre>
 
           {/* Profile */}
           {tab === 'profile' && (
-            <div className="space-y-2">
-              <div className="pb-2 border-b border-slate-200/90 [html[data-theme=dark]_&]:border-slate-600/50">
-                <h2 className="text-base font-semibold tracking-tight text-slate-900 [html[data-theme=dark]_&]:text-slate-100">Meu perfil</h2>
-                <p className="text-[11px] text-slate-500 [html[data-theme=dark]_&]:text-slate-400 mt-1 leading-snug max-w-2xl">
-                  Dados da sua conta e alteração de senha. O botão <strong className="font-medium text-slate-600 [html[data-theme=dark]_&]:text-slate-300">Salvar perfil</strong> grava apenas esta aba.
-                </p>
+            <div className="space-y-5">
+              <div><h2 style={{ fontSize:16,fontWeight:700,color:'#0F172A' }}>Meu perfil</h2><p style={{ fontSize:13,color:'#94A3B8',marginTop:2 }}>Seus dados pessoais e senha de acesso</p></div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Field label="Nome completo"><input value={profile.name} onChange={e=>setProfile(p=>({...p,name:e.target.value}))} className="input" placeholder="Seu nome" /></Field>
+                <Field label="E-mail" hint="Não pode ser alterado aqui"><input value={profile.email} disabled className="input" /></Field>
+                <Field label="Telefone"><input value={(profile as any).phone||''} onChange={e=>setProfile(p=>({...p,phone:e.target.value} as any))} className="input" placeholder="(00) 90000-0000" /></Field>
               </div>
-              <div className="space-y-2">
-                <div className="rounded-xl border border-slate-300/85 bg-white p-4 shadow-sm [html[data-theme=dark]_&]:border-slate-600 [html[data-theme=dark]_&]:bg-slate-900/70 [html[data-theme=dark]_&]:shadow-[0_1px_2px_rgba(0,0,0,0.25)]">
-                  <div className="pb-2 mb-3 border-b border-slate-100 [html[data-theme=dark]_&]:border-slate-600/50">
-                    <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-600 [html[data-theme=dark]_&]:text-slate-300">Dados pessoais</h3>
-                    <p className="text-[11px] text-slate-500 [html[data-theme=dark]_&]:text-slate-400 mt-0.5 leading-snug">Informações exibidas no painel e usadas para contato, quando aplicável.</p>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <Field label="Nome completo" compact hint="Como seu nome deve aparecer para a equipe.">
-                      <input value={profile.name ?? ''} onChange={e=>setProfile(p=>({...p,name:e.target.value}))} className="input" placeholder="Ex.: Maria Silva" />
-                    </Field>
-                    <Field label="E-mail" compact hint="Vinculado ao login; não é editável nesta tela.">
-                      <input value={profile.email ?? ''} disabled className="input opacity-80" />
-                    </Field>
-                    <Field label="Telefone (opcional)" compact hint="Opcional. Celular ou fixo com DDD.">
-                      <input value={(profile as any).phone||''} onChange={e=>setProfile(p=>({...p,phone:e.target.value} as any))} className="input" placeholder="Ex.: (11) 98765-4321" />
-                    </Field>
-                  </div>
+              <form onSubmit={(e) => e.preventDefault()} style={{ borderTop:'1px solid #F1F5F9',paddingTop:20 }}>
+                <div className="flex items-center gap-2 mb-4">
+                  <Lock className="w-4 h-4" style={{ color:'#6366F1' }} />
+                  <p style={{ fontSize:14,fontWeight:700,color:'#0F172A' }}>Alterar senha</p>
+                  <span style={{ fontSize:12,color:'#94A3B8' }}>(deixe vazio para manter)</span>
                 </div>
-                <form onSubmit={(e) => e.preventDefault()} className="rounded-xl border border-slate-300/85 bg-white p-4 shadow-sm [html[data-theme=dark]_&]:border-slate-600 [html[data-theme=dark]_&]:bg-slate-900/70 [html[data-theme=dark]_&]:shadow-[0_1px_2px_rgba(0,0,0,0.25)]">
-                  <div className="pb-2 mb-3 border-b border-slate-100 [html[data-theme=dark]_&]:border-slate-600/50">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Lock className="w-4 h-4 text-indigo-600 [html[data-theme=dark]_&]:text-indigo-400 shrink-0" />
-                      <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-600 [html[data-theme=dark]_&]:text-slate-300">Alterar senha</h3>
-                      <span className="text-[10px] font-medium text-slate-400 [html[data-theme=dark]_&]:text-slate-500">(deixe em branco para manter a atual)</span>
-                    </div>
-                    <p className="text-[11px] text-slate-500 [html[data-theme=dark]_&]:text-slate-400 mt-1 leading-snug">Preencha os três campos somente se quiser trocar a senha de acesso.</p>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <Field label="Senha atual" compact hint="Senha que você usa hoje para entrar.">
-                      <input type="password" value={profile.currentPassword ?? ''} onChange={e=>setProfile(p=>({...p,currentPassword:e.target.value}))} className="input" placeholder="••••••••" />
-                    </Field>
-                    <Field label="Nova senha" compact hint="Mínimo conforme política do sistema.">
-                      <input type="password" value={profile.newPassword ?? ''} onChange={e=>setProfile(p=>({...p,newPassword:e.target.value}))} className="input" placeholder="••••••••" />
-                    </Field>
-                    <Field label="Confirmar nova senha" compact hint="Repita a nova senha para evitar erro de digitação.">
-                      <input type="password" value={profile.confirmPassword ?? ''} onChange={e=>setProfile(p=>({...p,confirmPassword:e.target.value}))} className="input" placeholder="••••••••" />
-                    </Field>
-                  </div>
-                </form>
-                {profileError && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-semibold text-red-700 [html[data-theme=dark]_&]:border-red-900/60 [html[data-theme=dark]_&]:bg-red-950/40 [html[data-theme=dark]_&]:text-red-300">{profileError}</div>}
-                <button type="button" onClick={handleSaveProfile} disabled={saving} className="btn-primary h-9 inline-flex items-center justify-center gap-2 text-sm px-4">
-                  {saving?<RefreshCw className="w-4 h-4 animate-spin"/>:saved?<CheckCircle className="w-4 h-4"/>:<Save className="w-4 h-4"/>}
-                  {saved?'Salvo!':'Salvar perfil'}
-                </button>
-              </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <Field label="Senha atual"><input type="password" value={profile.currentPassword} onChange={e=>setProfile(p=>({...p,currentPassword:e.target.value}))} className="input" placeholder="••••••••" /></Field>
+                  <Field label="Nova senha"><input type="password" value={profile.newPassword} onChange={e=>setProfile(p=>({...p,newPassword:e.target.value}))} className="input" placeholder="••••••••" /></Field>
+                  <Field label="Confirmar senha"><input type="password" value={profile.confirmPassword} onChange={e=>setProfile(p=>({...p,confirmPassword:e.target.value}))} className="input" placeholder="••••••••" /></Field>
+                </div>
+              </form>
+              {profileError && <div style={{ background:'#FEE2E2',color:'#DC2626',padding:'10px 16px',borderRadius:10,fontSize:13,fontWeight:600 }}>{profileError}</div>}
+              <button onClick={handleSaveProfile} disabled={saving} className="btn-primary">
+                {saving?<RefreshCw className="w-4 h-4 animate-spin"/>:saved?<CheckCircle className="w-4 h-4"/>:<Save className="w-4 h-4"/>}
+                {saved?'Salvo!':'Salvar perfil'}
+              </button>
             </div>
           )}
-        </div>
         </div>
       </div>
     </div>
@@ -1192,7 +1006,7 @@ X-Api-Secret: {INBOUND_EMAIL_SECRET}`}</pre>
 
 // ─── Zona de Perigo ───────────────────────────────────────────────────────────
 
-function DangerZone({ compact }: { compact?: boolean }) {
+function DangerZone() {
   const [confirm, setConfirm] = useState(false);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<any>(null);
@@ -1212,28 +1026,26 @@ function DangerZone({ compact }: { compact?: boolean }) {
     setLoading(false);
   };
 
-  const pad = compact ? '10px 12px' : '16px 20px';
-  const rad = compact ? 9 : 12;
   return (
-    <div style={{ border: '1.5px solid #FCA5A5', borderRadius: rad, padding: pad, background: '#FFF5F5', marginTop: compact ? 2 : 8 }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: compact ? 10 : 16 }}>
-        <div className="min-w-0">
-          <p style={{ fontSize: compact ? 12 : 14, fontWeight: 700, color: '#DC2626', marginBottom: compact ? 2 : 4 }}>⚠️ Zona de Perigo</p>
-          <p style={{ fontSize: compact ? 11 : 12, color: '#991B1B', lineHeight: 1.4 }}>
+    <div style={{ border: '1.5px solid #FCA5A5', borderRadius: 12, padding: '16px 20px', background: '#FFF5F5', marginTop: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
+        <div>
+          <p style={{ fontSize: 14, fontWeight: 700, color: '#DC2626', marginBottom: 4 }}>⚠️ Zona de Perigo</p>
+          <p style={{ fontSize: 12, color: '#991B1B', lineHeight: 1.5 }}>
             Apaga <strong>todos os tickets, conversas e sessões do chatbot</strong> do sistema. Use apenas para testes.
             Esta ação <strong>não pode ser desfeita</strong>.
           </p>
         </div>
         {!confirm && (
           <button onClick={() => setConfirm(true)}
-            style={{ flexShrink: 0, padding: compact ? '6px 12px' : '8px 16px', background: '#DC2626', color: '#fff', border: 'none', borderRadius: compact ? 7 : 8, fontSize: compact ? 11 : 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+            style={{ flexShrink: 0, padding: '8px 16px', background: '#DC2626', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
             Zerar dados
           </button>
         )}
       </div>
       {confirm && (
-        <div style={{ marginTop: compact ? 10 : 14, padding: compact ? '10px 12px' : '12px 16px', background: '#fff', borderRadius: 8, border: '1.5px solid #FCA5A5' }}>
-          <p style={{ fontSize: compact ? 12 : 13, fontWeight: 600, color: '#DC2626', marginBottom: compact ? 8 : 12 }}>
+        <div style={{ marginTop: 14, padding: '12px 16px', background: '#fff', borderRadius: 8, border: '1.5px solid #FCA5A5' }}>
+          <p style={{ fontSize: 13, fontWeight: 600, color: '#DC2626', marginBottom: 12 }}>
             Tem certeza? Isso apagará todos os tickets e conversas permanentemente.
           </p>
           <div style={{ display: 'flex', gap: 8 }}>

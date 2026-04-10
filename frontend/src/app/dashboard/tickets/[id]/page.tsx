@@ -235,7 +235,10 @@ export default function TicketDetailsPage() {
     void (async () => {
       for (const m of conversationMsgs) {
         if (!m?.id) continue;
-        if (conversationTranscriptMediaUi(m) == null) continue;
+        const ui = conversationTranscriptMediaUi(m);
+        if (ui == null) continue;
+        // Imagem/vídeo: sem pré-fetch — abre no lightbox ao clicar (UI compacta).
+        if (ui.bucket === 'image' || ui.bucket === 'video') continue;
         const mid = String(m.id);
         if (convMediaUrlsRef.current[mid] || convMediaInFlightRef.current.has(mid)) continue;
         convMediaInFlightRef.current.add(mid);
@@ -277,6 +280,7 @@ export default function TicketDetailsPage() {
         for (const a of atts) {
           if (a?.kind !== 'ticket_reply_file' || !a?.id) continue;
           const aid = String(a.id);
+          if (inferTicketReplyMediaKind(String(a.mime || ''), String(a.filename || ''))) continue;
           if (ticketReplyAttachUrlsRef.current[aid] || ticketReplyInflightRef.current.has(aid)) continue;
           ticketReplyInflightRef.current.add(aid);
           try {
@@ -1098,41 +1102,29 @@ export default function TicketDetailsPage() {
                             return (
                               <div key={aid} style={{ marginTop: 8 }}>
                                 {mediaGuess ? (
-                                  <>
-                                    {!src && !failed && (
-                                      <span style={{ fontSize: 11, color: S.txt3, display: 'block', marginBottom: 4 }}>
-                                        A carregar pré-visualização…
-                                      </span>
-                                    )}
-                                    {failed && !src && (
-                                      <span style={{ fontSize: 11, color: S.txt3, display: 'block', marginBottom: 4 }}>
-                                        Pré-carregamento falhou — use Abrir.
-                                      </span>
-                                    )}
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' as const }}>
-                                      <span style={{ fontSize: 12, fontWeight: 600, color: '#475569' }}>
-                                        {mediaGuess === 'video' ? 'Vídeo' : 'Imagem'}
-                                        {fname ? ` · ${fname}` : ''}
-                                      </span>
-                                      <span style={{ fontSize: 11, color: '#CBD5E1' }}>—</span>
-                                      <button
-                                        type="button"
-                                        onClick={() => void openTicketReplyAttachment(a.id, mediaGuess)}
-                                        style={{
-                                          fontSize: 12,
-                                          fontWeight: 700,
-                                          color: S.accent,
-                                          background: 'none',
-                                          border: 'none',
-                                          cursor: 'pointer',
-                                          padding: 0,
-                                          fontFamily: 'inherit',
-                                        }}
-                                      >
-                                        Abrir
-                                      </button>
-                                    </div>
-                                  </>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' as const }}>
+                                    <span style={{ fontSize: 12, fontWeight: 600, color: '#475569' }}>
+                                      {mediaGuess === 'video' ? 'Vídeo' : 'Imagem'}
+                                      {fname ? ` · ${fname}` : ''}
+                                    </span>
+                                    <span style={{ fontSize: 11, color: '#CBD5E1' }}>—</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => void openTicketReplyAttachment(a.id, mediaGuess)}
+                                      style={{
+                                        fontSize: 12,
+                                        fontWeight: 700,
+                                        color: S.accent,
+                                        background: 'none',
+                                        border: 'none',
+                                        cursor: 'pointer',
+                                        padding: 0,
+                                        fontFamily: 'inherit',
+                                      }}
+                                    >
+                                      Abrir
+                                    </button>
+                                  </div>
                                 ) : (
                                   <>
                                     {!src && !failed && (
