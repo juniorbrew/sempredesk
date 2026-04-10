@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
+import { useAuthStore, hasPermission } from '@/store/auth.store';
 import { AreaChart, Area, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { Ticket, Monitor, CheckCircle, Clock, AlertTriangle, RefreshCw, TrendingUp, Activity } from 'lucide-react';
 
@@ -24,6 +25,8 @@ function StatCard({ icon: Icon, label, value, gradient, sub }: any) {
 }
 
 export default function DashboardPage() {
+  const { user } = useAuthStore();
+  const canViewReports = hasPermission(user, 'reports.view');
   const [summary, setSummary] = useState<any>(null);
   const [trend, setTrend] = useState<any[]>([]);
   const [byPriority, setByPriority] = useState<any[]>([]);
@@ -33,18 +36,22 @@ export default function DashboardPage() {
   const load = async () => {
     setLoading(true);
     try {
-      const [s,t,p,sl] = await Promise.all([
+      const [s, t, p] = await Promise.all([
         api.dashboardSummary() as any,
         api.dashboardTrend(7) as any,
         api.dashboardByPriority() as any,
-        api.slaReport() as any,
       ]);
-      setSummary(s); setTrend(t); setByPriority(p); setSla(sl);
+      setSummary(s); setTrend(t); setByPriority(p);
+      // Relatório SLA exige permissão reports.view — técnicos não têm acesso
+      if (canViewReports) {
+        const sl = await (api.slaReport() as any).catch(() => null);
+        setSla(sl);
+      }
     } catch(e){ console.error(e); }
     setLoading(false);
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [canViewReports]);
 
   const slaColor = summary?.slaCompliance >= 90 ? '#10B981' : summary?.slaCompliance >= 70 ? '#F59E0B' : '#EF4444';
 

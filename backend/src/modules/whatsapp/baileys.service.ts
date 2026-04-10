@@ -324,7 +324,15 @@ export class BaileysService {
   }
 
   async getOrCreateConnection(tenantId: string): Promise<WhatsappConnection> {
-    let conn = await this.connRepo.findOne({ where: { tenantId } });
+    // Prioriza o canal padrão (is_default=true) para evitar retornar canal errado
+    // quando o tenant tem múltiplos canais configurados
+    let conn = await this.connRepo.findOne({
+      where: { tenantId, isDefault: true },
+      order: { createdAt: 'ASC' },
+    });
+    if (!conn) {
+      conn = await this.connRepo.findOne({ where: { tenantId }, order: { createdAt: 'ASC' } });
+    }
     if (!conn) {
       // Primeiro canal do tenant → marcado como default automaticamente
       conn = this.connRepo.create({
@@ -1231,6 +1239,7 @@ export class BaileysService {
     if (update.metaWebhookUrl !== undefined) conn.metaWebhookUrl = update.metaWebhookUrl || null;
     if (update.metaWabaId !== undefined) conn.metaWabaId = update.metaWabaId || null;
 
+    this.logger.log(`[updateChannel] tenant=${tenantId} id=${id} fields=${Object.keys(update).filter(k => (update as any)[k] !== undefined).join(',')}`);
     return this.connRepo.save(conn);
   }
 

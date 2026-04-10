@@ -85,7 +85,11 @@ export default function TeamPage() {
   const [showPass, setShowPass] = useState(false);
   const [filter, setFilter] = useState('all');
 
+  const canViewAgents = hasPermission(user, 'agent.view');
+
   const load = async () => {
+    // Sem permissão agent.view não há nada para carregar — evita 403 no console
+    if (!canViewAgents) { setLoading(false); return; }
     setLoading(true);
     try {
       const [teamRes, rolesRes, deptsRes] = await Promise.all([
@@ -101,7 +105,7 @@ export default function TeamPage() {
     setLoading(false);
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [canViewAgents]);
 
   const openModal = async (m?:any) => {
     setEditing(m||null); setError(''); setAgentDepts([]);
