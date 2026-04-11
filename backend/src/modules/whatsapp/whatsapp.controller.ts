@@ -15,7 +15,17 @@ import {
   HttpStatus,
   Logger,
   RawBodyRequest,
+  Param,
+  UploadedFile,
+  UseInterceptors,
+  BadRequestException,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { Throttle } from '@nestjs/throttler';
+import { ticketItem4AttachmentsDiskStorage } from '../../common/utils/multer-disk-storage.util';
+import { StorageQuotaGuard } from '../../common/guards/storage-quota.guard';
+import { UploadThrottlerGuard } from '../../common/guards/upload-throttler.guard';
+import { StorageQuotaService } from '../storage/storage-quota.service';
 import { Observable } from 'rxjs';
 import { Response, Request as ExpressRequest } from 'express';
 import { createHmac, timingSafeEqual } from 'crypto';
@@ -26,6 +36,7 @@ import { JwtAuthGuard, Public } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 import { TenantId } from '../../common/decorators/tenant-id.decorator';
+import { validateMetaPhoneNumberId, validateMetaWabaIdOptional } from './whatsapp-meta-fields.util';
 
 @Controller('webhooks/whatsapp')
 export class WhatsappController {
@@ -34,6 +45,7 @@ export class WhatsappController {
   constructor(
     private readonly whatsappService: WhatsappService,
     private readonly baileysService: BaileysService,
+    private readonly quotaService: StorageQuotaService,
   ) {}
 
   // ── Meta webhook verification (GET) ──────────────────────────────────
@@ -81,18 +93,23 @@ export class WhatsappController {
       }
     }
 
-    // Tenta resolver o tenantId pelo phoneNumberId da Meta (mais confiável que campo no body)
+    // Tenta resolver o tenant e o canal pelo phoneNumberId da Meta
     const metaPhoneNumberId = body?.entry?.[0]?.changes?.[0]?.value?.metadata?.phone_number_id as string | undefined;
-    const resolvedTenantId = metaPhoneNumberId
+    const resolved = metaPhoneNumberId
       ? await this.baileysService.findTenantByMetaPhoneNumberId(metaPhoneNumberId).catch(() => null)
       : null;
 
     // Nunca usar fallback hardcoded para tenant real — isso contaminaria dados entre empresas.
     // Se não for possível resolver o tenant, descartar o payload (200 para Meta não reenviar).
-    const tenantId = resolvedTenantId || body?.tenantId || body?.tenant_id || body?.tenant;
+    const tenantId = resolved?.tenantId ?? null;
+    /** ID do registro whatsapp_connections que recebeu esta mensagem — propaga o canal correto */
+    const inboundChannelId: string | undefined = resolved?.connectionId;
     if (!tenantId) {
       this.logger.warn(`[webhook] Payload descartado: meta_phone_number_id="${metaPhoneNumberId ?? 'N/A'}" não mapeado a nenhum tenant`);
-      return { success: true };
+      if (isMetaPayload) {
+        return { success: true, reason: 'TENANT_NOT_RESOLVED' };
+      }
+      return { success: false, reason: 'TENANT_NOT_RESOLVED' };
     }
 
     // ── Processar status updates da Meta (delivered/read) ─────────────────
@@ -127,7 +144,7 @@ export class WhatsappController {
         // Conexões Meta (provider='meta') DEVEM ser processadas por este webhook mesmo que
         // o status apareça como connected — o socket Baileys não existe para elas.
         if (connection?.provider === 'baileys' && connection?.status === 'connected') return;
-        await this.whatsappService.handleIncomingMessage(tenantId, msg);
+        await this.whatsappService.handleIncomingMessage(tenantId, msg, undefined, undefined, inboundChannelId);
       } catch (err) {
         this.logger.error(`Erro ao processar mensagem WhatsApp (tenant=${tenantId}): ${err}`);
       }
@@ -157,6 +174,49 @@ export class WhatsappController {
       return { success: false, message: 'tenantId, ticketId e text são obrigatórios' };
     }
     return this.whatsappService.sendReplyFromTicket(tenantId, body.ticketId, userId, userName, body.text.trim(), body.replyToId ?? null);
+  }
+
+  /** Ticket WhatsApp sem conversa: multipart `file` + opcional `content` / `replyToId` — envia WA e grava em ticket_messages. */
+  @UseGuards(JwtAuthGuard, PermissionsGuard, StorageQuotaGuard, UploadThrottlerGuard)
+  @RequirePermission('ticket.reply')
+  @Throttle({ upload: { limit: parseInt(process.env.UPLOAD_RATE_LIMIT ?? '30', 10) || 30, ttl: 60_000 } })
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: ticketItem4AttachmentsDiskStorage(),
+      limits: { fileSize: 16 * 1024 * 1024 },
+    }),
+  )
+  @Post('send-media-from-ticket/:ticketId')
+  async sendMediaFromTicket(
+    @Request() req: any,
+    @TenantId() tenantId: string,
+    @Param('ticketId') ticketId: string,
+    @Body('content') content?: string,
+    @Body('replyToId') replyToId?: string,
+    @UploadedFile() file?: { path?: string; mimetype?: string; originalname?: string; size?: number },
+  ) {
+    if (!file?.path || (file.size ?? 0) <= 0) {
+      throw new BadRequestException('Envie o ficheiro no campo file.');
+    }
+    const userId = req.user?.id || req.user?.sub;
+    const userName = req.user?.name || req.user?.email || 'Equipe';
+    const result = await this.whatsappService.sendMediaReplyFromTicket(
+      tenantId,
+      ticketId,
+      userId,
+      userName,
+      { path: file.path, mimetype: file.mimetype, originalname: file.originalname, size: file.size },
+      { content: content ?? undefined, replyToId: replyToId ?? null },
+    );
+    this.logger.log(JSON.stringify({
+      event: 'upload.whatsapp_ticket_media',
+      tenantId,
+      ticketId,
+      sizeBytes: file.size,
+      mime: file.mimetype,
+    }));
+    this.quotaService.invalidateCache(tenantId);
+    return result;
   }
 
   // ──────────────────────────────────────────────────────────────────────
@@ -267,8 +327,12 @@ export class WhatsappController {
     @Body() body: { metaPhoneNumberId: string; metaToken?: string; metaVerifyToken?: string; metaWebhookUrl?: string; metaWabaId?: string },
   ) {
     if (!body.metaPhoneNumberId?.trim()) {
-      return { success: false, message: 'metaPhoneNumberId é obrigatório' };
+      throw new BadRequestException('metaPhoneNumberId é obrigatório');
     }
+    const phoneErr = validateMetaPhoneNumberId(body.metaPhoneNumberId);
+    if (phoneErr) throw new BadRequestException(phoneErr);
+    const wabaErr = validateMetaWabaIdOptional(body.metaWabaId);
+    if (wabaErr) throw new BadRequestException(wabaErr);
     await this.baileysService.saveMetaConfig(tenantId, {
       metaPhoneNumberId: body.metaPhoneNumberId.trim(),
       metaToken: body.metaToken?.trim() || null,
@@ -277,5 +341,122 @@ export class WhatsappController {
       metaWabaId: body.metaWabaId?.trim() || undefined,
     });
     return { success: true, message: 'Configuração Meta salva com sucesso!' };
+  }
+
+  // ── Multi-channel management ──────────────────────────────────────────
+
+  /** GET /channels — lista todos os canais WhatsApp do tenant */
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermission('ticket.view')
+  @Get('channels')
+  async listChannels(@TenantId() tenantId: string) {
+    const channels = await this.baileysService.listChannels(tenantId);
+    return channels.map(c => ({
+      id: c.id,
+      label: c.label,
+      provider: c.provider,
+      isDefault: c.isDefault,
+      status: c.status,
+      metaPhoneNumberId: c.metaPhoneNumberId,
+      metaToken: c.metaToken ? '••••••••' + c.metaToken.slice(-4) : null,
+      metaVerifyToken: c.metaVerifyToken,
+      metaWebhookUrl: c.metaWebhookUrl,
+      metaWabaId: c.metaWabaId,
+      configured: !!(c.metaPhoneNumberId && c.metaToken),
+      createdAt: c.createdAt,
+    }));
+  }
+
+  /** POST /channels — adiciona novo canal Meta ao tenant */
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermission('ticket.view')
+  @Post('channels')
+  async addChannel(
+    @TenantId() tenantId: string,
+    @Body() body: {
+      label?: string;
+      metaPhoneNumberId: string;
+      metaToken: string;
+      metaVerifyToken?: string;
+      metaWebhookUrl?: string;
+      metaWabaId?: string;
+      isDefault?: boolean;
+    },
+  ) {
+    if (!body.metaPhoneNumberId?.trim() || !body.metaToken?.trim()) {
+      throw new BadRequestException('metaPhoneNumberId e metaToken são obrigatórios');
+    }
+    const phoneErr = validateMetaPhoneNumberId(body.metaPhoneNumberId);
+    if (phoneErr) throw new BadRequestException(phoneErr);
+    const wabaErr = validateMetaWabaIdOptional(body.metaWabaId);
+    if (wabaErr) throw new BadRequestException(wabaErr);
+    const channel = await this.baileysService.addChannel(tenantId, {
+      label: body.label?.trim() || 'Número ' + body.metaPhoneNumberId.trim().slice(-4),
+      metaPhoneNumberId: body.metaPhoneNumberId.trim(),
+      metaToken: body.metaToken.trim(),
+      metaVerifyToken: body.metaVerifyToken?.trim() || 'sempredesk-verify',
+      metaWebhookUrl: body.metaWebhookUrl?.trim(),
+      metaWabaId: body.metaWabaId?.trim(),
+      isDefault: body.isDefault ?? false,
+    });
+    return {
+      success: true,
+      message: 'Canal adicionado com sucesso!',
+      channel: {
+        id: channel.id,
+        label: channel.label,
+        provider: channel.provider,
+        isDefault: channel.isDefault,
+        metaPhoneNumberId: channel.metaPhoneNumberId,
+        configured: !!(channel.metaPhoneNumberId && channel.metaToken),
+      },
+    };
+  }
+
+  /** PUT /channels/:id — atualiza label / token de um canal existente */
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermission('ticket.view')
+  @Put('channels/:id')
+  async updateChannel(
+    @TenantId() tenantId: string,
+    @Param('id') id: string,
+    @Body() body: {
+      label?: string;
+      metaToken?: string;
+      metaVerifyToken?: string;
+      metaWebhookUrl?: string;
+      metaWabaId?: string;
+    },
+  ) {
+    if (body.metaWabaId !== undefined) {
+      const wabaErr = validateMetaWabaIdOptional(body.metaWabaId);
+      if (wabaErr) throw new BadRequestException(wabaErr);
+    }
+    await this.baileysService.updateChannel(tenantId, id, {
+      label: body.label?.trim(),
+      metaToken: body.metaToken?.trim(),
+      metaVerifyToken: body.metaVerifyToken?.trim(),
+      metaWebhookUrl: body.metaWebhookUrl?.trim(),
+      metaWabaId: body.metaWabaId?.trim(),
+    });
+    return { success: true, message: 'Canal atualizado com sucesso!' };
+  }
+
+  /** PUT /channels/:id/default — define este canal como padrão do tenant */
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermission('ticket.view')
+  @Put('channels/:id/default')
+  async setDefaultChannel(@TenantId() tenantId: string, @Param('id') id: string) {
+    await this.baileysService.setDefaultChannel(tenantId, id);
+    return { success: true, message: 'Canal padrão atualizado!' };
+  }
+
+  /** DELETE /channels/:id — remove canal (não pode ser o único nem o padrão) */
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermission('ticket.view')
+  @Delete('channels/:id')
+  async deleteChannel(@TenantId() tenantId: string, @Param('id') id: string) {
+    await this.baileysService.deleteChannel(tenantId, id);
+    return { success: true, message: 'Canal removido com sucesso!' };
   }
 }

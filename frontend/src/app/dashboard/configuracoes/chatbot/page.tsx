@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, type Dispatch, type SetStateAction } from 'react';
 import { api } from '@/lib/api';
 import { Bot, Save, Plus, Trash2, ChevronUp, ChevronDown, ToggleLeft, ToggleRight, MessageSquare, Zap, Users, Globe, Smartphone, RefreshCw } from 'lucide-react';
 
@@ -30,6 +30,8 @@ interface ChatbotConfig {
   sessionTimeoutMinutes: number;
   collectName: boolean;
   nameRequestMessage: string;
+  /** Respostas do atendente ao cliente no WhatsApp com *nome* em negrito (formato do app). */
+  whatsappPrefixAgentName?: boolean;
   menuItems?: MenuItem[];
 }
 
@@ -72,7 +74,15 @@ export default function ChatbotConfigPage() {
         (api as any).getChatbotStats().catch(() => null),
         api.me(),
       ]);
-      setConfig(cfg);
+      const wpRaw = cfg?.whatsappPrefixAgentName ?? cfg?.whatsapp_prefix_agent_name;
+      setConfig(
+        cfg
+          ? {
+              ...cfg,
+              whatsappPrefixAgentName: wpRaw === true || wpRaw === 1 || wpRaw === 'true',
+            }
+          : cfg,
+      );
       setMenu((cfg?.menuItems || []).map((m: any) => ({ ...m })));
       setStats(st);
       setTenantId(me?.tenantId || me?.data?.tenantId || '');
@@ -86,7 +96,8 @@ export default function ChatbotConfigPage() {
     if (!config) return;
     setSaving(true);
     try {
-      const { menuItems, id, ...dto } = config as any;
+      const { menuItems, id, ...rest } = config as any;
+      const dto = { ...rest, whatsappPrefixAgentName: !!rest.whatsappPrefixAgentName };
       await (api as any).updateChatbotConfig(dto);
       toast('Configurações salvas!');
     } catch (e: any) { toast(e?.response?.data?.message || 'Erro ao salvar', false); }
@@ -186,6 +197,26 @@ export default function ChatbotConfigPage() {
             {t.icon}{t.label}
           </button>
         ))}
+      </div>
+
+      {/* Visível em qualquer aba — evita não achar a opção no fim de Geral / só em Canais */}
+      <div
+        style={{
+          background: S.card,
+          border: S.border,
+          borderRadius: 14,
+          padding: '18px 20px',
+          marginBottom: 20,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 12,
+        }}
+      >
+        <div style={{ fontSize: 11, fontWeight: 800, color: S.accent, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+          WhatsApp · identificação do atendente
+        </div>
+        <WhatsappPrefixAgentCard config={config} setConfig={setConfig} />
+        <SaveBtn saving={saving} onClick={saveConfig} label="Salvar (inclui nome do agente no WhatsApp)" />
       </div>
 
       {/* ── TAB: GERAL ── */}
@@ -342,6 +373,7 @@ export default function ChatbotConfigPage() {
               </button>
             </div>
           ))}
+
           <SaveBtn saving={saving} onClick={saveConfig} />
         </div>
       )}
@@ -395,6 +427,74 @@ export default function ChatbotConfigPage() {
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
+
+function WhatsappPrefixAgentCard({
+  config,
+  setConfig,
+}: {
+  config: ChatbotConfig;
+  setConfig: Dispatch<SetStateAction<ChatbotConfig | null>>;
+}) {
+  const on = !!config.whatsappPrefixAgentName;
+  return (
+    <div
+      style={{
+        marginTop: 0,
+        padding: '16px 18px',
+        borderRadius: 12,
+        border: `1.5px solid ${on ? S.accent : '#E2E8F0'}`,
+        background: on ? S.accentL : '#FAFAFA',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
+        <div
+          style={{
+            width: 40,
+            height: 40,
+            borderRadius: 10,
+            background: '#fff',
+            border: '1.5px solid #E2E8F0',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+          }}
+        >
+          <Smartphone size={20} color="#25D366" />
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 700, color: S.txt, fontSize: 14, marginBottom: 4 }}>Mostrar nome do agente nas respostas ao cliente</div>
+          <div style={{ fontSize: 12, color: S.txt2, lineHeight: 1.55, marginBottom: 10 }}>
+            O nome vem do <strong>seu utilizador no painel</strong> (não é um campo separado). Com a opção <strong>ativada</strong>, cada mensagem enviada ao WhatsApp começa com{' '}
+            <code style={{ background: '#EEF2FF', padding: '1px 5px', borderRadius: 4 }}>*O seu nome*</code> numa linha e o texto na linha seguinte. O histórico interno do
+            atendimento continua <strong>sem</strong> esse prefixo. Clique em <strong>Salvar</strong> abaixo depois de alterar o interruptor.
+          </div>
+          <button
+            type="button"
+            onClick={() =>
+              setConfig((c) => (c ? { ...c, whatsappPrefixAgentName: !Boolean(c.whatsappPrefixAgentName) } : c))
+            }
+            style={{
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              color: on ? S.accent : S.txt3,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: 0,
+              fontSize: 13,
+              fontWeight: 600,
+            }}
+          >
+            {on ? <ToggleRight size={26} /> : <ToggleLeft size={26} />}
+            {on ? 'Ativado: mostrar nome do agente' : 'Desativado'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (

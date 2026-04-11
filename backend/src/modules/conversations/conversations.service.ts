@@ -2,13 +2,18 @@ import { Injectable, NotFoundException, BadRequestException, Logger } from '@nes
 import * as fs from 'fs';
 import * as path from 'path';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
 import { Conversation, ConversationChannel, ConversationStatus, ConversationInitiatedBy } from './entities/conversation.entity';
 import { ConversationMessage, ReplyToSnapshot } from './entities/conversation-message.entity';
 import { TicketsService } from '../tickets/tickets.service';
 import { CustomersService } from '../customers/customers.service';
 import { TicketMessage, TicketOrigin } from '../tickets/entities/ticket.entity';
 import { RealtimeEmitterService } from '../realtime/realtime-emitter.service';
+import {
+  fetchWhatsappPrefixAgentEnabled,
+  prependWhatsappAgentLine,
+} from '../whatsapp/whatsapp-outbound-agent-prefix.util';
+import { SlaService } from '../sla/sla.service';
 
 @Injectable()
 export class ConversationsService {
@@ -56,6 +61,8 @@ export class ConversationsService {
           | string
           | { kind: 'image' | 'audio' | 'video'; filePath: string; caption?: string; mime?: string },
         quotedMsg?: { externalId: string; content: string; fromMe: boolean } | null,
+        /** ID do canal WhatsApp (whatsapp_connections.id) — garante saída pelo número correto */
+        whatsappChannelId?: string | null,
       ) => Promise<{ success: boolean; jid?: string | null; messageId?: string | null; error?: string } | boolean>)
     | null = null;
   setOutboundSender(
@@ -64,6 +71,7 @@ export class ConversationsService {
       toWhatsapp: string,
       payload: string | { kind: 'image' | 'audio' | 'video'; filePath: string; caption?: string; mime?: string },
       quotedMsg?: { externalId: string; content: string; fromMe: boolean } | null,
+      whatsappChannelId?: string | null,
     ) => Promise<{ success: boolean; jid?: string | null; messageId?: string | null; error?: string } | boolean>,
   ) {
     this.outboundSender = fn;
@@ -126,6 +134,7 @@ export class ConversationsService {
     private readonly ticketsService: TicketsService,
     private readonly customersService: CustomersService,
     private readonly realtimeEmitter: RealtimeEmitterService,
+    private readonly slaService: SlaService,
   ) {
     if (!fs.existsSync(this.mediaRoot)) {
       fs.mkdirSync(this.mediaRoot, { recursive: true });
@@ -182,6 +191,59 @@ export class ConversationsService {
     await this.conversationMessageMediaSchemaPromise;
   }
 
+  private isActiveConversationUniqueViolation(error: any): boolean {
+    if (error?.code !== '23505') return false;
+    const constraint = String(error?.constraint ?? '');
+    const detail = String(error?.detail ?? '');
+    return constraint === 'uq_conversations_active_contact_channel'
+      || detail.includes('uq_conversations_active_contact_channel');
+  }
+
+  private async withConversationScopeLock<T>(
+    tenantId: string,
+    contactId: string,
+    channel: ConversationChannel,
+    work: (manager: EntityManager) => Promise<T>,
+  ): Promise<T> {
+    const queryRunner = this.dataSource.createQueryRunner();
+    const lockKey = `${tenantId}:${contactId}`;
+
+    await queryRunner.connect();
+    try {
+      await queryRunner.query(
+        'SELECT pg_advisory_lock(hashtext($1), hashtext($2))',
+        [lockKey, channel],
+      );
+      await queryRunner.startTransaction();
+      try {
+        const result = await work(queryRunner.manager);
+        await queryRunner.commitTransaction();
+        return result;
+      } catch (error) {
+        await queryRunner.rollbackTransaction().catch(() => undefined);
+        throw error;
+      }
+    } finally {
+      await queryRunner.query(
+        'SELECT pg_advisory_unlock(hashtext($1), hashtext($2))',
+        [lockKey, channel],
+      ).catch(() => undefined);
+      await queryRunner.release().catch(() => undefined);
+    }
+  }
+
+  private async findLatestActiveConversationByContact(
+    manager: EntityManager,
+    tenantId: string,
+    contactId: string,
+    channel: ConversationChannel,
+  ): Promise<Conversation | null> {
+    return manager.getRepository(Conversation).findOne({
+      where: { tenantId, contactId, channel, status: ConversationStatus.ACTIVE },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
   /** Stream de ficheiro de mensagem (imagem/áudio) — valida tenant e metadados. */
   async getMessageMediaStream(
     tenantId: string,
@@ -214,20 +276,40 @@ export class ConversationsService {
     clientId: string | null,
     contactId: string,
     channel: ConversationChannel,
-    opts?: { chatAlert?: boolean; firstMessage?: string; contactName?: string; department?: string; autoCreateTicket?: boolean },
+    opts?: {
+      chatAlert?: boolean;
+      firstMessage?: string;
+      contactName?: string;
+      department?: string;
+      autoCreateTicket?: boolean;
+      /**
+       * ID do canal WhatsApp (whatsapp_connections.id) pelo qual esta conversa chegou.
+       * Salvo em Conversation.whatsappChannelId para garantir respostas pelo canal correto.
+       */
+      whatsappChannelId?: string | null;
+    },
   ): Promise<{ conversation: Conversation; ticket: any; ticketCreated: boolean }> {
+    return this.withConversationScopeLock(tenantId, contactId, channel, async (manager) => {
+    const convRepo = manager.getRepository(Conversation);
     // Busca por contactId+channel+status sem filtrar por clientId.
     // Evita criar conversa paralela quando o vínculo do contato com um cliente muda
     // (ex: contato chega sem clientId, é vinculado a um cliente, próxima mensagem usa clientId real).
-    const active = await this.convRepo.findOne({
-      where: { tenantId, contactId, channel, status: ConversationStatus.ACTIVE },
-      order: { createdAt: 'DESC' },
-    });
+    let active = await this.findLatestActiveConversationByContact(manager, tenantId, contactId, channel);
 
-    // Se encontrou conversa com clientId diferente do atual, atualiza antes de continuar.
-    if (active && clientId && active.clientId !== clientId) {
-      active.clientId = clientId;
-      await this.convRepo.save(active);
+    // Se encontrou conversa com clientId/canal diferente do atual, atualiza antes de continuar.
+    if (active) {
+      let shouldPersist = false;
+      if (clientId && active.clientId !== clientId) {
+        active.clientId = clientId;
+        shouldPersist = true;
+      }
+      if (opts?.whatsappChannelId && active.whatsappChannelId !== opts.whatsappChannelId) {
+        active.whatsappChannelId = opts.whatsappChannelId;
+        shouldPersist = true;
+      }
+      if (shouldPersist) {
+        active = await convRepo.save(active);
+      }
     }
 
     this.logConversationResolution({
@@ -269,7 +351,7 @@ export class ConversationsService {
           opts?.department,
         );
         active.ticketId = ticket.id;
-        await this.convRepo.save(active);
+        await convRepo.save(active);
         this.logConversationResolution({
           scope: 'conversation-resolution',
           tenantId,
@@ -294,7 +376,7 @@ export class ConversationsService {
       });
       return { conversation: active, ticket: null, ticketCreated: false };
     }
-    const result = await this.startConversation(tenantId, clientId, contactId, channel, opts as any);
+    const result = await this.startConversation(tenantId, clientId, contactId, channel, opts ?? {}, manager);
     if (opts?.autoCreateTicket) {
       const ticket = await this.createTicketForConversation(
         tenantId,
@@ -309,7 +391,7 @@ export class ConversationsService {
         opts?.department,
       );
       result.conversation.ticketId = ticket.id;
-      await this.convRepo.save(result.conversation);
+      await convRepo.save(result.conversation);
       this.logConversationResolution({
         scope: 'conversation-resolution',
         tenantId,
@@ -333,6 +415,7 @@ export class ConversationsService {
       stage: 'return-created-no-ticket-getOrCreateForContact',
     });
     return { ...result, ticketCreated: false };
+    });
   }
 
   /**
@@ -376,12 +459,21 @@ export class ConversationsService {
       }
     }
 
-    const result = await this.startConversation(tenantId, dto.clientId, contactId, ConversationChannel.PORTAL, {
-      chatAlert: dto.chatAlert,
-      contactName,
-      subject: dto.subject,
-      description: dto.description,
-      departmentId: dto.departmentId,
+    const result = await this.withConversationScopeLock(tenantId, contactId, ConversationChannel.PORTAL, async (manager) => {
+      const active = await this.findLatestActiveConversationByContact(manager, tenantId, contactId!, ConversationChannel.PORTAL);
+      if (active) {
+        const ticket = active.ticketId
+          ? await this.ticketsService.findOne(tenantId, active.ticketId).catch(() => null)
+          : null;
+        return { conversation: active, ticket };
+      }
+      return this.startConversation(tenantId, dto.clientId, contactId!, ConversationChannel.PORTAL, {
+        chatAlert: dto.chatAlert,
+        contactName,
+        subject: dto.subject,
+        description: dto.description,
+        departmentId: dto.departmentId,
+      }, manager);
     });
 
     const estimatedResponse = result.ticket ? this.calcEstimatedResponse(result.ticket?.slaResponseAt) : null;
@@ -419,9 +511,16 @@ export class ConversationsService {
       description?: string;
       departmentId?: string;
       department?: string;
+      /**
+       * ID do canal WhatsApp (whatsapp_connections.id) pelo qual esta conversa chegou.
+        * Salvo em Conversation.whatsappChannelId para garantir respostas pelo canal correto.
+        */
+      whatsappChannelId?: string | null;
     },
+    manager?: EntityManager,
   ): Promise<{ conversation: Conversation; ticket: any | null }> {
-    const conv = this.convRepo.create({
+    const convRepo = manager?.getRepository(Conversation) ?? this.convRepo;
+    const conv = convRepo.create({
       tenantId,
       clientId,
       contactId,
@@ -429,9 +528,28 @@ export class ConversationsService {
       status: ConversationStatus.ACTIVE,
       chatAlert: opts?.chatAlert ?? false,
       initiatedBy: ConversationInitiatedBy.CONTACT,
+      whatsappChannelId: opts?.whatsappChannelId ?? null,
     });
-    const savedConv = await this.convRepo.save(conv);
-    return { conversation: savedConv, ticket: null };
+    try {
+      const savedConv = await convRepo.save(conv);
+      // Aplica política SLA ANTES de retornar — evita corrida com recordFirstResponse.
+      // applyToConversation tem try/catch interno: falha não propaga.
+      await this.slaService.applyToConversation(tenantId, savedConv.id);
+      return { conversation: savedConv, ticket: null };
+    } catch (error) {
+      if (!this.isActiveConversationUniqueViolation(error)) throw error;
+      const fallbackManager = manager ?? this.dataSource.manager;
+      const existing = await this.findLatestActiveConversationByContact(fallbackManager, tenantId, contactId, channel);
+      if (!existing) throw error;
+      if (clientId && existing.clientId !== clientId) {
+        existing.clientId = clientId;
+      }
+      if (opts?.whatsappChannelId && existing.whatsappChannelId !== opts.whatsappChannelId) {
+        existing.whatsappChannelId = opts.whatsappChannelId;
+      }
+      const savedExisting = await convRepo.save(existing);
+      return { conversation: savedExisting, ticket: null };
+    }
   }
 
   private async resetChatbotSessionForWhatsappContact(tenantId: string, contact: any): Promise<void> {
@@ -484,30 +602,38 @@ export class ConversationsService {
         throw new BadRequestException('Contato vinculado a mais de uma empresa. Selecione a empresa antes de iniciar o atendimento.');
       }
     }
-    const existing = await this.convRepo.findOne({
-      where: { tenantId, clientId: resolvedClientId, contactId, channel, status: ConversationStatus.ACTIVE },
-    });
-    this.logConversationResolution({
-      scope: 'conversation-resolution',
-      tenantId,
-      contactId,
-      clientId: resolvedClientId,
-      channel,
-      existingConversationId: existing?.id ?? null,
-      action: existing ? 'reuse' : 'create',
-      stage: 'lookup-startAgentConversation',
-    });
     if (channel === ConversationChannel.WHATSAPP) {
       await this.resetChatbotSessionForWhatsappContact(tenantId, contact);
     }
-    if (existing) {
+    return this.withConversationScopeLock(tenantId, contactId, channel, async (manager) => {
+      const convRepo = manager.getRepository(Conversation);
+      let existing = await this.findLatestActiveConversationByContact(manager, tenantId, contactId, channel);
+      this.logConversationResolution({
+        scope: 'conversation-resolution',
+        tenantId,
+        contactId,
+        clientId: resolvedClientId,
+        channel,
+        existingConversationId: existing?.id ?? null,
+        action: existing ? 'reuse' : 'create',
+        stage: 'lookup-startAgentConversation',
+      });
+      if (existing) {
       // Garante que a conversa reutilizada seja marcada como iniciada pelo agente.
       // Sem isso, respostas do contato em conversas previamente iniciadas pelo contato
       // continuariam caindo no chatbot (initiated_by='contact' não passa pela guarda skipChatbot).
-      if (existing.initiatedBy !== ConversationInitiatedBy.AGENT) {
-        existing.initiatedBy = ConversationInitiatedBy.AGENT;
-        await this.convRepo.save(existing);
-      }
+        let shouldPersist = false;
+        if (resolvedClientId && existing.clientId !== resolvedClientId) {
+          existing.clientId = resolvedClientId;
+          shouldPersist = true;
+        }
+        if (existing.initiatedBy !== ConversationInitiatedBy.AGENT) {
+          existing.initiatedBy = ConversationInitiatedBy.AGENT;
+          shouldPersist = true;
+        }
+        if (shouldPersist) {
+          existing = await convRepo.save(existing);
+        }
       this.logConversationResolution({
         scope: 'conversation-resolution',
         tenantId,
@@ -520,7 +646,7 @@ export class ConversationsService {
       });
       return existing;
     }
-    const conv = this.convRepo.create({
+    const conv = convRepo.create({
       tenantId,
       clientId: resolvedClientId,
       contactId,
@@ -528,18 +654,40 @@ export class ConversationsService {
       status: ConversationStatus.ACTIVE,
       initiatedBy: ConversationInitiatedBy.AGENT,
     });
-    const savedConversation = await this.convRepo.save(conv);
-    this.logConversationResolution({
-      scope: 'conversation-resolution',
-      tenantId,
-      contactId,
-      clientId: resolvedClientId,
-      channel,
-      existingConversationId: null,
-      action: 'create',
-      stage: 'return-created-startAgentConversation',
+      try {
+        const savedConversation = await convRepo.save(conv);
+        this.logConversationResolution({
+          scope: 'conversation-resolution',
+          tenantId,
+          contactId,
+          clientId: resolvedClientId,
+          channel,
+          existingConversationId: null,
+          action: 'create',
+          stage: 'return-created-startAgentConversation',
+        });
+        return savedConversation;
+      } catch (error) {
+        if (!this.isActiveConversationUniqueViolation(error)) throw error;
+        existing = await this.findLatestActiveConversationByContact(manager, tenantId, contactId, channel);
+        if (!existing) throw error;
+        if (resolvedClientId && existing.clientId !== resolvedClientId) {
+          existing.clientId = resolvedClientId;
+          existing = await convRepo.save(existing);
+        }
+        this.logConversationResolution({
+          scope: 'conversation-resolution',
+          tenantId,
+          contactId,
+          clientId: resolvedClientId,
+          channel,
+          existingConversationId: existing.id,
+          action: 'reuse',
+          stage: 'return-conflict-reused-startAgentConversation',
+        });
+        return existing;
+      }
     });
-    return savedConversation;
   }
 
   /**
@@ -821,6 +969,19 @@ export class ConversationsService {
   /**
    * Adiciona mensagem à conversa (cliente ou agente). Usado no chat do portal.
    */
+  /**
+   * Adiciona mensagem à conversa (cliente ou agente). Usado no chat do portal e WhatsApp.
+   *
+   * Contrato de authorType:
+   *  - 'contact' → mensagem do cliente/contato (inbound)
+   *  - 'user'    → mensagem de um atendente humano autenticado (outbound)
+   *
+   * Mensagens automáticas (boas-vindas pós-ticket, chatbot, avaliação) são enviadas
+   * diretamente via Baileys/Meta e NÃO passam por este método — logo authorType='user'
+   * representa exclusivamente um atendente humano. O SLA de primeira resposta é gatilhado
+   * apenas para authorType='user', a menos que skipSlaFirstResponse=true seja passado
+   * explicitamente (reservado para casos de automação futura que usem este método).
+   */
   async addMessage(
     tenantId: string,
     conversationId: string,
@@ -832,13 +993,19 @@ export class ConversationsService {
       skipOutbound?: boolean;
       initialWhatsappStatus?: string;
       initialExternalId?: string | null;
-      mediaKind?: 'image' | 'audio' | 'video' | null;
+      mediaKind?: 'image' | 'audio' | 'video' | 'file' | null;
       mediaStorageKey?: string | null;
       mediaMime?: string | null;
       /** Texto real do usuário para usar como caption no WhatsApp (sem emoji de placeholder). */
       mediaCaption?: string | null;
       /** ID da mensagem que está sendo respondida (reply estilo WhatsApp). */
       replyToId?: string | null;
+      /**
+       * Impede o registro de sla_first_response_at para esta mensagem.
+       * Use somente para automações que passem authorType='user' mas não devam contar
+       * como primeira resposta humana no SLA (ex: mensagem de sistema futura).
+       */
+      skipSlaFirstResponse?: boolean;
     },
   ): Promise<ConversationMessage> {
     await this.ensureConversationMessageMediaSchemaReady();
@@ -889,6 +1056,13 @@ export class ConversationsService {
       throw err;
     }
     await this.updateLastMessageAt(tenantId, conversationId);
+
+    // Registra primeira resposta do agente no SLA (fire-and-forget — não bloqueia).
+    // authorType='user' é exclusivamente atendente humano neste método (ver JSDoc acima).
+    // skipSlaFirstResponse permite que automações futuras que usem este método optem por sair.
+    if (authorType === 'user' && !opts?.skipSlaFirstResponse) {
+      void this.slaService.recordFirstResponse(tenantId, conversationId);
+    }
 
     // Busca snapshot da mensagem citada (1 query leve, só se houver replyToId)
     let replyToSnapshot: ReplyToSnapshot | null = null;
@@ -944,9 +1118,11 @@ export class ConversationsService {
               ? '[Áudio]'
               : saved.mediaKind === 'video'
                 ? '[Vídeo]' + (content ? `: ${content.slice(0, 40)}` : '')
-                : content.length > 80
-                ? `${content.slice(0, 77)}…`
-                : content || '(mensagem)';
+                : saved.mediaKind === 'file'
+                  ? '[Documento]' + (content ? `: ${content.slice(0, 40)}` : '')
+                  : content.length > 80
+                    ? `${content.slice(0, 77)}…`
+                    : content || '(mensagem)';
         this.realtimeEmitter.emitTenantTicketMessageNotify(tenantId, {
           ticketId: conv.ticketId!,
           ticketNumber: tk.ticketNumber,
@@ -968,9 +1144,11 @@ export class ConversationsService {
               ? '[Áudio]'
               : saved.mediaKind === 'video'
                 ? '[Vídeo]' + (content ? `: ${content.slice(0, 40)}` : '')
-                : content.length > 80
-                ? content.slice(0, 77) + '…'
-                : content,
+                : saved.mediaKind === 'file'
+                  ? '[Documento]' + (content ? `: ${content.slice(0, 40)}` : '')
+                  : content.length > 80
+                    ? content.slice(0, 77) + '…'
+                    : content,
       });
     }
 
@@ -989,15 +1167,41 @@ export class ConversationsService {
               opts?.mediaKind && opts?.mediaStorageKey
                 ? path.join(this.mediaRoot, opts.mediaStorageKey)
                 : null;
-            const outboundPayload =
-              opts?.mediaKind && absMedia && await fs.promises.access(absMedia).then(() => true).catch(() => false)
-                ? {
-                    kind: opts.mediaKind,
-                    filePath: absMedia,
-                    caption: (opts && 'mediaCaption' in opts) ? (opts.mediaCaption || undefined) : (content || undefined),
-                    mime: opts.mediaMime || undefined,
-                  }
-                : content;
+            const mediaPathOk =
+              opts?.mediaKind &&
+              opts.mediaKind !== 'file' &&
+              absMedia &&
+              (await fs.promises.access(absMedia).then(() => true).catch(() => false));
+            const cap = ((opts && 'mediaCaption' in opts ? opts.mediaCaption : null) || '').trim();
+            let outboundPayload:
+              | string
+              | { kind: 'image' | 'audio' | 'video'; filePath: string; caption?: string; mime?: string };
+            if (opts?.mediaKind === 'file') {
+              outboundPayload = cap
+                ? `📎 Documento anexado: ${cap}\n(O ficheiro completo fica no historico desta conversa no painel.)`
+                : '📎 Documento anexado. O ficheiro completo esta no historico desta conversa no painel.';
+            } else if (mediaPathOk && opts?.mediaKind) {
+              outboundPayload = {
+                kind: opts.mediaKind as 'image' | 'audio' | 'video',
+                filePath: absMedia!,
+                caption: (opts && 'mediaCaption' in opts) ? (opts.mediaCaption || undefined) : (content || undefined),
+                mime: opts.mediaMime || undefined,
+              };
+            } else {
+              outboundPayload = content;
+            }
+            const prefixAgent = await fetchWhatsappPrefixAgentEnabled(this.dataSource, tenantId);
+            if (prefixAgent && authorName?.trim()) {
+              if (typeof outboundPayload === 'string') {
+                outboundPayload = prependWhatsappAgentLine(authorName, outboundPayload);
+              } else if (outboundPayload && typeof outboundPayload === 'object' && 'kind' in outboundPayload) {
+                const cap = (outboundPayload as { caption?: string }).caption ?? '';
+                outboundPayload = {
+                  ...outboundPayload,
+                  caption: prependWhatsappAgentLine(authorName, cap) || undefined,
+                };
+              }
+            }
             // Resolve mensagem citada para reply nativo no WhatsApp
             let quotedMsg: { externalId: string; content: string; fromMe: boolean } | null = null;
             if (opts?.replyToId) {
@@ -1010,7 +1214,8 @@ export class ConversationsService {
                 };
               }
             }
-            const raw = await this.outboundSender(tenantId, contact.whatsapp, outboundPayload as any, quotedMsg);
+            // Passa o canal da conversa para garantir que a resposta saia pelo número correto
+            const raw = await this.outboundSender(tenantId, contact.whatsapp, outboundPayload as any, quotedMsg, conv.whatsappChannelId ?? null);
             const sendResult = typeof raw === 'boolean' ? { success: raw } : raw;
             if (sendResult.success) {
               const externalId = sendResult.messageId ?? null;
@@ -1169,6 +1374,20 @@ export class ConversationsService {
         }
       }
 
+      // Registra resolução SLA dentro da transação (sem query extra — dados já em memória)
+      if (convLocked.slaPolicyId) {
+        const resolvedAt = new Date();
+        const slaFinalStatus = this.slaService.computeStatus({
+          slaFirstResponseDeadline: convLocked.slaFirstResponseDeadline,
+          slaResolutionDeadline:    convLocked.slaResolutionDeadline,
+          slaFirstResponseAt:       convLocked.slaFirstResponseAt,
+          slaResolvedAt:            resolvedAt,
+          createdAt:                convLocked.createdAt,
+        });
+        convLocked.slaResolvedAt = resolvedAt;
+        convLocked.slaStatus     = slaFinalStatus;
+      }
+
       convLocked.status = ConversationStatus.CLOSED;
       await em.getRepository(Conversation).save(convLocked);
 
@@ -1284,18 +1503,64 @@ export class ConversationsService {
       }
     }
 
-    const conv = this.convRepo.create({
-      tenantId,
-      clientId: ticket.clientId,
-      contactId: effectiveContactId,
-      channel: ConversationChannel.PORTAL,
-      status: ConversationStatus.ACTIVE,
-      ticketId: ticket.id,
-      initiatedBy: ConversationInitiatedBy.CONTACT,
+    return this.withConversationScopeLock(tenantId, effectiveContactId, ConversationChannel.PORTAL, async (manager) => {
+      const convRepo = manager.getRepository(Conversation);
+      const activeForTicket = await convRepo.findOne({
+        where: { tenantId, ticketId: ticket.id, channel: ConversationChannel.PORTAL, status: ConversationStatus.ACTIVE },
+        order: { createdAt: 'DESC' },
+      });
+      if (activeForTicket) {
+        if (ticket.conversationId !== activeForTicket.id) {
+          await this.ticketsService.linkToConversation(tenantId, ticketId, activeForTicket.id);
+        }
+        return { conversation: activeForTicket, ticket };
+      }
+
+      let active = await this.findLatestActiveConversationByContact(manager, tenantId, effectiveContactId, ConversationChannel.PORTAL);
+      if (active) {
+        if (active.ticketId && active.ticketId !== ticket.id) {
+          throw new BadRequestException('Ja existe uma conversa ativa deste contato vinculada a outro ticket.');
+        }
+        if (active.ticketId !== ticket.id) {
+          active.ticketId = ticket.id;
+          active = await convRepo.save(active);
+        }
+        if (ticket.conversationId !== active.id) {
+          await this.ticketsService.linkToConversation(tenantId, ticketId, active.id);
+        }
+        return { conversation: active, ticket };
+      }
+
+      const conv = convRepo.create({
+        tenantId,
+        clientId: ticket.clientId,
+        contactId: effectiveContactId,
+        channel: ConversationChannel.PORTAL,
+        status: ConversationStatus.ACTIVE,
+        ticketId: ticket.id,
+        initiatedBy: ConversationInitiatedBy.CONTACT,
+      });
+      try {
+        const saved = await convRepo.save(conv);
+        await this.ticketsService.linkToConversation(tenantId, ticketId, saved.id);
+        return { conversation: saved, ticket };
+      } catch (error) {
+        if (!this.isActiveConversationUniqueViolation(error)) throw error;
+        active = await this.findLatestActiveConversationByContact(manager, tenantId, effectiveContactId, ConversationChannel.PORTAL);
+        if (!active) throw error;
+        if (active.ticketId && active.ticketId !== ticket.id) {
+          throw new BadRequestException('Ja existe uma conversa ativa deste contato vinculada a outro ticket.');
+        }
+        if (active.ticketId !== ticket.id) {
+          active.ticketId = ticket.id;
+          active = await convRepo.save(active);
+        }
+        if (ticket.conversationId !== active.id) {
+          await this.ticketsService.linkToConversation(tenantId, ticketId, active.id);
+        }
+        return { conversation: active, ticket };
+      }
     });
-    const saved = await this.convRepo.save(conv);
-    await this.ticketsService.linkToConversation(tenantId, ticketId, saved.id);
-    return { conversation: saved, ticket };
   }
 
   /**

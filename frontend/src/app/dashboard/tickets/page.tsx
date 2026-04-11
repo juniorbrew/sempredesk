@@ -46,13 +46,27 @@ function PriorityBadge({ priority }: { priority: string }) {
 }
 
 function SlaIndicator({ ticket }: { ticket: any }) {
-  if (!ticket.slaResolveAt || ['resolved','closed','cancelled'].includes(ticket.status)) return null;
-  const diff = new Date(ticket.slaResolveAt).getTime() - Date.now();
+  const done = ['resolved','closed','cancelled'];
+  if (done.includes(ticket.status)) return null;
+  const now = Date.now();
+
+  // Primeiro verifica o prazo de primeira resposta (se ainda não houve resposta)
+  if (ticket.slaResponseAt && !ticket.slaFirstResponseAt) {
+    const diff = new Date(ticket.slaResponseAt).getTime() - now;
+    if (diff < 0) return <span style={{ fontSize:10, color:'#DC2626', fontWeight:700 }}>1ª resp. VIOLADO</span>;
+    if (diff < 30 * 60000) {
+      const mins = Math.floor(diff / 60000);
+      return <span style={{ fontSize:10, fontWeight:700, color:'#DC2626' }}>1ª resp. {mins}m</span>;
+    }
+  }
+
+  if (!ticket.slaResolveAt) return null;
+  const diff = new Date(ticket.slaResolveAt).getTime() - now;
   if (diff < 0) return <span style={{ fontSize:10, color:'#DC2626', fontWeight:700 }}>SLA VIOLADO</span>;
-  const hours = Math.floor(diff/3600000);
-  const mins = Math.floor((diff%3600000)/60000);
-  const urgent = diff < 4*3600000;
-  return <span style={{ fontSize:10, fontWeight:600, color:urgent?'#F97316':'#94A3B8' }}>{hours>0?`${hours}h ${mins}m`:`${mins}m`}</span>;
+  const hours = Math.floor(diff / 3600000);
+  const mins  = Math.floor((diff % 3600000) / 60000);
+  const atRisk = diff < 4 * 3600000;
+  return <span style={{ fontSize:10, fontWeight:600, color: atRisk ? '#F97316' : '#94A3B8' }}>{hours > 0 ? `${hours}h ${mins}m` : `${mins}m`}</span>;
 }
 
 const KANBAN_COLS = ['open','in_progress','waiting_client','resolved','closed','cancelled'];

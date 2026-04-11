@@ -26,16 +26,16 @@ export default function ReportsPage() {
         api.ticketStats(),
         api.getTeam(),
         api.getTickets({ status: 'open,in_progress', perPage: 50 }),
-        (api as any).ticketTrend(trendDays),
+        api.ticketTrend(trendDays),
       ]);
       setStats(statsRes);
-      setTeam(teamRes || []);
-      const all: any[] = Array.isArray(slaRes) ? slaRes : (slaRes as any)?.data || [];
+      setTeam((teamRes as any[]) || []);
+      const all: any[] = Array.isArray(slaRes) ? slaRes : (slaRes as any)?.data ?? [];
       const now = Date.now();
       const in24h = all.filter((t: any) => t.slaResolveAt && new Date(t.slaResolveAt).getTime() - now < 24 * 3600 * 1000);
       setSlaRisk(in24h.sort((a: any, b: any) => new Date(a.slaResolveAt).getTime() - new Date(b.slaResolveAt).getTime()));
       // Process trend data
-      const trendData = Array.isArray(trendRes) ? trendRes : (trendRes as any)?.data || [];
+      const trendData = Array.isArray(trendRes) ? trendRes : (trendRes as any)?.data ?? [];
       setTrend(trendData.map((d: any) => ({ ...d, label: d.date ? format(new Date(d.date), 'dd/MM', { locale: ptBR }) : d.label })));
     } catch(e) { console.error(e); }
     setLoading(false);
@@ -63,7 +63,7 @@ export default function ReportsPage() {
   const exportCSV = async () => {
     try {
       const res: any = await api.getTickets({ perPage: 9999 });
-      const rows: any[] = Array.isArray(res) ? res : res?.data || [];
+      const rows: any[] = Array.isArray(res) ? res : res?.data ?? [];
       const header = ['Número','Assunto','Cliente','Status','Prioridade','Técnico','SLA Resolução','Aberto em','Resolvido em'];
       const csvRows = rows.map((t: any) => [
         t.ticketNumber, `"${t.subject}"`, `"${t.clientName||''}"`,

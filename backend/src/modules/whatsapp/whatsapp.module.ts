@@ -49,11 +49,13 @@ export class WhatsappModule implements OnModuleInit {
 
   async onModuleInit() {
     // Registra dispatcher de mensagens outbound (agente → contato via WhatsApp)
+    // whatsappChannelId é propagado pela conversa para garantir saída pelo número correto
     this.conversationsService.setOutboundSender(async (
       tenantId: string,
       toWhatsapp: string,
       payload: string | { kind: 'image' | 'audio' | 'video'; filePath: string; caption?: string; mime?: string },
       quotedMsg?: { externalId: string; content: string; fromMe: boolean } | null,
+      whatsappChannelId?: string | null,
     ) => {
       if (typeof payload !== 'string') {
         if (this.baileysService) {
@@ -67,7 +69,7 @@ export class WhatsappModule implements OnModuleInit {
           if (result.success) return result;
           this.logger.warn(`[outboundSender] Baileys falhou para mídia (${result.error}), tentando Meta API`);
         }
-        // Fallback: Meta Cloud API
+        // Fallback: Meta Cloud API — usa canal da conversa ou default do tenant
         try {
           const digits = toWhatsapp.replace(/\D/g, '');
           const wamid = await this.whatsappService.sendMetaMedia(
@@ -75,7 +77,12 @@ export class WhatsappModule implements OnModuleInit {
             digits,
             payload.kind,
             payload.filePath,
-            { caption: payload.caption, mime: payload.mime, contextMessageId: quotedMsg?.externalId ?? null },
+            {
+              caption: payload.caption,
+              mime: payload.mime,
+              contextMessageId: quotedMsg?.externalId ?? null,
+              whatsappChannelId: whatsappChannelId ?? null,
+            },
           );
           if (wamid) return { success: true, messageId: wamid };
           return { success: false, error: 'Meta API não retornou wamid para mídia' };
@@ -91,7 +98,8 @@ export class WhatsappModule implements OnModuleInit {
       }
       try {
         const digits = toWhatsapp.replace(/\D/g, '');
-        const wamid = await this.whatsappService.sendWhatsappMessage(tenantId, digits, text, quotedMsg?.externalId ?? null);
+        // Passa whatsappChannelId — sendWhatsappMessage usará o canal correto (ou default como fallback)
+        const wamid = await this.whatsappService.sendWhatsappMessage(tenantId, digits, text, quotedMsg?.externalId ?? null, whatsappChannelId);
         return { success: true, messageId: wamid ?? undefined };
       } catch (e: any) {
         return { success: false, error: e?.message };
@@ -181,10 +189,11 @@ export class WhatsappModule implements OnModuleInit {
         });
 
         // Run through chatbot first if available
+        // Baileys não tem metaPhoneNumberId → whatsappChannelId = undefined (usa default do tenant)
         let transferDept: string | undefined;
         let transferClientId: string | undefined;
         if (this.chatbotService && !skipChatbot && String(text || '').trim()) {
-          const botResult = await this.chatbotService.processMessage(tenantId, from, text, 'whatsapp', senderName);
+          const botResult = await this.chatbotService.processMessage(tenantId, from, text, 'whatsapp', senderName, undefined);
           if (botResult.handled) {
             // Send bot replies back via Baileys
             for (const reply of botResult.replies) {

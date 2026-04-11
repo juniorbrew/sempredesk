@@ -146,6 +146,41 @@ export class EmailService {
     }
   }
 
+  async sendSlaAlert(
+    tenantId: string,
+    to: string,
+    stats: { atRisk: number; breached: number },
+  ): Promise<void> {
+    try {
+      const transport = await this.getTransporter(tenantId);
+      if (!transport) return;
+      const s = await this.settingsService.findByTenant(tenantId);
+      const from = s.smtpFrom || s.smtpUser;
+      const total = stats.atRisk + stats.breached;
+      await transport.sendMail({
+        from,
+        to,
+        subject: `⚠️ SLA: ${total} conversa(s) em atenção`,
+        html: `
+          <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
+            <div style="background:#1E293B;padding:20px;border-radius:8px 8px 0 0">
+              <h2 style="color:#fff;margin:0">⚠️ Alerta de SLA — Atendimento</h2>
+            </div>
+            <div style="padding:20px;border:1px solid #E2E8F0;border-top:none;border-radius:0 0 8px 8px">
+              <p style="color:#475569">Resumo das conversas fora do prazo nos últimos 5 minutos:</p>
+              <table style="width:100%;border-collapse:collapse;margin:16px 0">
+                ${stats.breached > 0 ? `<tr style="background:#FEF2F2"><td style="padding:10px;font-weight:bold;color:#64748B">🔴 SLA Violado</td><td style="padding:10px;font-weight:bold;color:#DC2626;font-size:20px">${stats.breached}</td></tr>` : ''}
+                ${stats.atRisk > 0 ? `<tr><td style="padding:10px;font-weight:bold;color:#64748B">🟠 Em Risco</td><td style="padding:10px;font-weight:bold;color:#F97316;font-size:20px">${stats.atRisk}</td></tr>` : ''}
+              </table>
+              <p style="color:#DC2626;font-weight:bold">Acesse o painel de atendimento e tome ação imediata!</p>
+            </div>
+          </div>`,
+      });
+    } catch (e: any) {
+      this.logger.error(`[EmailService] sendSlaAlert falhou: ${e?.message}`);
+    }
+  }
+
   async sendWeeklyReport(tenantId: string, to: string, stats: any): Promise<void> {
     try {
       const s = await this.settingsService.findByTenant(tenantId);

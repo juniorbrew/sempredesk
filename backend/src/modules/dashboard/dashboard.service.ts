@@ -83,7 +83,9 @@ export class DashboardService {
   async getSlaReport(tenantId: string) {
     const now = new Date();
     const soon = new Date(now.getTime() + 4 * 3600 * 1000);
-    const [breached, atRisk] = await Promise.all([
+
+    // Tickets
+    const [ticketsBreached, ticketsAtRisk] = await Promise.all([
       this.ticketRepo.createQueryBuilder('t')
         .where('t.tenant_id = :tenantId', { tenantId })
         .andWhere('t.sla_resolve_at < :now', { now })
@@ -95,6 +97,40 @@ export class DashboardService {
         .andWhere('t.status NOT IN (:...done)', { done: [TicketStatus.RESOLVED, TicketStatus.CLOSED, TicketStatus.CANCELLED] })
         .getMany(),
     ]);
-    return { breached, atRisk };
+
+    // Conversas (sla_policies system)
+    const [convsBreached, convsAtRisk]: [any[], any[]] = await Promise.all([
+      this.ticketRepo.manager.query(
+        `SELECT id, contact_id AS "contactId", sla_resolution_deadline AS "slaResolutionDeadline",
+                sla_status AS "slaStatus", created_at AS "createdAt", channel
+           FROM conversations
+          WHERE tenant_id = $1
+            AND sla_policy_id IS NOT NULL
+            AND sla_resolved_at IS NULL
+            AND status NOT IN ('closed')
+            AND sla_status = 'breached'`,
+        [tenantId],
+      ),
+      this.ticketRepo.manager.query(
+        `SELECT id, contact_id AS "contactId", sla_resolution_deadline AS "slaResolutionDeadline",
+                sla_status AS "slaStatus", created_at AS "createdAt", channel
+           FROM conversations
+          WHERE tenant_id = $1
+            AND sla_policy_id IS NOT NULL
+            AND sla_resolved_at IS NULL
+            AND status NOT IN ('closed')
+            AND sla_status = 'at_risk'`,
+        [tenantId],
+      ),
+    ]);
+
+    return {
+      breached: ticketsBreached,
+      atRisk: ticketsAtRisk,
+      conversations: {
+        breached: convsBreached,
+        atRisk: convsAtRisk,
+      },
+    };
   }
 }

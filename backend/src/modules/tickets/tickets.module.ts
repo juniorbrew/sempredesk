@@ -21,6 +21,7 @@ import { WebhooksService } from '../webhooks/webhooks.service';
 import { RoutingRulesService } from '../routing-rules/routing-rules.service';
 import { TicketAssignmentService } from '../ticket-assignment/ticket-assignment.service';
 import { StorageQuotaGuard } from '../../common/guards/storage-quota.guard';
+import { SlaModule } from '../sla/sla.module';
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { StorageQuotaGuard } from '../../common/guards/storage-quota.guard';
     WebhooksModule,
     RoutingRulesModule,
     TicketAssignmentModule,
+    SlaModule,
   ],
   providers: [TicketsService, TicketSatisfactionService, StorageQuotaGuard],
   controllers: [TicketsController, InboundEmailController],

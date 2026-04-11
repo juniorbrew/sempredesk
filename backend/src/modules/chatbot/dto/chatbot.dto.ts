@@ -20,6 +20,8 @@ export class UpdateChatbotConfigDto {
   @IsString() @IsOptional() ratingThanksMessage?: string | null;
   @IsBoolean() @IsOptional() collectName?: boolean;
   @IsString() @IsOptional() nameRequestMessage?: string;
+  /** Prefixar *nome do agente* nas respostas WhatsApp ao cliente (atendimento humano). */
+  @IsBoolean() @IsOptional() whatsappPrefixAgentName?: boolean;
 }
 
 export class UpsertMenuItemDto {

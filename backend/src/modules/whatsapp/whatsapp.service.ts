@@ -15,10 +15,78 @@ import { ConversationsService } from '../conversations/conversations.service';
 import { RealtimePresenceService } from '../realtime/realtime-presence.service';
 import { BaileysService } from './baileys.service';
 import { ChatbotService } from '../chatbot/chatbot.service';
-import { TicketOrigin } from '../tickets/entities/ticket.entity';
+import { MessageType, TicketOrigin } from '../tickets/entities/ticket.entity';
 import { ConversationChannel } from '../conversations/entities/conversation.entity';
 import { detectCnpjInText, normalizeCnpj } from '../../common/utils/cnpj.utils';
 import { normalizeWhatsappNumber, restoreBrNinthDigit } from '../../common/utils/phone.utils';
+import { readFilePrefixSync } from '../../common/utils/read-file-prefix.util';
+import { validateFileSignature, resolveValidatedConversationMime } from '../../common/utils/validate-file-signature.util';
+import { filePathToStorageKey, TICKET_ATTACHMENTS_ROOT } from '../../common/utils/multer-disk-storage.util';
+import {
+  fetchWhatsappPrefixAgentEnabled,
+  prependWhatsappAgentLine,
+} from './whatsapp-outbound-agent-prefix.util';
+
+/** Mesmos documentos permitidos no chat de conversa — envio WA é só texto informativo. */
+const WA_TICKET_MEDIA_DOCUMENT_MIMES = new Set([
+  'application/pdf',
+  'text/plain',
+  'text/csv',
+  'application/csv',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/zip',
+  'application/x-zip-compressed',
+  'application/x-rar-compressed',
+  'application/vnd.rar',
+]);
+
+function waTicketMimeFromOriginalname(name: string): string | null {
+  const ext = path.extname(name).toLowerCase().replace(/^\./, '');
+  const map: Record<string, string> = {
+    pdf: 'application/pdf',
+    txt: 'text/plain',
+    csv: 'text/csv',
+    doc: 'application/msword',
+    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    xls: 'application/vnd.ms-excel',
+    xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    zip: 'application/zip',
+    rar: 'application/vnd.rar',
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    png: 'image/png',
+    gif: 'image/gif',
+    webp: 'image/webp',
+    heic: 'image/heic',
+    heif: 'image/heif',
+    svg: 'image/svg+xml',
+    mp3: 'audio/mpeg',
+    wav: 'audio/wav',
+    m4a: 'audio/mp4',
+    mp4: 'video/mp4',
+  };
+  return map[ext] ?? null;
+}
+
+function normalizeWaTicketDeclaredMime(raw: string): string {
+  const m = raw.split(';')[0].trim().toLowerCase();
+  const map: Record<string, string> = {
+    'image/jpg': 'image/jpeg',
+    'image/pjpeg': 'image/jpeg',
+    'image/x-png': 'image/png',
+    'audio/mp3': 'audio/mpeg',
+    'audio/x-mp3': 'audio/mpeg',
+    'audio/x-m4a': 'audio/mp4',
+    'audio/m4a': 'audio/mp4',
+    'application/x-pdf': 'application/pdf',
+    'audio/wave': 'audio/wav',
+    'audio/x-wav': 'audio/wav',
+  };
+  return map[m] ?? m;
+}
 
 export interface NormalizedWhatsappMessage {
   provider: 'generic' | 'meta';
@@ -120,7 +188,18 @@ export class WhatsappService {
     }
   }
 
-  async handleIncomingMessage(tenantId: string, msg: NormalizedWhatsappMessage, department?: string, chatbotClientId?: string) {
+  async handleIncomingMessage(
+    tenantId: string,
+    msg: NormalizedWhatsappMessage,
+    department?: string,
+    chatbotClientId?: string,
+    /**
+     * ID do registro whatsapp_connections pelo qual esta mensagem chegou.
+     * Propagado desde o webhook via findTenantByMetaPhoneNumberId().
+     * Garante que respostas do chatbot e do atendimento saiam pelo canal correto.
+     */
+    whatsappChannelId?: string,
+  ) {
     let wa = (msg.resolvedDigits || msg.from).replace(/\D/g, '');
     // BR: PN resolvido de @lid ou JID legado pode vir com 12 dígitos sem o 9 após o DDD.
     // restoreBrNinthDigit é no-op para LIDs longos e números já com 13 dígitos.
@@ -161,11 +240,15 @@ export class WhatsappService {
 
       if (!skipChatbot && text) {
         try {
-          const botResult = await this.chatbotService.processMessage(tenantId, msg.from, text, 'whatsapp', msg.senderName);
+          // Propaga whatsappChannelId para o chatbot registrar na sessão e para rotear respostas
+          const botResult = await this.chatbotService.processMessage(
+            tenantId, msg.from, text, 'whatsapp', msg.senderName, whatsappChannelId,
+          );
           if (botResult.handled) {
             // Send replies via Meta API — usa wa (número normalizado) e não msg.from bruto
+            // Passa whatsappChannelId para garantir que saia pelo número correto
             for (const reply of botResult.replies) {
-              this.sendWhatsappMessage(tenantId, wa, reply).catch(() => {});
+              this.sendWhatsappMessage(tenantId, wa, reply, null, whatsappChannelId).catch(() => {});
             }
             if (!botResult.transfer) {
               return { created: false, reason: 'CHATBOT_HANDLED' };
@@ -464,6 +547,8 @@ export class WhatsappService {
         contactName: contact.name || contact.email || wa,
         department: resolvedDepartment,
         autoCreateTicket: true,
+        // Preserva o canal de origem — garante que respostas saiam pelo número correto
+        whatsappChannelId: whatsappChannelId ?? null,
       },
     );
     this.logWhatsappResolution({
@@ -651,6 +736,18 @@ export class WhatsappService {
       throw new BadRequestException('Número WhatsApp do contato inválido');
     }
 
+    // Resolve canal WhatsApp da conversa para garantir saída pelo número correto
+    let whatsappChannelId: string | null = null;
+    if (ticket.conversationId) {
+      try {
+        const rows: Array<{ whatsapp_channel_id: string | null }> = await this.dataSource.query(
+          `SELECT whatsapp_channel_id FROM conversations WHERE id = $1 AND tenant_id = $2 LIMIT 1`,
+          [ticket.conversationId, tenantId],
+        );
+        whatsappChannelId = rows[0]?.whatsapp_channel_id ?? null;
+      } catch { /* segue sem canal específico */ }
+    }
+
     // Resolve mensagem citada para reply nativo no WhatsApp
     let quotedMsg: { externalId: string; content: string; fromMe: boolean } | null = null;
     if (replyToId) {
@@ -670,17 +767,27 @@ export class WhatsappService {
       } catch { /* lookup falhou — segue sem reply */ }
     }
 
+    const prefixAgent = await fetchWhatsappPrefixAgentEnabled(this.dataSource, tenantId);
+    const textToSend =
+      prefixAgent && authorName.trim() ? prependWhatsappAgentLine(authorName, text) : text;
+
     // Tenta Baileys (QR) primeiro; fallback Meta API
     let sent = false;
     let externalMsgId: string | null = null;
     if (this.baileysService) {
-      const result = await this.baileysService.sendMessage(tenantId, destination.raw, text, { quoted: quotedMsg ?? undefined });
+      const result = await this.baileysService.sendMessage(tenantId, destination.raw, textToSend, { quoted: quotedMsg ?? undefined });
       sent = result.success;
       externalMsgId = result.messageId ?? null; // ID para rastreamento de ACK (delivered/read)
     }
     if (!sent) {
-      const wamid = await this.sendWhatsappMessage(tenantId, destination.phone, text, quotedMsg?.externalId ?? null);
+      const wamid = await this.sendWhatsappMessage(tenantId, destination.phone, textToSend, quotedMsg?.externalId ?? null, whatsappChannelId);
       if (wamid) { externalMsgId = wamid; sent = true; }
+    }
+
+    if (!sent) {
+      throw new BadRequestException(
+        'Não foi possível enviar a mensagem pelo WhatsApp. Verifique a conexão (sessão Baileys ou API Meta).',
+      );
     }
 
     let savedMessage: any = null;
@@ -696,10 +803,215 @@ export class WhatsappService {
       } catch {
         // Conversation may already be closed; WhatsApp message was still delivered
       }
+    } else {
+      // Inbox GET /tickets/conversations só lista tickets com conversation_id IS NULL — o histórico
+      // do painel vem de ticket_messages; antes não gravávamos nada e o frontend recebia message=null.
+      try {
+        savedMessage = await this.ticketsService.addMessage(tenantId, ticketId, authorId, authorName, 'user', {
+          content: text,
+          messageType: MessageType.COMMENT,
+          channel: 'whatsapp',
+        });
+      } catch (e) {
+        this.logger.warn(
+          `sendReplyFromTicket: envio WA ok mas falha ao gravar ticket_messages (ticketId=${ticketId})`,
+          e,
+        );
+      }
     }
 
     // Retorna a mensagem salva para o frontend substituir o otimista sem flash
     return { success: true, message: savedMessage };
+  }
+
+  /**
+   * Ticket WhatsApp sem conversa vinculada: envia mídia (imagem/áudio/MP4) ou aviso de documento pelo WA,
+   * depois grava anexo em ticket_messages (mesmo fluxo que POST /tickets/:id/attachments).
+   */
+  async sendMediaReplyFromTicket(
+    tenantId: string,
+    ticketId: string,
+    authorId: string,
+    authorName: string,
+    file: { path: string; mimetype?: string; originalname?: string; size?: number },
+    opts?: { content?: string | null; replyToId?: string | null },
+  ): Promise<{ success: true; message: any; attachment: any }> {
+    const unlinkUpload = async () => {
+      await fs.promises.unlink(file.path).catch(() => {});
+    };
+
+    const ticket = await this.ticketsService.findOne(tenantId, ticketId);
+    if (ticket.origin !== TicketOrigin.WHATSAPP) {
+      await unlinkUpload();
+      throw new BadRequestException('Este ticket não é originado via WhatsApp');
+    }
+    if (!ticket.contactId) {
+      await unlinkUpload();
+      throw new BadRequestException('Ticket sem contato associado');
+    }
+
+    const contact = await this.customersService.findContactById(tenantId, ticket.contactId);
+    if (!contact?.whatsapp && !contact?.metadata?.whatsappLid) {
+      await unlinkUpload();
+      throw new BadRequestException('Contato não possui número WhatsApp cadastrado');
+    }
+
+    const destination = this.resolveContactWhatsappTarget(contact);
+    if (!destination.digits || destination.digits.length < 10) {
+      await unlinkUpload();
+      throw new BadRequestException('Número WhatsApp do contato inválido');
+    }
+
+    // Resolve canal WhatsApp da conversa para garantir saída pelo número correto
+    let whatsappChannelId: string | null = null;
+    if (ticket.conversationId) {
+      try {
+        const rows: Array<{ whatsapp_channel_id: string | null }> = await this.dataSource.query(
+          `SELECT whatsapp_channel_id FROM conversations WHERE id = $1 AND tenant_id = $2 LIMIT 1`,
+          [ticket.conversationId, tenantId],
+        );
+        whatsappChannelId = rows[0]?.whatsapp_channel_id ?? null;
+      } catch { /* segue sem canal específico */ }
+    }
+
+    const head = readFilePrefixSync(file.path, 512);
+    let mime = normalizeWaTicketDeclaredMime(String(file.mimetype || '').split(';')[0].trim());
+    if (!mime || mime === 'application/octet-stream') {
+      const guessed = waTicketMimeFromOriginalname(String(file.originalname || ''));
+      if (guessed) mime = guessed;
+    }
+
+    let mediaKind: 'image' | 'audio' | 'video' | 'file';
+    let effectiveMime: string;
+
+    if (mime.startsWith('image/')) {
+      mediaKind = 'image';
+      const resolved = resolveValidatedConversationMime(head, mime, 'image');
+      if (!resolved) {
+        await unlinkUpload();
+        throw new BadRequestException('Imagem inválida ou tipo não permitido.');
+      }
+      effectiveMime = resolved;
+    } else if (mime.startsWith('audio/')) {
+      mediaKind = 'audio';
+      const resolved = resolveValidatedConversationMime(head, mime, 'audio');
+      if (!resolved) {
+        await unlinkUpload();
+        throw new BadRequestException('Áudio inválido ou tipo não permitido.');
+      }
+      effectiveMime = resolved;
+    } else if (mime === 'video/mp4' || mime.startsWith('video/mp4;')) {
+      mediaKind = 'video';
+      const resolved = resolveValidatedConversationMime(head, mime, 'video');
+      if (!resolved) {
+        await unlinkUpload();
+        throw new BadRequestException('Para vídeo no WhatsApp use MP4 válido (video/mp4).');
+      }
+      effectiveMime = resolved;
+    } else if (mime.startsWith('video/')) {
+      await unlinkUpload();
+      throw new BadRequestException('Para vídeo no WhatsApp use MP4 (video/mp4).');
+    } else if (WA_TICKET_MEDIA_DOCUMENT_MIMES.has(mime)) {
+      mediaKind = 'file';
+      if (!validateFileSignature(head, mime)) {
+        await unlinkUpload();
+        throw new BadRequestException('Documento inválido ou assinatura não confere com o tipo declarado.');
+      }
+      effectiveMime = mime;
+    } else {
+      await unlinkUpload();
+      throw new BadRequestException(
+        'Tipo de arquivo não permitido (imagem, áudio, vídeo MP4, PDF, Office, CSV, TXT, ZIP, RAR).',
+      );
+    }
+
+    let quotedMsg: { externalId: string; content: string; fromMe: boolean } | null = null;
+    const replyToId = opts?.replyToId;
+    if (replyToId) {
+      try {
+        const rows: Array<{ external_id: string | null; content: string; author_type: string }> = await this.dataSource.query(
+          `SELECT external_id, content, author_type FROM conversation_messages WHERE id = $1 AND tenant_id = $2 LIMIT 1`,
+          [replyToId, tenantId],
+        );
+        const parent = rows[0];
+        if (parent?.external_id) {
+          quotedMsg = {
+            externalId: parent.external_id,
+            content: (parent.content ?? '').slice(0, 200),
+            fromMe: parent.author_type === 'user',
+          };
+        }
+      } catch {
+        /* segue sem reply */
+      }
+    }
+
+    const prefixAgent = await fetchWhatsappPrefixAgentEnabled(this.dataSource, tenantId);
+    const waPrefix =
+      prefixAgent && authorName.trim()
+        ? (s: string) => prependWhatsappAgentLine(authorName, s)
+        : (s: string) => s;
+
+    const caption = (opts?.content ?? '').trim() || undefined;
+    let waOk = false;
+
+    if (mediaKind === 'file') {
+      const cap = (opts?.content ?? '').trim();
+      const txt = waPrefix(
+        cap
+          ? `📎 Documento anexado: ${cap}\n(O ficheiro completo fica no historico do chamado no painel.)`
+          : '📎 Documento anexado. O ficheiro completo fica no historico do chamado no painel.',
+      );
+      if (this.baileysService) {
+        const r = await this.baileysService.sendMessage(tenantId, destination.raw, txt, { quoted: quotedMsg ?? undefined });
+        waOk = r.success;
+      }
+      if (!waOk) {
+        const wamid = await this.sendWhatsappMessage(tenantId, destination.phone, txt, quotedMsg?.externalId ?? null, whatsappChannelId);
+        waOk = !!wamid;
+      }
+    } else {
+      const captionForWa =
+        prefixAgent && authorName.trim()
+          ? prependWhatsappAgentLine(authorName, (opts?.content ?? '').trim()) || undefined
+          : caption;
+      if (this.baileysService) {
+        const r = await this.baileysService.sendMedia(tenantId, destination.raw, mediaKind, file.path, {
+          caption: captionForWa,
+          mime: effectiveMime,
+          quoted: quotedMsg ?? undefined,
+        });
+        if (r.success) waOk = true;
+        else this.logger.warn(`[sendMediaReplyFromTicket] Baileys falhou (${r.error}), tentando Meta`);
+      }
+      if (!waOk) {
+        const wamid = await this.sendMetaMedia(tenantId, destination.phone, mediaKind, file.path, {
+          caption: captionForWa,
+          mime: effectiveMime,
+          contextMessageId: quotedMsg?.externalId ?? null,
+          whatsappChannelId,
+        });
+        waOk = !!wamid;
+      }
+    }
+
+    if (!waOk) {
+      await unlinkUpload();
+      throw new BadRequestException(
+        'Não foi possível enviar a mídia pelo WhatsApp. Verifique a conexão (sessão Baileys ou API Meta).',
+      );
+    }
+
+    const storageKey = filePathToStorageKey(TICKET_ATTACHMENTS_ROOT, file.path);
+    const saved = await this.ticketsService.addTicketAttachmentItem4(tenantId, ticketId, authorId, authorName, 'user', {
+      content: opts?.content ?? undefined,
+      storageKey,
+      originalFilename: file.originalname,
+      mime: effectiveMime,
+      channel: 'whatsapp',
+    });
+
+    return { success: true, message: saved.message, attachment: saved.attachment };
   }
 
   /**
@@ -1112,10 +1424,13 @@ export class WhatsappService {
     to: string,
     kind: 'image' | 'audio' | 'video',
     filePath: string,
-    opts?: { caption?: string; mime?: string; contextMessageId?: string | null },
+    opts?: { caption?: string; mime?: string; contextMessageId?: string | null; whatsappChannelId?: string | null },
   ): Promise<string | null> {
     const metaConfig = this.baileysService
-      ? await this.baileysService.getMetaConfig(tenantId).catch(() => null)
+      ? (opts?.whatsappChannelId
+          ? await this.baileysService.getChannelConfigById(opts.whatsappChannelId).catch(() => null)
+          : null) ??
+        await this.baileysService.getDefaultChannelConfig(tenantId).catch(() => null)
       : null;
     const phoneNumberId = metaConfig?.metaPhoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID;
     const token = metaConfig?.metaToken || process.env.WHATSAPP_TOKEN;
@@ -1255,11 +1570,29 @@ export class WhatsappService {
 
   /**
    * Envio de mensagem via Meta Cloud API (Graph API).
-   * Credenciais lidas do banco (por tenant) com fallback em variáveis de ambiente.
+   *
+   * @param tenantId      - ID do tenant (sempre obrigatório)
+   * @param to            - Número do destinatário (apenas dígitos)
+   * @param text          - Texto da mensagem
+   * @param contextMessageId - wamid para reply nativo (opcional)
+   * @param whatsappChannelId - ID do registro whatsapp_connections a usar.
+   *   Se fornecido, usa as credenciais desse canal específico.
+   *   Se omitido, usa o canal default do tenant (is_default = true).
+   *   Isso garante que respostas sempre saiam pelo mesmo número que recebeu a conversa.
    */
-  async sendWhatsappMessage(tenantId: string, to: string, text: string, contextMessageId?: string | null) {
+  async sendWhatsappMessage(
+    tenantId: string,
+    to: string,
+    text: string,
+    contextMessageId?: string | null,
+    whatsappChannelId?: string | null,
+  ) {
+    // Resolve credenciais: canal específico > canal default do tenant > variáveis de ambiente
     const metaConfig = this.baileysService
-      ? await this.baileysService.getMetaConfig(tenantId).catch(() => null)
+      ? (whatsappChannelId
+          ? await this.baileysService.getChannelConfigById(whatsappChannelId).catch(() => null)
+          : null) ??
+        await this.baileysService.getDefaultChannelConfig(tenantId).catch(() => null)
       : null;
 
     const phoneNumberId =

@@ -16,8 +16,25 @@ export class WhatsappConnection {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ name: 'tenant_id', unique: true })
+  /**
+   * Sem UNIQUE — permite múltiplos números por tenant.
+   * O índice único é composto: (tenant_id, meta_phone_number_id).
+   * @see migration 016_whatsapp_multi_channel.sql
+   */
+  @Column({ name: 'tenant_id' })
   tenantId: string;
+
+  /** Rótulo amigável exibido na interface: "Suporte", "Comercial", "Vendas", etc. */
+  @Column({ length: 100, default: 'Principal' })
+  label: string;
+
+  /**
+   * Indica o canal padrão do tenant.
+   * Usado como fallback quando uma conversa/resposta não tem channelId explícito.
+   * Apenas 1 registro por tenant deve ter is_default = true.
+   */
+  @Column({ name: 'is_default', default: false })
+  isDefault: boolean;
 
   @Column({ type: 'enum', enum: WhatsappProvider, default: WhatsappProvider.BAILEYS })
   provider: WhatsappProvider;

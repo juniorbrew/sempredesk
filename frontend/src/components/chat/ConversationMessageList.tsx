@@ -13,8 +13,8 @@ export type ConversationMessageListTheme = {
 };
 
 export type ConversationMessageListProps = {
-  scrollContainerRef: RefObject<HTMLDivElement | null>;
-  messagesEndRef: RefObject<HTMLDivElement | null>;
+  scrollContainerRef: RefObject<HTMLDivElement>;
+  messagesEndRef: RefObject<HTMLDivElement>;
   onScroll: UIEventHandler<HTMLDivElement>;
   /** Estilo do div rolável (padding, flex, etc.) */
   containerStyle: CSSProperties;

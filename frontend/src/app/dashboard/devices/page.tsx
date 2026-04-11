@@ -51,8 +51,12 @@ export default function DevicesPage() {
   const load = async () => {
     setLoading(true);
     try {
-      const [devs, sum, cust]: any = await Promise.all([api.getDevices(), api.deviceSummary(), api.getCustomers({ limit:200 })]);
-      setDevices(devs||[]); setSummary(sum||{}); setCustomers(cust?.data||cust||[]);
+      const [devs, sum, cust] = await Promise.all([api.getDevices(), api.deviceSummary(), api.getCustomers({ limit:200 })]);
+      const deviceList = Array.isArray(devs) ? devs : Array.isArray((devs as any)?.data) ? (devs as any).data : [];
+      setDevices(deviceList);
+      setSummary((sum as any) || {});
+      const customerList = Array.isArray(cust) ? cust : Array.isArray((cust as any)?.data) ? (cust as any).data : [];
+      setCustomers(customerList);
     } catch(e){ console.error(e); }
     setLoading(false);
   };
@@ -73,7 +77,8 @@ export default function DevicesPage() {
     setLoadingEvents(true);
     try {
       const ev = await api.deviceEvents(d.id);
-      setEvents(ev || []);
+      const evList = Array.isArray(ev) ? ev : Array.isArray((ev as any)?.data) ? (ev as any).data : [];
+      setEvents(evList);
     } catch (e) {
       console.error(e);
       setEvents([]);
@@ -91,11 +96,11 @@ export default function DevicesPage() {
     try {
       const data = { ...form, clientId:form.clientId||undefined };
       if (editing) {
-        const updated = await api.updateDevice(editing.id, data);
+        const updated = (await api.updateDevice(editing.id, data)) as Record<string, unknown>;
         setDevices((prev) => prev.map((d) => (d.id === editing.id ? { ...d, ...updated } : d)));
       } else {
         const created = await api.createDevice(data);
-        const full = Array.isArray(created) ? created[0] : created;
+        const full = Array.isArray(created) ? created[0] : (created as { id?: string } | null);
         if (full?.id) setDevices((prev) => [full, ...prev]);
       }
       setShowModal(false);

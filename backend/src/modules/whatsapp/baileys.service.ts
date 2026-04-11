@@ -324,9 +324,23 @@ export class BaileysService {
   }
 
   async getOrCreateConnection(tenantId: string): Promise<WhatsappConnection> {
-    let conn = await this.connRepo.findOne({ where: { tenantId } });
+    // Prioriza o canal padrão (is_default=true) para evitar retornar canal errado
+    // quando o tenant tem múltiplos canais configurados
+    let conn = await this.connRepo.findOne({
+      where: { tenantId, isDefault: true },
+      order: { createdAt: 'ASC' },
+    });
     if (!conn) {
-      conn = this.connRepo.create({ tenantId, provider: WhatsappProvider.BAILEYS, status: WhatsappConnectionStatus.DISCONNECTED });
+      conn = await this.connRepo.findOne({ where: { tenantId }, order: { createdAt: 'ASC' } });
+    }
+    if (!conn) {
+      // Primeiro canal do tenant → marcado como default automaticamente
+      conn = this.connRepo.create({
+        tenantId,
+        provider: WhatsappProvider.BAILEYS,
+        status: WhatsappConnectionStatus.DISCONNECTED,
+        isDefault: true,
+      });
       await this.connRepo.save(conn);
     }
     return conn;
@@ -1051,11 +1065,14 @@ export class BaileysService {
     }
   }
 
-  /** Resolve o tenantId a partir do metaPhoneNumberId configurado no painel.
-   * Usado pelo webhook para mapear status updates da Meta ao tenant correto.
-   * ORDER BY createdAt DESC garante resultado determinístico mesmo se houver duplicata residual.
-   * O índice único uidx_whatsapp_connections_meta_phone_number_id impede duplicatas novas. */
-  async findTenantByMetaPhoneNumberId(phoneNumberId: string): Promise<string | null> {
+  /**
+   * Resolve o tenant e o connectionId a partir do metaPhoneNumberId.
+   * Retorna { tenantId, connectionId } para que o pipeline propague o canal correto.
+   * O índice único uq_whatsapp_connections_tenant_meta_phone garante 1 resultado por phoneNumberId.
+   */
+  async findTenantByMetaPhoneNumberId(
+    phoneNumberId: string,
+  ): Promise<{ tenantId: string; connectionId: string } | null> {
     const conns = await this.connRepo.find({
       where: { metaPhoneNumberId: phoneNumberId },
       order: { createdAt: 'DESC' },
@@ -1063,23 +1080,206 @@ export class BaileysService {
     });
     if (conns.length > 1) {
       this.logger.error(
-        `[CRITICAL] meta_phone_number_id="${phoneNumberId}" está duplicado em ${conns.length} tenants: ` +
-        conns.map(c => c.tenantId).join(', ') +
-        ' — usando o mais recente. Remova o registro duplicado urgentemente.',
+        `[CRITICAL] meta_phone_number_id="${phoneNumberId}" está duplicado em ${conns.length} conexões: ` +
+        conns.map(c => `tenant=${c.tenantId} id=${c.id}`).join(', ') +
+        ' — usando o mais recente. Verifique o índice uq_whatsapp_connections_tenant_meta_phone.',
       );
     }
-    return conns[0]?.tenantId ?? null;
+    const conn = conns[0];
+    if (!conn) return null;
+    return { tenantId: conn.tenantId, connectionId: conn.id };
   }
 
-  async getMetaConfig(tenantId: string): Promise<{ metaPhoneNumberId: string | null; metaToken: string | null; metaVerifyToken: string | null; metaWebhookUrl: string | null; metaWabaId: string | null } | null> {
-    const conn = await this.connRepo.findOne({ where: { tenantId } });
+  /**
+   * Retorna a configuração Meta de um canal específico pelo seu ID de conexão.
+   * Usado quando a conversa já tem whatsappChannelId definido (rota mais precisa).
+   */
+  async getChannelConfigById(
+    connectionId: string,
+  ): Promise<{ id: string; metaPhoneNumberId: string | null; metaToken: string | null; metaVerifyToken: string | null; metaWebhookUrl: string | null; metaWabaId: string | null } | null> {
+    const conn = await this.connRepo.findOne({ where: { id: connectionId } });
     if (!conn) return null;
     return {
+      id: conn.id,
       metaPhoneNumberId: conn.metaPhoneNumberId,
       metaToken: conn.metaToken,
       metaVerifyToken: conn.metaVerifyToken,
       metaWebhookUrl: conn.metaWebhookUrl,
       metaWabaId: conn.metaWabaId ?? null,
     };
+  }
+
+  /**
+   * Retorna a configuração Meta do canal default do tenant.
+   * Fallback usado quando uma conversa não tem whatsappChannelId explícito.
+   * Tenta primeiro is_default=true; se não encontrar, usa o primeiro registro do tenant.
+   */
+  async getDefaultChannelConfig(
+    tenantId: string,
+  ): Promise<{ id: string; metaPhoneNumberId: string | null; metaToken: string | null; metaVerifyToken: string | null; metaWebhookUrl: string | null; metaWabaId: string | null } | null> {
+    // Tenta canal marcado como default primeiro
+    let conn = await this.connRepo.findOne({ where: { tenantId, isDefault: true }, order: { createdAt: 'DESC' } });
+    // Fallback: qualquer canal do tenant (compatibilidade retroativa)
+    if (!conn) conn = await this.connRepo.findOne({ where: { tenantId }, order: { createdAt: 'DESC' } });
+    if (!conn) return null;
+    return {
+      id: conn.id,
+      metaPhoneNumberId: conn.metaPhoneNumberId,
+      metaToken: conn.metaToken,
+      metaVerifyToken: conn.metaVerifyToken,
+      metaWebhookUrl: conn.metaWebhookUrl,
+      metaWabaId: conn.metaWabaId ?? null,
+    };
+  }
+
+  /**
+   * @deprecated Prefira getDefaultChannelConfig(tenantId) ou getChannelConfigById(connectionId).
+   * Mantido para compatibilidade retroativa com chamadas existentes que ainda não foram migradas.
+   */
+  async getMetaConfig(tenantId: string): Promise<{ metaPhoneNumberId: string | null; metaToken: string | null; metaVerifyToken: string | null; metaWebhookUrl: string | null; metaWabaId: string | null } | null> {
+    return this.getDefaultChannelConfig(tenantId);
+  }
+
+  // ─── Gestão de canais multi-número ────────────────────────────────────────
+
+  /** Lista todos os canais WhatsApp configurados para o tenant. */
+  async listChannels(tenantId: string): Promise<WhatsappConnection[]> {
+    return this.connRepo.find({
+      where: { tenantId },
+      order: { isDefault: 'DESC', createdAt: 'ASC' },
+    });
+  }
+
+  /**
+   * Adiciona um novo canal Meta para o tenant.
+   * Valida que o metaPhoneNumberId não pertence a outro tenant antes de criar.
+   */
+  async addChannel(
+    tenantId: string,
+    config: {
+      label: string;
+      metaPhoneNumberId: string;
+      metaToken: string;
+      metaVerifyToken?: string;
+      metaWebhookUrl?: string;
+      metaWabaId?: string;
+      isDefault?: boolean;
+    },
+  ): Promise<WhatsappConnection> {
+    // Garante que o phoneNumberId não está em uso por outro tenant
+    const conflict = await this.connRepo.findOne({
+      where: { metaPhoneNumberId: config.metaPhoneNumberId },
+    });
+    if (conflict && conflict.tenantId !== tenantId) {
+      throw new Error(
+        `O Phone Number ID "${config.metaPhoneNumberId}" já está vinculado a outro tenant.`,
+      );
+    }
+    if (conflict && conflict.tenantId === tenantId) {
+      throw new Error(
+        `O Phone Number ID "${config.metaPhoneNumberId}" já está configurado nesta empresa. Use editar para atualizar.`,
+      );
+    }
+
+    // Se for marcar como default, remove o flag dos demais
+    if (config.isDefault) {
+      await this.connRepo.update({ tenantId, isDefault: true }, { isDefault: false });
+    }
+
+    // Se não tem nenhum canal ainda, este é automaticamente o default
+    const existingCount = await this.connRepo.count({ where: { tenantId } });
+    const shouldBeDefault = config.isDefault || existingCount === 0;
+
+    const conn = this.connRepo.create({
+      tenantId,
+      label: config.label || 'Principal',
+      provider: WhatsappProvider.META,
+      status: WhatsappConnectionStatus.CONNECTED,
+      metaPhoneNumberId: config.metaPhoneNumberId,
+      metaToken: config.metaToken,
+      metaVerifyToken: config.metaVerifyToken || 'sempredesk-verify',
+      metaWebhookUrl: config.metaWebhookUrl || null,
+      metaWabaId: config.metaWabaId || null,
+      isDefault: shouldBeDefault,
+    });
+
+    try {
+      return await this.connRepo.save(conn);
+    } catch (err: any) {
+      if (err?.code === '23505') {
+        throw new Error(
+          `O Phone Number ID "${config.metaPhoneNumberId}" já foi cadastrado simultaneamente.`,
+        );
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Atualiza label e/ou credenciais de um canal existente.
+   * O metaPhoneNumberId não pode ser alterado (identificador imutável).
+   */
+  async updateChannel(
+    tenantId: string,
+    id: string,
+    update: {
+      label?: string;
+      metaToken?: string;
+      metaVerifyToken?: string;
+      metaWebhookUrl?: string;
+      metaWabaId?: string;
+    },
+  ): Promise<WhatsappConnection> {
+    const conn = await this.connRepo.findOne({ where: { id, tenantId } });
+    if (!conn) throw new Error('Canal não encontrado.');
+
+    if (update.label !== undefined) conn.label = update.label;
+    if (update.metaToken) conn.metaToken = update.metaToken;
+    if (update.metaVerifyToken !== undefined) conn.metaVerifyToken = update.metaVerifyToken;
+    if (update.metaWebhookUrl !== undefined) conn.metaWebhookUrl = update.metaWebhookUrl || null;
+    if (update.metaWabaId !== undefined) conn.metaWabaId = update.metaWabaId || null;
+
+    this.logger.log(`[updateChannel] tenant=${tenantId} id=${id} fields=${Object.keys(update).filter(k => (update as any)[k] !== undefined).join(',')}`);
+    return this.connRepo.save(conn);
+  }
+
+  /**
+   * Define um canal como padrão do tenant.
+   * Remove is_default dos demais e ativa neste.
+   * Operação atômica em transação.
+   */
+  async setDefaultChannel(tenantId: string, id: string): Promise<void> {
+    const conn = await this.connRepo.findOne({ where: { id, tenantId } });
+    if (!conn) throw new Error('Canal não encontrado.');
+
+    await this.connRepo.manager.transaction(async (em) => {
+      await em.update(WhatsappConnection, { tenantId, isDefault: true }, { isDefault: false });
+      await em.update(WhatsappConnection, { id }, { isDefault: true });
+    });
+  }
+
+  /**
+   * Remove um canal do tenant.
+   * Restrições:
+   *  - Não pode remover o único canal existente
+   *  - Não pode remover o canal default sem antes definir outro como default
+   */
+  async deleteChannel(tenantId: string, id: string): Promise<void> {
+    const conn = await this.connRepo.findOne({ where: { id, tenantId } });
+    if (!conn) throw new Error('Canal não encontrado.');
+
+    const total = await this.connRepo.count({ where: { tenantId } });
+    if (total <= 1) {
+      throw new Error(
+        'Não é possível remover o único canal da empresa. Adicione outro canal antes de remover este.',
+      );
+    }
+    if (conn.isDefault) {
+      throw new Error(
+        'Não é possível remover o canal padrão. Defina outro canal como padrão antes de remover este.',
+      );
+    }
+
+    await this.connRepo.delete({ id, tenantId });
   }
 }

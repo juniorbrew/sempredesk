@@ -15,6 +15,7 @@ describe('TicketsService.assertContactBelongsToTenant', () => {
       {} as any,
       {} as any,
       {} as any,
+      { findBestPolicy: jest.fn().mockResolvedValue(null) } as any,
     );
 
     return { service };
@@ -75,6 +76,7 @@ describe('TicketsService.assertContactBelongsToTenant', () => {
       {} as any,
       {} as any,
       {} as any,
+      { findBestPolicy: jest.fn().mockResolvedValue(null) } as any,
     );
 
     await expect(

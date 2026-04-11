@@ -7,7 +7,7 @@ import { useAuthStore, hasPermission } from '@/store/auth.store';
 import {
   MessageSquare, Send, Phone, RefreshCw, Lock, ExternalLink, Plus, Link2, Globe,
   Check, Search, X, CheckCircle2, User, Mail, MapPin, Building2, Hash, Tag, Edit2,
-  Paperclip, Image as ImageIcon, Mic, StopCircle, Video, ChevronLeft, ChevronRight,
+  Paperclip, Mic, StopCircle, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { EmojiPicker } from '@/components/ui/EmojiPicker';
 import ContactValidationBanner, { type ResolvedData } from '@/components/atendimento/ContactValidationBanner';
@@ -67,6 +67,137 @@ function avatarColor(name: string) {
   return COLORS[Math.abs(hash) % COLORS.length];
 }
 
+/** Accept do composer + validação alinhada ao backend (conversations POST). */
+const CHAT_DOCUMENT_ACCEPT =
+  '.pdf,.txt,.doc,.docx,.xls,.xlsx,.csv,.zip,.rar,application/pdf,text/plain,text/csv,application/csv,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/zip,application/x-zip-compressed,application/x-rar-compressed,application/vnd.rar';
+const CHAT_FULL_FILE_ACCEPT = `image/*,audio/*,video/mp4,${CHAT_DOCUMENT_ACCEPT}`;
+const CHAT_DOC_EXT = new Set(['pdf', 'txt', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'zip', 'rar']);
+const CHAT_DOC_MIME = new Set([
+  'application/pdf',
+  'text/plain',
+  'text/csv',
+  'application/csv',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/zip',
+  'application/x-zip-compressed',
+  'application/x-rar-compressed',
+  'application/vnd.rar',
+]);
+
+function isAllowedChatAttachmentFile(f: File): boolean {
+  if (f.type.startsWith('image/') || f.type.startsWith('audio/')) return true;
+  if (f.type === 'video/mp4' || f.type.startsWith('video/mp4;')) return true;
+  const t = f.type.split(';')[0].trim().toLowerCase();
+  if (t && CHAT_DOC_MIME.has(t)) return true;
+  const ext = f.name.split('.').pop()?.toLowerCase() ?? '';
+  return CHAT_DOC_EXT.has(ext);
+}
+
+const CLIPBOARD_IMAGE_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp']);
+
+function clipboardImageMimeToExt(mimeRaw: string): string {
+  const m = mimeRaw.split(';')[0].trim().toLowerCase();
+  if (m === 'image/png' || m === 'image/x-png') return 'png';
+  if (m === 'image/webp') return 'webp';
+  if (m === 'image/gif') return 'gif';
+  if (m === 'image/jpeg' || m === 'image/jpg' || m === 'image/pjpeg') return 'jpg';
+  if (m === 'image/bmp' || m === 'image/x-ms-bmp') return 'bmp';
+  return 'png';
+}
+
+/** Extrai um único ficheiro de imagem do paste (Chrome/Edge no Windows usa muitas vezes `files`, não só `items`). */
+function extractClipboardImageFile(e: React.ClipboardEvent<HTMLTextAreaElement>): File | null {
+  const cd = e.clipboardData;
+  if (!cd) return null;
+
+  if (cd.files && cd.files.length > 0) {
+    for (let i = 0; i < cd.files.length; i++) {
+      const raw = cd.files[i];
+      if (!raw || !raw.size) continue;
+      let mt = (raw.type || '').split(';')[0].trim().toLowerCase();
+      const rawName = raw.name?.trim() ?? '';
+      const extGuess = rawName.includes('.') ? (rawName.split('.').pop()?.toLowerCase() ?? '') : '';
+      if (!mt.startsWith('image/')) {
+        if (CLIPBOARD_IMAGE_EXT.has(extGuess)) {
+          const byExt: Record<string, string> = {
+            jpg: 'image/jpeg',
+            jpeg: 'image/jpeg',
+            png: 'image/png',
+            gif: 'image/gif',
+            webp: 'image/webp',
+            bmp: 'image/bmp',
+          };
+          mt = byExt[extGuess] ?? 'image/png';
+        } else if (!mt || mt === 'application/octet-stream') {
+          mt = 'image/png';
+        } else {
+          continue;
+        }
+      }
+      const ext = clipboardImageMimeToExt(mt);
+      const name =
+        rawName && rawName.length > 0 && /\.[a-z0-9]{2,8}$/i.test(rawName) ? rawName : `print-${Date.now()}.${ext}`;
+      return new File([raw], name, { type: raw.type || mt || 'image/png' });
+    }
+  }
+
+  const items = cd.items;
+  if (!items?.length) return null;
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i];
+    if (it.kind !== 'file') continue;
+    const blob = it.getAsFile();
+    if (!blob || blob.size <= 0) continue;
+    let mimeRaw = (it.type || blob.type || '').split(';')[0].trim().toLowerCase();
+    if (mimeRaw === 'image/x-png') mimeRaw = 'image/png';
+    if (!mimeRaw.startsWith('image/')) {
+      const n = blob.name?.trim() ?? '';
+      const extGuess = n.includes('.') ? (n.split('.').pop()?.toLowerCase() ?? '') : '';
+      if (CLIPBOARD_IMAGE_EXT.has(extGuess)) {
+        const byExt: Record<string, string> = {
+          jpg: 'image/jpeg',
+          jpeg: 'image/jpeg',
+          png: 'image/png',
+          gif: 'image/gif',
+          webp: 'image/webp',
+          bmp: 'image/bmp',
+        };
+        mimeRaw = byExt[extGuess] ?? 'image/png';
+      } else if (!mimeRaw || mimeRaw === 'application/octet-stream') {
+        // Recorte/Print Screen: tipo vazio é comum — assumir PNG para passar validação e backend (sniff).
+        mimeRaw = 'image/png';
+      } else {
+        continue;
+      }
+    }
+    const ext = clipboardImageMimeToExt(mimeRaw);
+    const rawName = blob.name?.trim();
+    const name =
+      rawName && rawName.length > 0 && /\.[a-z0-9]{2,8}$/i.test(rawName) ? rawName : `print-${Date.now()}.${ext}`;
+    return new File([blob], name, { type: blob.type || mimeRaw || 'image/png' });
+  }
+
+  return null;
+}
+
+/** Normaliza corpos `{ success, message }`, `{ success, data }` e entidades cruas após o interceptor Axios. */
+function extractSavedMessageFromSendResponse(res: any): any | null {
+  if (res == null || typeof res !== 'object') return null;
+  if (res.success === false) return null;
+  const wrap = res.message;
+  if (wrap && typeof wrap === 'object' && wrap.id) return wrap;
+  if (res.id) return res;
+  const d = res.data;
+  if (d && typeof d === 'object') {
+    if (d.id) return d;
+    if (d.message && typeof d.message === 'object' && d.message.id) return d.message;
+  }
+  return null;
+}
+
 // ── sub-components ────────────────────────────────────────────────────────────
 function ChannelDot({ channel }: { channel: string }) {
   const isWa = channel === 'whatsapp';
@@ -87,8 +218,6 @@ function ChannelDot({ channel }: { channel: string }) {
 }
 
 // ── main component ────────────────────────────────────────────────────────────
-type AttachmentKind = 'image' | 'audio' | 'video';
-
 type ChatComposerProps = {
   accentColor: string;
   borderColor: string;
@@ -107,6 +236,7 @@ type ChatComposerProps = {
   onSubmit: (e: React.FormEvent) => void;
   onInputChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
   onInputKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+  onComposerPaste: (e: React.ClipboardEvent<HTMLTextAreaElement>) => void;
   onPendingFileChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onRecordedAudio: (file: File) => void;
   onRemovePendingFile: () => void;
@@ -133,6 +263,7 @@ function ChatComposer({
   onSubmit,
   onInputChange,
   onInputKeyDown,
+  onComposerPaste,
   onPendingFileChange,
   onRecordedAudio,
   onRemovePendingFile,
@@ -140,27 +271,14 @@ function ChatComposer({
   replyingTo,
   onCancelReply,
 }: ChatComposerProps) {
-  const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [recordingError, setRecordingError] = useState('');
-  const attachmentMenuRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const shouldSaveRecordingRef = useRef(false);
-
-  useEffect(() => {
-    if (!showAttachmentMenu) return;
-    const handleOutsideClick = (event: MouseEvent) => {
-      if (!attachmentMenuRef.current?.contains(event.target as Node)) {
-        setShowAttachmentMenu(false);
-      }
-    };
-    document.addEventListener('mousedown', handleOutsideClick);
-    return () => document.removeEventListener('mousedown', handleOutsideClick);
-  }, [showAttachmentMenu]);
 
   const clearRecordingTimer = useCallback(() => {
     if (recordingTimerRef.current) {
@@ -215,17 +333,11 @@ function ChatComposer({
     }
   }, [conversationScopeKey, disposeRecorder, resetRecordingState, stopMediaStream]);
 
-  const openFilePicker = useCallback((kind: AttachmentKind) => {
+  const openAttachmentPicker = useCallback(() => {
     const input = attachFileInputRef.current;
     if (!input) return;
-    input.accept =
-      kind === 'image'
-        ? 'image/*'
-        : kind === 'audio'
-          ? 'audio/*'
-          : 'video/mp4';
+    input.accept = CHAT_FULL_FILE_ACCEPT;
     input.click();
-    setShowAttachmentMenu(false);
   }, [attachFileInputRef]);
 
   const finalizeRecording = useCallback((saveRecording: boolean) => {
@@ -254,7 +366,6 @@ function ChatComposer({
 
     try {
       setRecordingError('');
-      setShowAttachmentMenu(false);
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaStreamRef.current = stream;
       audioChunksRef.current = [];
@@ -323,11 +434,6 @@ function ChatComposer({
     }
   }, [canSend, disposeRecorder, isRecording, isSending, onRecordedAudio, pendingFile, resetRecordingState, stopMediaStream]);
 
-  const attachmentOptions: Array<{ kind: AttachmentKind; label: string; icon: ReactNode; description: string }> = [
-    { kind: 'image', label: 'Imagem', icon: <ImageIcon size={15} strokeWidth={2} />, description: 'Enviar imagem' },
-    { kind: 'audio', label: 'Audio', icon: <Mic size={15} strokeWidth={2} />, description: 'Enviar audio' },
-    { kind: 'video', label: 'Video MP4', icon: <Video size={15} strokeWidth={2} />, description: 'Enviar video MP4' },
-  ];
   const recordingLabel = `${String(Math.floor(recordingSeconds / 60)).padStart(2, '0')}:${String(recordingSeconds % 60).padStart(2, '0')}`;
   const showMicButton = canSend && !isSending && !inputValue.trim() && !pendingFile && !isRecording;
 
@@ -336,7 +442,7 @@ function ChatComposer({
       <input
         ref={attachFileInputRef}
         type="file"
-        accept="image/*,audio/*,video/mp4"
+        accept={CHAT_FULL_FILE_ACCEPT}
         style={{ display: 'none' }}
         onChange={onPendingFileChange}
       />
@@ -359,6 +465,7 @@ function ChatComposer({
                 {replyingTo.mediaKind === 'image' ? '📷 Imagem'
                   : replyingTo.mediaKind === 'audio' ? '🎤 Áudio'
                   : replyingTo.mediaKind === 'video' ? '📹 Vídeo'
+                  : replyingTo.mediaKind === 'file' ? '📎 Documento'
                   : replyingTo.content}
               </div>
             </div>
@@ -373,90 +480,31 @@ function ChatComposer({
           </div>
         )}
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, padding: '12px 16px' }}>
-          <div ref={attachmentMenuRef} style={{ position: 'relative', flexShrink: 0 }}>
-            <button
-              type="button"
-              onClick={() => setShowAttachmentMenu((open) => !open)}
-              disabled={!canSend || isSending || isRecording}
-              title="Anexos"
-              style={{
-                width: 40,
-                height: 40,
-                borderRadius: 11,
-                border: '1px solid rgba(0,0,0,.08)',
-                background: !canSend || isSending || isRecording ? '#F1F5F9' : '#F8FAFC',
-                color: !canSend || isSending || isRecording ? '#94A3B8' : mutedTextColor,
-                cursor: !canSend || isSending || isRecording ? 'not-allowed' : 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                transition: 'background .15s, border-color .15s',
-              }}
-            >
-              <Paperclip size={16} strokeWidth={2} />
-            </button>
-
-            {showAttachmentMenu && (
-              <div
-                style={{
-                  position: 'absolute',
-                  bottom: 48,
-                  left: 0,
-                  minWidth: 210,
-                  padding: 8,
-                  borderRadius: 14,
-                  background: '#FFFFFF',
-                  border: '1px solid rgba(0,0,0,.08)',
-                  boxShadow: '0 18px 42px rgba(15,23,42,.18)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 4,
-                  zIndex: 20,
-                }}
-              >
-                {attachmentOptions.map((option) => (
-                  <button
-                    key={option.kind}
-                    type="button"
-                    onClick={() => openFilePicker(option.kind)}
-                    style={{
-                      border: 'none',
-                      background: 'transparent',
-                      borderRadius: 10,
-                      padding: '9px 10px',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 10,
-                      textAlign: 'left',
-                      color: textColor,
-                      fontFamily: 'inherit',
-                    }}
-                  >
-                    <span
-                      style={{
-                        width: 28,
-                        height: 28,
-                        borderRadius: 9,
-                        background: '#EEF2FF',
-                        color: accentColor,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        flexShrink: 0,
-                      }}
-                    >
-                      {option.icon}
-                    </span>
-                    <span style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                      <span style={{ fontSize: 13, fontWeight: 600 }}>{option.label}</span>
-                      <span style={{ fontSize: 11, color: mutedTextColor }}>{option.description}</span>
-                    </span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          <button
+            type="button"
+            onClick={() => {
+              if (!canSend || isSending || isRecording) return;
+              openAttachmentPicker();
+            }}
+            disabled={!canSend || isSending || isRecording}
+            title="Anexar arquivo (imagem, audio, video MP4, documentos)"
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 11,
+              border: '1px solid rgba(0,0,0,.08)',
+              background: !canSend || isSending || isRecording ? '#F1F5F9' : '#F8FAFC',
+              color: !canSend || isSending || isRecording ? '#94A3B8' : mutedTextColor,
+              cursor: !canSend || isSending || isRecording ? 'not-allowed' : 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+              transition: 'background .15s, border-color .15s',
+            }}
+          >
+            <Paperclip size={16} strokeWidth={2} />
+          </button>
 
           <div style={{ flex: 1, minWidth: 0 }}>
             {recordingError && (
@@ -518,6 +566,7 @@ function ChatComposer({
                 value={inputValue}
                 onChange={onInputChange}
                 onKeyDown={onInputKeyDown}
+                onPaste={onComposerPaste}
                 placeholder={canSend ? (isWhatsapp ? 'Mensagem WhatsApp... (Enter para enviar)' : 'Digite sua mensagem...') : 'Conversa indisponivel para envio'}
                 disabled={!canSend || isRecording}
                 rows={1}
@@ -999,8 +1048,8 @@ export default function AtendimentoPage() {
           ? api.getTicketConversations({ origin: 'whatsapp', status: filter === 'closed' ? 'closed' : 'active', perPage: 50 }).catch(() => [] as any)
           : Promise.resolve([]),
       ]);
-      const convArr = (Array.isArray(convList) ? convList : convList?.data ?? []).filter((c: any) => c?.channel !== 'portal');
-      const ticketArr = Array.isArray(ticketConvList) ? ticketConvList : ticketConvList?.data ?? [];
+      const convArr = (Array.isArray(convList) ? convList : (convList as any)?.data ?? []).filter((c: any) => c?.channel !== 'portal');
+      const ticketArr = Array.isArray(ticketConvList) ? ticketConvList : (ticketConvList as any)?.data ?? [];
       const sorted = [...convArr.map((c: any) => ({ ...c, type: c.type || 'conversation' })), ...ticketArr]
         .sort((a: any, b: any) => new Date(b.lastMessageAt || b.createdAt).getTime() - new Date(a.lastMessageAt || a.createdAt).getTime());
       // Deduplica por contactId — 1 chat ativo por contato (mantém o mais recente)
@@ -1113,7 +1162,11 @@ export default function AtendimentoPage() {
 
       // Customers — atualiza cache e estado
       if (customersRes) {
-        const arr: any[] = customersRes?.data || customersRes || [];
+        const arr: any[] = Array.isArray(customersRes)
+          ? customersRes
+          : Array.isArray((customersRes as any)?.data)
+            ? (customersRes as any).data
+            : (customersRes as any) || [];
         // Cliente desta conversa fora da lista paginada → busca individual
         if (clientId && !arr.find((c: any) => c.id === clientId)) {
           try { const r: any = await api.getCustomer(clientId); if (r) arr.push(r?.data ?? r); } catch {}
@@ -1135,17 +1188,22 @@ export default function AtendimentoPage() {
 
       // Team — atualiza cache e estado
       if (teamRes) {
-        let arr: any[] = Array.isArray(teamRes) ? teamRes : teamRes?.data ?? [];
+        let arr: any[] = Array.isArray(teamRes)
+          ? teamRes
+          : Array.isArray((teamRes as any)?.data)
+            ? (teamRes as any).data
+            : [];
         teamRef.current = arr;
         teamCachedAtRef.current = now;
         if (myId === loadIdRef.current) setTeam(arr);
       }
       // Garante que o agente responsável pelo ticket esteja na lista
-      if (ticketRes?.assignedTo) {
+      const ticketForAssign = ticketRes as { assignedTo?: string } | null;
+      if (ticketForAssign?.assignedTo) {
         const cur = teamRef.current;
-        if (!cur.find((u: any) => String(u.id) === String(ticketRes.assignedTo))) {
+        if (!cur.find((u: any) => String(u.id) === String(ticketForAssign.assignedTo))) {
           try {
-            const m: any = await api.getTeamMember(ticketRes.assignedTo);
+            const m: any = await api.getTeamMember(ticketForAssign.assignedTo);
             const member = m?.data ?? m;
             if (member?.id && myId === loadIdRef.current) {
               const arr = [...teamRef.current, member];
@@ -1536,18 +1594,29 @@ export default function AtendimentoPage() {
     const previewKind = file
       ? (file.type.startsWith('audio/')
           ? 'audio'
-          : file.type.startsWith('video/')
+          : file.type === 'video/mp4' || file.type.startsWith('video/mp4;')
             ? 'video'
-            : 'image')
+            : file.type.startsWith('image/')
+              ? 'image'
+              : 'file')
       : null;
     const localPreviewUrl = file ? URL.createObjectURL(file) : null;
+    const agentDisplayName = (user?.name || '').trim() || 'Você';
     setMessages(m => [...m, {
       id: tempId,
       authorType: 'user',
-      authorName: 'Você',
+      authorName: agentDisplayName,
       content:
         text ||
-        (previewKind === 'image' ? '📷 Imagem' : previewKind === 'audio' ? '🎤 Áudio' : previewKind === 'video' ? '📹 Vídeo' : ''),
+        (previewKind === 'image'
+          ? '📷 Imagem'
+          : previewKind === 'audio'
+            ? '🎤 Áudio'
+            : previewKind === 'video'
+              ? '📹 Vídeo'
+              : previewKind === 'file'
+                ? '📎 Documento'
+                : ''),
       createdAt: new Date().toISOString(),
       whatsappStatus: channel === 'whatsapp' ? 'sending' : null,
       _optimistic: true,
@@ -1572,39 +1641,68 @@ export default function AtendimentoPage() {
 
     try {
       let res: any;
+      /** Onde a mensagem foi gravada — para recarregar o histórico certo (ticket_messages vs conversation_messages). */
+      let reloadConversationId: string | null = null;
       if (file) {
-        // Sempre POST em /conversations/:conversationId/messages — precisamos do UUID da conversa.
-        // Linha "ticket" no inbox: id pode ser ticket:...; usar conversationId do ticket carregado.
         const convTarget = !isTicketType
           ? selected.id
           : (currentTicket?.conversationId ?? selected?.conversationId ?? null);
-        if (!convTarget) {
-          throw new Error('Conversa não encontrada para enviar ficheiro. Vincule ou abra a conversa do ticket.');
+        if (convTarget) {
+          reloadConversationId = convTarget;
+          res = await api.addConversationMessage(convTarget, { content: text || undefined, file, replyToId: currentReplyingTo?.id ?? null });
+        } else if (isTicketType && ticketId && channel === 'whatsapp') {
+          res = await api.sendWhatsappMediaFromTicket(ticketId, {
+            file,
+            content: text || undefined,
+            replyToId: currentReplyingTo?.id ?? null,
+          });
+        } else {
+          throw new Error(
+            'Conversa não encontrada para enviar ficheiro. Vincule a conversa ao ticket ou use um ticket WhatsApp sem conversa (envio direto).',
+          );
         }
-        res = await api.addConversationMessage(convTarget, { content: text || undefined, file, replyToId: currentReplyingTo?.id ?? null });
+      } else if (channel === 'whatsapp' && whatsappConvId) {
+        // Texto (e fluxo igual ao anexo): conversa real — dispara outbound WhatsApp. Tem prioridade sobre
+        // `addMessage` do ticket, senão a linha "ticket" no inbox só gravava comentário e não enviava ao contato.
+        reloadConversationId = whatsappConvId;
+        res = await api.addConversationMessage(whatsappConvId, { content: text, replyToId: currentReplyingTo?.id ?? null });
+      } else if (channel === 'whatsapp' && ticketId && !whatsappConvId) {
+        res = await api.sendWhatsappFromTicket(ticketId, text, currentReplyingTo?.id ?? null);
       } else if (isTicketType && ticketId) {
         res = await api.addMessage(ticketId, { content: text, messageType: 'comment' });
-      } else if (channel === 'whatsapp' && whatsappConvId) {
-        res = await api.addConversationMessage(whatsappConvId, { content: text, replyToId: currentReplyingTo?.id ?? null });
-      } else if (channel === 'whatsapp' && ticketId) {
-        res = await api.sendWhatsappFromTicket(ticketId, text, currentReplyingTo?.id ?? null);
       } else {
+        reloadConversationId = selected.id;
         res = await api.addConversationMessage(selected.id, { content: text, replyToId: currentReplyingTo?.id ?? null });
       }
 
-      // Extrai objeto de mensagem da resposta da API (vários formatos possíveis)
-      // sendWhatsappFromTicket agora retorna { success, message: { id, ... } }
-      const real = res?.message?.id ? res.message
-        : res?.id ? res
-        : res?.data?.id ? res.data
-        : null;
+      if (res && typeof res === 'object' && res.success === false) {
+        const m = res.message;
+        throw new Error(typeof m === 'string' && m.trim() ? m : 'Envio recusado pela API');
+      }
+
+      const real = extractSavedMessageFromSendResponse(res);
 
       if (real?.id) {
+        // Mensagens vindas de ticket_messages (send-from-ticket) não têm whatsappStatus; o WA já foi enviado.
+        const ticketRow = (real as any).messageType != null;
+        const withMedia =
+          (real as any).mediaKind && !(real as any).hasMedia
+            ? { ...real, hasMedia: true }
+            : real;
+        const withStatus =
+          channel === 'whatsapp' && ticketRow && (withMedia as any).whatsappStatus == null
+            ? { ...withMedia, whatsappStatus: 'sent' as const }
+            : withMedia;
         // Substitui otimista pelo objeto real em-place — sem flash, sem reload
         setMessages(m => m.map(msg => {
           if (msg.id !== tempId) return msg;
           if (msg._localPreviewUrl) URL.revokeObjectURL(msg._localPreviewUrl);
-          return { ...real };
+          const merged: any = { ...withStatus };
+          const fromApi = String(merged.authorName ?? merged.author_name ?? '').trim();
+          if (merged.authorType === 'user' && !fromApi) merged.authorName = agentDisplayName;
+          else merged.authorName = fromApi || merged.authorName || '';
+          delete merged.author_name;
+          return merged;
         }));
         // Socket também entrega via ticket:message / conversation:message; dedup por ID evita duplicar
       } else {
@@ -1615,11 +1713,16 @@ export default function AtendimentoPage() {
             if (!m.some((x: any) => x.id === tempId)) return m; // socket já substituiu
             return m.filter((x: any) => x.id !== tempId); // remove otimista pendente
           });
-          const fresh = isTicketType && ticketId
-            ? await api.getMessages(ticketId, false).catch(() => null)
-            : await api.getConversationMessages(selected.id).catch(() => null);
+          let fresh: any = null;
+          if (reloadConversationId) {
+            fresh = await api.getConversationMessages(reloadConversationId).catch(() => null);
+          } else if (isTicketType && ticketId) {
+            fresh = await api.getMessages(ticketId, false).catch(() => null);
+          } else {
+            fresh = await api.getConversationMessages(selected.id).catch(() => null);
+          }
           if (fresh) {
-            const arr = Array.isArray(fresh) ? fresh : (fresh as any)?.data ?? [];
+            const arr = Array.isArray(fresh) ? fresh : (fresh as any)?.messages ?? (fresh as any)?.data ?? [];
             setMessages(m => m.some((x: any) => x._optimistic) ? m : arr);
           }
         }, 1500);
@@ -1652,25 +1755,51 @@ export default function AtendimentoPage() {
     });
   };
 
+  // ── derived (envio / composer — antes de hooks que usam canSend) ──
+  const hasTicket = !!selected?.ticketId || isTicketType;
+  const isClosed = selected?.status === 'closed';
+  const isWhatsapp = selected?.channel === 'whatsapp';
+  const isPortalNoTicket = selected?.channel === 'portal' && !hasTicket && selected?.status !== 'closed';
+  const isConvNoTicket = !isTicketType && !hasTicket && !!selected?.id && selected?.status !== 'closed';
+  const canSend = hasTicket || isPortalNoTicket || isConvNoTicket;
+  const ticketIdForRealtime = isTicketType ? (selected?.ticketId || selected?.id?.replace?.(/^ticket:/, '')) : null;
+  const conversationIdForRealtime = !isTicketType ? selected?.id : null;
+
+  /** Mesmo critério do input file: um anexo pendente, validação centralizada. */
+  const acceptPendingAttachmentFile = useCallback(
+    (f: File): boolean => {
+      if (!isAllowedChatAttachmentFile(f)) {
+        showToast('Arquivo nao permitido (imagem, audio, video MP4 ou documentos listados).', 'error');
+        return false;
+      }
+      setPendingFile(f);
+      if (attachFileInputRef.current) attachFileInputRef.current.value = '';
+      return true;
+    },
+    [],
+  );
+
   const handlePendingFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     if (!f) return;
-    const ok =
-      f.type.startsWith('image/') ||
-      f.type.startsWith('audio/') ||
-      f.type === 'video/mp4' ||
-      f.type.startsWith('video/mp4;');
-    if (!ok) {
-      showToast('Envie imagem, audio ou video MP4.', 'error');
-      e.target.value = '';
-      return;
-    }
-    setPendingFile(f);
+    if (!acceptPendingAttachmentFile(f)) e.target.value = '';
   };
 
+  /** Ctrl+V / colar: só imagem do clipboard → mesmo fluxo que anexo pendente. */
+  const handleComposerPaste = useCallback(
+    (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+      if (!canSend || sending || pendingFile) return;
+      const file = extractClipboardImageFile(e);
+      if (!file) return;
+      e.preventDefault();
+      e.stopPropagation();
+      acceptPendingAttachmentFile(file);
+    },
+    [acceptPendingAttachmentFile, canSend, pendingFile, sending],
+  );
+
   const handleRecordedAudio = (file: File) => {
-    setPendingFile(file);
-    if (attachFileInputRef.current) attachFileInputRef.current.value = '';
+    acceptPendingAttachmentFile(file);
   };
 
   const clearPendingFile = () => {
@@ -1701,18 +1830,6 @@ export default function AtendimentoPage() {
       sendMessage(e as unknown as React.FormEvent);
     }
   };
-
-  // ── derived ──
-  const hasTicket = !!selected?.ticketId || isTicketType;
-  const isClosed = selected?.status === 'closed';
-  const isWhatsapp = selected?.channel === 'whatsapp';
-  const isPortalNoTicket = selected?.channel === 'portal' && !hasTicket && selected?.status !== 'closed';
-  // Conversa WhatsApp/canal sem ticket — ainda sem ticket vinculado (usado para exibição de estado)
-  const isConvNoTicket = !isTicketType && !hasTicket && !!selected?.id && selected?.status !== 'closed';
-  // Conversas ativas podem continuar trocando mensagens mesmo sem ticket vinculado.
-  const canSend = hasTicket || isPortalNoTicket || isConvNoTicket;
-  const ticketIdForRealtime = isTicketType ? (selected?.ticketId || selected?.id?.replace?.(/^ticket:/, '')) : null;
-  const conversationIdForRealtime = !isTicketType ? selected?.id : null;
 
   // IDs das mensagens que contêm a query de busca (excluindo internas e de sistema)
   const msgMatchIds: string[] = (() => {
@@ -1774,13 +1891,30 @@ export default function AtendimentoPage() {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
+      const sel = selectedRef.current;
+      const ticketRow = sel?.type === 'ticket' || sel?.id?.startsWith?.('ticket:');
+      const ticketIdForAtt = ticketRow
+        ? (sel?.ticketId || sel?.id?.replace?.(/^ticket:/, ''))
+        : null;
       for (const m of messages) {
         if (!m?.id || m._optimistic || String(m.id).startsWith('_opt')) continue;
-        if (!(m.hasMedia || m.mediaKind === 'image' || m.mediaKind === 'audio' || m.mediaKind === 'video')) continue;
+        const ticketFileAtt = Array.isArray(m.attachments)
+          ? m.attachments.find((a: any) => a?.kind === 'ticket_reply_file' && a?.id)
+          : null;
+        const convMedia =
+          m.hasMedia ||
+          m.mediaKind === 'image' ||
+          m.mediaKind === 'audio' ||
+          m.mediaKind === 'video' ||
+          m.mediaKind === 'file';
+        if (!ticketFileAtt && !convMedia) continue;
         if (messageMediaUrlsRef.current[m.id] || mediaInFlightRef.current.has(String(m.id))) continue;
         mediaInFlightRef.current.add(String(m.id));
         try {
-          const blob = await api.getConversationMessageMediaBlob(m.id);
+          const blob =
+            ticketFileAtt && ticketIdForAtt
+              ? await api.getTicketReplyAttachmentBlob(ticketIdForAtt, ticketFileAtt.id)
+              : await api.getConversationMessageMediaBlob(m.id);
           const url = URL.createObjectURL(blob);
           // Não verifica `cancelled` aqui: o fetch já completou com sucesso.
           // Se a conversa trocou, o effect de selected?.id já limpou messageMediaUrls,
@@ -1908,7 +2042,8 @@ export default function AtendimentoPage() {
     setSavingConversationTags(true);
     try {
       const saved = await api.updateConversationTags(selected.id, conversationTags);
-      const nextTags = Array.isArray(saved?.tags) ? saved.tags : conversationTags;
+      const savedTags = (saved as { tags?: unknown })?.tags;
+      const nextTags = Array.isArray(savedTags) ? savedTags : conversationTags;
       setConversationTags(nextTags);
       setSelected((prev: any) => prev ? { ...prev, tags: nextTags } : prev);
       setConversations((prev: any[]) => prev.map((conv: any) => sameItem(conv, selected) ? { ...conv, tags: nextTags } : conv));
@@ -2250,9 +2385,17 @@ export default function AtendimentoPage() {
                         {c.escalated && (
                           <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 5, fontWeight: 600, background: '#FEF2F2', color: '#DC2626' }}>● Urgente</span>
                         )}
-                        {c.slaCritical && (
-                          <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 5, fontWeight: 600, background: '#FFF1F0', color: '#CF1322' }}>⚠ SLA</span>
-                        )}
+                        {(() => {
+                          if (isClo || !c.slaResolutionDeadline) return null;
+                          const diff = new Date(c.slaResolutionDeadline).getTime() - Date.now();
+                          if (diff < 0) return <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 5, fontWeight: 700, background: '#FEF2F2', color: '#DC2626' }}>SLA VIOL.</span>;
+                          const total = new Date(c.slaResolutionDeadline).getTime() - new Date(c.createdAt).getTime();
+                          const atRisk = total > 0 && diff / total < 0.20;
+                          if (!atRisk) return null;
+                          const h = Math.floor(diff / 3600000);
+                          const m = Math.floor((diff % 3600000) / 60000);
+                          return <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 5, fontWeight: 700, background: '#FFF7ED', color: '#C2410C' }}>⚠ {h > 0 ? `${h}h${m}m` : `${m}m`}</span>;
+                        })()}
                         {noTicket && !isClo && (
                           <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 5, fontWeight: 500, background: '#FEF3C7', color: '#D97706' }}>Sem ticket</span>
                         )}
@@ -2542,6 +2685,7 @@ export default function AtendimentoPage() {
                     onSubmit={sendMessage}
                     onInputChange={handleComposerInputChange}
                     onInputKeyDown={handleComposerKeyDown}
+                    onComposerPaste={handleComposerPaste}
                     onPendingFileChange={handlePendingFileChange}
                     onRecordedAudio={handleRecordedAudio}
                     onRemovePendingFile={clearPendingFile}
@@ -2567,7 +2711,7 @@ export default function AtendimentoPage() {
             // Usa assignedUser embutido no ticket (retornado pelo backend) ou faz fallback na lista de equipe
             const assignedUser = currentTicket?.assignedUser
               || team.find((u: any) => String(u.id) === String(currentTicket?.assignedTo));
-            // SLA calc
+            // SLA calc — ticket
             const slaInfo = (() => {
               if (!currentTicket?.slaResolveAt || ['resolved','closed','cancelled'].includes(currentTicket?.status)) return null;
               const diff = new Date(currentTicket.slaResolveAt).getTime() - Date.now();
@@ -2577,6 +2721,23 @@ export default function AtendimentoPage() {
               const total = new Date(currentTicket.slaResolveAt).getTime() - new Date(currentTicket.createdAt || Date.now()).getTime();
               const pct = Math.max(0, Math.min(100, 100 - (diff / Math.max(total, 1)) * 100));
               return { violated: false, label: h > 0 ? `${h}h ${m}m restantes` : `${m}m restantes`, pct };
+            })();
+            // SLA calc — conversa (sla_policies)
+            const convSlaInfo = (() => {
+              if (!selected?.slaResolutionDeadline || selected?.status === 'closed') return null;
+              const diff = new Date(selected.slaResolutionDeadline).getTime() - Date.now();
+              if (diff < 0) return { violated: true, label: 'VIOLADO', pct: 100, firstResponse: null as string | null };
+              const h = Math.floor(diff / 3600000);
+              const m = Math.floor((diff % 3600000) / 60000);
+              const total = new Date(selected.slaResolutionDeadline).getTime() - new Date(selected.createdAt || Date.now()).getTime();
+              const pct = Math.max(0, Math.min(100, 100 - (diff / Math.max(total, 1)) * 100));
+              let firstResponse: string | null = null;
+              if (selected.slaFirstResponseDeadline && !selected.slaFirstResponseAt) {
+                const fd = new Date(selected.slaFirstResponseDeadline).getTime() - Date.now();
+                if (fd < 0) firstResponse = 'VIOLADO';
+                else { const fh = Math.floor(fd/3600000); const fm = Math.floor((fd%3600000)/60000); firstResponse = fh > 0 ? `${fh}h ${fm}m` : `${fm}m`; }
+              }
+              return { violated: false, label: h > 0 ? `${h}h ${m}m restantes` : `${m}m restantes`, pct, firstResponse };
             })();
             // Client stats from clientTickets
             const total = clientTickets.length;
@@ -2716,6 +2877,44 @@ export default function AtendimentoPage() {
                           : slaInfo.pct > 80
                           ? 'linear-gradient(90deg,#F97316,#EF4444)'
                           : slaInfo.pct > 50
+                          ? '#EAB308'
+                          : '#22C55E',
+                      }} />
+                    </div>
+                  </div>
+                )}
+
+                {/* SLA DA CONVERSA */}
+                {convSlaInfo && (
+                  <div style={{ padding: '14px 16px', borderBottom: S.border }}>
+                    {secTitle('SLA Conversa')}
+                    {convSlaInfo.firstResponse && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                        <span style={{ fontSize: 11, color: convSlaInfo.firstResponse === 'VIOLADO' ? '#DC2626' : '#D97706', fontWeight: 600 }}>
+                          1ª resposta: {convSlaInfo.firstResponse}
+                        </span>
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                      <span style={{
+                        fontSize: 11, fontWeight: 700,
+                        color: convSlaInfo.violated ? '#DC2626' : convSlaInfo.pct > 80 ? '#EA580C' : '#16A34A',
+                        display: 'flex', alignItems: 'center', gap: 4,
+                      }}>
+                        {convSlaInfo.violated && <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: '#DC2626' }} />}
+                        {convSlaInfo.label}
+                      </span>
+                      <span style={{ fontSize: 10, color: S.txt3, fontWeight: 500 }}>{Math.round(convSlaInfo.pct)}%</span>
+                    </div>
+                    <div style={{ height: 8, background: S.bg3, borderRadius: 4, overflow: 'hidden' }}>
+                      <div style={{
+                        height: '100%', borderRadius: 4, transition: 'width .4s',
+                        width: `${convSlaInfo.pct}%`,
+                        background: convSlaInfo.violated
+                          ? '#EF4444'
+                          : convSlaInfo.pct > 80
+                          ? 'linear-gradient(90deg,#F97316,#EF4444)'
+                          : convSlaInfo.pct > 50
                           ? '#EAB308'
                           : '#22C55E',
                       }} />

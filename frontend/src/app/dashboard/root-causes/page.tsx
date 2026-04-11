@@ -17,7 +17,11 @@ export default function RootCausesPage() {
 
   const load = async () => {
     setLoading(true);
-    try { setItems(await api.getRootCauses() || []); } catch (e) { console.error(e); }
+    try {
+      const raw = await api.getRootCauses();
+      const list = Array.isArray(raw) ? raw : Array.isArray((raw as any)?.data) ? (raw as any).data : [];
+      setItems(list);
+    } catch (e) { console.error(e); }
     setLoading(false);
   };
 

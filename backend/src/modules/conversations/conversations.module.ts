@@ -9,6 +9,7 @@ import { CustomersModule } from '../customers/customers.module';
 import { RealtimeModule } from '../realtime/realtime.module';
 import { PermissionsModule } from '../permissions/permissions.module';
 import { StorageQuotaGuard } from '../../common/guards/storage-quota.guard';
+import { SlaModule } from '../sla/sla.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { StorageQuotaGuard } from '../../common/guards/storage-quota.guard';
     CustomersModule,
     RealtimeModule,
     PermissionsModule,
+    SlaModule,
   ],
   providers: [ConversationsService, StorageQuotaGuard],
   controllers: [ConversationsController],
