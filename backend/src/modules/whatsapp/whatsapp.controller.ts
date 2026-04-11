@@ -101,12 +101,15 @@ export class WhatsappController {
 
     // Nunca usar fallback hardcoded para tenant real — isso contaminaria dados entre empresas.
     // Se não for possível resolver o tenant, descartar o payload (200 para Meta não reenviar).
-    const tenantId = resolved?.tenantId || body?.tenantId || body?.tenant_id || body?.tenant;
+    const tenantId = resolved?.tenantId ?? null;
     /** ID do registro whatsapp_connections que recebeu esta mensagem — propaga o canal correto */
     const inboundChannelId: string | undefined = resolved?.connectionId;
     if (!tenantId) {
       this.logger.warn(`[webhook] Payload descartado: meta_phone_number_id="${metaPhoneNumberId ?? 'N/A'}" não mapeado a nenhum tenant`);
-      return { success: true };
+      if (isMetaPayload) {
+        return { success: true, reason: 'TENANT_NOT_RESOLVED' };
+      }
+      return { success: false, reason: 'TENANT_NOT_RESOLVED' };
     }
 
     // ── Processar status updates da Meta (delivered/read) ─────────────────

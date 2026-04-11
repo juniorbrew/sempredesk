@@ -205,6 +205,7 @@ CREATE TABLE conversations (
   ticket_id      VARCHAR,
   chat_alert     BOOLEAN      NOT NULL DEFAULT FALSE,
   initiated_by   conversations_initiated_by_enum NOT NULL DEFAULT 'contact',
+  whatsapp_channel_id UUID,
   last_message_at TIMESTAMPTZ,
   tags           TEXT,
   created_at     TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
@@ -220,8 +221,12 @@ CREATE TABLE conversation_messages (
   author_type     VARCHAR  NOT NULL DEFAULT 'user',
   author_name     VARCHAR  NOT NULL,
   content         TEXT     NOT NULL,
+  media_kind      VARCHAR(16),
+  media_storage_key TEXT,
+  media_mime      VARCHAR(128),
   external_id     TEXT,
   whatsapp_status TEXT,
+  reply_to_id     UUID REFERENCES conversation_messages(id) ON DELETE SET NULL,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -392,7 +397,9 @@ CREATE TABLE kb_articles (
 -- ── WHATSAPP CONNECTIONS ──────────────────────────────────────
 CREATE TABLE whatsapp_connections (
   id                   UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  tenant_id            VARCHAR UNIQUE NOT NULL,
+  tenant_id            VARCHAR NOT NULL,
+  label                VARCHAR(100) NOT NULL DEFAULT 'Principal',
+  is_default           BOOLEAN      NOT NULL DEFAULT false,
   provider             whatsapp_connections_provider_enum NOT NULL DEFAULT 'baileys',
   status               whatsapp_connections_status_enum   NOT NULL DEFAULT 'disconnected',
   phone_number         VARCHAR,
@@ -404,6 +411,12 @@ CREATE TABLE whatsapp_connections (
   created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE conversations
+  ADD CONSTRAINT fk_conversations_whatsapp_channel
+  FOREIGN KEY (whatsapp_channel_id)
+  REFERENCES whatsapp_connections(id)
+  ON DELETE SET NULL;
 
 -- ── CHATBOT CONFIGS ───────────────────────────────────────────
 CREATE TABLE chatbot_configs (
@@ -457,6 +470,7 @@ CREATE TABLE chatbot_sessions (
   step            VARCHAR  NOT NULL DEFAULT 'welcome',
   conversation_id VARCHAR,
   contact_id      VARCHAR,
+  whatsapp_channel_id UUID REFERENCES whatsapp_connections(id) ON DELETE SET NULL,
   metadata        JSONB,
   last_activity   TIMESTAMPTZ NOT NULL,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -671,12 +685,26 @@ CREATE INDEX idx_device_metrics         ON device_metrics(tenant_id, device_id, 
 -- Conversations
 CREATE INDEX idx_conversations_contact  ON conversations(tenant_id, contact_id, status);
 CREATE INDEX idx_conversations_ticket   ON conversations(ticket_id) WHERE ticket_id IS NOT NULL;
+CREATE INDEX idx_conversations_whatsapp_channel_id
+  ON conversations(whatsapp_channel_id)
+  WHERE whatsapp_channel_id IS NOT NULL;
+CREATE UNIQUE INDEX uq_conversations_active_contact_channel
+  ON conversations (tenant_id, contact_id, channel)
+  WHERE status = 'active';
 CREATE INDEX idx_tags_tenant_active     ON tags(tenant_id, active, sort_order, name);
 CREATE INDEX idx_root_causes_tenant_active ON root_causes(tenant_id, active, sort_order, name);
 CREATE INDEX idx_conv_messages_conv     ON conversation_messages(conversation_id, created_at);
+CREATE INDEX idx_conv_messages_reply_to
+  ON conversation_messages(reply_to_id)
+  WHERE reply_to_id IS NOT NULL;
 CREATE UNIQUE INDEX uq_conversation_messages_tenant_external_id
   ON conversation_messages (tenant_id, external_id)
   WHERE external_id IS NOT NULL AND btrim(external_id) <> '';
+
+CREATE UNIQUE INDEX uq_whatsapp_connections_tenant_meta_phone
+  ON whatsapp_connections (tenant_id, meta_phone_number_id)
+  WHERE meta_phone_number_id IS NOT NULL
+    AND btrim(meta_phone_number_id) <> '';
 
 -- Chatbot sessions
 CREATE INDEX idx_chatbot_sessions       ON chatbot_sessions(tenant_id, identifier, channel);

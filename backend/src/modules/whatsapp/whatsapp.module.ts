@@ -77,7 +77,12 @@ export class WhatsappModule implements OnModuleInit {
             digits,
             payload.kind,
             payload.filePath,
-            { caption: payload.caption, mime: payload.mime, contextMessageId: quotedMsg?.externalId ?? null },
+            {
+              caption: payload.caption,
+              mime: payload.mime,
+              contextMessageId: quotedMsg?.externalId ?? null,
+              whatsappChannelId: whatsappChannelId ?? null,
+            },
           );
           if (wamid) return { success: true, messageId: wamid };
           return { success: false, error: 'Meta API não retornou wamid para mídia' };
