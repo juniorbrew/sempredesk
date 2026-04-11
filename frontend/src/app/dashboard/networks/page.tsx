@@ -23,12 +23,15 @@ export default function NetworksPage() {
   const load = async () => {
     setLoading(true);
     try {
-      const res:any = await api.getNetworks(search || undefined);
-      const list = res.data || [];
+      const res = await api.getNetworks(search || undefined);
+      const list = Array.isArray(res) ? res : Array.isArray((res as any)?.data) ? (res as any).data : [];
       setNetworks(list);
       const counts:Record<string,number> = {};
       await Promise.all(list.map(async (n:any) => {
-        try { const r:any = await api.getCustomers({ networkId:n.id, limit:1 }); counts[n.id] = r.total || 0; } catch { counts[n.id] = 0; }
+        try {
+          const r = await api.getCustomers({ networkId:n.id, limit:1 });
+          counts[n.id] = (r as any)?.total || 0;
+        } catch { counts[n.id] = 0; }
       }));
       setClientCounts(counts);
     } catch {}
@@ -51,11 +54,11 @@ export default function NetworksPage() {
     setSaving(true);
     try {
       if (editing) {
-        const updated = await api.updateNetwork(editing.id, form);
+        const updated = (await api.updateNetwork(editing.id, form)) as Record<string, unknown>;
         setNetworks((prev) => prev.map((n) => (n.id === editing.id ? { ...n, ...updated } : n)));
       } else {
         const created = await api.createNetwork(form);
-        const full = Array.isArray(created) ? created[0] : created;
+        const full = Array.isArray(created) ? created[0] : (created as { id?: string } | null);
         if (full?.id) setNetworks((prev) => [...prev, full].sort((a, b) => (a.name || '').localeCompare(b.name || '')));
       }
       setShowModal(false);

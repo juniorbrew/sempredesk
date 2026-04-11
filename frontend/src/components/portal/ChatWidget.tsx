@@ -1175,7 +1175,6 @@ export default function ChatWidget() {
                           <div
                             key={m.id}
                             style={{
-                              textAlign: 'center',
                               fontSize: isTranscript ? 11 : 11,
                               color: '#94A3B8',
                               padding: isTranscript ? '8px 12px' : '4px 8px',

@@ -116,7 +116,7 @@ export default function PortalDashboardTicketDetailPage() {
       }
 
       setTicket(ticketData);
-      setTeam(teamData?.data || teamData || []);
+      setTeam(teamData);
       setMessages(mergeMessages(rawTicketMsgs, convMsgs));
     } catch {}
     setLoading(false);

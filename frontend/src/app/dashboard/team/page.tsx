@@ -97,9 +97,9 @@ export default function TeamPage() {
         (api.getRoles() as Promise<any[]>).catch(() => []),
         (api.getTicketSettings({ type: 'department', perPage: 200 }) as Promise<any>).catch(() => null),
       ]);
-      setTeam(teamRes || []);
+      setTeam((teamRes as any[]) || []);
       setRoles((rolesRes || []).filter((r: any) => r.slug !== 'client_contact'));
-      const deptList = Array.isArray(deptsRes) ? deptsRes : deptsRes?.data || [];
+      const deptList = Array.isArray(deptsRes) ? deptsRes : Array.isArray((deptsRes as any)?.data) ? (deptsRes as any).data : [];
       setAllDepts(deptList.map((d: any) => d.name).filter(Boolean).sort());
     } catch {}
     setLoading(false);
@@ -131,12 +131,12 @@ export default function TeamPage() {
       if (!data.password) delete data.password;
       let savedId = editing?.id;
       if (editing) {
-        const updated = await api.updateTeamMember(editing.id, data);
+        const updated = (await api.updateTeamMember(editing.id, data)) as Record<string, unknown>;
         setTeam((prev) => prev.map((t) => (t.id === editing.id ? { ...t, ...updated } : t)));
       } else {
-        const created = await api.createTeamMember(data);
+        const created = (await api.createTeamMember(data)) as { id?: string };
         savedId = created.id;
-        setTeam((prev) => [...prev, created].sort((a, b) => (a.name || '').localeCompare(b.name || '')));
+        setTeam((prev) => [...prev, created as any].sort((a, b) => (a.name || '').localeCompare(b.name || '')));
       }
       // Salva departamentos do agente
       if (savedId) {

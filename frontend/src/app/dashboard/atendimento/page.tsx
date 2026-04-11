@@ -1048,8 +1048,8 @@ export default function AtendimentoPage() {
           ? api.getTicketConversations({ origin: 'whatsapp', status: filter === 'closed' ? 'closed' : 'active', perPage: 50 }).catch(() => [] as any)
           : Promise.resolve([]),
       ]);
-      const convArr = (Array.isArray(convList) ? convList : convList?.data ?? []).filter((c: any) => c?.channel !== 'portal');
-      const ticketArr = Array.isArray(ticketConvList) ? ticketConvList : ticketConvList?.data ?? [];
+      const convArr = (Array.isArray(convList) ? convList : (convList as any)?.data ?? []).filter((c: any) => c?.channel !== 'portal');
+      const ticketArr = Array.isArray(ticketConvList) ? ticketConvList : (ticketConvList as any)?.data ?? [];
       const sorted = [...convArr.map((c: any) => ({ ...c, type: c.type || 'conversation' })), ...ticketArr]
         .sort((a: any, b: any) => new Date(b.lastMessageAt || b.createdAt).getTime() - new Date(a.lastMessageAt || a.createdAt).getTime());
       // Deduplica por contactId — 1 chat ativo por contato (mantém o mais recente)
@@ -1162,7 +1162,11 @@ export default function AtendimentoPage() {
 
       // Customers — atualiza cache e estado
       if (customersRes) {
-        const arr: any[] = customersRes?.data || customersRes || [];
+        const arr: any[] = Array.isArray(customersRes)
+          ? customersRes
+          : Array.isArray((customersRes as any)?.data)
+            ? (customersRes as any).data
+            : (customersRes as any) || [];
         // Cliente desta conversa fora da lista paginada → busca individual
         if (clientId && !arr.find((c: any) => c.id === clientId)) {
           try { const r: any = await api.getCustomer(clientId); if (r) arr.push(r?.data ?? r); } catch {}
@@ -1184,17 +1188,22 @@ export default function AtendimentoPage() {
 
       // Team — atualiza cache e estado
       if (teamRes) {
-        let arr: any[] = Array.isArray(teamRes) ? teamRes : teamRes?.data ?? [];
+        let arr: any[] = Array.isArray(teamRes)
+          ? teamRes
+          : Array.isArray((teamRes as any)?.data)
+            ? (teamRes as any).data
+            : [];
         teamRef.current = arr;
         teamCachedAtRef.current = now;
         if (myId === loadIdRef.current) setTeam(arr);
       }
       // Garante que o agente responsável pelo ticket esteja na lista
-      if (ticketRes?.assignedTo) {
+      const ticketForAssign = ticketRes as { assignedTo?: string } | null;
+      if (ticketForAssign?.assignedTo) {
         const cur = teamRef.current;
-        if (!cur.find((u: any) => String(u.id) === String(ticketRes.assignedTo))) {
+        if (!cur.find((u: any) => String(u.id) === String(ticketForAssign.assignedTo))) {
           try {
-            const m: any = await api.getTeamMember(ticketRes.assignedTo);
+            const m: any = await api.getTeamMember(ticketForAssign.assignedTo);
             const member = m?.data ?? m;
             if (member?.id && myId === loadIdRef.current) {
               const arr = [...teamRef.current, member];
@@ -2033,7 +2042,8 @@ export default function AtendimentoPage() {
     setSavingConversationTags(true);
     try {
       const saved = await api.updateConversationTags(selected.id, conversationTags);
-      const nextTags = Array.isArray(saved?.tags) ? saved.tags : conversationTags;
+      const savedTags = (saved as { tags?: unknown })?.tags;
+      const nextTags = Array.isArray(savedTags) ? savedTags : conversationTags;
       setConversationTags(nextTags);
       setSelected((prev: any) => prev ? { ...prev, tags: nextTags } : prev);
       setConversations((prev: any[]) => prev.map((conv: any) => sameItem(conv, selected) ? { ...conv, tags: nextTags } : conv));

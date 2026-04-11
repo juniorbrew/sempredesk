@@ -60,7 +60,14 @@ export default function NewTicketPage() {
           }
         }
         const [cr, tr, treeR, conR, tagR] = await Promise.all([api.getCustomers({ perPage:500 }), api.getTeam(), api.getTicketSettingsTree(), api.getContracts(), api.getTags({ active: true })]);
-        setCustomers(cr?.data||cr||[]); setTeam(tr||[]); setTree(treeR||{departments:[]}); setContracts(Array.isArray(conR)?conR:conR?.data||[]); setAvailableTags(Array.isArray(tagR)?tagR:tagR?.data||[]);
+        const customersList = Array.isArray(cr) ? cr : Array.isArray((cr as any)?.data) ? (cr as any).data : [];
+        setCustomers(customersList);
+        setTeam((tr as any[]) || []);
+        setTree((treeR as any) || { departments: [] });
+        const contractsList = Array.isArray(conR) ? conR : Array.isArray((conR as any)?.data) ? (conR as any).data : [];
+        setContracts(contractsList);
+        const tagsList = Array.isArray(tagR) ? tagR : Array.isArray((tagR as any)?.data) ? (tagR as any).data : [];
+        setAvailableTags(tagsList);
       } catch(e){ console.error(e); }
     };
     load();
@@ -149,7 +156,7 @@ export default function NewTicketPage() {
         subcategory: form.subcategory || undefined,
         tags: form.tags.length ? form.tags : undefined,
       };
-      const created = await api.createTicket(payload);
+      const created = (await api.createTicket(payload)) as { id: string };
       router.push(`/dashboard/tickets/${created.id}`);
     } catch(e:any){ toast.error(e?.response?.data?.message||'Erro ao criar ticket'); }
     setSaving(false);

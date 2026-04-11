@@ -209,21 +209,27 @@ export default function SettingsPage() {
           phone: u.phone != null ? String(u.phone) : '',
         }));
       }
-      setTeam(t || []);
-      setRules(Array.isArray(r) ? r : r?.data || []);
-      setWebhooks(Array.isArray(wh) ? wh : wh?.data || []);
-      setApiKeys(Array.isArray(ak) ? ak : ak?.data || []);
+      setTeam((t as any[]) || []);
+      const rulesList = Array.isArray(r) ? r : Array.isArray((r as any)?.data) ? (r as any).data : [];
+      setRules(rulesList);
+      const whList = Array.isArray(wh) ? wh : Array.isArray((wh as any)?.data) ? (wh as any).data : [];
+      setWebhooks(whList);
+      const akList = Array.isArray(ak) ? ak : Array.isArray((ak as any)?.data) ? (ak as any).data : [];
+      setApiKeys(akList);
       if (bot) {
         setBotConfig(coalesceChatbot(bot));
         setBotMenu(mapBotMenuFromApi(bot));
       }
       if (bst) setBotStats(bst);
       if (depts) {
-        const list = (Array.isArray(depts) ? depts : depts?.data || []);
+        const list = Array.isArray(depts) ? depts : Array.isArray((depts as any)?.data) ? (depts as any).data : [];
         setDepartments(list.map((d: any) => d.name).filter(Boolean).sort());
       }
       if (permsData) setAllPerms(permsData);
-      if (rolesData) setRoles(Array.isArray(rolesData) ? rolesData : rolesData?.data || []);
+      if (rolesData) {
+        const rolesList = Array.isArray(rolesData) ? rolesData : Array.isArray((rolesData as any)?.data) ? (rolesData as any).data : [];
+        setRoles(rolesList);
+      }
     } catch {
       setLoadError('Falha ao carregar configurações. Verifique a conexão.');
     }
@@ -270,7 +276,7 @@ export default function SettingsPage() {
       else { await (api as any).createRoutingRule(ruleForm); }
       setShowRuleForm(false); setEditingRule(null); setRuleForm({ name:'', condDepartment:'', condCategory:'', condPriority:'', condOrigin:'', actionAssignTo:'', actionSetPriority:'', actionNotifyEmail:'', priority:0 });
       const r = await (api as any).getRoutingRules();
-      setRules(Array.isArray(r) ? r : r?.data || []);
+      setRules(Array.isArray(r) ? r : Array.isArray((r as any)?.data) ? (r as any).data : []);
     } catch {}
   };
   const deleteRule = async (id: string) => {
@@ -286,7 +292,7 @@ export default function SettingsPage() {
       else { await (api as any).createWebhook(whForm); }
       setShowWhForm(false); setEditingWh(null); setWhForm({ name:'', url:'', secret:'', events:['ticket.created','ticket.updated','ticket.resolved'] });
       const wh = await (api as any).getWebhooks();
-      setWebhooks(Array.isArray(wh) ? wh : wh?.data || []);
+      setWebhooks(Array.isArray(wh) ? wh : Array.isArray((wh as any)?.data) ? (wh as any).data : []);
     } catch {}
   };
   const deleteWebhook = async (id: string) => {
@@ -306,14 +312,14 @@ export default function SettingsPage() {
       setShowKeyForm(false);
       setKeyForm({ name:'', permissions:['read'], expiresAt:'' });
       const ak = await (api as any).getApiKeys();
-      setApiKeys(Array.isArray(ak) ? ak : ak?.data || []);
+      setApiKeys(Array.isArray(ak) ? ak : Array.isArray((ak as any)?.data) ? (ak as any).data : []);
     } catch {}
   };
   const revokeKey = async (id: string) => {
     if (!confirm('Revogar chave?')) return;
     await (api as any).revokeApiKey(id);
     const ak = await (api as any).getApiKeys();
-    setApiKeys(Array.isArray(ak) ? ak : ak?.data || []);
+    setApiKeys(Array.isArray(ak) ? ak : Array.isArray((ak as any)?.data) ? (ak as any).data : []);
   };
 
   // ── Chatbot helpers ──────────────────────────────────────────────────────
