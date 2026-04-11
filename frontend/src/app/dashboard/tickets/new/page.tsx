@@ -3,6 +3,7 @@ import { FormEvent, useEffect, useMemo, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { api } from '@/lib/api';
+import { DEFAULT_PRIORITY, PRIORITY_OPTIONS } from '@/lib/priorities';
 import { Search, X, User, Building2, FileText, ChevronDown, AlertCircle, Ticket, Tag, ArrowLeft, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { TagMultiSelect } from '@/components/ui/TagMultiSelect';
@@ -41,7 +42,7 @@ export default function NewTicketPage() {
   const [focusField, setFocusField] = useState('');
   const searchRef = useRef<HTMLDivElement>(null);
 
-  const [form, setForm] = useState({ clientId:'', contactId:'', contractId:'', assignedTo:'', origin:'internal', priority:'medium', department:'', category:'', subcategory:'', subject:'', description:'', tags:[] as string[] });
+  const [form, setForm] = useState({ clientId:'', contactId:'', contractId:'', assignedTo:'', origin:'internal', priority:DEFAULT_PRIORITY, department:'', category:'', subcategory:'', subject:'', description:'', tags:[] as string[] });
 
   useEffect(() => {
     const load = async () => {
@@ -335,10 +336,9 @@ export default function NewTicketPage() {
             </div>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
               <Sel label="Prioridade" value={form.priority} onChange={(e:any)=>setForm({...form,priority:e.target.value})}>
-                <option value="low">🟢 Baixa</option>
-                <option value="medium">🔵 Média</option>
-                <option value="high">🟠 Alta</option>
-                <option value="critical">🔴 Crítica</option>
+                {PRIORITY_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
               </Sel>
               <Sel label="Origem" value={form.origin} onChange={(e:any)=>setForm({...form,origin:e.target.value})}>
                 <option value="internal">Interno</option>

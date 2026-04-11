@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
 import { api } from '@/lib/api';
+import { DEFAULT_PRIORITY, PRIORITY_COLORS, PRIORITY_LABELS, PRIORITY_OPTIONS, type SystemPriority } from '@/lib/priorities';
 import {
   Building2, Mail, Clock, Palette, User, Save, RefreshCw, CheckCircle,
   Eye, EyeOff, Send, ChevronRight, Lock, Bell, Key, Plus,
@@ -27,6 +28,15 @@ interface ChatbotMenuItem {
   id?: string; order: number; label: string; action: 'auto_reply' | 'transfer';
   autoReplyText?: string; department?: string; enabled: boolean;
 }
+type SlaTimeUnit = 'minutes' | 'hours' | 'days';
+type SlaDurationField = { value: string; unit: SlaTimeUnit };
+type SlaFormState = {
+  name: string;
+  priority: SystemPriority;
+  firstResponse: SlaDurationField;
+  resolution: SlaDurationField;
+  isDefault: boolean;
+};
 const BOT_DEFAULT: ChatbotConfig = {
   name: 'Assistente Virtual', welcomeMessage: 'Olá! Seja bem-vindo. Como posso te ajudar hoje?',
   menuTitle: 'Escolha uma das opções abaixo:', enabled: false,
@@ -124,6 +134,56 @@ function mapBotMenuFromApi(bot: any): ChatbotMenuItem[] {
   }));
 }
 
+function pickSlaUnit(totalMinutes: number): SlaDurationField {
+  if (totalMinutes > 0 && totalMinutes % 1440 === 0) {
+    return { value: String(totalMinutes / 1440), unit: 'days' };
+  }
+  if (totalMinutes > 0 && totalMinutes % 60 === 0) {
+    return { value: String(totalMinutes / 60), unit: 'hours' };
+  }
+  return { value: String(totalMinutes || 0), unit: 'minutes' };
+}
+
+function toMinutes(duration: SlaDurationField, fallbackMinutes: number): number {
+  const rawValue = Number(duration.value);
+  if (!Number.isFinite(rawValue) || rawValue <= 0) return fallbackMinutes;
+  if (duration.unit === 'days') return Math.round(rawValue * 1440);
+  if (duration.unit === 'hours') return Math.round(rawValue * 60);
+  return Math.round(rawValue);
+}
+
+function formatDuration(totalMinutes: number): string {
+  if (totalMinutes > 0 && totalMinutes % 1440 === 0) {
+    const days = totalMinutes / 1440;
+    return `${days} ${days === 1 ? 'dia' : 'dias'}`;
+  }
+  if (totalMinutes > 0 && totalMinutes % 60 === 0) {
+    const hours = totalMinutes / 60;
+    return `${hours} ${hours === 1 ? 'hora' : 'horas'}`;
+  }
+  return `${totalMinutes} min`;
+}
+
+function createEmptySlaForm(): SlaFormState {
+  return {
+    name: '',
+    priority: DEFAULT_PRIORITY,
+    firstResponse: pickSlaUnit(60),
+    resolution: pickSlaUnit(480),
+    isDefault: false,
+  };
+}
+
+function mapSlaPolicyToForm(policy: any): SlaFormState {
+  return {
+    name: policy.name,
+    priority: policy.priority,
+    firstResponse: pickSlaUnit(Number(policy.firstResponseMinutes) || 60),
+    resolution: pickSlaUnit(Number(policy.resolutionMinutes) || 480),
+    isDefault: !!policy.isDefault,
+  };
+}
+
 function Field({ label, hint, required, children }: { label: string; hint?: string; required?: boolean; children: React.ReactNode }) {
   return (
     <div className="space-y-1.5">
@@ -190,7 +250,7 @@ export default function SettingsPage() {
   const [newKeyValue, setNewKeyValue] = useState<string|null>(null);
   // SLA Policies
   const [slaPolicies, setSlaPolicies] = useState<any[]>([]);
-  const [slaForm, setSlaForm] = useState<any>({ name:'', priority:'medium', firstResponseMinutes:60, resolutionMinutes:480, isDefault:false });
+  const [slaForm, setSlaForm] = useState<SlaFormState>(createEmptySlaForm());
   const [showSlaForm, setShowSlaForm] = useState(false);
   const [editingSlaId, setEditingSlaId] = useState<string|null>(null);
   const [slaSaving, setSlaSaving] = useState(false);
@@ -342,14 +402,16 @@ export default function SettingsPage() {
     setSlaSaving(true);
     try {
       const payload = {
-        ...slaForm,
-        firstResponseMinutes: Number(slaForm.firstResponseMinutes) || 60,
-        resolutionMinutes: Number(slaForm.resolutionMinutes) || 480,
+        name: slaForm.name,
+        priority: slaForm.priority,
+        isDefault: slaForm.isDefault,
+        firstResponseMinutes: toMinutes(slaForm.firstResponse, 60),
+        resolutionMinutes: toMinutes(slaForm.resolution, 480),
       };
       if (editingSlaId) { await (api as any).updateSlaPolicy(editingSlaId, payload); }
       else { await (api as any).createSlaPolicy(payload); }
       setShowSlaForm(false); setEditingSlaId(null);
-      setSlaForm({ name:'', priority:'medium', firstResponseMinutes:60, resolutionMinutes:480, isDefault:false });
+      setSlaForm(createEmptySlaForm());
       const fresh = await (api as any).getSlaPolicies();
       setSlaPolicies(Array.isArray(fresh) ? fresh : Array.isArray((fresh as any)?.data) ? (fresh as any).data : []);
     } catch (e: any) { alert(e?.response?.data?.message || 'Erro ao salvar política SLA'); }
@@ -361,7 +423,7 @@ export default function SettingsPage() {
     setSlaPolicies(prev => prev.filter(p => p.id !== id));
   };
   const editSlaPolicy = (p: any) => {
-    setSlaForm({ name:p.name, priority:p.priority, firstResponseMinutes:p.firstResponseMinutes, resolutionMinutes:p.resolutionMinutes, isDefault:p.isDefault });
+    setSlaForm(mapSlaPolicyToForm(p));
     setEditingSlaId(p.id); setShowSlaForm(true);
   };
 
@@ -711,10 +773,10 @@ export default function SettingsPage() {
                 <div>
                   <h2 style={{ fontSize:16, fontWeight:700, color:'#0F172A', margin:0 }}>Políticas SLA</h2>
                   <p style={{ fontSize:13, color:'#94A3B8', marginTop:3 }}>
-                    Configure prazos de primeira resposta e resolução por prioridade. Todos os valores em minutos.
+                    Configure prazos de primeira resposta e resolução por prioridade usando minutos, horas ou dias. O sistema salva tudo internamente em minutos.
                   </p>
                 </div>
-                <button onClick={() => { setShowSlaForm(true); setEditingSlaId(null); setSlaForm({ name:'', priority:'medium', firstResponseMinutes:60, resolutionMinutes:480, isDefault:false }); }} className="btn-primary" style={{ display:'flex', alignItems:'center', gap:6 }}>
+                <button onClick={() => { setShowSlaForm(true); setEditingSlaId(null); setSlaForm(createEmptySlaForm()); }} className="btn-primary" style={{ display:'flex', alignItems:'center', gap:6 }}>
                   <Plus className="w-4 h-4" /> Nova política
                 </button>
               </div>
@@ -731,13 +793,28 @@ export default function SettingsPage() {
                         <option value="low">Baixa</option>
                         <option value="medium">Média</option>
                         <option value="high">Alta</option>
+                        <option value="critical">Crítica</option>
                       </select>
                     </Field>
-                    <Field label="1ª resposta (minutos)" hint="Tempo máximo para o agente responder pela primeira vez">
-                      <input type="number" min={1} value={slaForm.firstResponseMinutes} onChange={e=>setSlaForm((p:any)=>({...p,firstResponseMinutes:e.target.value}))} className="input" />
+                    <Field label="1ª resposta" hint={`Tempo máximo para o agente responder pela primeira vez. Equivale a ${toMinutes(slaForm.firstResponse, 60)} min.`}>
+                      <div className="grid grid-cols-[minmax(0,1fr)_140px] gap-2">
+                        <input type="number" min={1} value={slaForm.firstResponse.value} onChange={e=>setSlaForm((p)=>({...p,firstResponse:{...p.firstResponse,value:e.target.value}}))} className="input" />
+                        <select value={slaForm.firstResponse.unit} onChange={e=>setSlaForm((p)=>({...p,firstResponse:{...p.firstResponse,unit:e.target.value as SlaTimeUnit}}))} className="input">
+                          <option value="minutes">Minutos</option>
+                          <option value="hours">Horas</option>
+                          <option value="days">Dias</option>
+                        </select>
+                      </div>
                     </Field>
-                    <Field label="Resolução (minutos)" hint="Tempo máximo para encerrar o atendimento">
-                      <input type="number" min={1} value={slaForm.resolutionMinutes} onChange={e=>setSlaForm((p:any)=>({...p,resolutionMinutes:e.target.value}))} className="input" />
+                    <Field label="Resolução" hint={`Tempo máximo para encerrar o atendimento. Equivale a ${toMinutes(slaForm.resolution, 480)} min.`}>
+                      <div className="grid grid-cols-[minmax(0,1fr)_140px] gap-2">
+                        <input type="number" min={1} value={slaForm.resolution.value} onChange={e=>setSlaForm((p)=>({...p,resolution:{...p.resolution,value:e.target.value}}))} className="input" />
+                        <select value={slaForm.resolution.unit} onChange={e=>setSlaForm((p)=>({...p,resolution:{...p.resolution,unit:e.target.value as SlaTimeUnit}}))} className="input">
+                          <option value="minutes">Minutos</option>
+                          <option value="hours">Horas</option>
+                          <option value="days">Dias</option>
+                        </select>
+                      </div>
                     </Field>
                   </div>
                   <div className="flex items-center gap-3" style={{ marginTop:16 }}>
@@ -762,9 +839,9 @@ export default function SettingsPage() {
               {slaPolicies.length > 0 && (
                 <div style={{ borderRadius:12, border:'1.5px solid #E2E8F0', overflow:'hidden' }}>
                   {slaPolicies.map((p: any, idx: number) => {
-                    const priorityLabel: Record<string,string> = { high:'Alta', medium:'Média', low:'Baixa' };
-                    const priorityColor: Record<string,string> = { high:'#C2410C', medium:'#1D4ED8', low:'#64748B' };
-                    const priorityBg:    Record<string,string> = { high:'#FFEDD5', medium:'#DBEAFE', low:'#F1F5F9' };
+                    const priorityLabel: Record<string,string> = { high:'Alta', medium:'Média', low:'Baixa', critical:'Crítica' };
+                    const priorityColor: Record<string,string> = { high:'#C2410C', medium:'#1D4ED8', low:'#64748B', critical:'#86198F' };
+                    const priorityBg:    Record<string,string> = { high:'#FFEDD5', medium:'#DBEAFE', low:'#F1F5F9', critical:'#FDF2F8' };
                     return (
                       <div key={p.id} style={{ display:'flex', alignItems:'center', gap:12, padding:'13px 16px', background:'#fff', borderBottom: idx < slaPolicies.length-1 ? '1px solid #F1F5F9' : 'none', flexWrap:'wrap' }}>
                         <div style={{ flex:1, minWidth:0 }}>
@@ -774,7 +851,7 @@ export default function SettingsPage() {
                             <span style={{ fontSize:11, fontWeight:700, background:priorityBg[p.priority]||'#F1F5F9', color:priorityColor[p.priority]||'#64748B', borderRadius:6, padding:'2px 7px' }}>{priorityLabel[p.priority]||p.priority}</span>
                           </div>
                           <p style={{ fontSize:12, color:'#64748B', margin:'3px 0 0' }}>
-                            1ª resposta: <strong>{p.firstResponseMinutes} min</strong> &nbsp;·&nbsp; Resolução: <strong>{p.resolutionMinutes} min</strong>
+                            1ª resposta: <strong>{formatDuration(p.firstResponseMinutes)}</strong> <span style={{ color:'#94A3B8' }}>({p.firstResponseMinutes} min)</span> &nbsp;·&nbsp; Resolução: <strong>{formatDuration(p.resolutionMinutes)}</strong> <span style={{ color:'#94A3B8' }}>({p.resolutionMinutes} min)</span>
                           </p>
                         </div>
                         <div className="flex items-center gap-2">

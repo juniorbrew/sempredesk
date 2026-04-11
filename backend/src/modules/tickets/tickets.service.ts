@@ -27,14 +27,12 @@ import { WebhooksService } from '../webhooks/webhooks.service';
 import { RoutingRulesService } from '../routing-rules/routing-rules.service';
 import { SlaService } from '../sla/sla.service';
 import { SlaPriority } from '../sla/entities/sla-policy.entity';
+import { DEFAULT_SYSTEM_PRIORITY } from '../../common/constants/priority.constants';
 
-/** Mapeia prioridade do ticket para prioridade de política SLA. CRITICAL não existe em SLA → usa HIGH. */
-const TICKET_PRIORITY_TO_SLA: Record<TicketPriority, SlaPriority> = {
-  [TicketPriority.LOW]:      SlaPriority.LOW,
-  [TicketPriority.MEDIUM]:   SlaPriority.MEDIUM,
-  [TicketPriority.HIGH]:     SlaPriority.HIGH,
-  [TicketPriority.CRITICAL]: SlaPriority.HIGH,
-};
+/** Normaliza prioridade do ticket para seleção de política SLA (mesmo conjunto: low | medium | high | critical). */
+function toSlaPriority(priority?: TicketPriority | null): SlaPriority {
+  return (priority || DEFAULT_SYSTEM_PRIORITY) as SlaPriority;
+}
 
 const STATUS_LABELS_PT: Record<string, string> = {
   open: 'Em aberto',
@@ -128,6 +126,42 @@ export class TicketsService {
     if (value === undefined || value === null) return null;
     const normalized = String(value).trim().replace(/\s+/g, ' ');
     return normalized.length ? normalized : null;
+  }
+
+  /**
+   * Recalcula os deadlines do ticket a partir da política vigente para a prioridade atual.
+   * A base temporal é sempre a criação do ticket, para manter o SLA consistente com o cadastro.
+   */
+  private async applyConfiguredSlaToTicket(ticket: Ticket): Promise<void> {
+    const policy = await this.slaService.findBestPolicy(
+      ticket.tenantId,
+      toSlaPriority(ticket.priority),
+    );
+
+    if (!policy) {
+      ticket.slaResponseAt = null as any;
+      ticket.slaResolveAt = null as any;
+      return;
+    }
+
+    const deadlines = this.slaService.calcDeadlines(policy, ticket.createdAt || new Date());
+    ticket.slaResponseAt = deadlines.firstResponseDeadline;
+    ticket.slaResolveAt = deadlines.resolutionDeadline;
+  }
+
+  /**
+   * Alinha a política SLA da conversa à prioridade do ticket (findBestPolicy).
+   * Comportamento atual: policy sincronizada; prazos absolutos usam âncoras independentes
+   * (ticket → createdAt do ticket em applyConfiguredSlaToTicket; conversa → created_at em reapplyConversationPolicy).
+   * Tratado como comportamento provisório até decisão de produto unificar o relógio.
+   */
+  private async syncConversationSlaWithTicket(ticket: Ticket): Promise<void> {
+    if (!ticket.conversationId) return;
+    await this.slaService.reapplyConversationPolicy(
+      ticket.tenantId,
+      ticket.conversationId,
+      toSlaPriority(ticket.priority),
+    );
   }
 
   /**
@@ -742,7 +776,7 @@ export class TicketsService {
       if (contract) dto.contractId = contract.id;
     }
 
-    const slaPriority = TICKET_PRIORITY_TO_SLA[dto.priority || TicketPriority.MEDIUM];
+    const slaPriority = toSlaPriority(dto.priority);
     const now = new Date();
     let slaResponseAt: Date | undefined;
     let slaResolveAt: Date | undefined;
@@ -791,7 +825,11 @@ export class TicketsService {
         if (routing.assignTo) routingUpdates.assignedTo = routing.assignTo;
         if (routing.priority) routingUpdates.priority = routing.priority;
         if (Object.keys(routingUpdates).length > 0) {
+          const priorityChanged = routing.priority && routing.priority !== ticketSaved.priority;
           Object.assign(ticketSaved, routingUpdates);
+          if (priorityChanged) {
+            await this.applyConfiguredSlaToTicket(ticketSaved);
+          }
           await this.ticketRepo.save(ticketSaved);
         }
         if (routing.notifyEmail && this.emailSvc) {
@@ -893,6 +931,7 @@ export class TicketsService {
       } catch {}
     }
 
+    await this.syncConversationSlaWithTicket(ticketSaved);
     return ticketSaved;
   }
 
@@ -1138,6 +1177,7 @@ export class TicketsService {
     const ticket = await this.getTicketOrFail(tenantId, ticketId);
     ticket.conversationId = conversationId;
     await this.ticketRepo.save(ticket);
+    await this.syncConversationSlaWithTicket(ticket);
   }
 
   /** Normaliza número do ticket para formato #000001. Aceita "1", "000001", "#000001". */
@@ -1178,6 +1218,7 @@ export class TicketsService {
   async update(tenantId: string, id: string, userId: string, userName: string, dto: UpdateTicketDto): Promise<Ticket> {
     const ticket = await this.getTicketOrFail(tenantId, id);
     const oldStatus = ticket.status;
+    const oldPriority = ticket.priority;
     const oldDepartment = ticket.department ?? null;
 
     await this.assertUserBelongsToTenant(tenantId, dto.assignedTo);
@@ -1217,7 +1258,12 @@ export class TicketsService {
 
     Object.assign(ticket, updates);
 
+    if (ticket.priority !== oldPriority) {
+      await this.applyConfiguredSlaToTicket(ticket);
+    }
+
     const saved = await this.ticketRepo.save(ticket);
+    await this.syncConversationSlaWithTicket(saved);
 
     if (oldStatus !== saved.status) {
       const fromLabel = STATUS_LABELS_PT[oldStatus] ?? oldStatus;
@@ -1987,7 +2033,10 @@ export class TicketsService {
     const ticket = await this.getTicketOrFail(tenantId, id);
     ticket.priority = TicketPriority.CRITICAL;
     ticket.escalated = true;
-    return this.ticketRepo.save(ticket);
+    await this.applyConfiguredSlaToTicket(ticket);
+    const saved = await this.ticketRepo.save(ticket);
+    await this.syncConversationSlaWithTicket(saved);
+    return saved;
   }
 
   async getStats(tenantId: string) {
@@ -2084,8 +2133,10 @@ export class TicketsService {
         for (const t of breached) {
           t.escalated = true;
           t.priority = TicketPriority.CRITICAL;
+          await this.applyConfiguredSlaToTicket(t);
 
           await this.ticketRepo.save(t);
+          await this.syncConversationSlaWithTicket(t);
 
           await this.registerSystemMessage(
             t.tenantId,

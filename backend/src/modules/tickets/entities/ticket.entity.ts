@@ -2,6 +2,7 @@ import {
   Entity, PrimaryGeneratedColumn, Column, CreateDateColumn,
   UpdateDateColumn, OneToMany,
 } from 'typeorm';
+import { SystemPriority } from '../../../common/constants/priority.constants';
 
 export enum TicketStatus {
   OPEN = 'open',
@@ -12,12 +13,7 @@ export enum TicketStatus {
   CANCELLED = 'cancelled',
 }
 
-export enum TicketPriority {
-  LOW = 'low',
-  MEDIUM = 'medium',
-  HIGH = 'high',
-  CRITICAL = 'critical',
-}
+export { SystemPriority as TicketPriority };
 
 export enum TicketOrigin {
   PORTAL = 'portal',
@@ -54,8 +50,8 @@ export class Ticket {
   @Column({ type: 'enum', enum: TicketOrigin, default: TicketOrigin.PORTAL })
   origin: TicketOrigin;
 
-  @Column({ type: 'enum', enum: TicketPriority, default: TicketPriority.MEDIUM })
-  priority: TicketPriority;
+  @Column({ type: 'enum', enum: SystemPriority, default: SystemPriority.MEDIUM })
+  priority: SystemPriority;
 
   @Column({ type: 'enum', enum: TicketStatus, default: TicketStatus.OPEN })
   status: TicketStatus;

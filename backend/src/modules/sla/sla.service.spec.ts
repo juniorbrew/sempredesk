@@ -159,6 +159,15 @@ describe('SlaService.findBestPolicy', () => {
     expect(result?.id).toBe('p-high');
   });
 
+  it('retorna política critical quando existir correspondência exata', async () => {
+    const critical = makePolicy({ id: 'p-critical', priority: SlaPriority.CRITICAL, isDefault: false });
+    const def = makePolicy({ id: 'p-def', priority: SlaPriority.MEDIUM, isDefault: true });
+    const { service } = makeService({ policies: [critical, def] });
+
+    const result = await service.findBestPolicy('tenant-1', SlaPriority.CRITICAL);
+    expect(result?.id).toBe('p-critical');
+  });
+
   it('cai para política default quando não há prioridade exata', async () => {
     const low = makePolicy({ id: 'p-low', priority: SlaPriority.LOW, isDefault: false });
     const def = makePolicy({ id: 'p-def', priority: SlaPriority.MEDIUM, isDefault: true });

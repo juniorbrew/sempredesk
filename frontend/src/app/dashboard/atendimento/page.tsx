@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useLayoutEffect, useState, useCallback, useRef, type ReactNode } from 'react';
 import { api } from '@/lib/api';
+import { DEFAULT_PRIORITY, PRIORITY_OPTIONS } from '@/lib/priorities';
 import Link from 'next/link';
 import { useRealtimeConversation, useRealtimeTicket, useRealtimeTenantNewMessages, useRealtimeConversationClosed, useRealtimeTicketAssigned, useRealtimeContactTyping, emitTypingPresence, subscribeContactPresence } from '@/lib/realtime';
 import { useAuthStore, hasPermission } from '@/store/auth.store';
@@ -707,7 +708,7 @@ export default function AtendimentoPage() {
   const [linkSelectedId, setLinkSelectedId] = useState<string | null>(null);
   const [linkReason, setLinkReason] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [createForm, setCreateForm] = useState({ subject:'', description:'', priority:'medium', department:'', category:'', subcategory:'', assignedTo:'', networkId:'', clientId:'' });
+  const [createForm, setCreateForm] = useState({ subject:'', description:'', priority:DEFAULT_PRIORITY, department:'', category:'', subcategory:'', assignedTo:'', networkId:'', clientId:'' });
   const [createLoading, setCreateLoading] = useState(false);
   const [ticketSettingsTree, setTicketSettingsTree] = useState<any[]>([]);
   const [team, setTeam] = useState<any[]>([]);
@@ -1509,7 +1510,7 @@ export default function AtendimentoPage() {
     const preNetworkId = preClientId ? (customers.find((c: any) => c.id === preClientId)?.networkId || '') : '';
     let currentUserId = '';
     try { const me: any = await api.me(); currentUserId = me?.id ?? me?.data?.id ?? ''; } catch {}
-    setCreateForm({ subject: contactN ? `Atendimento - ${contactN}` : '', description:'', priority:'medium', department:'', category:'', subcategory:'', assignedTo: currentUserId, networkId: preNetworkId, clientId: preClientId });
+    setCreateForm({ subject: contactN ? `Atendimento - ${contactN}` : '', description:'', priority:DEFAULT_PRIORITY, department:'', category:'', subcategory:'', assignedTo: currentUserId, networkId: preNetworkId, clientId: preClientId });
     if (preNetworkId) {
       setCreateCustomers([]);
       try { const r: any = await api.getCustomers({ networkId: preNetworkId, perPage: 200 }); setCreateCustomers(Array.isArray(r) ? r : r?.data ?? []); } catch {}
@@ -3549,7 +3550,7 @@ export default function AtendimentoPage() {
         const cats = selDept?.categories || [];
         const selCat = cats.find((c: any) => c.name === createForm.category);
         const subs = selCat?.subcategories || [];
-        const PRIORITY_OPTS = [{ v:'low',l:'Baixa'},{v:'medium',l:'Média'},{v:'high',l:'Alta'},{v:'critical',l:'Crítico'}];
+        const PRIORITY_OPTS = PRIORITY_OPTIONS.map((option) => ({ v: option.value, l: option.label }));
         return (
           <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
             <div style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 540, maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.25)', overflow: 'hidden' }}>

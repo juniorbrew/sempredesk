@@ -5,12 +5,9 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { SystemPriority } from '../../../common/constants/priority.constants';
 
-export enum SlaPriority {
-  HIGH   = 'high',
-  MEDIUM = 'medium',
-  LOW    = 'low',
-}
+export { SystemPriority as SlaPriority };
 
 /** Política SLA por tenant. Cada tenant pode ter até uma política por prioridade,
  *  mais uma política marcada como padrão (is_default = true). */
@@ -26,7 +23,7 @@ export class SlaPolicy {
   name: string;
 
   @Column({ type: 'varchar', length: 10 })
-  priority: SlaPriority;
+  priority: SystemPriority;
 
   /** Tempo máximo (minutos) para a primeira resposta do agente. */
   @Column({ name: 'first_response_minutes', default: 60 })

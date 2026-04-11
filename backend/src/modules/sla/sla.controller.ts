@@ -24,28 +24,28 @@ export class SlaController {
 
   /** Lista todas as políticas SLA do tenant. */
   @Get()
-  @RequirePermission('settings.view')
+  @RequirePermission('settings.manage')
   findAll(@TenantId() tenantId: string) {
     return this.slaService.findAll(tenantId);
   }
 
   /** Detalhe de uma política SLA. */
   @Get(':id')
-  @RequirePermission('settings.view')
+  @RequirePermission('settings.manage')
   findOne(@TenantId() tenantId: string, @Param('id') id: string) {
     return this.slaService.findOne(tenantId, id);
   }
 
   /** Cria uma nova política SLA. */
   @Post()
-  @RequirePermission('settings.edit')
+  @RequirePermission('settings.manage')
   create(@TenantId() tenantId: string, @Body() dto: CreateSlaPolicyDto) {
     return this.slaService.create(tenantId, dto);
   }
 
   /** Atualiza uma política SLA existente. */
   @Put(':id')
-  @RequirePermission('settings.edit')
+  @RequirePermission('settings.manage')
   update(
     @TenantId() tenantId: string,
     @Param('id') id: string,
@@ -56,7 +56,7 @@ export class SlaController {
 
   /** Remove uma política SLA. */
   @Delete(':id')
-  @RequirePermission('settings.edit')
+  @RequirePermission('settings.manage')
   @HttpCode(HttpStatus.NO_CONTENT)
   remove(@TenantId() tenantId: string, @Param('id') id: string) {
     return this.slaService.remove(tenantId, id);

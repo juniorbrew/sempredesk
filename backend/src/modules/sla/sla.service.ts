@@ -230,6 +230,72 @@ export class SlaService {
   }
 
   /**
+   * Reaplica a política SLA de uma conversa já existente.
+   * Usado quando um ticket vinculado define/muda a prioridade que deve orientar o SLA da conversa.
+   * Prazos são calculados a partir de conversation.created_at (âncora independente do ticket.createdAt).
+   */
+  async reapplyConversationPolicy(
+    tenantId: string,
+    conversationId: string,
+    priority?: SlaPriority,
+  ): Promise<void> {
+    try {
+      const rows: Array<{
+        created_at: Date;
+        sla_first_response_at: Date | null;
+        sla_resolved_at: Date | null;
+      }> = await this.dataSource.query(
+        `SELECT created_at, sla_first_response_at, sla_resolved_at
+           FROM conversations
+          WHERE id = $1 AND tenant_id = $2
+          LIMIT 1`,
+        [conversationId, tenantId],
+      );
+
+      if (!rows.length) return;
+
+      const conv = rows[0];
+      const policy = await this.findBestPolicy(tenantId, priority);
+      if (!policy) {
+        await this.dataSource.query(
+          `UPDATE conversations
+              SET sla_policy_id = NULL,
+                  sla_first_response_deadline = NULL,
+                  sla_resolution_deadline = NULL,
+                  sla_status = NULL
+            WHERE id = $1 AND tenant_id = $2`,
+          [conversationId, tenantId],
+        );
+        return;
+      }
+
+      const { firstResponseDeadline, resolutionDeadline } = this.calcDeadlines(policy, conv.created_at);
+      const status = this.computeStatus({
+        slaFirstResponseDeadline: firstResponseDeadline,
+        slaResolutionDeadline: resolutionDeadline,
+        slaFirstResponseAt: conv.sla_first_response_at,
+        slaResolvedAt: conv.sla_resolved_at,
+        createdAt: conv.created_at,
+      });
+
+      await this.dataSource.query(
+        `UPDATE conversations
+            SET sla_policy_id = $1,
+                sla_first_response_deadline = $2,
+                sla_resolution_deadline = $3,
+                sla_status = $4
+          WHERE id = $5 AND tenant_id = $6`,
+        [policy.id, firstResponseDeadline, resolutionDeadline, status, conversationId, tenantId],
+      );
+    } catch (err: any) {
+      this.logger.warn(
+        `[SLA] reapplyConversationPolicy falhou — conv=${conversationId} tenant=${tenantId}: ${err?.message}`,
+        err?.stack,
+      );
+    }
+  }
+
+  /**
    * Registra o instante da primeira resposta do agente (se ainda não registrado)
    * e recalcula o sla_status.
    *
