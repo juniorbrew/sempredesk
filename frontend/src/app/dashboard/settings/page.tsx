@@ -126,12 +126,15 @@ function mapBotMenuFromApi(bot: any): ChatbotMenuItem[] {
   }));
 }
 
-function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+function Field({ label, hint, required, children }: { label: string; hint?: string; required?: boolean; children: React.ReactNode }) {
   return (
     <div className="space-y-1.5">
-      <label style={{ fontSize:12, fontWeight:600, color:'#64748B', display:'block' }}>{label}</label>
+      <label style={{ fontSize:12, fontWeight:600, color:'#64748B', display:'flex', alignItems:'center', gap:3 }}>
+        {label}
+        {required && <span style={{ color:'#EF4444', fontSize:12, lineHeight:1 }}>*</span>}
+      </label>
       {children}
-      {hint && <p style={{ fontSize:11, color:'#CBD5E1' }}>{hint}</p>}
+      {hint && <p style={{ fontSize:11, color:'#94A3B8', marginTop:2, lineHeight:1.5 }}>{hint}</p>}
     </div>
   );
 }
@@ -377,11 +380,13 @@ export default function SettingsPage() {
   const WH_EVENTS = ['ticket.created','ticket.updated','ticket.resolved','ticket.closed','sla.warning'];
 
   return (
-    <div className="space-y-5">
-      <div className="flex items-center justify-between flex-wrap gap-3">
+    <div className="bg-slate-50 min-h-full">
+      <style>{`.settings-scope .input { padding-top: 7px !important; padding-bottom: 7px !important; }`}</style>
+      <div className="settings-scope max-w-5xl mx-auto px-6 py-6 space-y-5">
+      <div className="flex items-center justify-between flex-wrap gap-3 pb-4 border-b border-slate-200">
         <div>
-          <h1 className="page-title">Configurações</h1>
-          <p className="page-subtitle">Gerencie as configurações do sistema</p>
+          <h1 style={{ fontSize:22, fontWeight:800, color:'#0F172A', letterSpacing:'-0.015em', margin:0 }}>Configurações</h1>
+          <p style={{ fontSize:12, color:'#94A3B8', marginTop:3 }}>Configure os parâmetros globais do sistema de suporte</p>
         </div>
         {!['profile','perfis','routing','webhooks','apikeys','inbound_email','chatbot'].includes(tab) && (
           <div className="flex items-center gap-3">
@@ -403,70 +408,192 @@ export default function SettingsPage() {
         </div>
       )}
 
-      <div className="flex gap-5 flex-col lg:flex-row">
+      <div className="flex gap-4 flex-col lg:flex-row">
         {/* Sidebar */}
-        <div className="card p-2 lg:w-56 shrink-0 h-fit">
+        <div className="card p-1.5 lg:w-52 shrink-0 h-fit" style={{ borderColor:'#C9D3E0' }}>
           {TABS.map(({ key, label, icon:Icon }) => (
             <button key={key} onClick={() => { setTab(key as any); setSaved(false); setProfileError(''); }}
-              style={{ width:'100%', display:'flex', alignItems:'center', gap:10, padding:'9px 12px', borderRadius:10, border:'none', cursor:'pointer', background: tab===key ? '#EEF2FF' : 'transparent', color: tab===key ? '#4F46E5' : '#64748B', fontWeight: tab===key ? 700 : 500, fontSize:12, marginBottom:2 }}>
-              <Icon className="w-4 h-4 shrink-0" /><span className="truncate flex-1 text-left">{label}</span>
-              {tab===key && <ChevronRight className="w-3.5 h-3.5" />}
+              style={{ width:'100%', display:'flex', alignItems:'center', gap:8, padding:'7px 10px', borderRadius:8, border:'none', cursor:'pointer', background: tab===key ? '#EEF2FF' : 'transparent', color: tab===key ? '#4F46E5' : '#64748B', fontWeight: tab===key ? 600 : 400, fontSize:12, marginBottom:1 }}>
+              <Icon className="w-3.5 h-3.5 shrink-0" /><span className="truncate flex-1 text-left">{label}</span>
+              {tab===key && <ChevronRight className="w-3 h-3" />}
             </button>
           ))}
         </div>
 
         {/* Content */}
-        <div className="flex-1 card p-6 min-w-0">
+        <div className="flex-1 card p-5 min-w-0" style={{ borderColor:'#C9D3E0' }}>
 
           {/* Company */}
           {tab === 'company' && (
             <div className="space-y-5">
-              <div><h2 style={{ fontSize:16,fontWeight:700,color:'#0F172A' }}>Dados da empresa</h2><p style={{ fontSize:13,color:'#94A3B8',marginTop:2 }}>Informações do seu negócio exibidas no sistema</p></div>
-              {/* Zona de Perigo */}
-              <DangerZone />
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Field label="Nome da empresa"><input value={settings.companyName} onChange={e=>upd('companyName',e.target.value)} className="input" placeholder="Empresa Ltda." /></Field>
-                <Field label="CNPJ"><input value={settings.companyCnpj} onChange={e=>upd('companyCnpj',e.target.value)} className="input" placeholder="00.000.000/0001-00" /></Field>
-                <Field label="E-mail"><input value={settings.companyEmail} onChange={e=>upd('companyEmail',e.target.value)} className="input" placeholder="contato@empresa.com" /></Field>
-                <Field label="Telefone"><input value={settings.companyPhone} onChange={e=>upd('companyPhone',e.target.value)} className="input" placeholder="(00) 0000-0000" /></Field>
-                <Field label="Endereço"><input value={settings.companyAddress} onChange={e=>upd('companyAddress',e.target.value)} className="input" placeholder="Rua, número, cidade - UF" /></Field>
-                <Field label="URL do logotipo"><input value={settings.companyLogo} onChange={e=>upd('companyLogo',e.target.value)} className="input" placeholder="https://..." /></Field>
+
+              {/* Cabeçalho da seção */}
+              <div>
+                <h2 style={{ fontSize:16, fontWeight:700, color:'#0F172A', margin:0 }}>Empresa cadastrada</h2>
+                <p style={{ fontSize:13, color:'#94A3B8', marginTop:3 }}>
+                  Essas informações são exibidas nos e-mails enviados aos clientes e no portal de atendimento.
+                  Campos marcados com <span style={{ color:'#EF4444' }}>*</span> são obrigatórios.
+                </p>
               </div>
+
+              {/* ── Seção 1: Identificação ───────────────────────────────── */}
+              <div style={{ borderRadius:12, border:'1.5px solid #E2E8F0', overflow:'hidden' }}>
+                <div style={{ padding:'10px 16px', background:'#F8FAFC', borderBottom:'1.5px solid #E2E8F0', display:'flex', alignItems:'center', gap:9 }}>
+                  <Building2 className="w-4 h-4 shrink-0" style={{ color:'#6366F1' }} />
+                  <div>
+                    <p style={{ fontSize:13, fontWeight:700, color:'#0F172A', margin:0 }}>Identificação</p>
+                    <p style={{ fontSize:11, color:'#94A3B8', marginTop:1 }}>Nome legal e CNPJ da empresa</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4" style={{ padding:'16px' }}>
+                  <Field label="Nome da empresa" required hint="Exibido no cabeçalho dos e-mails e no portal do cliente">
+                    <input value={settings.companyName} onChange={e=>upd('companyName',e.target.value)} className="input" placeholder="Ex.: SempreDesk Tecnologia Ltda." />
+                  </Field>
+                  <Field label="CNPJ" hint="Apenas para controle interno — não é exibido aos clientes">
+                    <input value={settings.companyCnpj} onChange={e=>upd('companyCnpj',e.target.value)} className="input" placeholder="Ex.: 00.000.000/0001-00" />
+                  </Field>
+                </div>
+              </div>
+
+              {/* ── Seção 2: Contato ─────────────────────────────────────── */}
+              <div style={{ borderRadius:12, border:'1.5px solid #E2E8F0', overflow:'hidden' }}>
+                <div style={{ padding:'10px 16px', background:'#F8FAFC', borderBottom:'1.5px solid #E2E8F0', display:'flex', alignItems:'center', gap:9 }}>
+                  <Mail className="w-4 h-4 shrink-0" style={{ color:'#6366F1' }} />
+                  <div>
+                    <p style={{ fontSize:13, fontWeight:700, color:'#0F172A', margin:0 }}>Contato</p>
+                    <p style={{ fontSize:11, color:'#94A3B8', marginTop:1 }}>Canal de comunicação da empresa com os clientes</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4" style={{ padding:'16px' }}>
+                  <Field label="E-mail de contato" required hint="Usado como remetente padrão nas notificações automáticas">
+                    <input value={settings.companyEmail} onChange={e=>upd('companyEmail',e.target.value)} className="input" placeholder="Ex.: contato@empresa.com.br" />
+                  </Field>
+                  <Field label="Telefone comercial" hint="Opcional — aparece no rodapé dos e-mails se preenchido">
+                    <input value={settings.companyPhone} onChange={e=>upd('companyPhone',e.target.value)} className="input" placeholder="Ex.: (47) 99999-9999" />
+                  </Field>
+                </div>
+              </div>
+
+              {/* ── Seção 3: Localização ─────────────────────────────────── */}
+              <div style={{ borderRadius:12, border:'1.5px solid #E2E8F0', overflow:'hidden' }}>
+                <div style={{ padding:'10px 16px', background:'#F8FAFC', borderBottom:'1.5px solid #E2E8F0', display:'flex', alignItems:'center', gap:9 }}>
+                  <Globe className="w-4 h-4 shrink-0" style={{ color:'#6366F1' }} />
+                  <div>
+                    <p style={{ fontSize:13, fontWeight:700, color:'#0F172A', margin:0 }}>Localização</p>
+                    <p style={{ fontSize:11, color:'#94A3B8', marginTop:1 }}>Endereço físico — opcional, aparece no rodapé dos e-mails</p>
+                  </div>
+                </div>
+                <div style={{ padding:'16px' }}>
+                  <Field label="Endereço da sede" hint="Formato livre — ex.: Av. Paulista, 1000, São Paulo - SP">
+                    <input value={settings.companyAddress} onChange={e=>upd('companyAddress',e.target.value)} className="input" placeholder="Ex.: Av. Paulista, 1000 — São Paulo, SP" />
+                  </Field>
+                </div>
+              </div>
+
+              {/* ── Seção 4: Marca e exibição ────────────────────────────── */}
+              <div style={{ borderRadius:12, border:'1.5px solid #E2E8F0', overflow:'hidden' }}>
+                <div style={{ padding:'10px 16px', background:'#F8FAFC', borderBottom:'1.5px solid #E2E8F0', display:'flex', alignItems:'center', gap:9 }}>
+                  <Palette className="w-4 h-4 shrink-0" style={{ color:'#6366F1' }} />
+                  <div>
+                    <p style={{ fontSize:13, fontWeight:700, color:'#0F172A', margin:0 }}>Marca e exibição</p>
+                    <p style={{ fontSize:11, color:'#94A3B8', marginTop:1 }}>Logotipo exibido no portal e nos e-mails enviados aos clientes</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4" style={{ padding:'16px' }}>
+                  <Field label="URL do logotipo" hint="Link público para imagem PNG, SVG ou JPEG — mínimo 200 × 60 px recomendado">
+                    <input value={settings.companyLogo} onChange={e=>upd('companyLogo',e.target.value)} className="input" placeholder="Ex.: https://empresa.com/logo.png" />
+                  </Field>
+                  <div style={{ display:'flex', alignItems:'center', justifyContent:'center', background:'#F8FAFC', border:'1.5px dashed #E2E8F0', borderRadius:10, padding:'12px', minHeight:62 }}>
+                    {settings.companyLogo
+                      ? <img src={settings.companyLogo} alt="Pré-visualização do logotipo" style={{ maxHeight:50, maxWidth:'100%', objectFit:'contain' }} onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                      : <span style={{ fontSize:11, color:'#CBD5E1', textAlign:'center' }}>Pré-visualização aparece aqui após informar a URL</span>
+                    }
+                  </div>
+                </div>
+              </div>
+
+              {/* ── Zona de Perigo ───────────────────────────────────────── */}
+              <div style={{ borderTop:'1.5px solid #FEE2E2', paddingTop:16 }}>
+                <p style={{ fontSize:11, fontWeight:700, color:'#DC2626', textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:8 }}>Zona de perigo</p>
+                <DangerZone />
+              </div>
+
             </div>
           )}
 
           {/* SMTP */}
           {tab === 'smtp' && (
-            <div className="space-y-5">
-              <div><h2 style={{ fontSize:16,fontWeight:700,color:'#0F172A' }}>Configurações de e-mail</h2><p style={{ fontSize:13,color:'#94A3B8',marginTop:2 }}>Servidor SMTP para envio de notificações</p></div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Field label="Servidor SMTP"><input value={settings.smtpHost} onChange={e=>upd('smtpHost',e.target.value)} className="input" placeholder="smtp.gmail.com" /></Field>
-                <Field label="Porta">
-                  <select value={settings.smtpPort} onChange={e=>upd('smtpPort',e.target.value)} className="input">
-                    <option value="587">587 (TLS)</option><option value="465">465 (SSL)</option><option value="25">25</option>
-                  </select>
-                </Field>
-                <Field label="Usuário SMTP"><input value={settings.smtpUser} onChange={e=>upd('smtpUser',e.target.value)} className="input" placeholder="seu@email.com" /></Field>
-                <Field label="Senha SMTP">
-                  <div style={{ position:'relative' }}>
-                    <input type={showPass?'text':'password'} value={settings.smtpPass} onChange={e=>upd('smtpPass',e.target.value)} className="input" placeholder="••••••••" style={{ paddingRight:40 }} />
-                    <button type="button" onClick={()=>setShowPass(p=>!p)} style={{ position:'absolute',right:12,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:'#94A3B8' }}>
-                      {showPass?<EyeOff className="w-4 h-4"/>:<Eye className="w-4 h-4"/>}
-                    </button>
-                  </div>
-                </Field>
-                <Field label="Remetente (From)"><input value={settings.smtpFrom} onChange={e=>upd('smtpFrom',e.target.value)} className="input" placeholder="Sistema <no-reply@empresa.com>" /></Field>
-                <Field label="Segurança">
-                  <select value={settings.smtpSecure} onChange={e=>upd('smtpSecure',e.target.value)} className="input">
-                    <option value="false">STARTTLS (587)</option><option value="true">SSL/TLS (465)</option>
-                  </select>
-                </Field>
+            <div className="space-y-4">
+              <div>
+                <h2 style={{ fontSize:16, fontWeight:700, color:'#0F172A', margin:0 }}>E-mail (SMTP)</h2>
+                <p style={{ fontSize:12, color:'#94A3B8', marginTop:2 }}>Servidor de saída para notificações e alertas automáticos.</p>
               </div>
-              <div style={{ display:'flex',alignItems:'center',gap:12,flexWrap:'wrap',paddingTop:4,borderTop:'1px solid #F1F5F9' }}>
+
+              {/* ── Servidor ─────────────────────────────────────────────── */}
+              <div style={{ borderRadius:12, border:'1.5px solid #E2E8F0', overflow:'hidden' }}>
+                <div style={{ padding:'9px 14px', background:'#F8FAFC', borderBottom:'1.5px solid #E2E8F0', display:'flex', alignItems:'center', gap:8 }}>
+                  <Globe className="w-4 h-4 shrink-0" style={{ color:'#6366F1' }} />
+                  <div>
+                    <p style={{ fontSize:13, fontWeight:700, color:'#0F172A', margin:0 }}>Servidor</p>
+                    <p style={{ fontSize:11, color:'#94A3B8', marginTop:1 }}>Endereço, porta e criptografia</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4" style={{ padding:'14px 16px' }}>
+                  <Field label="Endereço do servidor" required hint="Ex.: smtp.gmail.com, smtp.sendgrid.net">
+                    <input value={settings.smtpHost} onChange={e=>upd('smtpHost',e.target.value)} className="input" placeholder="Ex.: smtp.gmail.com" />
+                  </Field>
+                  <Field label="Porta" hint="587 (TLS recomendado) ou 465 (SSL)">
+                    <select value={settings.smtpPort} onChange={e=>upd('smtpPort',e.target.value)} className="input">
+                      <option value="587">587 — TLS (recomendado)</option>
+                      <option value="465">465 — SSL/TLS</option>
+                      <option value="25">25 — Sem criptografia</option>
+                    </select>
+                  </Field>
+                  <Field label="Criptografia" hint="Deve coincidir com a porta escolhida">
+                    <select value={settings.smtpSecure} onChange={e=>upd('smtpSecure',e.target.value)} className="input">
+                      <option value="false">STARTTLS (porta 587)</option>
+                      <option value="true">SSL/TLS (porta 465)</option>
+                    </select>
+                  </Field>
+                </div>
+              </div>
+
+              {/* ── Autenticação e remetente ─────────────────────────────── */}
+              <div style={{ borderRadius:12, border:'1.5px solid #E2E8F0', overflow:'hidden' }}>
+                <div style={{ padding:'9px 14px', background:'#F8FAFC', borderBottom:'1.5px solid #E2E8F0', display:'flex', alignItems:'center', gap:8 }}>
+                  <Lock className="w-4 h-4 shrink-0" style={{ color:'#6366F1' }} />
+                  <div>
+                    <p style={{ fontSize:13, fontWeight:700, color:'#0F172A', margin:0 }}>Autenticação e remetente</p>
+                    <p style={{ fontSize:11, color:'#94A3B8', marginTop:1 }}>Credenciais de acesso e endereço de envio</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4" style={{ padding:'14px 16px' }}>
+                  <Field label="Usuário SMTP" hint="Geralmente o e-mail da conta de envio">
+                    <input value={settings.smtpUser} onChange={e=>upd('smtpUser',e.target.value)} className="input" placeholder="Ex.: noreply@empresa.com" />
+                  </Field>
+                  <Field label="Senha SMTP" hint="Gmail: &quot;Senha de app&quot; · SendGrid: API key">
+                    <div style={{ position:'relative' }}>
+                      <input type={showPass?'text':'password'} value={settings.smtpPass} onChange={e=>upd('smtpPass',e.target.value)} className="input" placeholder="••••••••" style={{ paddingRight:40 }} />
+                      <button type="button" onClick={()=>setShowPass(p=>!p)} style={{ position:'absolute',right:12,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:'#94A3B8' }}>
+                        {showPass?<EyeOff className="w-4 h-4"/>:<Eye className="w-4 h-4"/>}
+                      </button>
+                    </div>
+                  </Field>
+                  <Field label="Remetente (From)" required hint="Nome e e-mail visíveis no recebimento — ex.: Suporte &lt;no-reply@empresa.com&gt;">
+                    <input value={settings.smtpFrom} onChange={e=>upd('smtpFrom',e.target.value)} className="input" placeholder="Ex.: Suporte <no-reply@empresa.com>" />
+                  </Field>
+                </div>
+              </div>
+
+              {/* ── Testar conexão ────────────────────────────────────────── */}
+              <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap', padding:'10px 14px', background:'#F8FAFC', borderRadius:10, border:'1.5px solid #E2E8F0' }}>
                 <button onClick={async()=>{ setSmtpTesting(true);setSmtpResult(null);try{const r=await(api as any).testSmtp();setSmtpResult(r);}catch{setSmtpResult({success:false,message:'Erro ao testar'});}setSmtpTesting(false);}} disabled={smtpTesting||!settings.smtpHost} className="btn-secondary">
-                  {smtpTesting?<RefreshCw className="w-4 h-4 animate-spin"/>:<Send className="w-4 h-4"/>} Testar SMTP
+                  {smtpTesting?<RefreshCw className="w-4 h-4 animate-spin"/>:<Send className="w-4 h-4"/>} Testar conexão SMTP
                 </button>
-                {smtpResult && <span style={{ fontSize:13,fontWeight:600,color:smtpResult.success?'#16A34A':'#DC2626' }}>{smtpResult.success?'✓':'✗'} {smtpResult.message}</span>}
+                {smtpResult
+                  ? <span style={{ fontSize:13, fontWeight:600, color:smtpResult.success?'#16A34A':'#DC2626' }}>{smtpResult.success?'✓':'✗'} {smtpResult.message}</span>
+                  : <span style={{ fontSize:12, color:'#94A3B8' }}>Envia um e-mail de teste para validar as configurações</span>
+                }
               </div>
             </div>
           )}
@@ -474,27 +601,65 @@ export default function SettingsPage() {
           {/* Notifications */}
           {tab === 'notifications' && (
             <div className="space-y-5">
-              <div><h2 style={{ fontSize:16,fontWeight:700,color:'#0F172A' }}>Notificações por e-mail</h2><p style={{ fontSize:13,color:'#94A3B8',marginTop:2 }}>Configure quando enviar e-mails automáticos</p></div>
-              <div className="space-y-4">
-                {[
-                  { key:'ticketCreatedNotify', label:'Ticket criado', desc:'Enviar e-mail ao cliente quando um ticket é aberto' },
-                  { key:'ticketResolvedNotify', label:'Ticket resolvido', desc:'Enviar e-mail ao cliente quando o ticket é resolvido (com link de avaliação)' },
-                  { key:'slaWarningNotify', label:'SLA em risco', desc:'Notificar por e-mail quando um ticket estiver próximo do vencimento do SLA' },
-                ].map(({ key, label, desc }) => (
-                  <div key={key} style={{ display:'flex',alignItems:'center',justifyContent:'space-between',padding:'14px 16px',background:'#F8FAFC',borderRadius:12,border:'1.5px solid #E2E8F0' }}>
-                    <div>
-                      <p style={{ fontSize:14,fontWeight:600,color:'#0F172A' }}>{label}</p>
-                      <p style={{ fontSize:12,color:'#94A3B8',marginTop:2 }}>{desc}</p>
-                    </div>
-                    <Toggle checked={settings[key as keyof Settings]==='true'} onChange={v=>upd(key as keyof Settings, String(v))} />
-                  </div>
-                ))}
-                <Field label="E-mail para alertas de SLA" hint="Endereço que receberá os alertas de SLA em risco (ex: supervisor@empresa.com)">
-                  <input value={settings.escalationEmail} onChange={e=>upd('escalationEmail',e.target.value)} className="input" placeholder="supervisor@empresa.com" />
-                </Field>
+              <div>
+                <h2 style={{ fontSize:16, fontWeight:700, color:'#0F172A', margin:0 }}>Notificações por e-mail</h2>
+                <p style={{ fontSize:13, color:'#94A3B8', marginTop:3 }}>
+                  Controle quais eventos disparam e-mails automáticos para os clientes e para a equipe de suporte.
+                </p>
               </div>
-              <div style={{ background:'#EEF2FF',borderRadius:12,padding:'12px 16px',border:'1.5px solid #C7D2FE' }}>
-                <p style={{ fontSize:12,color:'#4338CA' }}>💡 As notificações por e-mail requerem configuração de SMTP válida na aba &quot;E-mail (SMTP)&quot;.</p>
+
+              {/* ── E-mails para o cliente ────────────────────────────────── */}
+              <div style={{ borderRadius:12, border:'1.5px solid #E2E8F0', overflow:'hidden' }}>
+                <div style={{ padding:'10px 16px', background:'#F8FAFC', borderBottom:'1.5px solid #E2E8F0', display:'flex', alignItems:'center', gap:9 }}>
+                  <Mail className="w-4 h-4 shrink-0" style={{ color:'#6366F1' }} />
+                  <div>
+                    <p style={{ fontSize:13, fontWeight:700, color:'#0F172A', margin:0 }}>E-mails para o cliente</p>
+                    <p style={{ fontSize:11, color:'#94A3B8', marginTop:1 }}>Disparados automaticamente conforme o ciclo de vida do ticket</p>
+                  </div>
+                </div>
+                <div className="space-y-0">
+                  {[
+                    { key:'ticketCreatedNotify',  label:'Ticket aberto',   desc:'Envia confirmação ao cliente quando um novo ticket é criado' },
+                    { key:'ticketResolvedNotify', label:'Ticket resolvido', desc:'Envia e-mail de encerramento com link para avaliação do atendimento' },
+                  ].map(({ key, label, desc }, idx, arr) => (
+                    <div key={key} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'13px 16px', background:'#fff', borderBottom: idx < arr.length-1 ? '1px solid #F1F5F9' : 'none' }}>
+                      <div>
+                        <p style={{ fontSize:13, fontWeight:600, color:'#0F172A', margin:0 }}>{label}</p>
+                        <p style={{ fontSize:11, color:'#94A3B8', marginTop:2 }}>{desc}</p>
+                      </div>
+                      <Toggle checked={settings[key as keyof Settings]==='true'} onChange={v=>upd(key as keyof Settings, String(v))} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* ── Alertas internos da equipe ────────────────────────────── */}
+              <div style={{ borderRadius:12, border:'1.5px solid #E2E8F0', overflow:'hidden' }}>
+                <div style={{ padding:'10px 16px', background:'#F8FAFC', borderBottom:'1.5px solid #E2E8F0', display:'flex', alignItems:'center', gap:9 }}>
+                  <Bell className="w-4 h-4 shrink-0" style={{ color:'#6366F1' }} />
+                  <div>
+                    <p style={{ fontSize:13, fontWeight:700, color:'#0F172A', margin:0 }}>Alertas da equipe</p>
+                    <p style={{ fontSize:11, color:'#94A3B8', marginTop:1 }}>Notificações enviadas aos responsáveis internos</p>
+                  </div>
+                </div>
+                <div style={{ padding:'13px 16px', borderBottom:'1px solid #F1F5F9' }}>
+                  <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                    <div>
+                      <p style={{ fontSize:13, fontWeight:600, color:'#0F172A', margin:0 }}>SLA em risco</p>
+                      <p style={{ fontSize:11, color:'#94A3B8', marginTop:2 }}>Alerta quando um ticket se aproxima do prazo máximo de resolução</p>
+                    </div>
+                    <Toggle checked={settings.slaWarningNotify==='true'} onChange={v=>upd('slaWarningNotify', String(v))} />
+                  </div>
+                </div>
+                <div style={{ padding:'16px' }}>
+                  <Field label="E-mail de destino dos alertas de SLA" hint="Endereço que recebe os avisos de SLA em risco — ex.: supervisor@empresa.com ou uma lista de distribuição">
+                    <input value={settings.escalationEmail} onChange={e=>upd('escalationEmail',e.target.value)} className="input" placeholder="Ex.: supervisor@empresa.com" />
+                  </Field>
+                </div>
+              </div>
+
+              <div style={{ background:'#EEF2FF', borderRadius:10, padding:'11px 16px', border:'1.5px solid #C7D2FE' }}>
+                <p style={{ fontSize:12, color:'#4338CA' }}>💡 As notificações por e-mail exigem um servidor SMTP configurado na aba <strong>E-mail (SMTP)</strong>.</p>
               </div>
             </div>
           )}
@@ -502,17 +667,31 @@ export default function SettingsPage() {
           {/* SLA */}
           {tab === 'sla' && (
             <div className="space-y-5">
-              <div><h2 style={{ fontSize:16,fontWeight:700,color:'#0F172A' }}>Configurações de SLA</h2><p style={{ fontSize:13,color:'#94A3B8',marginTop:2 }}>Tempo máximo de resolução por prioridade (em horas)</p></div>
+              <div>
+                <h2 style={{ fontSize:16, fontWeight:700, color:'#0F172A', margin:0 }}>SLA / Prazos de atendimento</h2>
+                <p style={{ fontSize:13, color:'#94A3B8', marginTop:3 }}>
+                  Tempo máximo para resolução de tickets por nível de prioridade. Quando o prazo se aproxima, o sistema envia alertas à equipe.
+                </p>
+              </div>
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                {([['slaLowHours','Baixa','#64748B','#F8FAFC'],['slaMediumHours','Média','#1D4ED8','#DBEAFE'],['slaHighHours','Alta','#C2410C','#FFEDD5'],['slaCriticalHours','Crítica','#DC2626','#FEE2E2']] as const).map(([key,label,color,bg])=>(
-                  <div key={key} style={{ background:bg,borderRadius:14,padding:'14px 16px',border:'1.5px solid '+color+'22' }}>
-                    <p style={{ fontSize:11,fontWeight:700,color,textTransform:'uppercase',letterSpacing:1,marginBottom:8 }}>{label}</p>
+                {([
+                  ['slaLowHours',      'Baixa',   '#64748B', '#F8FAFC', 'Dúvidas gerais e melhorias'],
+                  ['slaMediumHours',   'Média',   '#1D4ED8', '#DBEAFE', 'Problemas com impacto parcial'],
+                  ['slaHighHours',     'Alta',    '#C2410C', '#FFEDD5', 'Falhas afetando operação'],
+                  ['slaCriticalHours', 'Crítica', '#DC2626', '#FEE2E2', 'Sistema fora do ar'],
+                ] as const).map(([key, label, color, bg, desc]) => (
+                  <div key={key} style={{ background:bg, borderRadius:14, padding:'14px 16px', border:'1.5px solid '+color+'22' }}>
+                    <p style={{ fontSize:11, fontWeight:700, color, textTransform:'uppercase', letterSpacing:1, marginBottom:4 }}>{label}</p>
+                    <p style={{ fontSize:10, color, opacity:0.7, marginBottom:10 }}>{desc}</p>
                     <div className="flex items-center gap-2">
-                      <input type="number" min={1} max={720} value={settings[key]} onChange={e=>upd(key,e.target.value)} className="input" style={{ width:80,textAlign:'center',fontWeight:700,fontSize:18,color,background:'#fff',padding:'8px 6px' }} />
-                      <span style={{ fontSize:13,fontWeight:600,color:'#94A3B8' }}>horas</span>
+                      <input type="number" min={1} max={720} value={settings[key]} onChange={e=>upd(key,e.target.value)} className="input" style={{ width:80, textAlign:'center', fontWeight:700, fontSize:18, color, background:'#fff', padding:'8px 6px' }} />
+                      <span style={{ fontSize:13, fontWeight:600, color:'#94A3B8' }}>horas</span>
                     </div>
                   </div>
                 ))}
+              </div>
+              <div style={{ background:'#F8FAFC', borderRadius:10, padding:'11px 16px', border:'1.5px solid #E2E8F0', fontSize:12, color:'#64748B' }}>
+                💡 O alerta de SLA em risco é enviado quando o ticket atinge <strong>80% do prazo</strong>. Configure o e-mail de destino na aba <strong>Notificações</strong>.
               </div>
             </div>
           )}
@@ -520,24 +699,37 @@ export default function SettingsPage() {
           {/* Business Hours */}
           {tab === 'business_hours' && (
             <div className="space-y-5">
-              <div><h2 style={{ fontSize:16,fontWeight:700,color:'#0F172A' }}>Horário Comercial</h2><p style={{ fontSize:13,color:'#94A3B8',marginTop:2 }}>Configure os horários de atendimento por dia da semana</p></div>
-              <div className="space-y-3">
-                {Object.entries(DAY_LABELS).map(([day,label])=>{
-                  const bh = settings.businessHours?.[day] || { open:false,start:'08:00',end:'18:00' };
-                  return (
-                    <div key={day} style={{ display:'flex',alignItems:'center',gap:16,padding:'12px 16px',background:'#F8FAFC',borderRadius:12,border:'1.5px solid #E2E8F0',flexWrap:'wrap' }}>
-                      <Toggle checked={!!bh.open} onChange={v=>updBH(day,'open',v)} />
-                      <span style={{ fontSize:13,fontWeight:600,color:'#0F172A',minWidth:80 }}>{label}</span>
-                      {bh.open ? (
-                        <div className="flex items-center gap-2">
-                          <input type="time" value={bh.start||'08:00'} onChange={e=>updBH(day,'start',e.target.value)} className="input" style={{ width:110 }} />
-                          <span style={{ color:'#94A3B8',fontSize:13 }}>até</span>
-                          <input type="time" value={bh.end||'18:00'} onChange={e=>updBH(day,'end',e.target.value)} className="input" style={{ width:110 }} />
-                        </div>
-                      ) : <span style={{ fontSize:12,color:'#94A3B8' }}>Fechado</span>}
-                    </div>
-                  );
-                })}
+              <div>
+                <h2 style={{ fontSize:16, fontWeight:700, color:'#0F172A', margin:0 }}>Horário Comercial</h2>
+                <p style={{ fontSize:13, color:'#94A3B8', marginTop:3 }}>
+                  Define os dias e horários em que a equipe está disponível. Usado para cálculo de SLA e roteamento do chatbot.
+                </p>
+              </div>
+              <div style={{ borderRadius:12, border:'1.5px solid #E2E8F0', overflow:'hidden' }}>
+                <div style={{ padding:'10px 16px', background:'#F8FAFC', borderBottom:'1.5px solid #E2E8F0' }}>
+                  <p style={{ fontSize:12, color:'#64748B', margin:0 }}>Ative o dia e defina o intervalo de atendimento. Dias desativados são tratados como <strong>fechado</strong>.</p>
+                </div>
+                <div>
+                  {Object.entries(DAY_LABELS).map(([day, label], idx, arr) => {
+                    const bh = settings.businessHours?.[day] || { open:false, start:'08:00', end:'18:00' };
+                    return (
+                      <div key={day} style={{ display:'flex', alignItems:'center', gap:16, padding:'11px 16px', background:'#fff', borderBottom: idx < arr.length-1 ? '1px solid #F1F5F9' : 'none', flexWrap:'wrap' }}>
+                        <Toggle checked={!!bh.open} onChange={v=>updBH(day,'open',v)} />
+                        <span style={{ fontSize:13, fontWeight:600, color: bh.open ? '#0F172A' : '#94A3B8', minWidth:72 }}>{label}</span>
+                        {bh.open ? (
+                          <div className="flex items-center gap-2">
+                            <input type="time" value={bh.start||'08:00'} onChange={e=>updBH(day,'start',e.target.value)} className="input" style={{ width:110 }} />
+                            <span style={{ color:'#CBD5E1', fontSize:13 }}>até</span>
+                            <input type="time" value={bh.end||'18:00'} onChange={e=>updBH(day,'end',e.target.value)} className="input" style={{ width:110 }} />
+                          </div>
+                        ) : <span style={{ fontSize:12, color:'#CBD5E1' }}>Fechado</span>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+              <div style={{ background:'#F8FAFC', borderRadius:10, padding:'11px 16px', border:'1.5px solid #E2E8F0', fontSize:12, color:'#64748B' }}>
+                💡 Os horários são interpretados no fuso horário do servidor. Tickets abertos fora do horário comercial ainda são registrados normalmente.
               </div>
             </div>
           )}
@@ -545,23 +737,48 @@ export default function SettingsPage() {
           {/* Visual */}
           {tab === 'visual' && (
             <div className="space-y-5">
-              <div><h2 style={{ fontSize:16,fontWeight:700,color:'#0F172A' }}>Personalização visual</h2><p style={{ fontSize:13,color:'#94A3B8',marginTop:2 }}>Cores do sistema e identidade visual</p></div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {([['primaryColor','Cor primária','Botões e destaques'],['secondaryColor','Cor secundária','Gradientes e apoio']] as const).map(([key,label,hint])=>(
-                  <Field key={key} label={label} hint={hint}>
-                    <div style={{ display:'flex',alignItems:'center',gap:12 }}>
-                      <input type="color" value={settings[key]} onChange={e=>upd(key,e.target.value)} style={{ width:48,height:48,borderRadius:10,border:'2px solid #E2E8F0',cursor:'pointer',padding:2 }} />
-                      <input value={settings[key]} onChange={e=>upd(key,e.target.value)} className="input" style={{ flex:1,fontFamily:'monospace',fontWeight:700 }} />
+              <div>
+                <h2 style={{ fontSize:16, fontWeight:700, color:'#0F172A', margin:0 }}>Personalização visual</h2>
+                <p style={{ fontSize:13, color:'#94A3B8', marginTop:3 }}>
+                  Cores da identidade visual aplicadas em botões, destaques e elementos de navegação do portal.
+                </p>
+              </div>
+              <div style={{ borderRadius:12, border:'1.5px solid #E2E8F0', overflow:'hidden' }}>
+                <div style={{ padding:'10px 16px', background:'#F8FAFC', borderBottom:'1.5px solid #E2E8F0', display:'flex', alignItems:'center', gap:9 }}>
+                  <Palette className="w-4 h-4 shrink-0" style={{ color:'#6366F1' }} />
+                  <div>
+                    <p style={{ fontSize:13, fontWeight:700, color:'#0F172A', margin:0 }}>Paleta de cores</p>
+                    <p style={{ fontSize:11, color:'#94A3B8', marginTop:1 }}>Clique no seletor ou digite o código hexadecimal da cor</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4" style={{ padding:'16px' }}>
+                  <Field label="Cor primária" hint="Usada em botões de ação, links ativos e badges de status">
+                    <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+                      <input type="color" value={settings.primaryColor} onChange={e=>upd('primaryColor',e.target.value)} style={{ width:48, height:36, borderRadius:8, border:'2px solid #E2E8F0', cursor:'pointer', padding:2 }} />
+                      <input value={settings.primaryColor} onChange={e=>upd('primaryColor',e.target.value)} className="input" style={{ flex:1, fontFamily:'monospace', fontWeight:700 }} />
                     </div>
                   </Field>
-                ))}
+                  <Field label="Cor secundária" hint="Usada em gradientes do sidebar, gráficos e elementos de apoio">
+                    <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+                      <input type="color" value={settings.secondaryColor} onChange={e=>upd('secondaryColor',e.target.value)} style={{ width:48, height:36, borderRadius:8, border:'2px solid #E2E8F0', cursor:'pointer', padding:2 }} />
+                      <input value={settings.secondaryColor} onChange={e=>upd('secondaryColor',e.target.value)} className="input" style={{ flex:1, fontFamily:'monospace', fontWeight:700 }} />
+                    </div>
+                  </Field>
+                </div>
+              </div>
+              <div style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 16px', background:'#F8FAFC', borderRadius:10, border:'1.5px solid #E2E8F0' }}>
+                <div style={{ width:32, height:32, borderRadius:8, background:`linear-gradient(135deg, ${settings.primaryColor}, ${settings.secondaryColor})`, flexShrink:0 }} />
+                <div>
+                  <p style={{ fontSize:12, fontWeight:600, color:'#0F172A', margin:0 }}>Pré-visualização do gradiente</p>
+                  <p style={{ fontSize:11, color:'#94A3B8', marginTop:1 }}>Combinação das duas cores aplicada no sidebar e em elementos destacados</p>
+                </div>
               </div>
             </div>
           )}
 
           {/* Routing Rules */}
           {tab === 'routing' && (
-            <div className="space-y-5">
+            <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <div><h2 style={{ fontSize:16,fontWeight:700,color:'#0F172A' }}>Regras de Encaminhamento</h2><p style={{ fontSize:13,color:'#94A3B8',marginTop:2 }}>Auto-atribuir tickets com base em condições (primeira regra que combinar é aplicada)</p></div>
                 <button onClick={()=>{setEditingRule(null);setRuleForm({ name:'',condDepartment:'',condCategory:'',condPriority:'',condOrigin:'',actionAssignTo:'',actionSetPriority:'',actionNotifyEmail:'',priority:0,active:true });setShowRuleForm(true);}} className="btn-primary"><Plus className="w-4 h-4"/>Nova regra</button>
@@ -570,13 +787,21 @@ export default function SettingsPage() {
                 <div style={{ background:'#F8FAFC',borderRadius:14,padding:20,border:'1.5px solid #E2E8F0' }}>
                   <h3 style={{ fontSize:14,fontWeight:700,color:'#0F172A',marginBottom:16 }}>{editingRule?'Editar regra':'Nova regra'}</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                    <Field label="Nome da regra"><input value={ruleForm.name} onChange={e=>setRuleForm((p:any)=>({...p,name:e.target.value}))} className="input" placeholder="Ex: Alta prioridade → João" /></Field>
-                    <Field label="Ordem de prioridade"><input type="number" value={ruleForm.priority} onChange={e=>setRuleForm((p:any)=>({...p,priority:parseInt(e.target.value)||0}))} className="input" placeholder="0 = maior prioridade" /></Field>
+                    <Field label="Nome da regra" hint="Descreva a intenção da regra — ex.: Alta prioridade para suporte crítico">
+                      <input value={ruleForm.name} onChange={e=>setRuleForm((p:any)=>({...p,name:e.target.value}))} className="input" placeholder="Ex.: Alta prioridade → João" />
+                    </Field>
+                    <Field label="Ordem de execução" hint="Número menor = maior prioridade. Regras são aplicadas em ordem crescente.">
+                      <input type="number" value={ruleForm.priority} onChange={e=>setRuleForm((p:any)=>({...p,priority:parseInt(e.target.value)||0}))} className="input" placeholder="Ex.: 1" />
+                    </Field>
                   </div>
-                  <p style={{ fontSize:12,fontWeight:700,color:'#64748B',textTransform:'uppercase',letterSpacing:1,marginBottom:10 }}>Condições (deixe vazio para ignorar)</p>
+                  <p style={{ fontSize:12,fontWeight:700,color:'#64748B',textTransform:'uppercase',letterSpacing:1,marginBottom:10 }}>Condições — deixe vazio para ignorar o campo</p>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                    <Field label="Departamento"><input value={ruleForm.condDepartment} onChange={e=>setRuleForm((p:any)=>({...p,condDepartment:e.target.value}))} className="input" placeholder="Nome exato do departamento" /></Field>
-                    <Field label="Categoria"><input value={ruleForm.condCategory} onChange={e=>setRuleForm((p:any)=>({...p,condCategory:e.target.value}))} className="input" placeholder="Nome exato da categoria" /></Field>
+                    <Field label="Departamento" hint="Nome exato do departamento cadastrado no sistema">
+                      <input value={ruleForm.condDepartment} onChange={e=>setRuleForm((p:any)=>({...p,condDepartment:e.target.value}))} className="input" placeholder="Ex.: Suporte Técnico" />
+                    </Field>
+                    <Field label="Categoria" hint="Nome exato da categoria do ticket">
+                      <input value={ruleForm.condCategory} onChange={e=>setRuleForm((p:any)=>({...p,condCategory:e.target.value}))} className="input" placeholder="Ex.: Falha de sistema" />
+                    </Field>
                     <Field label="Prioridade">
                       <select value={ruleForm.condPriority} onChange={e=>setRuleForm((p:any)=>({...p,condPriority:e.target.value}))} className="input">
                         <option value="">Qualquer</option><option value="low">Baixa</option><option value="medium">Média</option><option value="high">Alta</option><option value="critical">Crítica</option>
@@ -643,7 +868,7 @@ export default function SettingsPage() {
 
           {/* Webhooks */}
           {tab === 'webhooks' && (
-            <div className="space-y-5">
+            <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <div><h2 style={{ fontSize:16,fontWeight:700,color:'#0F172A' }}>Webhooks</h2><p style={{ fontSize:13,color:'#94A3B8',marginTop:2 }}>Dispare eventos HTTP para sistemas externos quando tickets forem alterados</p></div>
                 <button onClick={()=>{setEditingWh(null);setWhForm({name:'',url:'',secret:'',events:['ticket.created','ticket.updated','ticket.resolved']});setShowWhForm(true);}} className="btn-primary"><Plus className="w-4 h-4"/>Novo webhook</button>
@@ -652,10 +877,14 @@ export default function SettingsPage() {
                 <div style={{ background:'#F8FAFC',borderRadius:14,padding:20,border:'1.5px solid #E2E8F0' }}>
                   <h3 style={{ fontSize:14,fontWeight:700,color:'#0F172A',marginBottom:16 }}>{editingWh?'Editar webhook':'Novo webhook'}</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                    <Field label="Nome"><input value={whForm.name} onChange={e=>setWhForm((p:any)=>({...p,name:e.target.value}))} className="input" placeholder="Meu sistema externo" /></Field>
-                    <Field label="URL do endpoint"><input value={whForm.url} onChange={e=>setWhForm((p:any)=>({...p,url:e.target.value}))} className="input" placeholder="https://meusite.com/webhook" /></Field>
-                    <Field label="Segredo HMAC" hint="Usado para validar assinatura X-Signature-256 (opcional)">
-                      <input value={whForm.secret} onChange={e=>setWhForm((p:any)=>({...p,secret:e.target.value}))} className="input" placeholder="meu_segredo_secreto" />
+                    <Field label="Nome do webhook" hint="Identificação interna — ex.: ERP Interno, Slack #suporte">
+                      <input value={whForm.name} onChange={e=>setWhForm((p:any)=>({...p,name:e.target.value}))} className="input" placeholder="Ex.: ERP Interno" />
+                    </Field>
+                    <Field label="URL do endpoint" hint="Endpoint HTTPS público que receberá o payload JSON">
+                      <input value={whForm.url} onChange={e=>setWhForm((p:any)=>({...p,url:e.target.value}))} className="input" placeholder="Ex.: https://meusite.com/webhook" />
+                    </Field>
+                    <Field label="Segredo HMAC" hint="Opcional — usado para validar a assinatura do header X-Signature-256">
+                      <input value={whForm.secret} onChange={e=>setWhForm((p:any)=>({...p,secret:e.target.value}))} className="input" placeholder="Ex.: meu_segredo_secreto" />
                     </Field>
                   </div>
                   <p style={{ fontSize:12,fontWeight:700,color:'#64748B',textTransform:'uppercase',letterSpacing:1,marginBottom:10 }}>Eventos</p>
@@ -712,7 +941,7 @@ export default function SettingsPage() {
 
           {/* API Keys */}
           {tab === 'apikeys' && (
-            <div className="space-y-5">
+            <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <div><h2 style={{ fontSize:16,fontWeight:700,color:'#0F172A' }}>Chaves de API</h2><p style={{ fontSize:13,color:'#94A3B8',marginTop:2 }}>Chaves para acesso à API pública. A chave é exibida apenas uma vez na criação.</p></div>
                 <button onClick={()=>setShowKeyForm(true)} className="btn-primary"><Plus className="w-4 h-4"/>Nova chave</button>
@@ -731,10 +960,15 @@ export default function SettingsPage() {
                 <div style={{ background:'#F8FAFC',borderRadius:14,padding:20,border:'1.5px solid #E2E8F0' }}>
                   <h3 style={{ fontSize:14,fontWeight:700,color:'#0F172A',marginBottom:16 }}>Nova chave de API</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                    <Field label="Nome / Descrição"><input value={keyForm.name} onChange={e=>setKeyForm((p:any)=>({...p,name:e.target.value}))} className="input" placeholder="Ex: Integração ERP" /></Field>
-                    <Field label="Expira em (opcional)"><input type="date" value={keyForm.expiresAt} onChange={e=>setKeyForm((p:any)=>({...p,expiresAt:e.target.value}))} className="input" /></Field>
+                    <Field label="Identificação da chave" hint="Nome para identificar onde esta chave será usada — ex.: Integração ERP, App Mobile">
+                      <input value={keyForm.name} onChange={e=>setKeyForm((p:any)=>({...p,name:e.target.value}))} className="input" placeholder="Ex.: Integração ERP" />
+                    </Field>
+                    <Field label="Data de expiração" hint="Opcional — deixe em branco para chave sem expiração">
+                      <input type="date" value={keyForm.expiresAt} onChange={e=>setKeyForm((p:any)=>({...p,expiresAt:e.target.value}))} className="input" />
+                    </Field>
                   </div>
-                  <p style={{ fontSize:12,fontWeight:700,color:'#64748B',textTransform:'uppercase',letterSpacing:1,marginBottom:10 }}>Permissões</p>
+                  <p style={{ fontSize:12,fontWeight:700,color:'#64748B',textTransform:'uppercase',letterSpacing:1,marginBottom:6 }}>Nível de acesso</p>
+                  <p style={{ fontSize:11,color:'#94A3B8',marginBottom:10 }}>read = somente leitura · write = leitura e escrita · admin = acesso total</p>
                   <div className="flex gap-2 mb-4">
                     {['read','write','admin'].map(perm=>(
                       <button key={perm} type="button" onClick={()=>setKeyForm((p:any)=>({...p,permissions:p.permissions.includes(perm)?p.permissions.filter((x:string)=>x!==perm):[...p.permissions,perm]}))}
@@ -782,7 +1016,7 @@ export default function SettingsPage() {
 
           {/* Inbound Email */}
           {tab === 'inbound_email' && (
-            <div className="space-y-5">
+            <div className="space-y-4">
               <div>
                 <h2 style={{ fontSize:16, fontWeight:700, color:'#0F172A' }}>E-mail Recebido</h2>
                 <p style={{ fontSize:13, color:'#94A3B8', marginTop:2 }}>Configure seu provedor de e-mail para criar tickets automaticamente quando receber mensagens</p>
@@ -876,15 +1110,30 @@ X-Api-Secret: {INBOUND_EMAIL_SECRET}`}</pre>
 
               {/* Mensagens */}
               <div style={{ borderTop:'1px solid #F1F5F9', paddingTop:20 }}>
-                <p style={{ fontSize:13,fontWeight:700,color:'#374151',marginBottom:14 }}>Mensagens do bot</p>
+                <p style={{ fontSize:13, fontWeight:700, color:'#374151', marginBottom:4 }}>Mensagens do bot</p>
+                <p style={{ fontSize:12, color:'#94A3B8', marginBottom:14 }}>Textos exibidos ao cliente durante a interação com o assistente virtual</p>
                 <div className="space-y-4">
-                  <Field label="Nome do bot"><input value={botConfig.name} onChange={e=>setBotConfig(c=>({...c,name:e.target.value}))} className="input" /></Field>
-                  <Field label="Boas-vindas"><textarea value={botConfig.welcomeMessage} onChange={e=>setBotConfig(c=>({...c,welcomeMessage:e.target.value}))} className="input" rows={2} style={{ resize:'vertical' }} /></Field>
-                  <Field label="Título do menu"><input value={botConfig.menuTitle} onChange={e=>setBotConfig(c=>({...c,menuTitle:e.target.value}))} className="input" /></Field>
-                  <Field label="Ao transferir para atendente"><textarea value={botConfig.transferMessage} onChange={e=>setBotConfig(c=>({...c,transferMessage:e.target.value}))} className="input" rows={2} style={{ resize:'vertical' }} /></Field>
-                  <Field label="Sem atendente disponível"><textarea value={botConfig.noAgentMessage} onChange={e=>setBotConfig(c=>({...c,noAgentMessage:e.target.value}))} className="input" rows={2} style={{ resize:'vertical' }} /></Field>
-                  <Field label="Opção inválida"><input value={botConfig.invalidOptionMessage} onChange={e=>setBotConfig(c=>({...c,invalidOptionMessage:e.target.value}))} className="input" /></Field>
-                  <Field label="Timeout de sessão (min)"><input type="number" min={5} max={240} value={botConfig.sessionTimeoutMinutes} onChange={e=>setBotConfig(c=>({...c,sessionTimeoutMinutes:parseInt(e.target.value)||30}))} className="input" style={{ width:90 }} /></Field>
+                  <Field label="Nome do assistente" hint="Exibido para o cliente como identificação do bot — ex.: Assistente SempreDesk">
+                    <input value={botConfig.name} onChange={e=>setBotConfig(c=>({...c,name:e.target.value}))} className="input" placeholder="Ex.: Assistente Virtual" />
+                  </Field>
+                  <Field label="Mensagem de boas-vindas" hint="Primeira mensagem enviada ao cliente ao iniciar uma conversa">
+                    <textarea value={botConfig.welcomeMessage} onChange={e=>setBotConfig(c=>({...c,welcomeMessage:e.target.value}))} className="input" rows={2} style={{ resize:'vertical' }} />
+                  </Field>
+                  <Field label="Título do menu de opções" hint="Texto exibido logo acima das opções do menu">
+                    <input value={botConfig.menuTitle} onChange={e=>setBotConfig(c=>({...c,menuTitle:e.target.value}))} className="input" />
+                  </Field>
+                  <Field label="Mensagem ao transferir para atendente" hint="Enviada enquanto o cliente aguarda um agente humano">
+                    <textarea value={botConfig.transferMessage} onChange={e=>setBotConfig(c=>({...c,transferMessage:e.target.value}))} className="input" rows={2} style={{ resize:'vertical' }} />
+                  </Field>
+                  <Field label="Mensagem sem atendente disponível" hint="Exibida quando todos os agentes estão ocupados ou fora do horário comercial">
+                    <textarea value={botConfig.noAgentMessage} onChange={e=>setBotConfig(c=>({...c,noAgentMessage:e.target.value}))} className="input" rows={2} style={{ resize:'vertical' }} />
+                  </Field>
+                  <Field label="Mensagem de opção inválida" hint="Exibida quando o cliente digita uma opção que não existe no menu">
+                    <input value={botConfig.invalidOptionMessage} onChange={e=>setBotConfig(c=>({...c,invalidOptionMessage:e.target.value}))} className="input" />
+                  </Field>
+                  <Field label="Tempo limite de sessão (minutos)" hint="Inatividade máxima antes de encerrar a conversa automaticamente — entre 5 e 240 min">
+                    <input type="number" min={5} max={240} value={botConfig.sessionTimeoutMinutes} onChange={e=>setBotConfig(c=>({...c,sessionTimeoutMinutes:parseInt(e.target.value)||30}))} className="input" style={{ width:90 }} />
+                  </Field>
                   <Field label="Mensagem após abertura do ticket (com agente)" hint="Variáveis: {contato}, {empresa_atendente}, {agente}, {numero_ticket}">
                     <textarea
                       value={botConfig.postTicketMessage ?? ''}
@@ -1033,25 +1282,60 @@ X-Api-Secret: {INBOUND_EMAIL_SECRET}`}</pre>
           {/* Profile */}
           {tab === 'profile' && (
             <div className="space-y-5">
-              <div><h2 style={{ fontSize:16,fontWeight:700,color:'#0F172A' }}>Meu perfil</h2><p style={{ fontSize:13,color:'#94A3B8',marginTop:2 }}>Seus dados pessoais e senha de acesso</p></div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Field label="Nome completo"><input value={profile.name} onChange={e=>setProfile(p=>({...p,name:e.target.value}))} className="input" placeholder="Seu nome" /></Field>
-                <Field label="E-mail" hint="Não pode ser alterado aqui"><input value={profile.email} disabled className="input" /></Field>
-                <Field label="Telefone"><input value={(profile as any).phone||''} onChange={e=>setProfile(p=>({...p,phone:e.target.value} as any))} className="input" placeholder="(00) 90000-0000" /></Field>
+              <div>
+                <h2 style={{ fontSize:16, fontWeight:700, color:'#0F172A', margin:0 }}>Meu perfil</h2>
+                <p style={{ fontSize:13, color:'#94A3B8', marginTop:3 }}>
+                  Dados pessoais exibidos no sistema e credenciais de acesso à sua conta.
+                </p>
               </div>
-              <form onSubmit={(e) => e.preventDefault()} style={{ borderTop:'1px solid #F1F5F9',paddingTop:20 }}>
-                <div className="flex items-center gap-2 mb-4">
-                  <Lock className="w-4 h-4" style={{ color:'#6366F1' }} />
-                  <p style={{ fontSize:14,fontWeight:700,color:'#0F172A' }}>Alterar senha</p>
-                  <span style={{ fontSize:12,color:'#94A3B8' }}>(deixe vazio para manter)</span>
+
+              {/* ── Dados pessoais ────────────────────────────────────────── */}
+              <div style={{ borderRadius:12, border:'1.5px solid #E2E8F0', overflow:'hidden' }}>
+                <div style={{ padding:'10px 16px', background:'#F8FAFC', borderBottom:'1.5px solid #E2E8F0', display:'flex', alignItems:'center', gap:9 }}>
+                  <User className="w-4 h-4 shrink-0" style={{ color:'#6366F1' }} />
+                  <div>
+                    <p style={{ fontSize:13, fontWeight:700, color:'#0F172A', margin:0 }}>Dados pessoais</p>
+                    <p style={{ fontSize:11, color:'#94A3B8', marginTop:1 }}>Informações exibidas nos tickets e nas notificações internas</p>
+                  </div>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <Field label="Senha atual"><input type="password" value={profile.currentPassword} onChange={e=>setProfile(p=>({...p,currentPassword:e.target.value}))} className="input" placeholder="••••••••" /></Field>
-                  <Field label="Nova senha"><input type="password" value={profile.newPassword} onChange={e=>setProfile(p=>({...p,newPassword:e.target.value}))} className="input" placeholder="••••••••" /></Field>
-                  <Field label="Confirmar senha"><input type="password" value={profile.confirmPassword} onChange={e=>setProfile(p=>({...p,confirmPassword:e.target.value}))} className="input" placeholder="••••••••" /></Field>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4" style={{ padding:'16px' }}>
+                  <Field label="Nome completo" required hint="Exibido nos tickets atribuídos e nas mensagens internas">
+                    <input value={profile.name} onChange={e=>setProfile(p=>({...p,name:e.target.value}))} className="input" placeholder="Ex.: João da Silva" />
+                  </Field>
+                  <Field label="E-mail" hint="Identificador único da conta — entre em contato com o administrador para alterar">
+                    <input value={profile.email} disabled className="input" />
+                  </Field>
+                  <Field label="Telefone" hint="Opcional — visível para a equipe interna">
+                    <input value={(profile as any).phone||''} onChange={e=>setProfile(p=>({...p,phone:e.target.value} as any))} className="input" placeholder="Ex.: (47) 99999-9999" />
+                  </Field>
                 </div>
-              </form>
-              {profileError && <div style={{ background:'#FEE2E2',color:'#DC2626',padding:'10px 16px',borderRadius:10,fontSize:13,fontWeight:600 }}>{profileError}</div>}
+              </div>
+
+              {/* ── Segurança da conta ────────────────────────────────────── */}
+              <div style={{ borderRadius:12, border:'1.5px solid #E2E8F0', overflow:'hidden' }}>
+                <div style={{ padding:'10px 16px', background:'#F8FAFC', borderBottom:'1.5px solid #E2E8F0', display:'flex', alignItems:'center', gap:9 }}>
+                  <Lock className="w-4 h-4 shrink-0" style={{ color:'#6366F1' }} />
+                  <div>
+                    <p style={{ fontSize:13, fontWeight:700, color:'#0F172A', margin:0 }}>Segurança da conta</p>
+                    <p style={{ fontSize:11, color:'#94A3B8', marginTop:1 }}>Deixe os campos de senha em branco para manter a senha atual</p>
+                  </div>
+                </div>
+                <form onSubmit={(e) => e.preventDefault()} style={{ padding:'16px' }}>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <Field label="Senha atual" hint="Necessária para confirmar a alteração">
+                      <input type="password" value={profile.currentPassword} onChange={e=>setProfile(p=>({...p,currentPassword:e.target.value}))} className="input" placeholder="••••••••" />
+                    </Field>
+                    <Field label="Nova senha" hint="Mínimo de 8 caracteres recomendado">
+                      <input type="password" value={profile.newPassword} onChange={e=>setProfile(p=>({...p,newPassword:e.target.value}))} className="input" placeholder="••••••••" />
+                    </Field>
+                    <Field label="Confirmar nova senha" hint="Deve ser idêntica à nova senha">
+                      <input type="password" value={profile.confirmPassword} onChange={e=>setProfile(p=>({...p,confirmPassword:e.target.value}))} className="input" placeholder="••••••••" />
+                    </Field>
+                  </div>
+                </form>
+              </div>
+
+              {profileError && <div style={{ background:'#FEE2E2', color:'#DC2626', padding:'10px 16px', borderRadius:10, fontSize:13, fontWeight:600 }}>{profileError}</div>}
               <button onClick={handleSaveProfile} disabled={saving} className="btn-primary">
                 {saving?<RefreshCw className="w-4 h-4 animate-spin"/>:saved?<CheckCircle className="w-4 h-4"/>:<Save className="w-4 h-4"/>}
                 {saved?'Salvo!':'Salvar perfil'}
@@ -1061,6 +1345,7 @@ X-Api-Secret: {INBOUND_EMAIL_SECRET}`}</pre>
         </div>
       </div>
     </div>
+  </div>
   );
 }
 
@@ -1087,18 +1372,18 @@ function DangerZone() {
   };
 
   return (
-    <div style={{ border: '1.5px solid #FCA5A5', borderRadius: 12, padding: '16px 20px', background: '#FFF5F5', marginTop: 8 }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
+    <div style={{ border: '1.5px solid #FCA5A5', borderRadius: 10, padding: '12px 14px', background: '#FFF5F5', marginTop: 4 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
         <div>
-          <p style={{ fontSize: 14, fontWeight: 700, color: '#DC2626', marginBottom: 4 }}>⚠️ Zona de Perigo</p>
-          <p style={{ fontSize: 12, color: '#991B1B', lineHeight: 1.5 }}>
+          <p style={{ fontSize: 13, fontWeight: 700, color: '#DC2626', marginBottom: 2 }}>⚠️ Zona de Perigo</p>
+          <p style={{ fontSize: 11, color: '#991B1B', lineHeight: 1.5 }}>
             Apaga <strong>todos os tickets, conversas e sessões do chatbot</strong> do sistema. Use apenas para testes.
             Esta ação <strong>não pode ser desfeita</strong>.
           </p>
         </div>
         {!confirm && (
           <button onClick={() => setConfirm(true)}
-            style={{ flexShrink: 0, padding: '8px 16px', background: '#DC2626', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+            style={{ flexShrink: 0, padding: '6px 12px', background: '#DC2626', color: '#fff', border: 'none', borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
             Zerar dados
           </button>
         )}
