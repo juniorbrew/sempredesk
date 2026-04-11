@@ -44,6 +44,7 @@ import { AttendanceService } from './modules/attendance/attendance.service';
 import { AuditLogModule } from './modules/audit/audit-log.module';
 import { SaasModule } from './modules/saas/saas.module';
 import { StorageModule } from './modules/storage/storage.module';
+import { SlaModule } from './modules/sla/sla.module';
 
 @Module({
   imports: [
@@ -116,6 +117,7 @@ import { StorageModule } from './modules/storage/storage.module';
     AuditLogModule,
     SaasModule,
     StorageModule,
+    SlaModule,
   ],
   providers: [
     // Rate limiting por tenant (não por IP) em todos os endpoints

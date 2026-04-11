@@ -13,6 +13,7 @@ describe('TicketsService.assertContactBelongsToTenant', () => {
       {} as any,
       {} as any,
       {} as any,
+      { findBestPolicy: jest.fn().mockResolvedValue(null) } as any,
     );
   }
 
@@ -66,6 +67,7 @@ describe('TicketsService.countOpenTicketsAssignedToAgent', () => {
       {} as any,
       {} as any,
       {} as any,
+      { findBestPolicy: jest.fn().mockResolvedValue(null) } as any,
     );
   }
 

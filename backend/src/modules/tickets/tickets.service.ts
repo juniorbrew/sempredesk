@@ -25,12 +25,15 @@ import { RealtimeEmitterService } from '../realtime/realtime-emitter.service';
 import { EmailService } from '../email/email.service';
 import { WebhooksService } from '../webhooks/webhooks.service';
 import { RoutingRulesService } from '../routing-rules/routing-rules.service';
+import { SlaService } from '../sla/sla.service';
+import { SlaPriority } from '../sla/entities/sla-policy.entity';
 
-const PRIORITY_SLA_MULTIPLIER: Record<TicketPriority, number> = {
-  [TicketPriority.LOW]: 2,
-  [TicketPriority.MEDIUM]: 1,
-  [TicketPriority.HIGH]: 0.5,
-  [TicketPriority.CRITICAL]: 0.25,
+/** Mapeia prioridade do ticket para prioridade de política SLA. CRITICAL não existe em SLA → usa HIGH. */
+const TICKET_PRIORITY_TO_SLA: Record<TicketPriority, SlaPriority> = {
+  [TicketPriority.LOW]:      SlaPriority.LOW,
+  [TicketPriority.MEDIUM]:   SlaPriority.MEDIUM,
+  [TicketPriority.HIGH]:     SlaPriority.HIGH,
+  [TicketPriority.CRITICAL]: SlaPriority.HIGH,
 };
 
 const STATUS_LABELS_PT: Record<string, string> = {
@@ -85,6 +88,7 @@ export class TicketsService {
     private readonly ticketSettingsService: TicketSettingsService,
     private readonly alertsService: AlertsService,
     private readonly realtimeEmitter: RealtimeEmitterService,
+    private readonly slaService: SlaService,
   ) {}
   private attendanceSvc: any = null;
   setAttendanceService(svc: any) { this.attendanceSvc = svc; }
@@ -732,28 +736,26 @@ export class TicketsService {
       dto.subcategory,
     );
 
-    let slaResponseHours = 4;
-    let slaResolveHours = 24;
-
-    if (dto.contractId) {
-      try {
-        const contract = await this.contractsService.findOne(tenantId, dto.contractId);
-        slaResponseHours = contract.slaResponseHours;
-        slaResolveHours = contract.slaResolveHours;
-      } catch {}
-    } else if (dto.clientId) {
+    // Vincula contrato ativo ao ticket (sem herdar SLA do contrato — fonte de verdade é sla_policies)
+    if (!dto.contractId && dto.clientId) {
       const contract = await this.contractsService.findActiveContractForClient(tenantId, dto.clientId);
-      if (contract) {
-        slaResponseHours = contract.slaResponseHours;
-        slaResolveHours = contract.slaResolveHours;
-        dto.contractId = contract.id;
-      }
+      if (contract) dto.contractId = contract.id;
     }
 
-    const multiplier = PRIORITY_SLA_MULTIPLIER[dto.priority || TicketPriority.MEDIUM];
+    const slaPriority = TICKET_PRIORITY_TO_SLA[dto.priority || TicketPriority.MEDIUM];
     const now = new Date();
-    const slaResponseAt = new Date(now.getTime() + slaResponseHours * multiplier * 3600 * 1000);
-    const slaResolveAt = new Date(now.getTime() + slaResolveHours * multiplier * 3600 * 1000);
+    let slaResponseAt: Date | undefined;
+    let slaResolveAt: Date | undefined;
+    try {
+      const policy = await this.slaService.findBestPolicy(tenantId, slaPriority);
+      if (policy) {
+        const deadlines = this.slaService.calcDeadlines(policy, now);
+        slaResponseAt = deadlines.firstResponseDeadline;
+        slaResolveAt  = deadlines.resolutionDeadline;
+      }
+    } catch (err: any) {
+      this.logger.warn(`[SLA] tickets.create: falha ao buscar política — tenant=${tenantId}: ${err?.message}`);
+    }
 
     // tickets.description é NOT NULL no PostgreSQL; o atendimento pode enviar descrição vazia
     const descriptionText =

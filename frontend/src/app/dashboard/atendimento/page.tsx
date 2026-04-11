@@ -2385,9 +2385,17 @@ export default function AtendimentoPage() {
                         {c.escalated && (
                           <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 5, fontWeight: 600, background: '#FEF2F2', color: '#DC2626' }}>● Urgente</span>
                         )}
-                        {c.slaCritical && (
-                          <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 5, fontWeight: 600, background: '#FFF1F0', color: '#CF1322' }}>⚠ SLA</span>
-                        )}
+                        {(() => {
+                          if (isClo || !c.slaResolutionDeadline) return null;
+                          const diff = new Date(c.slaResolutionDeadline).getTime() - Date.now();
+                          if (diff < 0) return <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 5, fontWeight: 700, background: '#FEF2F2', color: '#DC2626' }}>SLA VIOL.</span>;
+                          const total = new Date(c.slaResolutionDeadline).getTime() - new Date(c.createdAt).getTime();
+                          const atRisk = total > 0 && diff / total < 0.20;
+                          if (!atRisk) return null;
+                          const h = Math.floor(diff / 3600000);
+                          const m = Math.floor((diff % 3600000) / 60000);
+                          return <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 5, fontWeight: 700, background: '#FFF7ED', color: '#C2410C' }}>⚠ {h > 0 ? `${h}h${m}m` : `${m}m`}</span>;
+                        })()}
                         {noTicket && !isClo && (
                           <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 5, fontWeight: 500, background: '#FEF3C7', color: '#D97706' }}>Sem ticket</span>
                         )}
@@ -2703,7 +2711,7 @@ export default function AtendimentoPage() {
             // Usa assignedUser embutido no ticket (retornado pelo backend) ou faz fallback na lista de equipe
             const assignedUser = currentTicket?.assignedUser
               || team.find((u: any) => String(u.id) === String(currentTicket?.assignedTo));
-            // SLA calc
+            // SLA calc — ticket
             const slaInfo = (() => {
               if (!currentTicket?.slaResolveAt || ['resolved','closed','cancelled'].includes(currentTicket?.status)) return null;
               const diff = new Date(currentTicket.slaResolveAt).getTime() - Date.now();
@@ -2713,6 +2721,23 @@ export default function AtendimentoPage() {
               const total = new Date(currentTicket.slaResolveAt).getTime() - new Date(currentTicket.createdAt || Date.now()).getTime();
               const pct = Math.max(0, Math.min(100, 100 - (diff / Math.max(total, 1)) * 100));
               return { violated: false, label: h > 0 ? `${h}h ${m}m restantes` : `${m}m restantes`, pct };
+            })();
+            // SLA calc — conversa (sla_policies)
+            const convSlaInfo = (() => {
+              if (!selected?.slaResolutionDeadline || selected?.status === 'closed') return null;
+              const diff = new Date(selected.slaResolutionDeadline).getTime() - Date.now();
+              if (diff < 0) return { violated: true, label: 'VIOLADO', pct: 100, firstResponse: null as string | null };
+              const h = Math.floor(diff / 3600000);
+              const m = Math.floor((diff % 3600000) / 60000);
+              const total = new Date(selected.slaResolutionDeadline).getTime() - new Date(selected.createdAt || Date.now()).getTime();
+              const pct = Math.max(0, Math.min(100, 100 - (diff / Math.max(total, 1)) * 100));
+              let firstResponse: string | null = null;
+              if (selected.slaFirstResponseDeadline && !selected.slaFirstResponseAt) {
+                const fd = new Date(selected.slaFirstResponseDeadline).getTime() - Date.now();
+                if (fd < 0) firstResponse = 'VIOLADO';
+                else { const fh = Math.floor(fd/3600000); const fm = Math.floor((fd%3600000)/60000); firstResponse = fh > 0 ? `${fh}h ${fm}m` : `${fm}m`; }
+              }
+              return { violated: false, label: h > 0 ? `${h}h ${m}m restantes` : `${m}m restantes`, pct, firstResponse };
             })();
             // Client stats from clientTickets
             const total = clientTickets.length;
@@ -2852,6 +2877,44 @@ export default function AtendimentoPage() {
                           : slaInfo.pct > 80
                           ? 'linear-gradient(90deg,#F97316,#EF4444)'
                           : slaInfo.pct > 50
+                          ? '#EAB308'
+                          : '#22C55E',
+                      }} />
+                    </div>
+                  </div>
+                )}
+
+                {/* SLA DA CONVERSA */}
+                {convSlaInfo && (
+                  <div style={{ padding: '14px 16px', borderBottom: S.border }}>
+                    {secTitle('SLA Conversa')}
+                    {convSlaInfo.firstResponse && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                        <span style={{ fontSize: 11, color: convSlaInfo.firstResponse === 'VIOLADO' ? '#DC2626' : '#D97706', fontWeight: 600 }}>
+                          1ª resposta: {convSlaInfo.firstResponse}
+                        </span>
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                      <span style={{
+                        fontSize: 11, fontWeight: 700,
+                        color: convSlaInfo.violated ? '#DC2626' : convSlaInfo.pct > 80 ? '#EA580C' : '#16A34A',
+                        display: 'flex', alignItems: 'center', gap: 4,
+                      }}>
+                        {convSlaInfo.violated && <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: '#DC2626' }} />}
+                        {convSlaInfo.label}
+                      </span>
+                      <span style={{ fontSize: 10, color: S.txt3, fontWeight: 500 }}>{Math.round(convSlaInfo.pct)}%</span>
+                    </div>
+                    <div style={{ height: 8, background: S.bg3, borderRadius: 4, overflow: 'hidden' }}>
+                      <div style={{
+                        height: '100%', borderRadius: 4, transition: 'width .4s',
+                        width: `${convSlaInfo.pct}%`,
+                        background: convSlaInfo.violated
+                          ? '#EF4444'
+                          : convSlaInfo.pct > 80
+                          ? 'linear-gradient(90deg,#F97316,#EF4444)'
+                          : convSlaInfo.pct > 50
                           ? '#EAB308'
                           : '#22C55E',
                       }} />

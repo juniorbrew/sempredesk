@@ -44,7 +44,6 @@ interface Settings {
   primaryColor: string; secondaryColor: string;
   smtpHost: string; smtpPort: string; smtpUser: string;
   smtpPass: string; smtpFrom: string; smtpSecure: string;
-  slaLowHours: string; slaMediumHours: string; slaHighHours: string; slaCriticalHours: string;
   ticketCreatedNotify: string; ticketResolvedNotify: string; slaWarningNotify: string;
   escalationEmail: string;
   businessHours: any;
@@ -53,7 +52,6 @@ const DEFAULT: Settings = {
   companyName:'', companyEmail:'', companyPhone:'', companyAddress:'', companyCnpj:'', companyLogo:'',
   primaryColor:'#6366F1', secondaryColor:'#4F46E5',
   smtpHost:'', smtpPort:'587', smtpUser:'', smtpPass:'', smtpFrom:'', smtpSecure:'false',
-  slaLowHours:'72', slaMediumHours:'48', slaHighHours:'24', slaCriticalHours:'4',
   ticketCreatedNotify:'false', ticketResolvedNotify:'true', slaWarningNotify:'true',
   escalationEmail:'',
   businessHours: { mon:{open:true,start:'08:00',end:'18:00'}, tue:{open:true,start:'08:00',end:'18:00'}, wed:{open:true,start:'08:00',end:'18:00'}, thu:{open:true,start:'08:00',end:'18:00'}, fri:{open:true,start:'08:00',end:'18:00'}, sat:{open:false,start:'08:00',end:'12:00'}, sun:{open:false,start:'08:00',end:'12:00'} },
@@ -190,10 +188,17 @@ export default function SettingsPage() {
   const [keyForm, setKeyForm] = useState<any>({ name:'', permissions:['read'], expiresAt:'' });
   const [showKeyForm, setShowKeyForm] = useState(false);
   const [newKeyValue, setNewKeyValue] = useState<string|null>(null);
+  // SLA Policies
+  const [slaPolicies, setSlaPolicies] = useState<any[]>([]);
+  const [slaForm, setSlaForm] = useState<any>({ name:'', priority:'medium', firstResponseMinutes:60, resolutionMinutes:480, isDefault:false });
+  const [showSlaForm, setShowSlaForm] = useState(false);
+  const [editingSlaId, setEditingSlaId] = useState<string|null>(null);
+  const [slaSaving, setSlaSaving] = useState(false);
+  const [slaReport, setSlaReport] = useState<{ breached: any[]; atRisk: any[]; conversations: { breached: any[]; atRisk: any[] } } | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const [s, me, t, r, wh, ak, bot, bst, depts, permsData, rolesData] = await Promise.all([
+      const [s, me, t, r, wh, ak, bot, bst, depts, permsData, rolesData, slaData, slaRep] = await Promise.all([
         (api as any).getSettings(), api.me(), api.getTeam(),
         (api as any).getRoutingRules(), (api as any).getWebhooks(), (api as any).getApiKeys(),
         (api as any).getChatbotConfig().catch(() => null),
@@ -201,6 +206,8 @@ export default function SettingsPage() {
         (api as any).getTicketSettings({ type: 'department', perPage: 200 }).catch(() => null),
         (api as any).getAllPermissions().catch(() => null),
         (api as any).getRoles().catch(() => null),
+        (api as any).getSlaPolicies().catch(() => null),
+        (api as any).slaReport().catch(() => null),
       ]);
       if (s) setSettings(coalesceSettings(s));
       if (me) {
@@ -233,6 +240,11 @@ export default function SettingsPage() {
         const rolesList = Array.isArray(rolesData) ? rolesData : Array.isArray((rolesData as any)?.data) ? (rolesData as any).data : [];
         setRoles(rolesList);
       }
+      if (slaData) {
+        const slaList = Array.isArray(slaData) ? slaData : Array.isArray((slaData as any)?.data) ? (slaData as any).data : [];
+        setSlaPolicies(slaList);
+      }
+      if (slaRep) setSlaReport(slaRep);
     } catch {
       setLoadError('Falha ao carregar configurações. Verifique a conexão.');
     }
@@ -325,6 +337,34 @@ export default function SettingsPage() {
     setApiKeys(Array.isArray(ak) ? ak : Array.isArray((ak as any)?.data) ? (ak as any).data : []);
   };
 
+  // SLA Policies
+  const saveSlaPolicy = async () => {
+    setSlaSaving(true);
+    try {
+      const payload = {
+        ...slaForm,
+        firstResponseMinutes: Number(slaForm.firstResponseMinutes) || 60,
+        resolutionMinutes: Number(slaForm.resolutionMinutes) || 480,
+      };
+      if (editingSlaId) { await (api as any).updateSlaPolicy(editingSlaId, payload); }
+      else { await (api as any).createSlaPolicy(payload); }
+      setShowSlaForm(false); setEditingSlaId(null);
+      setSlaForm({ name:'', priority:'medium', firstResponseMinutes:60, resolutionMinutes:480, isDefault:false });
+      const fresh = await (api as any).getSlaPolicies();
+      setSlaPolicies(Array.isArray(fresh) ? fresh : Array.isArray((fresh as any)?.data) ? (fresh as any).data : []);
+    } catch (e: any) { alert(e?.response?.data?.message || 'Erro ao salvar política SLA'); }
+    setSlaSaving(false);
+  };
+  const deleteSlaPolicy = async (id: string) => {
+    if (!confirm('Excluir política SLA?')) return;
+    await (api as any).deleteSlaPolicy(id);
+    setSlaPolicies(prev => prev.filter(p => p.id !== id));
+  };
+  const editSlaPolicy = (p: any) => {
+    setSlaForm({ name:p.name, priority:p.priority, firstResponseMinutes:p.firstResponseMinutes, resolutionMinutes:p.resolutionMinutes, isDefault:p.isDefault });
+    setEditingSlaId(p.id); setShowSlaForm(true);
+  };
+
   // ── Chatbot helpers ──────────────────────────────────────────────────────
   const saveBotConfig = async () => {
     setBotSaving(true);
@@ -388,7 +428,7 @@ export default function SettingsPage() {
           <h1 style={{ fontSize:22, fontWeight:800, color:'#0F172A', letterSpacing:'-0.015em', margin:0 }}>Configurações</h1>
           <p style={{ fontSize:12, color:'#94A3B8', marginTop:3 }}>Configure os parâmetros globais do sistema de suporte</p>
         </div>
-        {!['profile','perfis','routing','webhooks','apikeys','inbound_email','chatbot'].includes(tab) && (
+        {!['profile','perfis','routing','webhooks','apikeys','inbound_email','chatbot','sla'].includes(tab) && (
           <div className="flex items-center gap-3">
             {saveError && <span style={{ fontSize:12, fontWeight:600, color:'#DC2626' }}>{saveError}</span>}
             <button onClick={handleSave} disabled={saving} className="btn-primary">
@@ -667,32 +707,112 @@ export default function SettingsPage() {
           {/* SLA */}
           {tab === 'sla' && (
             <div className="space-y-5">
-              <div>
-                <h2 style={{ fontSize:16, fontWeight:700, color:'#0F172A', margin:0 }}>SLA / Prazos de atendimento</h2>
-                <p style={{ fontSize:13, color:'#94A3B8', marginTop:3 }}>
-                  Tempo máximo para resolução de tickets por nível de prioridade. Quando o prazo se aproxima, o sistema envia alertas à equipe.
-                </p>
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <div>
+                  <h2 style={{ fontSize:16, fontWeight:700, color:'#0F172A', margin:0 }}>Políticas SLA</h2>
+                  <p style={{ fontSize:13, color:'#94A3B8', marginTop:3 }}>
+                    Configure prazos de primeira resposta e resolução por prioridade. Todos os valores em minutos.
+                  </p>
+                </div>
+                <button onClick={() => { setShowSlaForm(true); setEditingSlaId(null); setSlaForm({ name:'', priority:'medium', firstResponseMinutes:60, resolutionMinutes:480, isDefault:false }); }} className="btn-primary" style={{ display:'flex', alignItems:'center', gap:6 }}>
+                  <Plus className="w-4 h-4" /> Nova política
+                </button>
               </div>
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                {([
-                  ['slaLowHours',      'Baixa',   '#64748B', '#F8FAFC', 'Dúvidas gerais e melhorias'],
-                  ['slaMediumHours',   'Média',   '#1D4ED8', '#DBEAFE', 'Problemas com impacto parcial'],
-                  ['slaHighHours',     'Alta',    '#C2410C', '#FFEDD5', 'Falhas afetando operação'],
-                  ['slaCriticalHours', 'Crítica', '#DC2626', '#FEE2E2', 'Sistema fora do ar'],
-                ] as const).map(([key, label, color, bg, desc]) => (
-                  <div key={key} style={{ background:bg, borderRadius:14, padding:'14px 16px', border:'1.5px solid '+color+'22' }}>
-                    <p style={{ fontSize:11, fontWeight:700, color, textTransform:'uppercase', letterSpacing:1, marginBottom:4 }}>{label}</p>
-                    <p style={{ fontSize:10, color, opacity:0.7, marginBottom:10 }}>{desc}</p>
-                    <div className="flex items-center gap-2">
-                      <input type="number" min={1} max={720} value={settings[key]} onChange={e=>upd(key,e.target.value)} className="input" style={{ width:80, textAlign:'center', fontWeight:700, fontSize:18, color, background:'#fff', padding:'8px 6px' }} />
-                      <span style={{ fontSize:13, fontWeight:600, color:'#94A3B8' }}>horas</span>
-                    </div>
+
+              {showSlaForm && (
+                <div style={{ background:'#F8FAFC', borderRadius:12, border:'1.5px solid #E2E8F0', padding:'20px' }}>
+                  <h3 style={{ fontSize:14, fontWeight:700, color:'#0F172A', margin:'0 0 16px' }}>{editingSlaId ? 'Editar política' : 'Nova política SLA'}</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <Field label="Nome" required>
+                      <input value={slaForm.name} onChange={e=>setSlaForm((p:any)=>({...p,name:e.target.value}))} className="input" placeholder="Ex.: Padrão, Urgente, VIP..." />
+                    </Field>
+                    <Field label="Prioridade">
+                      <select value={slaForm.priority} onChange={e=>setSlaForm((p:any)=>({...p,priority:e.target.value}))} className="input">
+                        <option value="low">Baixa</option>
+                        <option value="medium">Média</option>
+                        <option value="high">Alta</option>
+                      </select>
+                    </Field>
+                    <Field label="1ª resposta (minutos)" hint="Tempo máximo para o agente responder pela primeira vez">
+                      <input type="number" min={1} value={slaForm.firstResponseMinutes} onChange={e=>setSlaForm((p:any)=>({...p,firstResponseMinutes:e.target.value}))} className="input" />
+                    </Field>
+                    <Field label="Resolução (minutos)" hint="Tempo máximo para encerrar o atendimento">
+                      <input type="number" min={1} value={slaForm.resolutionMinutes} onChange={e=>setSlaForm((p:any)=>({...p,resolutionMinutes:e.target.value}))} className="input" />
+                    </Field>
                   </div>
-                ))}
+                  <div className="flex items-center gap-3" style={{ marginTop:16 }}>
+                    <Toggle checked={slaForm.isDefault} onChange={v=>setSlaForm((p:any)=>({...p,isDefault:v}))} label="Política padrão (usada quando nenhuma prioridade corresponder)" />
+                  </div>
+                  <div className="flex items-center gap-3" style={{ marginTop:16 }}>
+                    <button onClick={saveSlaPolicy} disabled={slaSaving || !slaForm.name.trim()} className="btn-primary">
+                      {slaSaving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                      {editingSlaId ? 'Salvar alterações' : 'Criar política'}
+                    </button>
+                    <button onClick={() => { setShowSlaForm(false); setEditingSlaId(null); }} style={{ fontSize:13, color:'#64748B', background:'none', border:'none', cursor:'pointer', padding:'7px 12px' }}>Cancelar</button>
+                  </div>
+                </div>
+              )}
+
+              {slaPolicies.length === 0 && !showSlaForm && (
+                <div style={{ textAlign:'center', padding:'40px 20px', color:'#94A3B8', fontSize:13 }}>
+                  Nenhuma política configurada. Clique em <strong>Nova política</strong> para começar.
+                </div>
+              )}
+
+              {slaPolicies.length > 0 && (
+                <div style={{ borderRadius:12, border:'1.5px solid #E2E8F0', overflow:'hidden' }}>
+                  {slaPolicies.map((p: any, idx: number) => {
+                    const priorityLabel: Record<string,string> = { high:'Alta', medium:'Média', low:'Baixa' };
+                    const priorityColor: Record<string,string> = { high:'#C2410C', medium:'#1D4ED8', low:'#64748B' };
+                    const priorityBg:    Record<string,string> = { high:'#FFEDD5', medium:'#DBEAFE', low:'#F1F5F9' };
+                    return (
+                      <div key={p.id} style={{ display:'flex', alignItems:'center', gap:12, padding:'13px 16px', background:'#fff', borderBottom: idx < slaPolicies.length-1 ? '1px solid #F1F5F9' : 'none', flexWrap:'wrap' }}>
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div className="flex items-center gap-2" style={{ flexWrap:'wrap' }}>
+                            <span style={{ fontSize:14, fontWeight:700, color:'#0F172A' }}>{p.name}</span>
+                            {p.isDefault && <span style={{ fontSize:10, fontWeight:700, background:'#EEF2FF', color:'#4338CA', borderRadius:6, padding:'2px 7px' }}>PADRÃO</span>}
+                            <span style={{ fontSize:11, fontWeight:700, background:priorityBg[p.priority]||'#F1F5F9', color:priorityColor[p.priority]||'#64748B', borderRadius:6, padding:'2px 7px' }}>{priorityLabel[p.priority]||p.priority}</span>
+                          </div>
+                          <p style={{ fontSize:12, color:'#64748B', margin:'3px 0 0' }}>
+                            1ª resposta: <strong>{p.firstResponseMinutes} min</strong> &nbsp;·&nbsp; Resolução: <strong>{p.resolutionMinutes} min</strong>
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => editSlaPolicy(p)} style={{ background:'none', border:'1px solid #E2E8F0', borderRadius:8, padding:'5px 10px', cursor:'pointer', color:'#475569', fontSize:12, display:'flex', alignItems:'center', gap:4 }}>
+                            <Edit2 className="w-3 h-3" /> Editar
+                          </button>
+                          <button onClick={() => deleteSlaPolicy(p.id)} style={{ background:'none', border:'1px solid #FCA5A5', borderRadius:8, padding:'5px 10px', cursor:'pointer', color:'#DC2626', fontSize:12, display:'flex', alignItems:'center', gap:4 }}>
+                            <Trash2 className="w-3 h-3" /> Excluir
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              <div style={{ background:'#EEF2FF', borderRadius:10, padding:'11px 16px', border:'1.5px solid #C7D2FE', fontSize:12, color:'#4338CA' }}>
+                As políticas SLA são aplicadas automaticamente a novas conversas e tickets conforme a prioridade. O alerta de risco é disparado quando restar menos de 20% do prazo de resolução.
               </div>
-              <div style={{ background:'#F8FAFC', borderRadius:10, padding:'11px 16px', border:'1.5px solid #E2E8F0', fontSize:12, color:'#64748B' }}>
-                💡 O alerta de SLA em risco é enviado quando o ticket atinge <strong>80% do prazo</strong>. Configure o e-mail de destino na aba <strong>Notificações</strong>.
-              </div>
+
+              {slaReport && (slaReport.breached.length > 0 || slaReport.atRisk.length > 0 || slaReport.conversations.breached.length > 0 || slaReport.conversations.atRisk.length > 0) && (
+                <div>
+                  <h3 style={{ fontSize:14, fontWeight:700, color:'#0F172A', margin:'0 0 12px' }}>Situação atual</h3>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    {[
+                      { label:'Tickets violados', value: slaReport.breached.length, color:'#DC2626', bg:'#FEF2F2' },
+                      { label:'Tickets em risco', value: slaReport.atRisk.length, color:'#F97316', bg:'#FFF7ED' },
+                      { label:'Conversas violadas', value: slaReport.conversations.breached.length, color:'#DC2626', bg:'#FEF2F2' },
+                      { label:'Conversas em risco', value: slaReport.conversations.atRisk.length, color:'#F97316', bg:'#FFF7ED' },
+                    ].map(({ label, value, color, bg }) => (
+                      <div key={label} style={{ background: bg, borderRadius: 10, padding: '14px 16px', border: `1.5px solid ${color}22` }}>
+                        <p style={{ fontSize: 22, fontWeight: 800, color, margin: 0 }}>{value}</p>
+                        <p style={{ fontSize: 11, color: '#64748B', marginTop: 3 }}>{label}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

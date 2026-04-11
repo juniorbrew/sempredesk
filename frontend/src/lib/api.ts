@@ -90,6 +90,12 @@ class ApiClient {
   dashboardTrend = (days = 7) => this.http.get(`/dashboard/ticket-trend?days=${days}`);
   slaReport = () => this.http.get('/dashboard/sla-report');
 
+  // SLA Policies
+  getSlaPolicies = () => this.http.get('/sla-policies');
+  createSlaPolicy = (data: any) => this.http.post('/sla-policies', data);
+  updateSlaPolicy = (id: string, data: any) => this.http.put(`/sla-policies/${id}`, data);
+  deleteSlaPolicy = (id: string) => this.http.delete(`/sla-policies/${id}`);
+
   getTickets = (params?: any) => this.http.get('/tickets', { params });
   getTicket = (id: string) => this.http.get(`/tickets/${id}`);
   getTicketConversations = (params?: { origin?: 'portal' | 'whatsapp'; status?: string; perPage?: number }) =>

@@ -13,6 +13,7 @@ import {
   fetchWhatsappPrefixAgentEnabled,
   prependWhatsappAgentLine,
 } from '../whatsapp/whatsapp-outbound-agent-prefix.util';
+import { SlaService } from '../sla/sla.service';
 
 @Injectable()
 export class ConversationsService {
@@ -133,6 +134,7 @@ export class ConversationsService {
     private readonly ticketsService: TicketsService,
     private readonly customersService: CustomersService,
     private readonly realtimeEmitter: RealtimeEmitterService,
+    private readonly slaService: SlaService,
   ) {
     if (!fs.existsSync(this.mediaRoot)) {
       fs.mkdirSync(this.mediaRoot, { recursive: true });
@@ -530,6 +532,9 @@ export class ConversationsService {
     });
     try {
       const savedConv = await convRepo.save(conv);
+      // Aplica política SLA ANTES de retornar — evita corrida com recordFirstResponse.
+      // applyToConversation tem try/catch interno: falha não propaga.
+      await this.slaService.applyToConversation(tenantId, savedConv.id);
       return { conversation: savedConv, ticket: null };
     } catch (error) {
       if (!this.isActiveConversationUniqueViolation(error)) throw error;
@@ -964,6 +969,19 @@ export class ConversationsService {
   /**
    * Adiciona mensagem à conversa (cliente ou agente). Usado no chat do portal.
    */
+  /**
+   * Adiciona mensagem à conversa (cliente ou agente). Usado no chat do portal e WhatsApp.
+   *
+   * Contrato de authorType:
+   *  - 'contact' → mensagem do cliente/contato (inbound)
+   *  - 'user'    → mensagem de um atendente humano autenticado (outbound)
+   *
+   * Mensagens automáticas (boas-vindas pós-ticket, chatbot, avaliação) são enviadas
+   * diretamente via Baileys/Meta e NÃO passam por este método — logo authorType='user'
+   * representa exclusivamente um atendente humano. O SLA de primeira resposta é gatilhado
+   * apenas para authorType='user', a menos que skipSlaFirstResponse=true seja passado
+   * explicitamente (reservado para casos de automação futura que usem este método).
+   */
   async addMessage(
     tenantId: string,
     conversationId: string,
@@ -982,6 +1000,12 @@ export class ConversationsService {
       mediaCaption?: string | null;
       /** ID da mensagem que está sendo respondida (reply estilo WhatsApp). */
       replyToId?: string | null;
+      /**
+       * Impede o registro de sla_first_response_at para esta mensagem.
+       * Use somente para automações que passem authorType='user' mas não devam contar
+       * como primeira resposta humana no SLA (ex: mensagem de sistema futura).
+       */
+      skipSlaFirstResponse?: boolean;
     },
   ): Promise<ConversationMessage> {
     await this.ensureConversationMessageMediaSchemaReady();
@@ -1032,6 +1056,13 @@ export class ConversationsService {
       throw err;
     }
     await this.updateLastMessageAt(tenantId, conversationId);
+
+    // Registra primeira resposta do agente no SLA (fire-and-forget — não bloqueia).
+    // authorType='user' é exclusivamente atendente humano neste método (ver JSDoc acima).
+    // skipSlaFirstResponse permite que automações futuras que usem este método optem por sair.
+    if (authorType === 'user' && !opts?.skipSlaFirstResponse) {
+      void this.slaService.recordFirstResponse(tenantId, conversationId);
+    }
 
     // Busca snapshot da mensagem citada (1 query leve, só se houver replyToId)
     let replyToSnapshot: ReplyToSnapshot | null = null;
@@ -1341,6 +1372,20 @@ export class ConversationsService {
           );
           messagesToEmitRealtime.push(internalMsg);
         }
+      }
+
+      // Registra resolução SLA dentro da transação (sem query extra — dados já em memória)
+      if (convLocked.slaPolicyId) {
+        const resolvedAt = new Date();
+        const slaFinalStatus = this.slaService.computeStatus({
+          slaFirstResponseDeadline: convLocked.slaFirstResponseDeadline,
+          slaResolutionDeadline:    convLocked.slaResolutionDeadline,
+          slaFirstResponseAt:       convLocked.slaFirstResponseAt,
+          slaResolvedAt:            resolvedAt,
+          createdAt:                convLocked.createdAt,
+        });
+        convLocked.slaResolvedAt = resolvedAt;
+        convLocked.slaStatus     = slaFinalStatus;
       }
 
       convLocked.status = ConversationStatus.CLOSED;
