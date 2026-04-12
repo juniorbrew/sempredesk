@@ -482,8 +482,8 @@ export default function TicketsPage() {
     setLoading(true);
     try {
       const [ticketsRes, statsRes, teamRes, customersRes, treeRes, rootCausesRes, tpRes] = await Promise.all([
-        api.getTickets(filters), api.ticketStats(), api.getTeam(),
-        api.getCustomers({ perPage:200 }), api.getTicketSettingsTree().catch(() => null), api.getRootCauses({ active: true }).catch(() => []),
+        api.getTickets(filters), api.ticketStats(), api.getTeam().catch(() => []),
+        api.getCustomers({ perPage:200 }).catch(() => []), api.getTicketSettingsTree().catch(() => null), api.getRootCauses({ active: true }).catch(() => []),
         api.getTenantPrioritiesForTickets().catch(() => []),
       ]);
       setData(ticketsRes as any); setStats(statsRes); setTeam((teamRes as any)||[]); setCustomers((customersRes as any)?.data||(customersRes as any)||[]);
