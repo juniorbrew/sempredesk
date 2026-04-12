@@ -8,6 +8,7 @@ import {
   Ticket, TicketMessage, TicketStatus, TicketPriority, TicketOrigin, MessageType,
 } from './entities/ticket.entity';
 import { TicketReplyAttachment } from './entities/ticket-reply-attachment.entity';
+import { TenantPriority } from '../tenant-priorities/entities/tenant-priority.entity';
 import { TicketSatisfactionService } from './ticket-satisfaction.service';
 import {
   CreateTicketDto,
@@ -27,7 +28,7 @@ import { WebhooksService } from '../webhooks/webhooks.service';
 import { RoutingRulesService } from '../routing-rules/routing-rules.service';
 import { SlaService } from '../sla/sla.service';
 import { SlaPriority } from '../sla/entities/sla-policy.entity';
-import { DEFAULT_SYSTEM_PRIORITY } from '../../common/constants/priority.constants';
+import { DEFAULT_SYSTEM_PRIORITY, SYSTEM_PRIORITY_VALUES } from '../../common/constants/priority.constants';
 
 /** Normaliza prioridade do ticket para seleção de política SLA (mesmo conjunto: low | medium | high | critical). */
 function toSlaPriority(priority?: TicketPriority | null): SlaPriority {
@@ -82,6 +83,8 @@ export class TicketsService {
     private readonly messageRepo: Repository<TicketMessage>,
     @InjectRepository(TicketReplyAttachment)
     private readonly ticketReplyAttachmentRepo: Repository<TicketReplyAttachment>,
+    @InjectRepository(TenantPriority)
+    private readonly tenantPriorityRepo: Repository<TenantPriority>,
     private readonly contractsService: ContractsService,
     private readonly ticketSettingsService: TicketSettingsService,
     private readonly alertsService: AlertsService,
@@ -133,8 +136,9 @@ export class TicketsService {
    * A base temporal é sempre a criação do ticket, para manter o SLA consistente com o cadastro.
    */
   private async applyConfiguredSlaToTicket(ticket: Ticket): Promise<void> {
-    const policy = await this.slaService.findBestPolicy(
+    const policy = await this.slaService.resolvePolicyForTicket(
       ticket.tenantId,
+      ticket.priorityId ?? null,
       toSlaPriority(ticket.priority),
     );
 
@@ -150,18 +154,80 @@ export class TicketsService {
   }
 
   /**
-   * Alinha a política SLA da conversa à prioridade do ticket (findBestPolicy).
-   * Comportamento atual: policy sincronizada; prazos absolutos usam âncoras independentes
-   * (ticket → createdAt do ticket em applyConfiguredSlaToTicket; conversa → created_at em reapplyConversationPolicy).
-   * Tratado como comportamento provisório até decisão de produto unificar o relógio.
+   * Com ticket vinculado, a conversa segue prioridade/SLA do ticket (Fase 4):
+   * atualiza conversations.priority_id e reaplica SLA via tenant_priorities ou enum legado.
    */
   private async syncConversationSlaWithTicket(ticket: Ticket): Promise<void> {
     if (!ticket.conversationId) return;
-    await this.slaService.reapplyConversationPolicy(
-      ticket.tenantId,
-      ticket.conversationId,
-      toSlaPriority(ticket.priority),
+
+    let convPriorityId = ticket.priorityId ?? null;
+    if (!convPriorityId && ticket.priority) {
+      const tp = await this.tenantPriorityRepo.findOne({
+        where: { tenantId: ticket.tenantId, slug: String(ticket.priority) },
+      });
+      convPriorityId = tp?.id ?? null;
+    }
+
+    await this.ticketRepo.manager.query(
+      `UPDATE conversations SET priority_id = $1 WHERE id = $2 AND tenant_id = $3`,
+      [convPriorityId, ticket.conversationId, ticket.tenantId],
     );
+
+    if (ticket.priorityId) {
+      await this.slaService.applyConversationSlaFromTenantPriorityId(
+        ticket.tenantId,
+        ticket.conversationId,
+        ticket.priorityId,
+      );
+    } else {
+      await this.slaService.reapplyConversationPolicy(
+        ticket.tenantId,
+        ticket.conversationId,
+        toSlaPriority(ticket.priority),
+      );
+    }
+  }
+
+  private async assertTenantPriorityBelongs(tenantId: string, priorityId: string): Promise<void> {
+    const tp = await this.tenantPriorityRepo.findOne({ where: { id: priorityId, tenantId } });
+    if (!tp) {
+      throw new BadRequestException('Prioridade não encontrada ou não pertence ao tenant');
+    }
+  }
+
+  private async resolveTenantPriorityIdBySlug(tenantId: string, slug: string): Promise<string | null> {
+    const tp = await this.tenantPriorityRepo.findOne({
+      where: { tenantId, slug: String(slug) },
+    });
+    return tp?.id ?? null;
+  }
+
+  /**
+   * Integrações que ainda enviam só o enum legado (ex.: inbound e-mail) podem resolver `priority_id` antes do create.
+   */
+  async resolvePriorityIdFromLegacyEnum(tenantId: string, priority: TicketPriority): Promise<string | null> {
+    return this.resolveTenantPriorityIdBySlug(tenantId, String(priority));
+  }
+
+  /** Preenche priority_id a partir do enum quando ainda vazio (fluxos automáticos / pós-routing). */
+  private async ensureTicketPriorityIdFromEnum(ticket: Ticket): Promise<void> {
+    if (ticket.priorityId || !ticket.priority) return;
+    const pid = await this.resolveTenantPriorityIdBySlug(ticket.tenantId, String(ticket.priority));
+    if (!pid) return;
+    ticket.priorityId = pid;
+    await this.applyConfiguredSlaToTicket(ticket);
+    await this.ticketRepo.save(ticket);
+  }
+
+  /** Payload JSON: prioridade cadastrável resumida (evita expor entidade completa / relações). */
+  private ticketWithPriorityPayload(ticket: Ticket): Record<string, unknown> {
+    const tp = ticket.tenantPriority;
+    const row: Record<string, unknown> = { ...ticket };
+    row.priorityInfo = tp
+      ? { id: tp.id, name: tp.name, color: tp.color, slug: tp.slug, active: tp.active }
+      : null;
+    delete row.tenantPriority;
+    return row;
   }
 
   /**
@@ -186,7 +252,10 @@ export class TicketsService {
   }
 
   private async getTicketOrFail(tenantId: string, id: string): Promise<Ticket> {
-    const ticket = await this.ticketRepo.findOne({ where: { id, tenantId } });
+    const ticket = await this.ticketRepo.findOne({
+      where: { id, tenantId },
+      relations: ['tenantPriority'],
+    });
     if (!ticket) throw new NotFoundException('Ticket não encontrado');
     return ticket;
   }
@@ -702,9 +771,28 @@ export class TicketsService {
 
     if (existing) return existing;
 
+    const offlinePriorityId =
+      (await this.resolveTenantPriorityIdBySlug(tenantId, String(TicketPriority.HIGH))) ?? null;
+    const now = new Date();
+    let slaResponseAt: Date | null = null;
+    let slaResolveAt: Date | null = null;
+    try {
+      const policy = await this.slaService.resolvePolicyForTicket(
+        tenantId,
+        offlinePriorityId,
+        toSlaPriority(TicketPriority.HIGH),
+      );
+      if (policy) {
+        const deadlines = this.slaService.calcDeadlines(policy, now);
+        slaResponseAt = deadlines.firstResponseDeadline;
+        slaResolveAt = deadlines.resolutionDeadline;
+      }
+    } catch {
+      /* SLA opcional */
+    }
+
     return this.ticketRepo.manager.transaction(async (em) => {
       const ticketNumber = await this.allocateNextTicketNumberInTx(em);
-      const now = new Date();
 
       const subject = `PDV offline: ${device.name}`;
       const description = [
@@ -719,12 +807,13 @@ export class TicketsService {
         clientId: device.clientId,
         origin: TicketOrigin.INTERNAL,
         priority: TicketPriority.HIGH,
+        priorityId: offlinePriorityId,
         status: TicketStatus.OPEN,
         subject,
         description,
         category: 'infraestrutura',
-        slaResponseAt: null,
-        slaResolveAt: null,
+        slaResponseAt,
+        slaResolveAt,
         metadata: { deviceId: device.id, deviceName: device.name, source: 'monitoring', type: 'device_offline' },
         createdAt: now as any,
         updatedAt: now as any,
@@ -776,12 +865,33 @@ export class TicketsService {
       if (contract) dto.contractId = contract.id;
     }
 
-    const slaPriority = toSlaPriority(dto.priority);
+    let effectivePriority: TicketPriority = dto.priority ?? DEFAULT_SYSTEM_PRIORITY;
+    let effectivePriorityId: string | null = dto.priorityId ?? null;
+    if (dto.priorityId) {
+      await this.assertTenantPriorityBelongs(tenantId, dto.priorityId);
+      const tpForEnum = await this.tenantPriorityRepo.findOne({
+        where: { id: dto.priorityId, tenantId },
+      });
+      if (tpForEnum && SYSTEM_PRIORITY_VALUES.includes(tpForEnum.slug as any)) {
+        effectivePriority = tpForEnum.slug as TicketPriority;
+      }
+    }
+
+    if (!effectivePriorityId) {
+      effectivePriorityId =
+        (await this.resolveTenantPriorityIdBySlug(tenantId, String(effectivePriority))) ?? null;
+    }
+
+    const slaPriority = toSlaPriority(effectivePriority);
     const now = new Date();
     let slaResponseAt: Date | undefined;
     let slaResolveAt: Date | undefined;
     try {
-      const policy = await this.slaService.findBestPolicy(tenantId, slaPriority);
+      const policy = await this.slaService.resolvePolicyForTicket(
+        tenantId,
+        effectivePriorityId,
+        slaPriority,
+      );
       if (policy) {
         const deadlines = this.slaService.calcDeadlines(policy, now);
         slaResponseAt = deadlines.firstResponseDeadline;
@@ -802,6 +912,8 @@ export class TicketsService {
       const ticketNumber = await this.allocateNextTicketNumberInTx(em);
       const ticket = em.create(Ticket, {
         ...dto,
+        priority: effectivePriority,
+        priorityId: effectivePriorityId,
         description: descriptionText,
         conversationId: dto.conversationId || undefined,
         department: classification.department || undefined,
@@ -823,11 +935,19 @@ export class TicketsService {
         const routing = await this.routingSvc.applyRules(tenantId, ticketSaved);
         const routingUpdates: any = {};
         if (routing.assignTo) routingUpdates.assignedTo = routing.assignTo;
-        if (routing.priority) routingUpdates.priority = routing.priority;
+        if (routing.priority) {
+          routingUpdates.priority = routing.priority;
+          routingUpdates.priorityId =
+            (await this.resolveTenantPriorityIdBySlug(tenantId, routing.priority)) ?? null;
+        }
         if (Object.keys(routingUpdates).length > 0) {
-          const priorityChanged = routing.priority && routing.priority !== ticketSaved.priority;
+          const beforeP = ticketSaved.priority;
+          const beforePid = ticketSaved.priorityId ?? null;
           Object.assign(ticketSaved, routingUpdates);
-          if (priorityChanged) {
+          const priorityOrIdChanged =
+            ticketSaved.priority !== beforeP ||
+            (ticketSaved.priorityId ?? null) !== beforePid;
+          if (priorityOrIdChanged) {
             await this.applyConfiguredSlaToTicket(ticketSaved);
           }
           await this.ticketRepo.save(ticketSaved);
@@ -859,6 +979,8 @@ export class TicketsService {
       ticketSaved.status = TicketStatus.IN_PROGRESS;
       await this.ticketRepo.save(ticketSaved);
     }
+
+    await this.ensureTicketPriorityIdFromEnum(ticketSaved);
 
     // Registrar no histórico: atribuição, classificação (dept/cat/subcat) — para tickets criados no atendimento
     if (ticketSaved.assignedTo) {
@@ -927,12 +1049,13 @@ export class TicketsService {
           subject: ticketSaved.subject,
           status: ticketSaved.status,
           priority: ticketSaved.priority,
+          priorityId: ticketSaved.priorityId ?? null,
         });
       } catch {}
     }
 
     await this.syncConversationSlaWithTicket(ticketSaved);
-    return ticketSaved;
+    return this.findOne(tenantId, ticketSaved.id);
   }
 
   async findAll(tenantId: string, filters: FilterTicketsDto) {
@@ -941,6 +1064,7 @@ export class TicketsService {
       perPage = 20,
       status,
       priority,
+      priorityId: filterPriorityId,
       assignedTo,
       clientId,
       contactId,
@@ -966,6 +1090,7 @@ export class TicketsService {
     const sortDir: 'ASC' | 'DESC' = rawDir?.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
 
     const qb = this.ticketRepo.createQueryBuilder('t')
+      .leftJoinAndSelect('t.tenantPriority', 'tp')
       .where('t.tenant_id = :tenantId', { tenantId })
       .orderBy(sortCol, sortDir)
       .skip((page - 1) * perPage)
@@ -988,7 +1113,11 @@ export class TicketsService {
       qb.andWhere('t.origin = :origin', { origin });
     }
     // Sem `origin`: listagem geral inclui internal/email/phone — tickets criados no painel usam origin internal.
-    if (priority) qb.andWhere('t.priority = :priority', { priority });
+    if (filterPriorityId) {
+      qb.andWhere('t.priority_id = :filterPriorityId', { filterPriorityId });
+    } else if (priority) {
+      qb.andWhere('t.priority = :priority', { priority });
+    }
     if (assignedTo) qb.andWhere('t.assigned_to = :assignedTo', { assignedTo });
     if (clientId && contactId) {
       // Contato normal: apenas tickets da empresa selecionada vinculados ao usuário (ou contatos com mesmo email)
@@ -1031,8 +1160,10 @@ export class TicketsService {
 
     const [data, total] = await qb.getManyAndCount();
 
-    if (includeLastMessage && data.length > 0) {
-      const ids = data.map((t) => t.id);
+    const withPriority = data.map((t) => this.ticketWithPriorityPayload(t));
+
+    if (includeLastMessage && withPriority.length > 0) {
+      const ids = withPriority.map((t) => t.id as string);
       const lastMsgRows = await this.ticketRepo.manager.query(
         `SELECT DISTINCT ON (ticket_id) ticket_id, content, created_at
          FROM ticket_messages
@@ -1044,17 +1175,17 @@ export class TicketsService {
       const lastByTicket = new Map<string, { content: string; createdAt: Date }>(
         lastMsgRows.map((r: { ticket_id: string; content: string; created_at: Date }) => [r.ticket_id, { content: r.content, createdAt: r.created_at }]),
       );
-      const enriched = data.map((t) => {
-        const last = lastByTicket.get(t.id);
+      const enriched = withPriority.map((row) => {
+        const last = lastByTicket.get(row.id as string);
         return {
-          ...t,
+          ...row,
           lastAgentMessage: last ? { content: last.content.slice(0, 120), createdAt: last.createdAt } : null,
         };
       });
       return { data: enriched, total, page, perPage, totalPages: Math.ceil(total / perPage) };
     }
 
-    return { data, total, page, perPage, totalPages: Math.ceil(total / perPage) };
+    return { data: withPriority, total, page, perPage, totalPages: Math.ceil(total / perPage) };
   }
 
   /**
@@ -1160,17 +1291,18 @@ export class TicketsService {
 
   async findOne(tenantId: string, id: string): Promise<any> {
     const ticket = await this.getTicketOrFail(tenantId, id);
+    const out = this.ticketWithPriorityPayload(ticket) as any;
     // Inclui dados do responsável para evitar chamada extra ao endpoint /team
-    if ((ticket as any).assignedTo) {
+    if (out.assignedTo) {
       try {
         const rows = await this.ticketRepo.manager.query(
           `SELECT id, name, email FROM users WHERE tenant_id = $1 AND id = $2 LIMIT 1`,
-          [tenantId, (ticket as any).assignedTo],
+          [tenantId, out.assignedTo],
         );
-        if (rows[0]) (ticket as any).assignedUser = rows[0];
+        if (rows[0]) out.assignedUser = rows[0];
       } catch {}
     }
-    return ticket;
+    return out;
   }
 
   async linkToConversation(tenantId: string, ticketId: string, conversationId: string): Promise<void> {
@@ -1219,6 +1351,7 @@ export class TicketsService {
     const ticket = await this.getTicketOrFail(tenantId, id);
     const oldStatus = ticket.status;
     const oldPriority = ticket.priority;
+    const oldPriorityId = ticket.priorityId ?? null;
     const oldDepartment = ticket.department ?? null;
 
     await this.assertUserBelongsToTenant(tenantId, dto.assignedTo);
@@ -1227,6 +1360,13 @@ export class TicketsService {
       dto.department !== undefined || dto.category !== undefined || dto.subcategory !== undefined;
 
     const updates: any = { ...dto };
+    if (dto.priorityId !== undefined) {
+      if (dto.priorityId === null || dto.priorityId === '') {
+        updates.priorityId = null;
+      } else {
+        await this.assertTenantPriorityBelongs(tenantId, dto.priorityId);
+      }
+    }
 
     if (userChangedClassification) {
       const classification = await this.resolveTicketClassification(
@@ -1258,7 +1398,29 @@ export class TicketsService {
 
     Object.assign(ticket, updates);
 
-    if (ticket.priority !== oldPriority) {
+    if (dto.priority !== undefined && dto.priorityId === undefined) {
+      ticket.priorityId =
+        (await this.resolveTenantPriorityIdBySlug(tenantId, dto.priority!)) ?? null;
+    }
+
+    if (!ticket.priorityId && ticket.priority) {
+      ticket.priorityId =
+        (await this.resolveTenantPriorityIdBySlug(tenantId, String(ticket.priority))) ?? null;
+    }
+
+    if (ticket.priorityId) {
+      const tpAlign = await this.tenantPriorityRepo.findOne({
+        where: { id: ticket.priorityId, tenantId },
+      });
+      if (tpAlign && SYSTEM_PRIORITY_VALUES.includes(tpAlign.slug as any)) {
+        ticket.priority = tpAlign.slug as TicketPriority;
+      }
+    }
+
+    const priorityOrIdChanged =
+      ticket.priority !== oldPriority ||
+      (ticket.priorityId ?? null) !== oldPriorityId;
+    if (priorityOrIdChanged) {
       await this.applyConfiguredSlaToTicket(ticket);
     }
 
@@ -1298,6 +1460,8 @@ export class TicketsService {
           subject: saved.subject,
           status: saved.status,
           previousStatus: oldStatus,
+          priority: saved.priority,
+          priorityId: saved.priorityId ?? null,
         });
       } catch {}
     }
@@ -1313,7 +1477,7 @@ export class TicketsService {
       this.assignmentSvc.reassignOnDepartmentChange(tenantId, saved.id).catch(() => {});
     }
 
-    return saved;
+    return this.findOne(tenantId, id);
   }
 
   async updateContent(tenantId: string, id: string, userId: string, userName: string, dto: UpdateTicketContentDto): Promise<Ticket> {
@@ -2032,6 +2196,8 @@ export class TicketsService {
   async escalate(tenantId: string, id: string): Promise<Ticket> {
     const ticket = await this.getTicketOrFail(tenantId, id);
     ticket.priority = TicketPriority.CRITICAL;
+    ticket.priorityId =
+      (await this.resolveTenantPriorityIdBySlug(tenantId, TicketPriority.CRITICAL)) ?? null;
     ticket.escalated = true;
     await this.applyConfiguredSlaToTicket(ticket);
     const saved = await this.ticketRepo.save(ticket);
@@ -2133,6 +2299,8 @@ export class TicketsService {
         for (const t of breached) {
           t.escalated = true;
           t.priority = TicketPriority.CRITICAL;
+          t.priorityId =
+            (await this.resolveTenantPriorityIdBySlug(tenantId, TicketPriority.CRITICAL)) ?? null;
           await this.applyConfiguredSlaToTicket(t);
 
           await this.ticketRepo.save(t);

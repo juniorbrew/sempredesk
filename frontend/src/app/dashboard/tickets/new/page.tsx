@@ -42,7 +42,13 @@ export default function NewTicketPage() {
   const [focusField, setFocusField] = useState('');
   const searchRef = useRef<HTMLDivElement>(null);
 
-  const [form, setForm] = useState({ clientId:'', contactId:'', contractId:'', assignedTo:'', origin:'internal', priority:DEFAULT_PRIORITY, department:'', category:'', subcategory:'', subject:'', description:'', tags:[] as string[] });
+  const [tenantPriorities, setTenantPriorities] = useState<any[]>([]);
+  const [form, setForm] = useState({
+    clientId:'', contactId:'', contractId:'', assignedTo:'', origin:'internal',
+    priority: DEFAULT_PRIORITY,
+    priorityId: '' as string,
+    department:'', category:'', subcategory:'', subject:'', description:'', tags:[] as string[],
+  });
 
   useEffect(() => {
     const load = async () => {
@@ -60,7 +66,10 @@ export default function NewTicketPage() {
             setArchiveFeatureEnabled(true);
           }
         }
-        const [cr, tr, treeR, conR, tagR] = await Promise.all([api.getCustomers({ perPage:500 }), api.getTeam(), api.getTicketSettingsTree(), api.getContracts(), api.getTags({ active: true })]);
+        const [cr, tr, treeR, conR, tagR, tpR] = await Promise.all([
+          api.getCustomers({ perPage:500 }), api.getTeam(), api.getTicketSettingsTree(), api.getContracts(), api.getTags({ active: true }),
+          api.getTenantPrioritiesForTickets().catch(() => []),
+        ]);
         const customersList = Array.isArray(cr) ? cr : Array.isArray((cr as any)?.data) ? (cr as any).data : [];
         setCustomers(customersList);
         setTeam((tr as any[]) || []);
@@ -69,6 +78,21 @@ export default function NewTicketPage() {
         setContracts(contractsList);
         const tagsList = Array.isArray(tagR) ? tagR : Array.isArray((tagR as any)?.data) ? (tagR as any).data : [];
         setAvailableTags(tagsList);
+        const tpList = Array.isArray(tpR) ? tpR : (tpR as any)?.data ?? [];
+        setTenantPriorities(tpList);
+        if (tpList.length) {
+          const medium = tpList.find((p: any) => p.slug === 'medium');
+          const def = medium || tpList[0];
+          setForm((f) =>
+            f.priorityId
+              ? f
+              : {
+                  ...f,
+                  priorityId: def.id,
+                  priority: ['low', 'medium', 'high', 'critical'].includes(def.slug) ? def.slug : f.priority,
+                },
+          );
+        }
       } catch(e){ console.error(e); }
     };
     load();
@@ -145,7 +169,8 @@ export default function NewTicketPage() {
     if (description.length > 0 && description.length < 3) { toast.error('Descrição deve ter no mínimo 3 caracteres'); return; }
     setSaving(true);
     try {
-      const payload = {
+      const sel = tenantPriorities.find((p: any) => p.id === form.priorityId);
+      const payload: any = {
         ...form,
         subject,
         description: description || undefined,
@@ -157,6 +182,13 @@ export default function NewTicketPage() {
         subcategory: form.subcategory || undefined,
         tags: form.tags.length ? form.tags : undefined,
       };
+      if (sel) {
+        payload.priorityId = sel.id;
+        if (['low', 'medium', 'high', 'critical'].includes(sel.slug)) payload.priority = sel.slug;
+      } else {
+        payload.priority = form.priority;
+        delete payload.priorityId;
+      }
       const created = (await api.createTicket(payload)) as { id: string };
       router.push(`/dashboard/tickets/${created.id}`);
     } catch(e:any){ toast.error(e?.response?.data?.message||'Erro ao criar ticket'); }
@@ -335,11 +367,36 @@ export default function NewTicketPage() {
                 style={{ ...inp(focusField==='desc'), resize:'vertical' as const }} />
             </div>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
-              <Sel label="Prioridade" value={form.priority} onChange={(e:any)=>setForm({...form,priority:e.target.value})}>
-                {PRIORITY_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
-              </Sel>
+              {tenantPriorities.length > 0 ? (
+                <Sel
+                  label="Prioridade"
+                  value={form.priorityId}
+                  onChange={(e: any) => {
+                    const id = e.target.value;
+                    const p = tenantPriorities.find((x: any) => x.id === id);
+                    setForm({
+                      ...form,
+                      priorityId: id,
+                      priority:
+                        p && ['low', 'medium', 'high', 'critical'].includes(p.slug) ? p.slug : form.priority,
+                    });
+                  }}
+                >
+                  {tenantPriorities.map((p: any) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </Sel>
+              ) : (
+                <Sel label="Prioridade" value={form.priority} onChange={(e: any) => setForm({ ...form, priority: e.target.value })}>
+                  {PRIORITY_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </Sel>
+              )}
               <Sel label="Origem" value={form.origin} onChange={(e:any)=>setForm({...form,origin:e.target.value})}>
                 <option value="internal">Interno</option>
                 <option value="portal">Portal</option>

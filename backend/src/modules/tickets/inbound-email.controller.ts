@@ -61,6 +61,10 @@ export class InboundEmailController {
 
       const description = `**E-mail recebido de:** ${senderName} <${senderEmail}>\n\n${text.slice(0, 5000)}`;
 
+      const priorityId =
+        (await this.ticketsService.resolvePriorityIdFromLegacyEnum(tenantId, TicketPriority.MEDIUM)) ??
+        undefined;
+
       await this.ticketsService.create(
         tenantId,
         'system',
@@ -71,6 +75,7 @@ export class InboundEmailController {
           subject: subject.slice(0, 200),
           description,
           priority: TicketPriority.MEDIUM,
+          ...(priorityId ? { priorityId } : {}),
           origin: TicketOrigin.EMAIL,
         },
         'user',

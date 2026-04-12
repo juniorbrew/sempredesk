@@ -1,5 +1,7 @@
 import { Type, Transform } from 'class-transformer';
-import { IsString, IsEnum, IsOptional, IsArray, IsNumber, Min, Max, MaxLength, MinLength } from 'class-validator';
+import {
+  IsString, IsEnum, IsOptional, IsArray, IsNumber, Min, Max, MaxLength, MinLength, IsUUID, ValidateIf,
+} from 'class-validator';
 import { TicketStatus, TicketPriority, TicketOrigin, MessageType } from '../entities/ticket.entity';
 
 export class CreateTicketDto {
@@ -29,6 +31,10 @@ export class CreateTicketDto {
   @IsEnum(TicketPriority)
   @IsOptional()
   priority?: TicketPriority;
+
+  @IsOptional()
+  @IsUUID()
+  priorityId?: string;
 
   @IsString()
   @IsOptional()
@@ -78,6 +84,12 @@ export class UpdateTicketDto {
   @IsEnum(TicketPriority)
   @IsOptional()
   priority?: TicketPriority;
+
+  /** null limpa priority_id; omitido não altera. */
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined && v !== '')
+  @IsUUID()
+  priorityId?: string | null;
 
   @IsString()
   @IsOptional()
@@ -182,6 +194,12 @@ export class FilterTicketsDto {
   @IsEnum(TicketOrigin)
   @IsOptional()
   origin?: TicketOrigin;
+
+  /** Filtro por prioridade cadastrável (tem precedência sobre `priority` legado se ambos forem enviados). */
+  @IsOptional()
+  @ValidateIf((_, v) => v != null && v !== '')
+  @IsUUID()
+  priorityId?: string;
 
   @IsEnum(TicketPriority)
   @IsOptional()

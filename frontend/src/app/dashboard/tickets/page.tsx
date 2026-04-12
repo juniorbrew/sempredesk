@@ -6,6 +6,7 @@ import { Plus, Search, ChevronLeft, ChevronRight, AlertTriangle, Ticket, Clock, 
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { getTicketPriorityDisplay } from '@/lib/ticket-priority-ui';
 
 const STATUS_LABELS: Record<string,string> = { open:'Aberto', in_progress:'Em andamento', waiting_client:'Aguardando', resolved:'Resolvido', closed:'Fechado', cancelled:'Cancelado' };
 const PRIORITY_LABELS: Record<string,string> = { low:'Baixa', medium:'Média', high:'Alta', critical:'Crítica' };
@@ -19,13 +20,6 @@ const STATUS_STYLE: Record<string,{ bg:string; color:string; dot:string; header:
   cancelled:      { bg:'#FEF2F2', color:'#991B1B', dot:'#EF4444', header:'#DC2626', headerText:'#fff' },
 };
 
-const PRIORITY_STYLE: Record<string,{ bg:string; color:string }> = {
-  low:      { bg:'#F0FDF4', color:'#166534' },
-  medium:   { bg:'#FEF3C7', color:'#92400E' },
-  high:     { bg:'#FFF7ED', color:'#C2410C' },
-  critical: { bg:'#FDF2F8', color:'#86198F' },
-};
-
 function StatusBadge({ status }: { status: string }) {
   const s = STATUS_STYLE[status] || { bg:'#F1F5F9', color:'#64748B', dot:'#94A3B8', header:'#64748B', headerText:'#fff' };
   return (
@@ -36,11 +30,11 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function PriorityBadge({ priority }: { priority: string }) {
-  const p = PRIORITY_STYLE[priority] || { bg:'#F1F5F9', color:'#64748B' };
+function PriorityBadge({ ticket }: { ticket: { priority?: string; priorityInfo?: { name: string; color: string; slug: string } | null } }) {
+  const d = getTicketPriorityDisplay(ticket);
   return (
-    <span style={{ background:p.bg, color:p.color, padding:'2px 8px', borderRadius:20, fontSize:10, fontWeight:700, whiteSpace:'nowrap' }}>
-      {PRIORITY_LABELS[priority] || priority}
+    <span style={{ background:d.bg, color:d.color, padding:'2px 8px', borderRadius:20, fontSize:10, fontWeight:700, whiteSpace:'nowrap' }}>
+      {d.label}
     </span>
   );
 }
@@ -121,8 +115,8 @@ function KanbanCloseModal({ ticket, customers, rootCauseOptions, onConfirm, onCa
             </div>
             <div style={{ fontSize:11, color:'#64748B' }}>{customerName(ticket.clientId)}{ticket.department ? ` · ${ticket.department}` : ''}</div>
           </div>
-          <span style={{ background: PRIORITY_STYLE[ticket.priority]?.bg, color: PRIORITY_STYLE[ticket.priority]?.color, padding:'2px 10px', borderRadius:20, fontSize:11, fontWeight:700, flexShrink:0 }}>
-            {(PRIORITY_LABELS[ticket.priority]||ticket.priority)}
+          <span style={{ background: getTicketPriorityDisplay(ticket).bg, color: getTicketPriorityDisplay(ticket).color, padding:'2px 10px', borderRadius:20, fontSize:11, fontWeight:700, flexShrink:0 }}>
+            {getTicketPriorityDisplay(ticket).label}
           </span>
         </div>
         {/* Form */}
@@ -396,7 +390,7 @@ function KanbanView({ tickets, customers, team, rootCauseOptions, onMove }: {
                         style={{ fontFamily:'monospace', color:'#4F46E5', fontWeight:700, fontSize:11, background:'#EEF2FF', padding:'2px 7px', borderRadius:5, textDecoration:'none' }}>
                         {t.ticketNumber}
                       </Link>
-                      <PriorityBadge priority={t.priority} />
+                      <PriorityBadge ticket={t} />
                     </div>
 
                     {/* Subject */}
@@ -455,7 +449,9 @@ export default function TicketsPage() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
-  const [priority, setPriority] = useState('');
+  /** Filtro: `id:<uuid>` (tenant_priorities) ou `slug:low|medium|high|critical` (enum legado). */
+  const [priorityFilter, setPriorityFilter] = useState('');
+  const [tenantPriorities, setTenantPriorities] = useState<any[]>([]);
   const [department, setDepartment] = useState('');
   const [assignedTo, setAssignedTo] = useState('');
   const [loading, setLoading] = useState(true);
@@ -467,33 +463,40 @@ export default function TicketsPage() {
   const [sortField, setSortField] = useState<'ticketNumber'|'subject'|'createdAt'>('createdAt');
   const [sortDir, setSortDir] = useState<'asc'|'desc'>('desc');
 
-  const filters = useMemo(() => ({
-    page,
-    perPage: viewMode === 'kanban' ? 500 : 25,
-    search: search||undefined,
-    status: status||undefined,
-    priority: priority||undefined,
-    department: department||undefined,
-    assignedTo: assignedTo||undefined,
-    sort: `${sortField}:${sortDir}`,
-  }), [page, search, status, priority, department, assignedTo, viewMode, sortField, sortDir]);
+  const filters = useMemo(() => {
+    const q: Record<string, unknown> = {
+      page,
+      perPage: viewMode === 'kanban' ? 500 : 25,
+      search: search || undefined,
+      status: status || undefined,
+      department: department || undefined,
+      assignedTo: assignedTo || undefined,
+      sort: `${sortField}:${sortDir}`,
+    };
+    if (priorityFilter.startsWith('id:')) q.priorityId = priorityFilter.slice(3);
+    else if (priorityFilter.startsWith('slug:')) q.priority = priorityFilter.slice(5);
+    return q;
+  }, [page, search, status, priorityFilter, department, assignedTo, viewMode, sortField, sortDir]);
 
   const load = async () => {
     setLoading(true);
     try {
-      const [ticketsRes, statsRes, teamRes, customersRes, treeRes, rootCausesRes] = await Promise.all([
+      const [ticketsRes, statsRes, teamRes, customersRes, treeRes, rootCausesRes, tpRes] = await Promise.all([
         api.getTickets(filters), api.ticketStats(), api.getTeam(),
         api.getCustomers({ perPage:200 }), api.getTicketSettingsTree().catch(() => null), api.getRootCauses({ active: true }).catch(() => []),
+        api.getTenantPrioritiesForTickets().catch(() => []),
       ]);
       setData(ticketsRes as any); setStats(statsRes); setTeam((teamRes as any)||[]); setCustomers((customersRes as any)?.data||(customersRes as any)||[]);
       const depts: any[] = (treeRes as any)?.departments ?? (Array.isArray(treeRes) ? treeRes : []);
       setDepartments(depts.map((d: any) => d.name).filter(Boolean));
       setRootCauseOptions((Array.isArray(rootCausesRes) ? rootCausesRes : (rootCausesRes as any)?.data ?? []).map((item: any) => item.name).filter(Boolean));
+      const tpl = Array.isArray(tpRes) ? tpRes : (tpRes as any)?.data ?? [];
+      setTenantPriorities(tpl);
     } catch(e){ console.error(e); }
     setLoading(false);
   };
 
-  useEffect(() => { load(); }, [page, status, priority, department, assignedTo, viewMode, sortField, sortDir]);
+  useEffect(() => { load(); }, [page, status, priorityFilter, department, assignedTo, viewMode, sortField, sortDir]);
   useEffect(() => { const t = setTimeout(()=>{ setPage(1); load(); }, 400); return () => clearTimeout(t); }, [search]);
 
   const exportCSV = async () => {
@@ -501,12 +504,15 @@ export default function TicketsPage() {
       const cName = (id:string) => { const c=customers.find((c:any)=>c.id===id); return c?(c.tradeName||c.companyName):'—'; };
       const tName = (id:string) => { const u=team.find((u:any)=>u.id===id); return u?(u.name||u.email):'Não atribuído'; };
       const fmtDt = (d:string|null) => d ? new Date(d).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}) : '';
-      const res:any = await api.getTickets({ perPage:9999, search:search||undefined, status:status||undefined, priority:priority||undefined, department:department||undefined });
+      const exportParams: any = { perPage:9999, search:search||undefined, status:status||undefined, department:department||undefined };
+      if (priorityFilter.startsWith('id:')) exportParams.priorityId = priorityFilter.slice(3);
+      else if (priorityFilter.startsWith('slug:')) exportParams.priority = priorityFilter.slice(5);
+      const res:any = await api.getTickets(exportParams);
       const all = Array.isArray(res)?res:res?.data??res?.items??[];
       const rows = [['Nº','Assunto','Cliente','Status','Prioridade','Técnico','Departamento','Categoria','SLA','Abertura','Resolução','Fechamento']];
       all.forEach((t:any) => rows.push([
         t.ticketNumber, t.subject, cName(t.clientId),
-        STATUS_LABELS[t.status]||t.status, PRIORITY_LABELS[t.priority]||t.priority,
+        STATUS_LABELS[t.status]||t.status, getTicketPriorityDisplay(t).label,
         tName(t.assignedTo), t.department||'', t.category||'',
         t.slaResolveAt?fmtDt(t.slaResolveAt):'', fmtDt(t.createdAt), fmtDt(t.resolvedAt), fmtDt(t.closedAt),
       ]));
@@ -635,16 +641,23 @@ export default function TicketsPage() {
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar por número, assunto, cliente..."
               style={{ border:'none', outline:'none', background:'none', fontSize:12, color:S.txt, fontFamily:'inherit', width:'100%' }} />
           </div>
-          {[
-            { value: status,     onChange: (v:string) => { setStatus(v);     setPage(1); }, placeholder: 'Todos os status',      options: Object.entries(STATUS_LABELS) },
-            { value: priority,   onChange: (v:string) => { setPriority(v);   setPage(1); }, placeholder: 'Todas as prioridades', options: Object.entries(PRIORITY_LABELS) },
-          ].map((f, i) => (
-            <select key={i} value={f.value} onChange={e => f.onChange(e.target.value)}
-              style={{ padding:'7px 28px 7px 11px', background:`${S.bg} url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23A8A8BE' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 10px center`, border:`1px solid ${S.bd2}`, borderRadius:8, fontSize:12, color:S.txt, fontFamily:'inherit', cursor:'pointer', outline:'none', appearance:'none' as any }}>
-              <option value="">{f.placeholder}</option>
-              {f.options.map(([v,l]) => <option key={v} value={v}>{l}</option>)}
-            </select>
-          ))}
+          <select value={status} onChange={e => { setStatus(e.target.value); setPage(1); }}
+            style={{ padding:'7px 28px 7px 11px', background:`${S.bg} url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23A8A8BE' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 10px center`, border:`1px solid ${S.bd2}`, borderRadius:8, fontSize:12, color:S.txt, fontFamily:'inherit', cursor:'pointer', outline:'none', appearance:'none' as any }}>
+            <option value="">Todos os status</option>
+            {Object.entries(STATUS_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+          <select value={priorityFilter} onChange={e => { setPriorityFilter(e.target.value); setPage(1); }}
+            style={{ padding:'7px 28px 7px 11px', background:`${S.bg} url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23A8A8BE' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 10px center`, border:`1px solid ${S.bd2}`, borderRadius:8, fontSize:12, color:S.txt, fontFamily:'inherit', cursor:'pointer', outline:'none', appearance:'none' as any }}>
+            <option value="">Todas as prioridades</option>
+            {tenantPriorities.map((p: any) => (
+              <option key={p.id} value={`id:${p.id}`}>{p.name}</option>
+            ))}
+            {(['low', 'medium', 'high', 'critical'] as const)
+              .filter((slug) => !tenantPriorities.some((p: any) => p.slug === slug))
+              .map((slug) => (
+                <option key={`slug:${slug}`} value={`slug:${slug}`}>{PRIORITY_LABELS[slug]} (legado)</option>
+              ))}
+          </select>
           <select value={department} onChange={e => { setDepartment(e.target.value); setPage(1); }}
             style={{ padding:'7px 28px 7px 11px', background:`${S.bg} url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23A8A8BE' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 10px center`, border:`1px solid ${S.bd2}`, borderRadius:8, fontSize:12, color:S.txt, fontFamily:'inherit', cursor:'pointer', outline:'none', appearance:'none' as any }}>
             <option value="">Departamento</option>
@@ -746,7 +759,7 @@ export default function TicketsPage() {
                     {!t.department && !t.category && <span style={{ color:S.txt3 }}>—</span>}
                   </div>
                   <div style={{ padding:'11px 8px' }}><StatusBadge status={t.status} /></div>
-                  <div style={{ padding:'11px 8px' }}><PriorityBadge priority={t.priority} /></div>
+                  <div style={{ padding:'11px 8px' }}><PriorityBadge ticket={t} /></div>
                   <div style={{ padding:'11px 8px', fontSize:11, color:S.txt2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{techName(t.assignedTo)||'—'}</div>
                   <div style={{ padding:'11px 8px', whiteSpace:'nowrap' }}>
                     {(() => {

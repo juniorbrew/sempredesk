@@ -2,12 +2,15 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { RoutingRule } from './routing-rule.entity';
+import { TenantPriority } from '../tenant-priorities/entities/tenant-priority.entity';
 
 @Injectable()
 export class RoutingRulesService {
   constructor(
     @InjectRepository(RoutingRule)
     private readonly repo: Repository<RoutingRule>,
+    @InjectRepository(TenantPriority)
+    private readonly tenantPriorityRepo: Repository<TenantPriority>,
   ) {}
 
   findAll(tenantId: string): Promise<RoutingRule[]> {
@@ -30,12 +33,24 @@ export class RoutingRulesService {
 
   async applyRules(tenantId: string, ticket: any): Promise<{ assignTo?: string; priority?: string; notifyEmail?: string }> {
     const rules = await this.repo.find({ where: { tenantId, active: true }, order: { priority: 'ASC' } });
+    let ticketPrioritySlug: string | null = null;
+    if (ticket.priorityId) {
+      const tp = await this.tenantPriorityRepo.findOne({
+        where: { id: ticket.priorityId, tenantId },
+        select: ['slug'],
+      });
+      ticketPrioritySlug = tp?.slug ?? null;
+    }
     const result: any = {};
     for (const rule of rules) {
+      const condPriorityOk =
+        !rule.condPriority ||
+        rule.condPriority === ticket.priority ||
+        (!!ticketPrioritySlug && rule.condPriority === ticketPrioritySlug);
       const match =
         (!rule.condDepartment || rule.condDepartment === ticket.department) &&
         (!rule.condCategory || rule.condCategory === ticket.category) &&
-        (!rule.condPriority || rule.condPriority === ticket.priority) &&
+        condPriorityOk &&
         (!rule.condOrigin || rule.condOrigin === ticket.origin);
       if (match) {
         if (rule.actionAssignTo) result.assignTo = rule.actionAssignTo;

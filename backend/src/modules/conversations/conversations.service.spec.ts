@@ -17,6 +17,7 @@ describe('ConversationsService schema compatibility', () => {
       {} as any,
       {} as any,
       {} as any,
+      {} as any,
     );
 
     await (service as any).ensureConversationMessageMediaSchemaReady();
@@ -43,6 +44,7 @@ describe('ConversationsService schema compatibility', () => {
       {} as any,
       {} as any,
       dataSource as any,
+      {} as any,
       {} as any,
       {} as any,
       {} as any,

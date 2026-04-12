@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useLayoutEffect, useState, useCallback, useRef, type ReactNode } from 'react';
 import { api } from '@/lib/api';
-import { DEFAULT_PRIORITY, PRIORITY_OPTIONS } from '@/lib/priorities';
+import { DEFAULT_PRIORITY, PRIORITY_OPTIONS, type SystemPriority } from '@/lib/priorities';
 import Link from 'next/link';
 import { useRealtimeConversation, useRealtimeTicket, useRealtimeTenantNewMessages, useRealtimeConversationClosed, useRealtimeTicketAssigned, useRealtimeContactTyping, emitTypingPresence, subscribeContactPresence } from '@/lib/realtime';
 import { useAuthStore, hasPermission } from '@/store/auth.store';
@@ -22,6 +22,7 @@ import {
   type ChatDensityMode,
 } from '@/components/chat/chatDensity';
 import { invalidateMyOpenTicketsCount } from '@/hooks/useMyOpenTicketsCount';
+import { isTicketCriticalUrgent } from '@/lib/ticket-priority-ui';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -708,7 +709,11 @@ export default function AtendimentoPage() {
   const [linkSelectedId, setLinkSelectedId] = useState<string | null>(null);
   const [linkReason, setLinkReason] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [createForm, setCreateForm] = useState({ subject:'', description:'', priority:DEFAULT_PRIORITY, department:'', category:'', subcategory:'', assignedTo:'', networkId:'', clientId:'' });
+  const [tenantPriorities, setTenantPriorities] = useState<any[]>([]);
+  const [createForm, setCreateForm] = useState({
+    subject:'', description:'', priority: DEFAULT_PRIORITY, priorityId: '' as string,
+    department:'', category:'', subcategory:'', assignedTo:'', networkId:'', clientId:'',
+  });
   const [createLoading, setCreateLoading] = useState(false);
   const [ticketSettingsTree, setTicketSettingsTree] = useState<any[]>([]);
   const [team, setTeam] = useState<any[]>([]);
@@ -1314,6 +1319,17 @@ export default function AtendimentoPage() {
     } catch { setLinkTickets([]); }
   }, [selected?.clientId, selected?.contactId, linkTicketSearch]);
 
+  useEffect(() => {
+    void (async () => {
+      try {
+        const r: any = await api.getTenantPrioritiesForTickets();
+        setTenantPriorities(Array.isArray(r) ? r : r?.data ?? []);
+      } catch {
+        setTenantPriorities([]);
+      }
+    })();
+  }, []);
+
   // ── end flow ──
   const openEndFlow = () => {
     setCloseForm({ solution:'', rootCause:'', timeSpent:'', internalNote:'', complexity:0 });
@@ -1510,7 +1526,20 @@ export default function AtendimentoPage() {
     const preNetworkId = preClientId ? (customers.find((c: any) => c.id === preClientId)?.networkId || '') : '';
     let currentUserId = '';
     try { const me: any = await api.me(); currentUserId = me?.id ?? me?.data?.id ?? ''; } catch {}
-    setCreateForm({ subject: contactN ? `Atendimento - ${contactN}` : '', description:'', priority:DEFAULT_PRIORITY, department:'', category:'', subcategory:'', assignedTo: currentUserId, networkId: preNetworkId, clientId: preClientId });
+    const medium = tenantPriorities.find((p: any) => p.slug === 'medium');
+    const defPri = medium || tenantPriorities[0];
+    setCreateForm({
+      subject: contactN ? `Atendimento - ${contactN}` : '',
+      description: '',
+      priority: defPri && ['low', 'medium', 'high', 'critical'].includes(defPri.slug) ? defPri.slug : DEFAULT_PRIORITY,
+      priorityId: defPri?.id || '',
+      department: '',
+      category: '',
+      subcategory: '',
+      assignedTo: currentUserId,
+      networkId: preNetworkId,
+      clientId: preClientId,
+    });
     if (preNetworkId) {
       setCreateCustomers([]);
       try { const r: any = await api.getCustomers({ networkId: preNetworkId, perPage: 200 }); setCreateCustomers(Array.isArray(r) ? r : r?.data ?? []); } catch {}
@@ -1541,7 +1570,25 @@ export default function AtendimentoPage() {
       const contactId = (createForm.clientId && createForm.clientId === selected?.clientId)
         ? selected.contactId
         : undefined;
-      const payload: any = { subject: createForm.subject, description: createForm.description || undefined, priority: createForm.priority, department: createForm.department || undefined, category: createForm.category || undefined, subcategory: createForm.subcategory || undefined, assignedTo: createForm.assignedTo || undefined, clientId: createForm.clientId, contactId, conversationId: selected.id, origin: selected.channel === 'whatsapp' ? 'whatsapp' : 'portal' };
+      const selP = tenantPriorities.find((p: any) => p.id === createForm.priorityId);
+      const payload: any = {
+        subject: createForm.subject,
+        description: createForm.description || undefined,
+        department: createForm.department || undefined,
+        category: createForm.category || undefined,
+        subcategory: createForm.subcategory || undefined,
+        assignedTo: createForm.assignedTo || undefined,
+        clientId: createForm.clientId,
+        contactId,
+        conversationId: selected.id,
+        origin: selected.channel === 'whatsapp' ? 'whatsapp' : 'portal',
+      };
+      if (selP) {
+        payload.priorityId = selP.id;
+        if (['low', 'medium', 'high', 'critical'].includes(selP.slug)) payload.priority = selP.slug;
+      } else {
+        payload.priority = createForm.priority;
+      }
       const res: any = await api.createTicket(payload);
       const ticketId = res?.id ?? res?.data?.id;
       if (ticketId) {
@@ -2744,7 +2791,9 @@ export default function AtendimentoPage() {
             const total = clientTickets.length;
             const resolved = clientTickets.filter((t: any) => ['resolved','closed'].includes(t.status)).length;
             const resRate = total > 0 ? Math.round((resolved / total) * 100) : 0;
-            const urgent = clientTickets.filter((t: any) => t.priority === 'critical' && !['closed','resolved','cancelled'].includes(t.status)).length;
+            const urgent = clientTickets.filter(
+              (t: any) => isTicketCriticalUrgent(t) && !['closed', 'resolved', 'cancelled'].includes(t.status),
+            ).length;
             const recentTickets = [...clientTickets].sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 4);
             const secTitle = (txt: string, action?: React.ReactNode) => (
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
@@ -2987,7 +3036,7 @@ export default function AtendimentoPage() {
                       const isOpen = ['open','in_progress','waiting_client'].includes(t.status);
                       const isResolved = t.status === 'resolved';
                       const dot = isOpen ? S.accent : isResolved ? '#10B981' : '#A8A8BE';
-                      const badge = t.priority === 'critical' ? { bg: '#FEF2F2', color: '#DC2626', label: 'Urgente' } :
+                      const badge = isTicketCriticalUrgent(t) ? { bg: '#FEF2F2', color: '#DC2626', label: 'Urgente' } :
                                     t.status === 'resolved' ? { bg: '#F0FDF4', color: '#166534', label: 'Resolvido' } :
                                     isOpen ? { bg: S.accentLight, color: S.accent, label: 'Aberto' } : null;
                       return (
@@ -3550,7 +3599,6 @@ export default function AtendimentoPage() {
         const cats = selDept?.categories || [];
         const selCat = cats.find((c: any) => c.name === createForm.category);
         const subs = selCat?.subcategories || [];
-        const PRIORITY_OPTS = PRIORITY_OPTIONS.map((option) => ({ v: option.value, l: option.label }));
         return (
           <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
             <div style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 540, maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.25)', overflow: 'hidden' }}>
@@ -3668,10 +3716,46 @@ export default function AtendimentoPage() {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                   <div>
                     <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 5 }}>Prioridade</label>
-                    <select value={createForm.priority} onChange={e => setCreateForm(f => ({ ...f, priority: e.target.value }))}
-                      style={{ width: '100%', padding: '9px 10px', border: '1.5px solid #E2E8F0', borderRadius: 8, fontSize: 13, outline: 'none', background: '#fff' }}>
-                      {PRIORITY_OPTS.map(o => <option key={o.v} value={o.v}>{o.l}</option>)}
-                    </select>
+                    {tenantPriorities.length > 0 ? (
+                      <select
+                        value={createForm.priorityId}
+                        onChange={(e) => {
+                          const id = e.target.value;
+                          const p = tenantPriorities.find((x: any) => x.id === id);
+                          setCreateForm((f) => ({
+                            ...f,
+                            priorityId: id,
+                            priority: (
+                              p && ['low', 'medium', 'high', 'critical'].includes(p.slug) ? p.slug : f.priority
+                            ) as SystemPriority,
+                          }));
+                        }}
+                        style={{ width: '100%', padding: '9px 10px', border: '1.5px solid #E2E8F0', borderRadius: 8, fontSize: 13, outline: 'none', background: '#fff' }}
+                      >
+                        {tenantPriorities.map((p: any) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <select
+                        value={createForm.priority}
+                        onChange={(e) =>
+                          setCreateForm((f) => ({
+                            ...f,
+                            priority: e.target.value as SystemPriority,
+                          }))
+                        }
+                        style={{ width: '100%', padding: '9px 10px', border: '1.5px solid #E2E8F0', borderRadius: 8, fontSize: 13, outline: 'none', background: '#fff' }}
+                      >
+                        {PRIORITY_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                   </div>
                   <div>
                     <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 5 }}>Técnico</label>

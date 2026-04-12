@@ -2,7 +2,7 @@ import { Injectable, NotFoundException, BadRequestException, Logger } from '@nes
 import * as fs from 'fs';
 import * as path from 'path';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, EntityManager, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { Conversation, ConversationChannel, ConversationStatus, ConversationInitiatedBy } from './entities/conversation.entity';
 import { ConversationMessage, ReplyToSnapshot } from './entities/conversation-message.entity';
 import { TicketsService } from '../tickets/tickets.service';
@@ -14,6 +14,8 @@ import {
   prependWhatsappAgentLine,
 } from '../whatsapp/whatsapp-outbound-agent-prefix.util';
 import { SlaService } from '../sla/sla.service';
+import { TicketSettingsService } from '../ticket-settings/ticket-settings.service';
+import { TenantPriority } from '../tenant-priorities/entities/tenant-priority.entity';
 
 @Injectable()
 export class ConversationsService {
@@ -26,6 +28,35 @@ export class ConversationsService {
 
   private logConversationResolution(payload: Record<string, unknown>) {
     this.logger.log(JSON.stringify(payload));
+  }
+
+  /**
+   * Fase 3: departamento (chatbot/menu ou portal) → prioridade padrão do ticket_settings →
+   * conversation.priority_id + SLA (policy da prioridade ou default do tenant).
+   */
+  private async maybeApplyDepartmentPriorityAndSlaFromOpts(
+    tenantId: string,
+    conversation: Conversation,
+    opts: { department?: string | null; departmentId?: string | null } | undefined,
+    manager?: EntityManager,
+  ): Promise<void> {
+    if (conversation.ticketId) return;
+    const hasCtx = !!((opts?.department || '').trim() || (opts?.departmentId || '').trim());
+    if (!hasCtx) return;
+
+    const dept = await this.ticketSettingsService.resolveDepartmentSettingForSla(tenantId, {
+      department: opts?.department,
+      departmentId: opts?.departmentId,
+    });
+    const priorityId = dept?.defaultPriorityId ?? null;
+    conversation.priorityId = priorityId;
+    const convRepo = manager?.getRepository(Conversation) ?? this.convRepo;
+    await convRepo.save(conversation);
+    await this.slaService.applyConversationSlaFromTenantPriorityId(
+      tenantId,
+      conversation.id,
+      priorityId,
+    );
   }
 
   /** Setter para ChatbotService — injetado via AppModule.onModuleInit (evita circular dep) */
@@ -135,6 +166,7 @@ export class ConversationsService {
     private readonly customersService: CustomersService,
     private readonly realtimeEmitter: RealtimeEmitterService,
     private readonly slaService: SlaService,
+    private readonly ticketSettingsService: TicketSettingsService,
   ) {
     if (!fs.existsSync(this.mediaRoot)) {
       fs.mkdirSync(this.mediaRoot, { recursive: true });
@@ -280,7 +312,10 @@ export class ConversationsService {
       chatAlert?: boolean;
       firstMessage?: string;
       contactName?: string;
+      /** Nome do departamento (ex.: menu do chatbot). */
       department?: string;
+      /** UUID do ticket_settings departamento (ex.: portal). */
+      departmentId?: string;
       autoCreateTicket?: boolean;
       /**
        * ID do canal WhatsApp (whatsapp_connections.id) pelo qual esta conversa chegou.
@@ -337,6 +372,7 @@ export class ConversationsService {
       return { conversation: active, ticket, ticketCreated: false };
     }
     if (active && !active.ticketId) {
+      await this.maybeApplyDepartmentPriorityAndSlaFromOpts(tenantId, active, opts, manager);
       if (opts?.autoCreateTicket && active.initiatedBy !== ConversationInitiatedBy.AGENT) {
         const ticket = await this.createTicketForConversation(
           tenantId,
@@ -532,9 +568,13 @@ export class ConversationsService {
     });
     try {
       const savedConv = await convRepo.save(conv);
-      // Aplica política SLA ANTES de retornar — evita corrida com recordFirstResponse.
-      // applyToConversation tem try/catch interno: falha não propaga.
-      await this.slaService.applyToConversation(tenantId, savedConv.id);
+      const hasDeptCtx = !!((opts?.department || '').trim() || (opts?.departmentId || '').trim());
+      if (hasDeptCtx) {
+        await this.maybeApplyDepartmentPriorityAndSlaFromOpts(tenantId, savedConv, opts, manager);
+      } else {
+        // Aplica política SLA ANTES de retornar — evita corrida com recordFirstResponse.
+        await this.slaService.applyToConversation(tenantId, savedConv.id);
+      }
       return { conversation: savedConv, ticket: null };
     } catch (error) {
       if (!this.isActiveConversationUniqueViolation(error)) throw error;
@@ -548,6 +588,12 @@ export class ConversationsService {
         existing.whatsappChannelId = opts.whatsappChannelId;
       }
       const savedExisting = await convRepo.save(existing);
+      const hasDeptCtx = !!((opts?.department || '').trim() || (opts?.departmentId || '').trim());
+      if (hasDeptCtx) {
+        await this.maybeApplyDepartmentPriorityAndSlaFromOpts(tenantId, savedExisting, opts, manager);
+      } else {
+        await this.slaService.applyToConversation(tenantId, savedExisting.id);
+      }
       return { conversation: savedExisting, ticket: null };
     }
   }
@@ -765,6 +811,7 @@ export class ConversationsService {
         conversationId: conv.id,
         departmentId: departmentId || undefined,
         department: department || undefined,
+        ...(conv.priorityId ? { priorityId: conv.priorityId } : {}),
       } as any,
       'contact',
     );
@@ -806,6 +853,25 @@ export class ConversationsService {
     const conv = await this.convRepo.findOne({ where: { id, tenantId } });
     if (!conv) throw new NotFoundException('Conversa não encontrada');
     return conv;
+  }
+
+  /**
+   * GET conversa (dashboard): inclui `priorityInfo` mesmo para prioridade inativa
+   * (join direto por id; sem filtrar `active`).
+   */
+  async findOneForDashboard(tenantId: string, id: string): Promise<Record<string, unknown>> {
+    const conv = await this.convRepo.findOne({
+      where: { id, tenantId },
+      relations: ['tenantPriority'],
+    });
+    if (!conv) throw new NotFoundException('Conversa não encontrada');
+    const tp = conv.tenantPriority;
+    const base = { ...conv } as Record<string, unknown>;
+    delete base.tenantPriority;
+    base.priorityInfo = tp
+      ? { id: tp.id, name: tp.name, color: tp.color, slug: tp.slug, active: tp.active }
+      : null;
+    return base;
   }
 
   async getActiveCount(tenantId: string): Promise<{ conversations: number; tickets: number; total: number }> {
@@ -894,6 +960,23 @@ export class ConversationsService {
       );
       for (const r of rows) {
         (r as Conversation & { lastAgentMessageAt?: Date | null }).lastAgentMessageAt = lastAgentMap.get(r.id) ?? null;
+      }
+    }
+
+    for (const r of rows) {
+      (r as Conversation & { priorityInfo?: unknown }).priorityInfo = null;
+    }
+    const priorityIds = [...new Set(rows.map((r) => r.priorityId).filter(Boolean))] as string[];
+    if (priorityIds.length > 0) {
+      const prios = await this.dataSource.getRepository(TenantPriority).find({
+        where: { tenantId, id: In(priorityIds) },
+      });
+      const pmap = new Map(prios.map((p) => [p.id, p]));
+      for (const r of rows) {
+        const tp = r.priorityId ? pmap.get(r.priorityId) : undefined;
+        (r as Conversation & { priorityInfo?: unknown }).priorityInfo = tp
+          ? { id: tp.id, name: tp.name, color: tp.color, slug: tp.slug, active: tp.active }
+          : null;
       }
     }
 

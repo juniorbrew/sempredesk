@@ -1,8 +1,9 @@
 import {
   Entity, PrimaryGeneratedColumn, Column, CreateDateColumn,
-  UpdateDateColumn, OneToMany,
+  UpdateDateColumn, OneToMany, ManyToOne, JoinColumn,
 } from 'typeorm';
 import { SystemPriority } from '../../../common/constants/priority.constants';
+import { TenantPriority } from '../../tenant-priorities/entities/tenant-priority.entity';
 
 export enum TicketStatus {
   OPEN = 'open',
@@ -52,6 +53,14 @@ export class Ticket {
 
   @Column({ type: 'enum', enum: SystemPriority, default: SystemPriority.MEDIUM })
   priority: SystemPriority;
+
+  /** Prioridade cadastrável (fonte de verdade para SLA quando preenchida). Fase 4. */
+  @Column({ name: 'priority_id', nullable: true })
+  priorityId: string | null;
+
+  @ManyToOne(() => TenantPriority, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'priority_id' })
+  tenantPriority?: TenantPriority | null;
 
   @Column({ type: 'enum', enum: TicketStatus, default: TicketStatus.OPEN })
   status: TicketStatus;

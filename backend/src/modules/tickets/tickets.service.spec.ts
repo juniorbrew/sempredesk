@@ -14,6 +14,7 @@ describe('TicketsService.assertContactBelongsToTenant', () => {
       {} as any,
       {} as any,
       {} as any,
+      {} as any,
       { findBestPolicy: jest.fn().mockResolvedValue(null) } as any,
     );
   }
@@ -68,6 +69,7 @@ describe('TicketsService.countOpenTicketsAssignedToAgent', () => {
       {} as any,
       {} as any,
       {} as any,
+      {} as any,
       { findBestPolicy: jest.fn().mockResolvedValue(null) } as any,
     );
   }
@@ -89,14 +91,18 @@ describe('TicketsService.countOpenTicketsAssignedToAgent', () => {
 
 describe('TicketsService SLA', () => {
   function criarServicoComSla(slaService: {
-    findBestPolicy: jest.Mock;
+    resolvePolicyForTicket?: jest.Mock;
+    findBestPolicy?: jest.Mock;
     calcDeadlines: jest.Mock;
     reapplyConversationPolicy?: jest.Mock;
-  }) {
+    applyConversationSlaFromTenantPriorityId?: jest.Mock;
+  }, tenantPriorityRepo?: { findOne: jest.Mock }) {
+    const managerQuery = jest.fn().mockResolvedValue(undefined);
     return new TicketsService(
-      { save: jest.fn(), manager: { query: jest.fn() } } as any,
+      { save: jest.fn(), manager: { query: managerQuery } } as any,
       {} as any,
       {} as any,
+      tenantPriorityRepo ?? { findOne: jest.fn().mockResolvedValue(null) } as any,
       {} as any,
       {} as any,
       {} as any,
@@ -109,7 +115,7 @@ describe('TicketsService SLA', () => {
     const createdAt = new Date('2026-04-11T10:00:00.000Z');
     const firstResponseDeadline = new Date('2026-04-11T11:30:00.000Z');
     const resolutionDeadline = new Date('2026-04-11T18:00:00.000Z');
-    const findBestPolicy = jest.fn().mockResolvedValue({
+    const resolvePolicyForTicket = jest.fn().mockResolvedValue({
       id: 'policy-high',
       priority: SlaPriority.HIGH,
       firstResponseMinutes: 90,
@@ -119,10 +125,11 @@ describe('TicketsService SLA', () => {
       firstResponseDeadline,
       resolutionDeadline,
     });
-    const service = criarServicoComSla({ findBestPolicy, calcDeadlines });
+    const service = criarServicoComSla({ resolvePolicyForTicket, calcDeadlines });
     const ticket = {
       tenantId: 'tenant-1',
       priority: TicketPriority.HIGH,
+      priorityId: null,
       createdAt,
       slaResponseAt: null,
       slaResolveAt: null,
@@ -130,7 +137,7 @@ describe('TicketsService SLA', () => {
 
     await (service as any).applyConfiguredSlaToTicket(ticket);
 
-    expect(findBestPolicy).toHaveBeenCalledWith('tenant-1', SlaPriority.HIGH);
+    expect(resolvePolicyForTicket).toHaveBeenCalledWith('tenant-1', null, SlaPriority.HIGH);
     expect(calcDeadlines).toHaveBeenCalledWith(
       expect.objectContaining({
         firstResponseMinutes: 90,
@@ -144,12 +151,13 @@ describe('TicketsService SLA', () => {
 
   it('limpa deadlines quando não existe policy para a prioridade atual', async () => {
     const service = criarServicoComSla({
-      findBestPolicy: jest.fn().mockResolvedValue(null),
+      resolvePolicyForTicket: jest.fn().mockResolvedValue(null),
       calcDeadlines: jest.fn(),
     });
     const ticket = {
       tenantId: 'tenant-1',
       priority: TicketPriority.MEDIUM,
+      priorityId: null,
       createdAt: new Date('2026-04-11T10:00:00.000Z'),
       slaResponseAt: new Date('2026-04-11T11:00:00.000Z'),
       slaResolveAt: new Date('2026-04-11T18:00:00.000Z'),
@@ -161,18 +169,21 @@ describe('TicketsService SLA', () => {
     expect(ticket.slaResolveAt).toBeNull();
   });
 
-  it('sincroniza a conversa vinculada com a policy derivada da prioridade do ticket', async () => {
+  it('sincroniza a conversa vinculada com a policy derivada da prioridade legada do ticket', async () => {
     const reapplyConversationPolicy = jest.fn().mockResolvedValue(undefined);
+    const applyConversationSlaFromTenantPriorityId = jest.fn().mockResolvedValue(undefined);
     const service = criarServicoComSla({
       findBestPolicy: jest.fn(),
       calcDeadlines: jest.fn(),
       reapplyConversationPolicy,
+      applyConversationSlaFromTenantPriorityId,
     });
 
     await (service as any).syncConversationSlaWithTicket({
       tenantId: 'tenant-1',
       conversationId: 'conv-1',
       priority: TicketPriority.CRITICAL,
+      priorityId: null,
     });
 
     expect(reapplyConversationPolicy).toHaveBeenCalledWith(
@@ -180,5 +191,31 @@ describe('TicketsService SLA', () => {
       'conv-1',
       SlaPriority.CRITICAL,
     );
+    expect(applyConversationSlaFromTenantPriorityId).not.toHaveBeenCalled();
+  });
+
+  it('sincroniza conversa via tenant_priorities quando o ticket tem priority_id', async () => {
+    const reapplyConversationPolicy = jest.fn().mockResolvedValue(undefined);
+    const applyConversationSlaFromTenantPriorityId = jest.fn().mockResolvedValue(undefined);
+    const service = criarServicoComSla({
+      findBestPolicy: jest.fn(),
+      calcDeadlines: jest.fn(),
+      reapplyConversationPolicy,
+      applyConversationSlaFromTenantPriorityId,
+    });
+
+    await (service as any).syncConversationSlaWithTicket({
+      tenantId: 'tenant-1',
+      conversationId: 'conv-1',
+      priority: TicketPriority.HIGH,
+      priorityId: 'tp-uuid-1',
+    });
+
+    expect(applyConversationSlaFromTenantPriorityId).toHaveBeenCalledWith(
+      'tenant-1',
+      'conv-1',
+      'tp-uuid-1',
+    );
+    expect(reapplyConversationPolicy).not.toHaveBeenCalled();
   });
 });

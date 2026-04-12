@@ -7,6 +7,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
+import { TenantPriority } from '../../tenant-priorities/entities/tenant-priority.entity';
 
 export enum ConversationChannel {
   PORTAL = 'portal',
@@ -75,6 +76,17 @@ export class Conversation {
    */
   @Column({ name: 'whatsapp_channel_id', nullable: true })
   whatsappChannelId: string | null;
+
+  /**
+   * Prioridade cadastrável (tenant_priorities) enquanto não há ticket vinculado.
+   * Preenchida a partir do departamento escolhido no chatbot (default_priority_id).
+   */
+  @Column({ name: 'priority_id', nullable: true })
+  priorityId: string | null;
+
+  @ManyToOne(() => TenantPriority, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'priority_id' })
+  tenantPriority?: TenantPriority | null;
 
   // ── Campos SLA (migração 021) ─────────────────────────────────────────────
 

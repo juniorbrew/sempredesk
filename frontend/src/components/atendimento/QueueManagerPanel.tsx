@@ -5,6 +5,7 @@ import {
   Users, RefreshCw, Clock, Ticket, MessageSquare, Phone,
   ChevronDown, UserCheck, AlertCircle, X, Check,
 } from 'lucide-react';
+import { getTicketPriorityDisplay } from '@/lib/ticket-priority-ui';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 function initials(name: string) {
@@ -22,12 +23,6 @@ function waitLabel(mins: number) {
   return `${Math.floor(mins / 60)}h ${mins % 60}min`;
 }
 
-const PRIORITY_COLORS: Record<string, string> = {
-  critical: '#DC2626', high: '#EA580C', medium: '#D97706', low: '#16A34A',
-};
-const PRIORITY_LABELS: Record<string, string> = {
-  critical: 'Crítica', high: 'Alta', medium: 'Média', low: 'Baixa',
-};
 const AVAIL_COLOR: Record<string, string> = {
   online: '#16A34A', paused: '#D97706', offline: '#9CA3AF',
 };
@@ -46,7 +41,10 @@ interface Agent {
 }
 interface QueueItem {
   ticketId: string; ticketNumber: string; subject: string;
-  priority: string; origin: string; createdAt: string;
+  priority: string;
+  priorityId?: string | null;
+  priorityInfo?: { id: string; name: string; color: string; slug: string; active?: boolean } | null;
+  origin: string; createdAt: string;
   conversationId: string | null; clientName: string;
   contactName: string; waitingMinutes: number;
 }
@@ -250,7 +248,11 @@ export default function QueueManagerPanel({ onClose, onAssigned }: Props) {
                   Nenhuma conversa aguardando atribuição
                 </div>
               ) : (stats.queue.map(item => {
-                const priColor = PRIORITY_COLORS[item.priority] ?? '#6B6B80';
+                const priDisp = getTicketPriorityDisplay({
+                  priority: item.priority,
+                  priorityInfo: item.priorityInfo ?? null,
+                });
+                const priColor = priDisp.color;
                 const isAssigning = assigning === item.ticketId;
                 const isOpen = openDropdown === item.ticketId;
                 const onlineAgents = (stats.agents ?? []).filter(a => a.availability === 'online');
@@ -286,10 +288,11 @@ export default function QueueManagerPanel({ onClose, onAssigned }: Props) {
                         </span>
                         {/* priority badge */}
                         <span style={{
-                          background: `${priColor}18`, color: priColor,
+                          background: priDisp.bg, color: priColor,
                           borderRadius: 4, padding: '2px 7px', fontSize: 10, fontWeight: 600,
+                          ...(priDisp.inactive ? { border: '1px dashed rgba(100,116,139,0.75)', boxSizing: 'border-box' as const } : {}),
                         }}>
-                          {PRIORITY_LABELS[item.priority] ?? item.priority}
+                          {priDisp.label}
                         </span>
                         {/* wait time */}
                         <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: item.waitingMinutes > 30 ? '#DC2626' : item.waitingMinutes > 10 ? '#EA580C' : '#6B6B80' }}>

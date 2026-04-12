@@ -173,7 +173,7 @@ export class ConversationsController {
   @UseGuards(JwtAuthGuard)
   @Get(':id')
   async findOne(@TenantId() tenantId: string, @Param('id') id: string) {
-    return this.conversationsService.findOne(tenantId, id);
+    return this.conversationsService.findOneForDashboard(tenantId, id);
   }
 
   /** Agente abriu a conversa — envia read receipts das mensagens do contato via Baileys */

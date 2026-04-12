@@ -248,11 +248,14 @@ export class AttendanceService {
 
     // Unassigned chat tickets in queue (whatsapp + portal, open/in_progress, no assigned agent)
     const queueRows: any[] = await this.repo.manager.query(
-      `SELECT t.id, t.ticket_number, t.subject, t.priority, t.origin,
+      `SELECT t.id, t.ticket_number, t.subject, t.priority, t.priority_id, t.origin,
               t.created_at, t.conversation_id, t.contact_id, t.client_id,
               COALESCE(cli.trade_name, cli.company_name, '') AS client_name,
-              COALESCE(ct.name, ct.email, '') AS contact_name
+              COALESCE(ct.name, ct.email, '') AS contact_name,
+              tp.id AS tp_id, tp.name AS tp_name, tp.color AS tp_color, tp.slug AS tp_slug,
+              tp.active AS tp_active
        FROM tickets t
+       LEFT JOIN tenant_priorities tp ON tp.id = t.priority_id AND tp.tenant_id = t.tenant_id
        LEFT JOIN clients cli ON cli.id::text = t.client_id AND cli.tenant_id = t.tenant_id
        LEFT JOIN contacts ct  ON ct.id::text  = t.contact_id AND ct.tenant_id = t.tenant_id
        WHERE t.tenant_id = $1
@@ -283,6 +286,16 @@ export class AttendanceService {
       ticketNumber:   r.ticket_number,
       subject:        r.subject,
       priority:       r.priority,
+      priorityId:     r.priority_id ?? null,
+      priorityInfo:   r.tp_id
+        ? {
+            id: r.tp_id,
+            name: r.tp_name,
+            color: r.tp_color,
+            slug: r.tp_slug,
+            active: r.tp_active === true || r.tp_active === 't' || r.tp_active === 1,
+          }
+        : null,
       origin:         r.origin,
       createdAt:      r.created_at,
       conversationId: r.conversation_id,

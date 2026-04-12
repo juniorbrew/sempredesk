@@ -6,7 +6,7 @@ import { randomBytes } from 'crypto';
 import { Device, DeviceEvent, DeviceMetric, DeviceStatus } from './entities/device.entity';
 import { TicketsService } from '../tickets/tickets.service';
 import { AlertsService } from '../alerts/alerts.service';
-import { TicketPriority, TicketStatus, TicketOrigin } from '../tickets/entities/ticket.entity';
+import { TicketStatus, TicketOrigin } from '../tickets/entities/ticket.entity';
 
 @Injectable()
 export class DevicesService {

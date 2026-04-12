@@ -553,6 +553,8 @@ export class ChatbotService implements OnModuleInit {
       session.metadata = null;
       await this.sessionRepo.save(session);
 
+      // pendingDepartment → ConversationsService.getOrCreateForContact/startConversation:
+      // resolve departamento canónico, grava conversation.priority_id e SLA (Fase 3).
       // A própria mensagem do usuário vira o firstMessage/assunto do ticket
       return {
         handled: true,

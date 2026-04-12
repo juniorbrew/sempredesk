@@ -45,6 +45,7 @@ import { AuditLogModule } from './modules/audit/audit-log.module';
 import { SaasModule } from './modules/saas/saas.module';
 import { StorageModule } from './modules/storage/storage.module';
 import { SlaModule } from './modules/sla/sla.module';
+import { TenantPrioritiesModule } from './modules/tenant-priorities/tenant-priorities.module';
 
 @Module({
   imports: [
@@ -118,6 +119,7 @@ import { SlaModule } from './modules/sla/sla.module';
     SaasModule,
     StorageModule,
     SlaModule,
+    TenantPrioritiesModule,
   ],
   providers: [
     // Rate limiting por tenant (não por IP) em todos os endpoints

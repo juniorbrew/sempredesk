@@ -99,3 +99,17 @@ GROUP BY 1,2 HAVING COUNT(*) > 1;
 ```bash
 docker exec -i suporte_postgres psql -U suporte -d suporte_tecnico -f /path/to/010_conversation_messages_external_id_unique.sql
 ```
+
+---
+
+## 027_backfill_tickets_priority_id_from_slug.sql
+
+Backfill **idempotente** (M1): preenche `tickets.priority_id` onde está `NULL`, fazendo join com `tenant_priorities` por `tenant_id` e `slug = tickets.priority::text`.
+
+**Executar:**
+
+```bash
+psql -h localhost -U postgres -d suporte_tecnico -f infra/postgres/migrations/027_backfill_tickets_priority_id_from_slug.sql
+```
+
+Tickets cujo enum legado não tiver prioridade cadastrada com o mesmo `slug` no tenant continuam com `priority_id` NULL até haver mapeamento ou criação manual da prioridade.

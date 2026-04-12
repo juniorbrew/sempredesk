@@ -69,8 +69,12 @@ function makeService(opts: {
     }),
   };
 
-  const service = new SlaService(policyRepo as any, dataSource as any);
-  return { service, policyRepo, dataSource };
+  const tenantPriorityRepo = {
+    findOne: jest.fn().mockResolvedValue(null),
+  };
+
+  const service = new SlaService(policyRepo as any, tenantPriorityRepo as any, dataSource as any);
+  return { service, policyRepo, dataSource, tenantPriorityRepo };
 }
 
 // ─── 1. computeStatus (lógica pura, sem IO) ───────────────────────────────────
@@ -270,7 +274,8 @@ describe('SlaService.applyToConversation', () => {
     const dataSource = {
       query: jest.fn().mockRejectedValue(new Error('conexão perdida')),
     };
-    const svc = new SlaService(policyRepo as any, dataSource as any);
+    const tpRepo = { findOne: jest.fn() };
+    const svc = new SlaService(policyRepo as any, tpRepo as any, dataSource as any);
     const warnSpy = jest.spyOn((svc as any).logger, 'warn').mockImplementation(() => {});
 
     await expect(svc.applyToConversation('tenant-1', 'conv-1')).resolves.toBeUndefined();
@@ -379,7 +384,8 @@ describe('SlaService.recordFirstResponse', () => {
 
   it('loga aviso mas não lança quando o banco falha', async () => {
     const dataSource = { query: jest.fn().mockRejectedValue(new Error('timeout')) };
-    const svc = new SlaService({} as any, dataSource as any);
+    const tpRepo = { findOne: jest.fn() };
+    const svc = new SlaService({} as any, tpRepo as any, dataSource as any);
     const warnSpy = jest.spyOn((svc as any).logger, 'warn').mockImplementation(() => {});
 
     await expect(svc.recordFirstResponse('tenant-1', 'conv-1')).resolves.toBeUndefined();
@@ -473,7 +479,8 @@ describe('SlaService.applyToConversation — garantia de sincronismo (corrida)',
         return [{}, 1];
       }),
     };
-    const svc = new SlaService(policyRepo as any, dataSource as any);
+    const tpRepo = { findOne: jest.fn() };
+    const svc = new SlaService(policyRepo as any, tpRepo as any, dataSource as any);
 
     const promise = svc.applyToConversation('tenant-1', 'conv-1');
 
@@ -484,5 +491,34 @@ describe('SlaService.applyToConversation — garantia de sincronismo (corrida)',
 
     // Após await: completou
     expect(applyCompleted).toBe(true);
+  });
+});
+
+describe('SlaService.resolvePolicyForTicket', () => {
+  it('delega à cadeia tenant_priorities quando há priority_id', async () => {
+    const policy = makePolicy({ id: 'from-tp' });
+    const tpRepo = {
+      findOne: jest.fn().mockResolvedValue({
+        id: 'tp-1',
+        tenantId: 'tenant-1',
+        slaPolicyId: policy.id,
+        slaPolicy: policy,
+      }),
+    };
+    const policyRepo = { find: jest.fn().mockResolvedValue([]) };
+    const svc = new SlaService(policyRepo as any, tpRepo as any, { query: jest.fn() } as any);
+    const result = await svc.resolvePolicyForTicket('tenant-1', 'tp-1', SlaPriority.LOW);
+    expect(result?.id).toBe('from-tp');
+    expect(tpRepo.findOne).toHaveBeenCalled();
+  });
+
+  it('usa findBestPolicy com prioridade legada quando não há priority_id', async () => {
+    const policy = makePolicy({ id: 'legacy' });
+    const policyRepo = { find: jest.fn().mockResolvedValue([policy]) };
+    const tpRepo = { findOne: jest.fn() };
+    const svc = new SlaService(policyRepo as any, tpRepo as any, { query: jest.fn() } as any);
+    const result = await svc.resolvePolicyForTicket('tenant-1', null, SlaPriority.MEDIUM);
+    expect(result?.id).toBe('legacy');
+    expect(tpRepo.findOne).not.toHaveBeenCalled();
   });
 });

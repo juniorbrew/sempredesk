@@ -4,7 +4,10 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
+  ManyToOne,
+  JoinColumn,
 } from 'typeorm';
+import { TenantPriority } from '../../tenant-priorities/entities/tenant-priority.entity';
 
 export enum TicketSettingType {
   DEPARTMENT = 'department',
@@ -37,6 +40,14 @@ export class TicketSetting {
 
   @Column({ length: 20, nullable: true })
   color: string;
+
+  /** Apenas para type = department. Prioridade cadastrável do tenant (Fase 2). */
+  @Column({ name: 'default_priority_id', nullable: true })
+  defaultPriorityId: string | null;
+
+  @ManyToOne(() => TenantPriority, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'default_priority_id' })
+  defaultPriority?: TenantPriority | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

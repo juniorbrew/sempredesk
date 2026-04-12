@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { SlaPolicy, SlaPriority } from './entities/sla-policy.entity';
+import { TenantPriority } from '../tenant-priorities/entities/tenant-priority.entity';
 import { CreateSlaPolicyDto, UpdateSlaPolicyDto } from './dto/sla-policy.dto';
 
 /** Status SLA calculado para uma conversa. */
@@ -20,6 +21,8 @@ export class SlaService {
   constructor(
     @InjectRepository(SlaPolicy)
     private readonly policyRepo: Repository<SlaPolicy>,
+    @InjectRepository(TenantPriority)
+    private readonly tenantPriorityRepo: Repository<TenantPriority>,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -99,6 +102,109 @@ export class SlaService {
 
     const defaultPolicy = policies.find((p) => p.isDefault);
     return defaultPolicy ?? null;
+  }
+
+  /**
+   * Política SLA para ticket (Fase 4): com `priority_id` usa tenant_priorities.sla_policy_id
+   * ou política default do tenant; sem `priority_id` usa a prioridade legada (enum) em findBestPolicy.
+   */
+  async resolvePolicyForTicket(
+    tenantId: string,
+    priorityId: string | null | undefined,
+    legacySlaPriority?: SlaPriority,
+  ): Promise<SlaPolicy | null> {
+    if (priorityId) {
+      return this.resolvePolicyForTenantPriorityId(tenantId, priorityId);
+    }
+    return this.findBestPolicy(tenantId, legacySlaPriority);
+  }
+
+  /**
+   * Política SLA para conversa sem ticket: prioridade cadastrável → sla_policy_id da prioridade;
+   * senão política default do tenant; senão null (sem SLA, sem erro).
+   */
+  private async resolvePolicyForTenantPriorityId(
+    tenantId: string,
+    tenantPriorityId: string | null,
+  ): Promise<SlaPolicy | null> {
+    if (!tenantPriorityId) {
+      return this.findBestPolicy(tenantId, undefined);
+    }
+    const tp = await this.tenantPriorityRepo.findOne({
+      where: { id: tenantPriorityId, tenantId },
+      relations: ['slaPolicy'],
+    });
+    if (!tp) {
+      return this.findBestPolicy(tenantId, undefined);
+    }
+    if (tp.slaPolicyId && tp.slaPolicy) {
+      return tp.slaPolicy;
+    }
+    return this.findBestPolicy(tenantId, undefined);
+  }
+
+  /**
+   * Aplica SLA na conversa a partir de tenant_priorities (Fase 3 / chatbot).
+   * Sobrescreve sla_policy_id existente. Se não houver política resolvida, limpa SLA.
+   */
+  async applyConversationSlaFromTenantPriorityId(
+    tenantId: string,
+    conversationId: string,
+    tenantPriorityId: string | null,
+  ): Promise<void> {
+    try {
+      const rows: Array<{
+        created_at: Date;
+        sla_first_response_at: Date | null;
+        sla_resolved_at: Date | null;
+      }> = await this.dataSource.query(
+        `SELECT created_at, sla_first_response_at, sla_resolved_at
+           FROM conversations
+          WHERE id = $1 AND tenant_id = $2
+          LIMIT 1`,
+        [conversationId, tenantId],
+      );
+      if (!rows.length) return;
+
+      const policy = await this.resolvePolicyForTenantPriorityId(tenantId, tenantPriorityId);
+      if (!policy) {
+        await this.dataSource.query(
+          `UPDATE conversations
+              SET sla_policy_id = NULL,
+                  sla_first_response_deadline = NULL,
+                  sla_resolution_deadline = NULL,
+                  sla_status = NULL
+            WHERE id = $1 AND tenant_id = $2`,
+          [conversationId, tenantId],
+        );
+        return;
+      }
+
+      const conv = rows[0];
+      const { firstResponseDeadline, resolutionDeadline } = this.calcDeadlines(policy, conv.created_at);
+      const status = this.computeStatus({
+        slaFirstResponseDeadline: firstResponseDeadline,
+        slaResolutionDeadline: resolutionDeadline,
+        slaFirstResponseAt: conv.sla_first_response_at,
+        slaResolvedAt: conv.sla_resolved_at,
+        createdAt: conv.created_at,
+      });
+
+      await this.dataSource.query(
+        `UPDATE conversations
+            SET sla_policy_id = $1,
+                sla_first_response_deadline = $2,
+                sla_resolution_deadline = $3,
+                sla_status = $4
+          WHERE id = $5 AND tenant_id = $6`,
+        [policy.id, firstResponseDeadline, resolutionDeadline, status, conversationId, tenantId],
+      );
+    } catch (err: any) {
+      this.logger.warn(
+        `[SLA] applyConversationSlaFromTenantPriorityId falhou — conv=${conversationId} tenant=${tenantId}: ${err?.message}`,
+        err?.stack,
+      );
+    }
   }
 
   /**

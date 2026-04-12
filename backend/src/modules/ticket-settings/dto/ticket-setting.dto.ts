@@ -1,4 +1,4 @@
-import { IsBoolean, IsEnum, IsOptional, IsString, IsInt, Min } from 'class-validator';
+import { IsBoolean, IsEnum, IsOptional, IsString, IsInt, Min, IsUUID, ValidateIf } from 'class-validator';
 import { Type } from 'class-transformer';
 import { TicketSettingType } from '../entities/ticket-setting.entity';
 
@@ -26,6 +26,12 @@ export class CreateTicketSettingDto {
   @IsString()
   @IsOptional()
   color?: string;
+
+  /** Somente quando type = department. Opcional. */
+  @IsOptional()
+  @ValidateIf((_o, v) => v !== null && v !== undefined && v !== '')
+  @IsUUID()
+  defaultPriorityId?: string | null;
 }
 
 export class UpdateTicketSettingDto {
@@ -50,6 +56,12 @@ export class UpdateTicketSettingDto {
   @IsString()
   @IsOptional()
   color?: string;
+
+  /** Somente para registros do tipo department. Use null para limpar. */
+  @IsOptional()
+  @ValidateIf((_o, v) => v !== null && v !== undefined && v !== '')
+  @IsUUID()
+  defaultPriorityId?: string | null;
 }
 
 export class FilterTicketSettingDto {

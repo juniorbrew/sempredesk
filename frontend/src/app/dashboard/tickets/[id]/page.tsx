@@ -10,6 +10,7 @@ import { ArrowLeft, RotateCw, Tag, Clock, AlertTriangle, Lock, Send, Paperclip, 
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { TagMultiSelect } from '@/components/ui/TagMultiSelect';
+import { getTicketPriorityDisplay } from '@/lib/ticket-priority-ui';
 import AudioMessagePlayer from '@/components/chat/AudioMessagePlayer';
 import { MediaLightbox } from '@/components/chat/InlineChatMedia';
 
@@ -161,7 +162,8 @@ export default function TicketDetailsPage() {
   /** Mesmo modal do Atendimento: transcrição vinculada e anexos de resposta pública (imagem/vídeo). */
   const [convMediaLightbox, setConvMediaLightbox] = useState<null | { src: string; mediaKind: 'image' | 'video' }>(null);
   const [interactionExpanded, setInteractionExpanded] = useState(false);
-  const [edit, setEdit] = useState<any>({ priority:'medium', assignedTo:'', department:'', category:'', subcategory:'', tags:[] as string[] });
+  const [tenantPriorities, setTenantPriorities] = useState<any[]>([]);
+  const [edit, setEdit] = useState<any>({ priority:'medium', priorityId:'', assignedTo:'', department:'', category:'', subcategory:'', tags:[] as string[] });
   const [showCloseModal, setShowCloseModal] = useState(false);
   const [closeForm, setCloseForm] = useState({ solution:'', rootCause:'', timeSpent:'', internalNote:'', complexity:0 });
   const [showContentModal, setShowContentModal] = useState(false);
@@ -171,11 +173,13 @@ export default function TicketDetailsPage() {
   const load = async () => {
     setLoading(true);
     try {
-      const [ticketRes, messageRes, teamRes, treeRes, customersRes, contractsRes, tagsRes, rootCausesRes] = await Promise.all([
-        api.getTicket(id), api.getMessages(id, true), api.getTeam(),
-        api.getTicketSettingsTree(), api.getCustomers({ perPage:200 }), api.getContracts(), api.getTags({ active: true }), api.getRootCauses({ active: true }).catch(() => []),
-      ]);
+      const ticketRes = await api.getTicket(id);
       const t: any = ticketRes;
+      const [messageRes, teamRes, treeRes, customersRes, contractsRes, tagsRes, rootCausesRes, tpRes] = await Promise.all([
+        api.getMessages(id, true), api.getTeam(),
+        api.getTicketSettingsTree(), api.getCustomers({ perPage:200 }), api.getContracts(), api.getTags({ active: true }), api.getRootCauses({ active: true }).catch(() => []),
+        api.getTenantPrioritiesForTickets(t?.priorityId || undefined).catch(() => []),
+      ]);
       const msgs: any = messageRes;
       // Filter out chat channel messages — they belong to the conversation transcript block
       const filteredMsgs = (Array.isArray(msgs) ? msgs : []).filter((m: any) =>
@@ -201,7 +205,18 @@ export default function TicketDetailsPage() {
       } else {
         setConversationMsgs([]);
       }
-      setEdit({ priority:t.priority||'medium', assignedTo:t.assignedTo||'', department:t.department||'', category:t.category||'', subcategory:t.subcategory||'', tags:Array.isArray(t.tags)?t.tags:[] });
+      const tpl = Array.isArray(tpRes) ? tpRes : (tpRes as any)?.data ?? [];
+      setTenantPriorities(tpl);
+      const defaultPid = tpl.find((p: any) => p.slug === 'medium')?.id || tpl[0]?.id || '';
+      setEdit({
+        priority: t.priority || 'medium',
+        priorityId: t.priorityId || defaultPid,
+        assignedTo: t.assignedTo || '',
+        department: t.department || '',
+        category: t.category || '',
+        subcategory: t.subcategory || '',
+        tags: Array.isArray(t.tags) ? t.tags : [],
+      });
       setContentForm({ subject:t.subject || '', description:t.description || '' });
     } catch(e){ console.error(e); }
     setLoading(false);
@@ -486,7 +501,23 @@ export default function TicketDetailsPage() {
   const saveEdit = async (e:FormEvent) => {
     e.preventDefault(); setSaving(true);
     try {
-      await api.updateTicket(id, { priority:edit.priority, assignedTo:edit.assignedTo||undefined, department:edit.department||undefined, category:edit.category||undefined, subcategory:edit.subcategory||undefined, tags:edit.tags?.length ? edit.tags : undefined });
+      const sel = tenantPriorities.find((p: any) => p.id === edit.priorityId);
+      const body: any = {
+        assignedTo: edit.assignedTo || undefined,
+        department: edit.department || undefined,
+        category: edit.category || undefined,
+        subcategory: edit.subcategory || undefined,
+        tags: edit.tags?.length ? edit.tags : undefined,
+      };
+      if (tenantPriorities.length > 0) {
+        if (edit.priorityId) {
+          body.priorityId = edit.priorityId;
+          if (sel && ['low', 'medium', 'high', 'critical'].includes(sel.slug)) body.priority = sel.slug;
+        }
+      } else {
+        body.priority = edit.priority;
+      }
+      await api.updateTicket(id, body);
       toast.success('Ticket atualizado'); await load(); setShowEditPanel(false);
     } catch(e:any){ toast.error(e?.response?.data?.message||'Erro ao atualizar'); }
     setSaving(false);
@@ -611,7 +642,14 @@ export default function TicketDetailsPage() {
   if (!ticket) return <div className="text-center py-20" style={{color:'#EF4444'}}>Ticket não encontrado</div>;
 
   const status = STATUS_CONFIG[ticket.status] || STATUS_CONFIG.open;
-  const priority = PRIORITY_CONFIG[ticket.priority] || PRIORITY_CONFIG.medium;
+  const priDisp = getTicketPriorityDisplay(ticket);
+  const priority = {
+    label: priDisp.label,
+    bg: priDisp.bg,
+    color: priDisp.color,
+    dot: (priDisp.slug && PRIORITY_CONFIG[priDisp.slug]?.dot) || priDisp.color,
+    inactive: !!priDisp.inactive,
+  };
   const isFinished = ['resolved','closed','cancelled'].includes(ticket.status);
   const isWhatsapp = ticket.origin === 'whatsapp';
   const canEditContent = hasPermission(user, 'ticket.edit_content');
@@ -723,8 +761,17 @@ export default function TicketDetailsPage() {
               </div>
               <div style={{ fontSize:11, color:'#64748B' }}>{customerName(ticket.clientId)}{ticket.department ? ` · ${ticket.department}` : ''}</div>
             </div>
-            <span style={{ background: PRIORITY_CONFIG[ticket.priority]?.bg, color: PRIORITY_CONFIG[ticket.priority]?.color, padding:'2px 10px', borderRadius:20, fontSize:11, fontWeight:700, flexShrink:0 }}>
-              {PRIORITY_CONFIG[ticket.priority]?.label}
+            <span style={{
+              background: priDisp.bg,
+              color: priDisp.color,
+              padding:'2px 10px',
+              borderRadius:20,
+              fontSize:11,
+              fontWeight:700,
+              flexShrink:0,
+              ...(priDisp.inactive ? { border: '1px dashed rgba(148,163,184,0.9)', boxSizing: 'border-box' as const } : {}),
+            }}>
+              {priDisp.label}
             </span>
           </div>
 
@@ -871,7 +918,7 @@ export default function TicketDetailsPage() {
         <span style={{ display:'inline-flex', alignItems:'center', gap:4, fontSize:11, fontWeight:500, padding:'3px 8px', borderRadius:6, background:status.bg, color:status.color, border:`1px solid ${status.dot}33` }}>
           <span style={{ width:5, height:5, borderRadius:'50%', background:status.dot, flexShrink:0 }} />{status.label}
         </span>
-        <span style={{ display:'inline-flex', alignItems:'center', gap:4, fontSize:11, fontWeight:500, padding:'3px 8px', borderRadius:6, background:priority.bg, color:priority.color, border:`1px solid ${priority.dot}33` }}>
+        <span style={{ display:'inline-flex', alignItems:'center', gap:4, fontSize:11, fontWeight:500, padding:'3px 8px', borderRadius:6, background:priority.bg, color:priority.color, border: priority.inactive ? '1px dashed rgba(148,163,184,0.85)' : `1px solid ${priority.dot}33`, boxSizing:'border-box' as const }}>
           {priority.label}
         </span>
         {isWhatsapp && (
@@ -1546,7 +1593,7 @@ export default function TicketDetailsPage() {
               </span>
             )}
             {row('Prioridade',
-              <span style={{ fontSize:12, fontWeight:500, padding:'3px 8px', borderRadius:5, background:priority.bg, color:priority.color }}>{priority.label}</span>
+              <span style={{ fontSize:12, fontWeight:500, padding:'3px 8px', borderRadius:5, background:priority.bg, color:priority.color, ...(priority.inactive ? { border: '1px dashed rgba(148,163,184,0.85)', boxSizing: 'border-box' as const } : {}) }}>{priority.label}</span>
             )}
             {row('Abertura', <span style={{ fontFamily:"'DM Mono',monospace", fontSize:11 }}>{format(new Date(ticket.createdAt),"dd/MM/yy HH:mm",{locale:ptBR})}</span>)}
             {ticket.resolvedAt && row('Resolução', <span style={{ fontFamily:"'DM Mono',monospace", fontSize:11, color:'#16A34A', fontWeight:600 }}>{format(new Date(ticket.resolvedAt),"dd/MM/yy HH:mm",{locale:ptBR})}</span>)}
@@ -1645,9 +1692,37 @@ export default function TicketDetailsPage() {
             <form onSubmit={saveEdit} style={{ display:'flex', flexDirection:'column', gap:6 }}>
               <div>
                 <label style={{ fontSize:10, color:S.txt3, fontWeight:700, letterSpacing:'0.06em', textTransform:'uppercase' as const, display:'block', marginBottom:4 }}>Prioridade</label>
-                <select style={inp} value={edit.priority} onChange={e => setEdit({...edit,priority:e.target.value})}>
-                  {[['low','Baixa'],['medium','Média'],['high','Alta'],['critical','Crítico']].map(([v,l]) => <option key={v} value={v}>{l}</option>)}
-                </select>
+                {tenantPriorities.length > 0 ? (
+                  <select
+                    style={inp}
+                    value={edit.priorityId}
+                    onChange={(e) => {
+                      const pid = e.target.value;
+                      const p = tenantPriorities.find((x: any) => x.id === pid);
+                      setEdit({
+                        ...edit,
+                        priorityId: pid,
+                        priority:
+                          p && ['low', 'medium', 'high', 'critical'].includes(p.slug) ? p.slug : edit.priority,
+                      });
+                    }}
+                  >
+                    {tenantPriorities.map((p: any) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                        {p.active === false ? ' (inativa)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <select style={inp} value={edit.priority} onChange={(e) => setEdit({ ...edit, priority: e.target.value })}>
+                    {[['low', 'Baixa'], ['medium', 'Média'], ['high', 'Alta'], ['critical', 'Crítico']].map(([v, l]) => (
+                      <option key={v} value={v}>
+                        {l}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
               <div>
                 <label style={{ fontSize:10, color:S.txt3, fontWeight:700, letterSpacing:'0.06em', textTransform:'uppercase' as const, display:'block', marginBottom:4 }}>Técnico</label>

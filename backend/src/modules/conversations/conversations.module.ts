@@ -10,6 +10,7 @@ import { RealtimeModule } from '../realtime/realtime.module';
 import { PermissionsModule } from '../permissions/permissions.module';
 import { StorageQuotaGuard } from '../../common/guards/storage-quota.guard';
 import { SlaModule } from '../sla/sla.module';
+import { TicketSettingsModule } from '../ticket-settings/ticket-settings.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { SlaModule } from '../sla/sla.module';
     RealtimeModule,
     PermissionsModule,
     SlaModule,
+    TicketSettingsModule,
   ],
   providers: [ConversationsService, StorageQuotaGuard],
   controllers: [ConversationsController],

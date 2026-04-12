@@ -22,10 +22,11 @@ import { RoutingRulesService } from '../routing-rules/routing-rules.service';
 import { TicketAssignmentService } from '../ticket-assignment/ticket-assignment.service';
 import { StorageQuotaGuard } from '../../common/guards/storage-quota.guard';
 import { SlaModule } from '../sla/sla.module';
+import { TenantPriority } from '../tenant-priorities/entities/tenant-priority.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Ticket, TicketMessage, TicketReplyAttachment]),
+    TypeOrmModule.forFeature([Ticket, TicketMessage, TicketReplyAttachment, TenantPriority]),
     PermissionsModule,
     ContractsModule,
     CustomersModule,

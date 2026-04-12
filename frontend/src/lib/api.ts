@@ -96,6 +96,15 @@ class ApiClient {
   updateSlaPolicy = (id: string, data: any) => this.http.put(`/sla-policies/${id}`, data);
   deleteSlaPolicy = (id: string) => this.http.delete(`/sla-policies/${id}`);
 
+  /**
+   * Prioridades ativas para criação de ticket; em edição, passe `currentPriorityId` para incluir
+   * a prioridade atual mesmo se estiver inativa no cadastro.
+   */
+  getTenantPrioritiesForTickets = (currentPriorityId?: string | null) =>
+    this.http.get('/tenant-priorities/for-tickets', {
+      params: currentPriorityId ? { currentPriorityId } : {},
+    });
+
   getTickets = (params?: any) => this.http.get('/tickets', { params });
   getTicket = (id: string) => this.http.get(`/tickets/${id}`);
   getTicketConversations = (params?: { origin?: 'portal' | 'whatsapp'; status?: string; perPage?: number }) =>
