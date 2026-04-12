@@ -735,17 +735,26 @@ export class ConversationsService {
       if (pivotRows[0]?.client_id) conv.clientId = pivotRows[0].client_id;
     }
 
-    // Cria ticket vinculado à conversa, com agente que clicou como autor
-    // ATENÇÃO: createTicketForConversation → syncConversationSlaWithTicket grava SLA via raw SQL.
-    // Usar update() pontual para ticket_id — nunca convRepo.save(conv) — para não sobrescrever os campos SLA.
+    // Cria ticket vinculado à conversa.
+    // authorType='user' garante que o agente que clicou seja atribuído automaticamente
+    // se nenhum outro agente estiver disponível (linha "if authorType=user && !assignedTo" no tickets.service).
+    // ATENÇÃO: syncConversationSlaWithTicket grava SLA via raw SQL → usar update() pontual
+    // para ticket_id a seguir (nunca convRepo.save), preservando os campos de deadline.
     const ticket = await this.createTicketForConversation(
       tenantId,
       conv,
       undefined,   // firstMessage
       contactName,
       subject,
-      agentId,     // authorId
+      agentId,     // authorId  → userId no ticketsService.create
       agentName,   // authorName
+    );
+
+    // Garante atribuição ao agente que clicou via SQL direto (substitui round-robin e é idempotente)
+    await this.dataSource.query(
+      `UPDATE tickets SET assigned_to = $1, status = 'in_progress', auto_assigned_at = NOW()
+        WHERE id = $2 AND tenant_id = $3`,
+      [agentId, ticket.id, tenantId],
     );
 
     // Vincula conversa ao ticket via update pontual (preserva sla_first_response_deadline e sla_resolution_deadline)
@@ -754,15 +763,6 @@ export class ConversationsService {
 
     // Registra primeira resposta SLA da conversa (tempo de espera até iniciar atendimento)
     await this.slaService.recordFirstResponse(tenantId, conversationId).catch(() => {});
-
-    // Atribui ticket ao agente que clicou (sobrepõe o round-robin) e define status in_progress
-    await this.dataSource
-      .createQueryBuilder()
-      .update('tickets')
-      .set({ assigned_to: agentId, status: 'in_progress' } as any)
-      .where('id = :id AND tenant_id = :tenantId', { id: ticket.id, tenantId })
-      .execute()
-      .catch(() => {});
 
     return { conversation: conv, ticket };
   }
