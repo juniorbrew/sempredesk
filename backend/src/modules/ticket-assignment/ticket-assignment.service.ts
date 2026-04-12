@@ -321,47 +321,12 @@ export class TicketAssignmentService {
 
   /**
    * Chamado quando um agente fica offline.
-   * Tickets IN_PROGRESS/OPEN voltam para OPEN sem agente e são redistribuídos.
+   * Mantém os tickets já atribuídos ao agente — ele continua como responsável
+   * e verá os tickets ao voltar. Apenas novos tickets não serão direcionados
+   * a agentes offline (getNextAgent filtra por presença).
    */
   async redistributeOnAgentOffline(tenantId: string, userId: string): Promise<void> {
-    this.logger.log(`[redistribute:offline] userId=${userId}`);
-
-    const tickets = await this.ticketRepo.find({
-      where: {
-        tenantId,
-        assignedTo: userId,
-        status: In([TicketStatus.OPEN, TicketStatus.IN_PROGRESS]),
-      },
-      order: { createdAt: 'ASC' },
-    });
-
-    if (!tickets.length) {
-      this.logger.debug(`[redistribute:offline] nenhum ticket ativo para userId=${userId}`);
-      return;
-    }
-
-    this.logger.log(`[redistribute:offline] devolvendo ${tickets.length} ticket(s) de userId=${userId}`);
-
-    // Devolve em lote para OPEN sem agente
-    await this.ticketRepo.update(
-      {
-        tenantId,
-        assignedTo: userId,
-        status: In([TicketStatus.OPEN, TicketStatus.IN_PROGRESS]) as unknown as TicketStatus,
-      },
-      {
-        assignedTo: null as unknown as string,
-        autoAssignedAt: null as unknown as Date,
-        status: TicketStatus.OPEN,
-      },
-    );
-
-    // Redistribui individualmente (respeita round-robin por departamento)
-    for (const ticket of tickets) {
-      await this.assignTicket(tenantId, ticket.id).catch((err: unknown) =>
-        this.logger.error(`[redistribute:offline] falha ticket=${ticket.id}`, err),
-      );
-    }
+    this.logger.log(`[redistribute:offline] userId=${userId} — atribuições mantidas (agente pode retomar ao voltar online)`);
   }
 
   // ─── Transferência de departamento ──────────────────────────────────────

@@ -1154,7 +1154,13 @@ export class TicketsService {
     } else if (priority) {
       qb.andWhere('t.priority = :priority', { priority });
     }
-    if (assignedTo) qb.andWhere('t.assigned_to = :assignedTo', { assignedTo });
+    const agentId = (filters as any).agentId as string | undefined;
+    if (agentId) {
+      // Visão do agente: tickets atribuídos a ele OU sem responsável (fila aberta para qualquer agente pegar)
+      qb.andWhere('(t.assigned_to = :agentId OR t.assigned_to IS NULL)', { agentId });
+    } else if (assignedTo) {
+      qb.andWhere('t.assigned_to = :assignedTo', { assignedTo });
+    }
     if (clientId && contactId) {
       // Contato normal: apenas tickets da empresa selecionada vinculados ao usuário (ou contatos com mesmo email)
       qb.andWhere(
