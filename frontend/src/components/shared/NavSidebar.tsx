@@ -523,8 +523,11 @@ export default function NavSidebar({ isOpen, onClose, expanded = false, onToggle
           <div style={{ height: 1, background: 'rgba(255,255,255,0.08)', margin: '8px 0', marginLeft: expanded ? 4 : 10, marginRight: expanded ? 4 : 10 }} />
 
           {/* User avatar */}
-          <div style={{ display: 'flex', justifyContent: expanded ? 'flex-start' : 'center', paddingBottom: 4 }}>
+          <div style={{ display: 'flex', justifyContent: expanded ? 'flex-start' : 'center', paddingBottom: 2 }}>
             <UserDot name={user?.name ?? '?'} expanded={expanded} />
+          </div>
+          <div style={{ textAlign: 'center', paddingBottom: 2 }}>
+            <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.2)', fontFamily: 'monospace', letterSpacing: '.05em' }}>v2.5</span>
           </div>
         </div>
       </aside>

@@ -82,7 +82,7 @@ function KanbanCloseModal({ ticket, customers, rootCauseOptions, onConfirm, onCa
   onConfirm: (form: CloseForm) => void;
   onCancel: () => void;
 }) {
-  const customerName = (cid:string) => { const c = customers.find((c:any)=>c.id===cid); return c?(c.tradeName||c.companyName):'—'; };
+  const customerName = (cid:string|null, fallback?:string) => { const c = customers.find((c:any)=>c.id===cid); return c?(c.tradeName||c.companyName):(fallback||'—'); };
   const [form, setForm] = useState<CloseForm>({ solution:'', rootCause:'', timeSpent:'', internalNote:'', complexity:0 });
   const handleSubmit = () => {
     if (!form.solution.trim()) { toast.error('Solução aplicada é obrigatória'); return; }
@@ -107,14 +107,14 @@ function KanbanCloseModal({ ticket, customers, rootCauseOptions, onConfirm, onCa
         {/* Ticket info */}
         <div style={{ background:'#1E293B', padding:'10px 22px', display:'flex', alignItems:'center', gap:10 }}>
           <div style={{ width:32, height:32, borderRadius:8, background:'#334155', display:'flex', alignItems:'center', justifyContent:'center', fontSize:10, fontWeight:700, color:'#94A3B8', flexShrink:0 }}>
-            {customerName(ticket.clientId).slice(0,2).toUpperCase()}
+            {customerName(ticket.clientId, ticket.contactName).slice(0,2).toUpperCase()}
           </div>
           <div style={{ flex:1, minWidth:0 }}>
             <div style={{ display:'flex', alignItems:'center', gap:6 }}>
               <span style={{ fontFamily:'monospace', fontSize:12, fontWeight:700, color:'#6366F1' }}>{ticket.ticketNumber}</span>
               <span style={{ fontSize:12, color:'#CBD5E1', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{ticket.subject}</span>
             </div>
-            <div style={{ fontSize:11, color:'#64748B' }}>{customerName(ticket.clientId)}{ticket.department ? ` · ${ticket.department}` : ''}</div>
+            <div style={{ fontSize:11, color:'#64748B' }}>{customerName(ticket.clientId, ticket.contactName)}{ticket.department ? ` · ${ticket.department}` : ''}</div>
           </div>
           <span style={{ background: getTicketPriorityDisplay(ticket).bg, color: getTicketPriorityDisplay(ticket).color, padding:'2px 10px', borderRadius:20, fontSize:11, fontWeight:700, flexShrink:0 }}>
             {getTicketPriorityDisplay(ticket).label}
@@ -192,7 +192,7 @@ function KanbanView({ tickets, customers, team, rootCauseOptions, onMove }: {
   onMove: (ticketId: string, newStatus: string, oldStatus: string) => void;
 }) {
   const router = useRouter();
-  const customerName = (cid:string) => { const c = customers.find((c:any)=>c.id===cid); return c?(c.tradeName||c.companyName):'—'; };
+  const customerName = (cid:string|null, fallback?:string) => { const c = customers.find((c:any)=>c.id===cid); return c?(c.tradeName||c.companyName):(fallback||'—'); };
   const techName = (uid:string) => { const u = team.find((u:any)=>u.id===uid); return u?(u.name||u.email):''; };
 
   const [draggingId, setDraggingId] = useState<string|null>(null);
@@ -411,7 +411,7 @@ function KanbanView({ tickets, customers, team, rootCauseOptions, onMove }: {
                     </button>
 
                     {/* Client */}
-                    <div style={{ fontSize:11, color:'#5E6C84', marginBottom:3, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{customerName(t.clientId)}</div>
+                    <div style={{ fontSize:11, color:'#5E6C84', marginBottom:3, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{customerName(t.clientId, t.contactName)}</div>
 
                     {/* Dept/category */}
                     {(t.department || t.category) && (
@@ -559,7 +559,7 @@ export default function TicketsPage() {
     }
   };
 
-  const customerName = (cid:string) => { const c = customers.find((c:any)=>c.id===cid); return c?(c.tradeName||c.companyName):'—'; };
+  const customerName = (cid:string|null, fallback?:string) => { const c = customers.find((c:any)=>c.id===cid); return c?(c.tradeName||c.companyName):(fallback||'—'); };
   const techName = (uid:string) => { const u = team.find((u:any)=>u.id===uid); return u?(u.name||u.email):'—'; };
 
   const STAT_CARDS = [
@@ -768,7 +768,7 @@ export default function TicketsPage() {
                     </div>
                     {t.subcategory && <div style={{ fontSize:11, color:S.txt3, marginTop:1, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{t.subcategory}</div>}
                   </div>
-                  <div style={{ padding:'11px 8px', fontSize:11, color:S.txt2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{customerName(t.clientId)}</div>
+                  <div style={{ padding:'11px 8px', fontSize:11, color:S.txt2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{customerName(t.clientId, t.contactName)}</div>
                   <div style={{ padding:'11px 8px' }}>
                     {t.department && <div style={{ fontSize:11, fontWeight:500, color:S.txt }}>{t.department}</div>}
                     {t.category && <div style={{ fontSize:10, color:S.txt3 }}>{t.category}</div>}

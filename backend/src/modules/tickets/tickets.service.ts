@@ -1190,6 +1190,26 @@ export class TicketsService {
 
     const withPriority = data.map((t) => this.ticketWithPriorityPayload(t));
 
+    // Enriquece com contactName para tickets criados via WhatsApp (sem clientId)
+    if (withPriority.length > 0) {
+      const contactIds = [...new Set(
+        withPriority.filter((t) => (t as any).contactId).map((t) => (t as any).contactId as string),
+      )];
+      if (contactIds.length > 0) {
+        try {
+          const contacts: Array<{ id: string; name: string }> = await this.ticketRepo.manager.query(
+            `SELECT id::text, name FROM contacts WHERE tenant_id = $1 AND id::text = ANY($2::text[])`,
+            [tenantId, contactIds],
+          );
+          const contactMap = new Map(contacts.map((c) => [c.id, c.name]));
+          withPriority.forEach((t) => {
+            const cid = (t as any).contactId as string | undefined;
+            if (cid) (t as any).contactName = contactMap.get(cid) ?? null;
+          });
+        } catch {}
+      }
+    }
+
     if (includeLastMessage && withPriority.length > 0) {
       const ids = withPriority.map((t) => t.id as string);
       const lastMsgRows = await this.ticketRepo.manager.query(
@@ -1328,6 +1348,16 @@ export class TicketsService {
           [tenantId, out.assignedTo],
         );
         if (rows[0]) out.assignedUser = rows[0];
+      } catch {}
+    }
+    // Inclui contactName para tickets criados via WhatsApp (sem clientId)
+    if (out.contactId) {
+      try {
+        const rows = await this.ticketRepo.manager.query(
+          `SELECT name FROM contacts WHERE tenant_id = $1 AND id::text = $2 LIMIT 1`,
+          [tenantId, String(out.contactId)],
+        );
+        if (rows[0]) out.contactName = rows[0].name;
       } catch {}
     }
     return out;
@@ -1546,7 +1576,9 @@ export class TicketsService {
     const oldDescription = ticket.description ?? '';
 
     ticket.subject = dto.subject.trim();
-    ticket.description = dto.description?.trim() || '';
+    if (dto.description !== undefined) {
+      ticket.description = dto.description.trim();
+    }
 
     const saved = await this.ticketRepo.save(ticket);
 
@@ -1570,7 +1602,7 @@ export class TicketsService {
       );
     }
 
-    return saved;
+    return this.findOne(tenantId, id);
   }
 
   async assign(tenantId: string, id: string, techId: string, assignedByUserId?: string, assignedByUserName?: string): Promise<Ticket> {

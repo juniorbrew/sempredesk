@@ -176,6 +176,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
             <p className="text-xs capitalize truncate" style={{ color: '#64748B' }}>{user?.role}</p>
           </div>
         </div>
+        <p className="text-center mt-2" style={{ fontSize: 9, color: '#334155', fontFamily: 'monospace', letterSpacing: '.05em' }}>v2.5</p>
       </div>
     </aside>
   );

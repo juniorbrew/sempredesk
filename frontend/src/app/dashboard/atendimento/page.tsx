@@ -13,7 +13,7 @@ import { useAuthStore, hasPermission } from '@/store/auth.store';
 import {
   MessageSquare, Send, Phone, RefreshCw, Lock, PanelRight, Plus, Link2, Globe, Ticket,
   Check, Search, X, CheckCircle2, User, Mail, MapPin, Building2, Hash, Tag, Edit2, Save,
-  Paperclip, Mic, StopCircle, ChevronLeft, ChevronRight,
+  Paperclip, Mic, StopCircle, ChevronLeft, ChevronRight, ChevronDown,
 } from 'lucide-react';
 import { EmojiPicker } from '@/components/ui/EmojiPicker';
 import ContactValidationBanner, { type ResolvedData } from '@/components/atendimento/ContactValidationBanner';
@@ -891,14 +891,17 @@ function AtendimentoPageInner() {
   const ticketPanelRef = useRef<HTMLDivElement>(null);
   const [ticketPanelStatusDraft, setTicketPanelStatusDraft] = useState('');
   const [ticketPanelSubjectDraft, setTicketPanelSubjectDraft] = useState('');
+  const [ticketPanelDescDraft, setTicketPanelDescDraft] = useState('');
   const [ticketPanelStatusSaving, setTicketPanelStatusSaving] = useState(false);
   const [ticketPanelSubjectSaving, setTicketPanelSubjectSaving] = useState(false);
+  const [ticketPanelDescSaving, setTicketPanelDescSaving] = useState(false);
   const [ticketPanelPriorityIdDraft, setTicketPanelPriorityIdDraft] = useState('');
   const [ticketPanelDeptDraft, setTicketPanelDeptDraft] = useState('');
   const [ticketPanelCatDraft, setTicketPanelCatDraft] = useState('');
   const [ticketPanelSubDraft, setTicketPanelSubDraft] = useState('');
   const [ticketPanelPrioritySaving, setTicketPanelPrioritySaving] = useState(false);
   const [ticketPanelClassSaving, setTicketPanelClassSaving] = useState(false);
+  const [ticketInfoExpanded, setTicketInfoExpanded] = useState(false);
   const [clientTickets, setClientTickets] = useState<any[]>([]);
   /** Painel deslizante (Zenvia-style): detalhe de ticket sem sair do atendimento */
   const [ticketDetailSheetOpen, setTicketDetailSheetOpen] = useState(false);
@@ -1095,19 +1098,9 @@ function AtendimentoPageInner() {
     if (s === prevSub) return;
     setTicketPanelSubjectSaving(true);
     try {
-      const descTrim = String(currentTicket.description ?? '').trim();
-      const updated: any = await api.updateTicketContent(currentTicket.id, {
-        subject: s,
-        ...(descTrim.length >= 3 ? { description: descTrim } : {}),
-      });
+      const updated: any = await api.updateTicketContent(currentTicket.id, { subject: s });
       setCurrentTicket((prev: any) =>
-        prev
-          ? {
-              ...prev,
-              subject: updated?.subject ?? s,
-              description: updated?.description ?? prev.description,
-            }
-          : prev,
+        prev ? { ...prev, subject: updated?.subject ?? s } : prev,
       );
       setTicketPanelSubjectDraft(String(updated?.subject ?? s));
       showToast('Assunto atualizado');
@@ -1115,6 +1108,33 @@ function AtendimentoPageInner() {
       showToast(err?.response?.data?.message || 'Erro ao salvar assunto', 'error');
     }
     setTicketPanelSubjectSaving(false);
+  };
+
+  const handlePanelTicketDescriptionSave = async () => {
+    if (!currentTicket?.id) return;
+    const d = ticketPanelDescDraft.trim();
+    const prevDesc = String(currentTicket.description ?? '').trim();
+    if (d === prevDesc) return;
+    if (d.length > 0 && d.length < 3) {
+      showToast('Descrição deve ter pelo menos 3 caracteres', 'error');
+      return;
+    }
+    setTicketPanelDescSaving(true);
+    try {
+      const subject = String(currentTicket.subject ?? '').trim();
+      const updated: any = await api.updateTicketContent(currentTicket.id, {
+        subject: subject || 'Sem assunto',
+        description: d,
+      });
+      setCurrentTicket((prev: any) =>
+        prev ? { ...prev, description: updated?.description ?? d } : prev,
+      );
+      setTicketPanelDescDraft(String(updated?.description ?? d));
+      showToast('Descrição atualizada');
+    } catch (err: any) {
+      showToast(err?.response?.data?.message || 'Erro ao salvar descrição', 'error');
+    }
+    setTicketPanelDescSaving(false);
   };
 
   const handlePanelTicketPriorityChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -1375,11 +1395,13 @@ function AtendimentoPageInner() {
   useEffect(() => {
     if (!currentTicket?.id) return;
     setTicketPanelSubjectDraft(String(currentTicket.subject ?? ''));
+    setTicketPanelDescDraft(String(currentTicket.description ?? ''));
     setTicketPanelStatusDraft(String(currentTicket.status ?? 'open'));
     setTicketPanelPriorityIdDraft(String(currentTicket.priorityId ?? ''));
     setTicketPanelDeptDraft(String(currentTicket.department ?? ''));
     setTicketPanelCatDraft(String(currentTicket.category ?? ''));
     setTicketPanelSubDraft(String(currentTicket.subcategory ?? ''));
+    setTicketInfoExpanded(false);
   }, [currentTicket?.id]);
 
   useEffect(() => {
@@ -3016,7 +3038,7 @@ function AtendimentoPageInner() {
                       gap: 8,
                     }}
                   >
-                    {hasTicket && (
+                    {hasTicket && !panelOpen && (
                       <button
                         type="button"
                         onClick={openTicketPanelAndScroll}
@@ -3275,15 +3297,15 @@ function AtendimentoPageInner() {
             ).length;
             const recentTickets = [...clientTickets].sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 4);
             const secTitle = (txt: string, action?: React.ReactNode) => (
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                 <span style={{ fontSize: 10, fontWeight: 700, color: S.txt3, textTransform: 'uppercase' as const, letterSpacing: '.07em' }}>{txt}</span>
                 {action}
               </div>
             );
             const field = (label: string, value: React.ReactNode) => (
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '5px 0', gap: 8 }}>
-                <span style={{ fontSize: 12, color: S.txt2, flexShrink: 0 }}>{label}</span>
-                <span style={{ fontSize: 12, color: S.txt, fontWeight: 500, textAlign: 'right' as const }}>{value}</span>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '4px 0', gap: 8 }}>
+                <span style={{ fontSize: 11, color: S.txt2, flexShrink: 0 }}>{label}</span>
+                <span style={{ fontSize: 11, color: S.txt, fontWeight: 500, textAlign: 'right' as const }}>{value}</span>
               </div>
             );
             const dispName = contactName(selected.contactId) !== '—' ? contactName(selected.contactId) : selected.contactName || '—';
@@ -3322,76 +3344,223 @@ function AtendimentoPageInner() {
                   <div
                     ref={ticketPanelRef}
                     style={{
-                      padding: '14px 16px',
+                      padding: '10px 14px',
                       borderBottom: S.border,
                       background: 'linear-gradient(180deg, rgba(255,255,255,0.99) 0%, rgba(248,250,252,0.97) 100%)',
                     }}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 12 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flexWrap: 'wrap' }}>
-                        <div
-                          style={{
-                            width: 36,
-                            height: 36,
-                            borderRadius: 10,
-                            background: S.accentLight,
-                            border: `1px solid ${S.accentMid}`,
-                            color: S.accent,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            flexShrink: 0,
-                          }}
-                        >
-                          <Ticket size={18} strokeWidth={1.8} />
-                        </div>
-                        <div style={{ minWidth: 0 }}>
-                          <span style={{ fontSize: 10, fontWeight: 700, color: S.txt3, textTransform: 'uppercase' as const, letterSpacing: '.07em', display: 'block' }}>Ticket</span>
-                          <button
-                            type="button"
-                            onClick={openTicketPanelAndScroll}
-                            title="Destacar este bloco no painel"
-                            style={{
-                              fontFamily: "'DM Mono', monospace",
-                              fontSize: 14,
-                              fontWeight: 800,
-                              color: S.accent,
-                              background: 'none',
-                              border: 'none',
-                              padding: '2px 0 0',
-                              cursor: 'pointer',
-                              display: 'block',
-                              textAlign: 'left' as const,
-                            }}
-                          >
-                            {currentTicket.ticketNumber ?? '—'}
-                          </button>
-                        </div>
-                      </div>
+                    {/* ── Resumo compacto (sempre visível) ── */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                      <Ticket size={13} strokeWidth={1.8} style={{ color: S.txt3, flexShrink: 0 }} />
                       <button
                         type="button"
                         onClick={openTicketPanelAndScroll}
-                        title="Focar painel do ticket"
+                        title="Destacar no painel"
+                        style={{
+                          fontFamily: "'DM Mono', monospace",
+                          fontSize: 12,
+                          fontWeight: 700,
+                          color: S.accent,
+                          background: 'none',
+                          border: 'none',
+                          padding: 0,
+                          cursor: 'pointer',
+                          flexShrink: 0,
+                          lineHeight: 1,
+                        }}
+                      >
+                        {currentTicket.ticketNumber ?? '—'}
+                      </button>
+                      {ticketSt && (
+                        <span
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 3,
+                            fontSize: 10,
+                            fontWeight: 600,
+                            padding: '2px 7px',
+                            borderRadius: 999,
+                            background: ticketSt.bg,
+                            color: ticketSt.color,
+                            border: `1px solid ${ticketSt.dot}22`,
+                            flexShrink: 0,
+                          }}
+                        >
+                          <span style={{ width: 5, height: 5, borderRadius: '50%', background: ticketSt.dot }} />
+                          {ticketSt.label}
+                        </span>
+                      )}
+                      <span style={{ ...ticketPriorityChipStyle(currentTicket), flexShrink: 0 }}>
+                        {(ticketPri ?? getTicketPriorityDisplay(currentTicket)).label}
+                      </span>
+                      <div style={{ flex: 1 }} />
+                      <button
+                        type="button"
+                        onClick={() => { const next = !panelOpen; setPanelOpen(next); try { localStorage.setItem('atend_panel_open', String(next)); } catch {} }}
+                        title={panelOpen ? 'Fechar painel' : 'Abrir painel'}
                         style={{
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
-                          width: 32,
-                          height: 32,
-                          borderRadius: 8,
+                          width: 26,
+                          height: 26,
+                          borderRadius: 7,
                           border: S.border2,
                           background: S.bg2,
                           color: S.txt2,
-                          flexShrink: 0,
                           cursor: 'pointer',
+                          flexShrink: 0,
                         }}
                       >
-                        <PanelRight size={16} strokeWidth={1.8} />
+                        <ChevronRight size={13} strokeWidth={2} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTicketInfoExpanded((v) => !v)}
+                        title={ticketInfoExpanded ? 'Recolher informações' : 'Expandir informações'}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          width: 26,
+                          height: 26,
+                          borderRadius: 7,
+                          border: S.border2,
+                          background: ticketInfoExpanded ? S.accentLight : S.bg2,
+                          color: ticketInfoExpanded ? S.accent : S.txt2,
+                          cursor: 'pointer',
+                          transition: 'background .15s, color .15s',
+                          flexShrink: 0,
+                        }}
+                      >
+                        <ChevronDown
+                          size={13}
+                          strokeWidth={2}
+                          style={{ transition: 'transform .2s', transform: ticketInfoExpanded ? 'rotate(180deg)' : 'rotate(0deg)' }}
+                        />
                       </button>
                     </div>
 
-                    <div style={{ marginBottom: 10 }}>
-                      {canEditTicketPanelFields ? (
+                    {ticketInfoExpanded && (<>
+                      <div style={{ height: 1, background: 'rgba(15,23,42,.07)', margin: '10px -14px 10px' }} />
+
+                      {/* 1. Assunto — título do ticket */}
+                      {canEditTicketPanelContent ? (
+                        <div style={{ marginBottom: 8 }}>
+                          <label
+                            htmlFor="atend-ticket-subject"
+                            style={{ fontSize: 10, fontWeight: 700, color: S.txt3, textTransform: 'uppercase' as const, letterSpacing: '.06em', display: 'block', marginBottom: 6 }}
+                          >
+                            Assunto
+                          </label>
+                          <div style={{ display: 'flex', gap: 6, alignItems: 'stretch' }}>
+                            <input
+                              id="atend-ticket-subject"
+                              value={ticketPanelSubjectDraft}
+                              onChange={(ev) => setTicketPanelSubjectDraft(ev.target.value)}
+                              maxLength={160}
+                              style={{
+                                flex: 1,
+                                minWidth: 0,
+                                padding: '8px 10px',
+                                borderRadius: 8,
+                                border: S.border2,
+                                background: '#FFFFFF',
+                                fontSize: 12,
+                                color: S.txt,
+                                fontFamily: 'inherit',
+                              }}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => void handlePanelTicketSubjectSave()}
+                              disabled={ticketPanelSubjectSaving}
+                              title="Salvar assunto"
+                              style={{
+                                flexShrink: 0,
+                                width: 40,
+                                borderRadius: 8,
+                                border: S.border2,
+                                background: S.accentLight,
+                                color: S.accent,
+                                cursor: ticketPanelSubjectSaving ? 'wait' : 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                opacity: ticketPanelSubjectSaving ? 0.7 : 1,
+                              }}
+                            >
+                              <Save size={16} strokeWidth={2} />
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        field('Assunto', <span style={{ textAlign: 'right' as const, display: 'block' }}>{currentTicket.subject || '—'}</span>)
+                      )}
+
+                      {/* 2. Descrição — abaixo do assunto */}
+                      <div style={{ marginBottom: 8 }}>
+                        {canEditTicketPanelContent ? (
+                          <>
+                            <label
+                              htmlFor="atend-ticket-desc"
+                              style={{ fontSize: 10, fontWeight: 700, color: S.txt3, textTransform: 'uppercase' as const, letterSpacing: '.06em', display: 'block', marginBottom: 6 }}
+                            >
+                              Descrição
+                            </label>
+                            <textarea
+                              id="atend-ticket-desc"
+                              value={ticketPanelDescDraft}
+                              onChange={(ev) => setTicketPanelDescDraft(ev.target.value)}
+                              maxLength={600}
+                              rows={3}
+                              style={{
+                                width: '100%',
+                                boxSizing: 'border-box' as const,
+                                padding: '7px 10px',
+                                borderRadius: 8,
+                                border: S.border2,
+                                background: '#FFFFFF',
+                                fontSize: 12,
+                                color: S.txt,
+                                fontFamily: 'inherit',
+                                lineHeight: 1.5,
+                                resize: 'vertical' as const,
+                              }}
+                            />
+                            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }}>
+                              <button
+                                type="button"
+                                onClick={() => void handlePanelTicketDescriptionSave()}
+                                disabled={ticketPanelDescSaving || ticketPanelDescDraft.trim() === String(currentTicket.description ?? '').trim()}
+                                style={{
+                                  display: 'flex', alignItems: 'center', gap: 4,
+                                  padding: '4px 10px', borderRadius: 7, border: S.border2,
+                                  background: ticketPanelDescDraft.trim() !== String(currentTicket.description ?? '').trim() ? S.accentLight : S.bg2,
+                                  color: S.accent, fontSize: 11, fontWeight: 600,
+                                  cursor: ticketPanelDescSaving || ticketPanelDescDraft.trim() === String(currentTicket.description ?? '').trim() ? 'not-allowed' : 'pointer',
+                                  opacity: ticketPanelDescSaving || ticketPanelDescDraft.trim() === String(currentTicket.description ?? '').trim() ? 0.65 : 1,
+                                  fontFamily: 'inherit',
+                                }}
+                              >
+                                <Save size={11} strokeWidth={2} />
+                                {ticketPanelDescSaving ? 'Salvando...' : 'Salvar'}
+                              </button>
+                            </div>
+                          </>
+                        ) : (currentTicket.description || '').trim() ? (
+                          <p style={{ margin: 0, fontSize: 11, color: S.txt2, lineHeight: 1.5, whiteSpace: 'pre-wrap' as const }}>
+                            {currentTicket.description}
+                          </p>
+                        ) : null}
+                      </div>
+
+                      {/* ── divisor: conteúdo ↔ classificação ── */}
+                      <div style={{ height: 1, background: 'rgba(15,23,42,.05)', margin: '4px -14px 10px' }} />
+
+                      {/* 3. Status — select apenas quando editável */}
+                      {canEditTicketPanelFields && (
                         <div style={{ marginBottom: 8 }}>
                           <label
                             htmlFor="atend-ticket-status"
@@ -3405,452 +3574,275 @@ function AtendimentoPageInner() {
                             disabled={ticketPanelStatusSaving}
                             onChange={handlePanelTicketStatusChange}
                             style={{
-                              width: '100%',
-                              padding: '8px 10px',
-                              borderRadius: 8,
-                              border: S.border2,
-                              background: '#FFFFFF',
-                              fontSize: 12,
-                              color: S.txt,
-                              fontFamily: 'inherit',
+                              width: '100%', padding: '8px 10px', borderRadius: 8,
+                              border: S.border2, background: '#FFFFFF', fontSize: 12,
+                              color: S.txt, fontFamily: 'inherit',
                               cursor: ticketPanelStatusSaving ? 'wait' : 'pointer',
                               opacity: ticketPanelStatusSaving ? 0.75 : 1,
                             }}
                           >
                             {TICKET_STATUS_SELECT_OPTIONS.map((opt) => (
-                              <option key={opt.value} value={opt.value}>
-                                {opt.label}
-                              </option>
+                              <option key={opt.value} value={opt.value}>{opt.label}</option>
                             ))}
                           </select>
                         </div>
-                      ) : (
-                        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-                          {(() => {
-                            const st = ticketSt ?? TICKET_STATUS_PANEL.open;
-                            return (
-                          <span
-                            style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: 4,
-                              fontSize: 10,
-                              fontWeight: 600,
-                              padding: '3px 8px',
-                              borderRadius: 999,
-                              background: st.bg,
-                              color: st.color,
-                              border: `1px solid ${st.dot}33`,
-                            }}
+                      )}
+
+                      {/* 4. Categoria + Prioridade */}
+                      {canEditTicketPanelFields && ticketSettingsTree.length > 0 ? (
+                        /* Modo edição com árvore carregada: só Prioridade (Categoria visível nos selects abaixo) */
+                        <div style={{ marginBottom: 8 }}>
+                          <label
+                            htmlFor="atend-ticket-priority"
+                            style={{ fontSize: 10, fontWeight: 700, color: S.txt3, textTransform: 'uppercase' as const, letterSpacing: '.06em', display: 'block', marginBottom: 6 }}
                           >
-                            <span style={{ width: 5, height: 5, borderRadius: '50%', background: st.dot, flexShrink: 0 }} />
-                            {st.label}
-                          </span>
-                            );
-                          })()}
+                            Prioridade
+                          </label>
+                          {tenantPriorities.length > 0 ? (
+                            <select
+                              id="atend-ticket-priority"
+                              value={panelPrioritySelectValue}
+                              disabled={ticketPanelPrioritySaving}
+                              onChange={handlePanelTicketPriorityChange}
+                              style={{ ...panelSelectCompact, cursor: ticketPanelPrioritySaving ? 'wait' : 'pointer', opacity: ticketPanelPrioritySaving ? 0.75 : 1 }}
+                            >
+                              {tenantPriorities.map((p: any) => (
+                                <option key={p.id} value={p.id}>
+                                  {p.name}{p.active === false ? ' (inativa)' : ''}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <div style={{ display: 'flex', alignItems: 'center', minHeight: 36 }}>
+                              <span style={ticketPriorityChipStyle(currentTicket)}>{(ticketPri ?? getTicketPriorityDisplay(currentTicket)).label}</span>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        /* Modo leitura ou sem árvore: grid Categoria | Prioridade */
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+                          <div>
+                            <span style={{ fontSize: 10, fontWeight: 700, color: S.txt3, textTransform: 'uppercase' as const, letterSpacing: '.06em', display: 'block', marginBottom: 6 }}>Categoria</span>
+                            <div style={{ ...panelSelectCompact, background: S.bg2, minHeight: 36, display: 'flex', alignItems: 'center', boxSizing: 'border-box' as const }}>
+                              {(ticketPanelCatDraft || currentTicket.category || '').trim() || '—'}
+                            </div>
+                          </div>
+                          <div>
+                            <label
+                              htmlFor="atend-ticket-priority"
+                              style={{ fontSize: 10, fontWeight: 700, color: S.txt3, textTransform: 'uppercase' as const, letterSpacing: '.06em', display: 'block', marginBottom: 6 }}
+                            >
+                              Prioridade
+                            </label>
+                            {canEditTicketPanelFields && tenantPriorities.length > 0 ? (
+                              <select
+                                id="atend-ticket-priority"
+                                value={panelPrioritySelectValue}
+                                disabled={ticketPanelPrioritySaving}
+                                onChange={handlePanelTicketPriorityChange}
+                                style={{ ...panelSelectCompact, cursor: ticketPanelPrioritySaving ? 'wait' : 'pointer', opacity: ticketPanelPrioritySaving ? 0.75 : 1 }}
+                              >
+                                {tenantPriorities.map((p: any) => (
+                                  <option key={p.id} value={p.id}>
+                                    {p.name}{p.active === false ? ' (inativa)' : ''}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              <div style={{ display: 'flex', alignItems: 'center', minHeight: 36 }}>
+                                <span style={ticketPriorityChipStyle(currentTicket)}>{(ticketPri ?? getTicketPriorityDisplay(currentTicket)).label}</span>
+                              </div>
+                            )}
+                          </div>
                         </div>
                       )}
-                    </div>
 
-                    {canEditTicketPanelContent ? (
-                      <div style={{ marginBottom: 8 }}>
-                        <label
-                          htmlFor="atend-ticket-subject"
-                          style={{ fontSize: 10, fontWeight: 700, color: S.txt3, textTransform: 'uppercase' as const, letterSpacing: '.06em', display: 'block', marginBottom: 6 }}
-                        >
-                          Assunto
-                        </label>
-                        <div style={{ display: 'flex', gap: 6, alignItems: 'stretch' }}>
-                          <input
-                            id="atend-ticket-subject"
-                            value={ticketPanelSubjectDraft}
-                            onChange={(ev) => setTicketPanelSubjectDraft(ev.target.value)}
-                            maxLength={160}
-                            style={{
-                              flex: 1,
-                              minWidth: 0,
-                              padding: '8px 10px',
-                              borderRadius: 8,
-                              border: S.border2,
-                              background: '#FFFFFF',
-                              fontSize: 12,
-                              color: S.txt,
-                              fontFamily: 'inherit',
-                            }}
-                          />
-                          <button
-                            type="button"
-                            onClick={() => void handlePanelTicketSubjectSave()}
-                            disabled={ticketPanelSubjectSaving}
-                            title="Salvar assunto"
-                            style={{
-                              flexShrink: 0,
-                              width: 40,
-                              borderRadius: 8,
-                              border: S.border2,
-                              background: S.accentLight,
-                              color: S.accent,
-                              cursor: ticketPanelSubjectSaving ? 'wait' : 'pointer',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              opacity: ticketPanelSubjectSaving ? 0.7 : 1,
-                            }}
-                          >
-                            <Save size={16} strokeWidth={2} />
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      field('Assunto', <span style={{ fontWeight: 600, textAlign: 'right' as const, display: 'block' }}>{currentTicket.subject || '—'}</span>)
-                    )}
-
-                    <div style={{ marginBottom: 10 }}>
-                      <span style={{ fontSize: 10, fontWeight: 700, color: S.txt3, textTransform: 'uppercase' as const, letterSpacing: '.06em', display: 'block', marginBottom: 8 }}>Tipo de ticket</span>
-                      <div style={{ display: 'flex', gap: 18, alignItems: 'center', flexWrap: 'wrap' }}>
-                        {([
-                          { key: 'pub', label: 'Público', on: currentTicket.origin !== 'internal' },
-                          { key: 'int', label: 'Interno', on: currentTicket.origin === 'internal' },
-                        ] as const).map((row) => (
-                          <span
-                            key={row.key}
-                            style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: 8,
-                              fontSize: 12,
-                              color: row.on ? S.txt : S.txt3,
-                              fontWeight: row.on ? 600 : 500,
-                            }}
-                          >
-                            <span
+                      {/* 6. Serviço */}
+                      {canEditTicketPanelFields && ticketSettingsTree.length > 0 ? (
+                        <div style={{ padding: '8px 0' }}>
+                          <span style={{ fontSize: 10, fontWeight: 700, color: S.txt3, textTransform: 'uppercase' as const, letterSpacing: '.06em', display: 'block', marginBottom: 8 }}>Serviço</span>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            <select
+                              value={ticketPanelDeptDraft}
+                              onChange={(ev) => {
+                                setTicketPanelDeptDraft(ev.target.value);
+                                setTicketPanelCatDraft('');
+                                setTicketPanelSubDraft('');
+                              }}
+                              style={panelSelectCompact}
+                            >
+                              <option value="">Departamento...</option>
+                              {ticketSettingsTree.map((d: any) => (
+                                <option key={d.id} value={d.name}>{d.name}</option>
+                              ))}
+                            </select>
+                            <select
+                              value={ticketPanelCatDraft}
+                              onChange={(ev) => { setTicketPanelCatDraft(ev.target.value); setTicketPanelSubDraft(''); }}
+                              disabled={!ticketPanelDeptDraft}
+                              style={{ ...panelSelectCompact, opacity: ticketPanelDeptDraft ? 1 : 0.55, cursor: ticketPanelDeptDraft ? 'pointer' : 'not-allowed' }}
+                            >
+                              <option value="">Categoria...</option>
+                              {panelCatsEdit.map((c: any) => (
+                                <option key={c.id} value={c.name}>{c.name}</option>
+                              ))}
+                            </select>
+                            <select
+                              value={ticketPanelSubDraft}
+                              onChange={(ev) => setTicketPanelSubDraft(ev.target.value)}
+                              disabled={!ticketPanelCatDraft}
+                              style={{ ...panelSelectCompact, opacity: ticketPanelCatDraft ? 1 : 0.55, cursor: ticketPanelCatDraft ? 'pointer' : 'not-allowed' }}
+                            >
+                              <option value="">Subcategoria...</option>
+                              {panelSubsEdit.map((sub: any) => (
+                                <option key={sub.id} value={sub.name}>{sub.name}</option>
+                              ))}
+                            </select>
+                            <button
+                              type="button"
+                              onClick={() => void handlePanelTicketClassificationSave()}
+                              disabled={ticketPanelClassSaving || !ticketPanelClassDirty}
                               style={{
-                                width: 16,
-                                height: 16,
-                                borderRadius: '50%',
-                                border: `2px solid ${row.on ? S.accent : '#CBD5E1'}`,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                flexShrink: 0,
+                                padding: '8px 12px',
+                                borderRadius: 8,
+                                border: `1px solid ${S.accentMid}`,
+                                background: ticketPanelClassDirty ? S.accentLight : S.bg2,
+                                color: S.accent,
+                                fontSize: 12,
+                                fontWeight: 700,
+                                cursor: ticketPanelClassSaving || !ticketPanelClassDirty ? 'not-allowed' : 'pointer',
+                                fontFamily: 'inherit',
+                                opacity: ticketPanelClassSaving || !ticketPanelClassDirty ? 0.65 : 1,
                               }}
                             >
-                              {row.on && <span style={{ width: 8, height: 8, borderRadius: '50%', background: S.accent }} />}
-                            </span>
-                            {row.label}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div style={{ marginBottom: 10 }}>
-                      <span style={{ fontSize: 10, fontWeight: 700, color: S.txt3, textTransform: 'uppercase' as const, letterSpacing: '.06em', display: 'block', marginBottom: 6 }}>Solicitante</span>
-                      <div style={{ padding: '10px 12px', borderRadius: 10, border: S.border2, background: S.bg2 }}>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: S.txt }}>{dispName}</div>
-                        {contact?.email && (
-                          <div style={{ fontSize: 11, color: S.txt2, marginTop: 4, wordBreak: 'break-word' as const }}>{contact.email}</div>
-                        )}
-                        {(contact?.whatsapp || contact?.phone) && (
-                          <div style={{ fontSize: 11, color: S.txt2, marginTop: 4, fontFamily: "'DM Mono', monospace" }}>
-                            {formatWhatsApp(String(contact.whatsapp || contact.phone || '')) || String(contact.phone || contact.whatsapp || '')}
+                              {ticketPanelClassSaving ? 'Salvando...' : 'Salvar classificação'}
+                            </button>
                           </div>
-                        )}
-                        {!contact?.email && !contact?.whatsapp && !contact?.phone && (
-                          <div style={{ fontSize: 11, color: S.txt3, marginTop: 4 }}>Sem e-mail/telefone no cadastro</div>
-                        )}
-                      </div>
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
-                      <div>
-                        <span style={{ fontSize: 10, fontWeight: 700, color: S.txt3, textTransform: 'uppercase' as const, letterSpacing: '.06em', display: 'block', marginBottom: 6 }}>Categoria</span>
-                        <div
-                          style={{
-                            ...panelSelectCompact,
-                            background: S.bg2,
-                            minHeight: 36,
-                            display: 'flex',
-                            alignItems: 'center',
-                            boxSizing: 'border-box' as const,
-                          }}
-                        >
-                          {(ticketPanelCatDraft || currentTicket.category || '').trim() || '—'}
-                        </div>
-                      </div>
-                      <div>
-                        <label
-                          htmlFor="atend-ticket-priority"
-                          style={{ fontSize: 10, fontWeight: 700, color: S.txt3, textTransform: 'uppercase' as const, letterSpacing: '.06em', display: 'block', marginBottom: 6 }}
-                        >
-                          Prioridade
-                        </label>
-                        {canEditTicketPanelFields && tenantPriorities.length > 0 ? (
-                          <select
-                            id="atend-ticket-priority"
-                            value={panelPrioritySelectValue}
-                            disabled={ticketPanelPrioritySaving}
-                            onChange={handlePanelTicketPriorityChange}
-                            style={{
-                              ...panelSelectCompact,
-                              cursor: ticketPanelPrioritySaving ? 'wait' : 'pointer',
-                              opacity: ticketPanelPrioritySaving ? 0.75 : 1,
-                            }}
-                          >
-                            {tenantPriorities.map((p: any) => (
-                              <option key={p.id} value={p.id}>
-                                {p.name}
-                                {p.active === false ? ' (inativa)' : ''}
-                              </option>
-                            ))}
-                          </select>
-                        ) : (
-                          <div style={{ display: 'flex', alignItems: 'center', minHeight: 36 }}>
-                            <span style={ticketPriorityChipStyle(currentTicket)}>{(ticketPri ?? getTicketPriorityDisplay(currentTicket)).label}</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {field(
-                      'Descrição',
-                      <span
-                        style={{ display: 'block', maxHeight: 52, overflow: 'hidden', lineHeight: 1.35, textAlign: 'right' as const }}
-                        title={(currentTicket.description || '').trim() ? String(currentTicket.description) : undefined}
-                      >
-                        {(currentTicket.description || '').trim() || '—'}
-                      </span>,
-                    )}
-                    {canEditTicketPanelFields && ticketSettingsTree.length > 0 ? (
-                      <div style={{ padding: '8px 0' }}>
-                        <span style={{ fontSize: 10, fontWeight: 700, color: S.txt3, textTransform: 'uppercase' as const, letterSpacing: '.06em', display: 'block', marginBottom: 8 }}>Serviço</span>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                          <select
-                            value={ticketPanelDeptDraft}
-                            onChange={(ev) => {
-                              setTicketPanelDeptDraft(ev.target.value);
-                              setTicketPanelCatDraft('');
-                              setTicketPanelSubDraft('');
-                            }}
-                            style={panelSelectCompact}
-                          >
-                            <option value="">Departamento...</option>
-                            {ticketSettingsTree.map((d: any) => (
-                              <option key={d.id} value={d.name}>
-                                {d.name}
-                              </option>
-                            ))}
-                          </select>
-                          <select
-                            value={ticketPanelCatDraft}
-                            onChange={(ev) => {
-                              setTicketPanelCatDraft(ev.target.value);
-                              setTicketPanelSubDraft('');
-                            }}
-                            disabled={!ticketPanelDeptDraft}
-                            style={{
-                              ...panelSelectCompact,
-                              opacity: ticketPanelDeptDraft ? 1 : 0.55,
-                              cursor: ticketPanelDeptDraft ? 'pointer' : 'not-allowed',
-                            }}
-                          >
-                            <option value="">Categoria...</option>
-                            {panelCatsEdit.map((c: any) => (
-                              <option key={c.id} value={c.name}>
-                                {c.name}
-                              </option>
-                            ))}
-                          </select>
-                          <select
-                            value={ticketPanelSubDraft}
-                            onChange={(ev) => setTicketPanelSubDraft(ev.target.value)}
-                            disabled={!ticketPanelCatDraft}
-                            style={{
-                              ...panelSelectCompact,
-                              opacity: ticketPanelCatDraft ? 1 : 0.55,
-                              cursor: ticketPanelCatDraft ? 'pointer' : 'not-allowed',
-                            }}
-                          >
-                            <option value="">Subcategoria...</option>
-                            {panelSubsEdit.map((sub: any) => (
-                              <option key={sub.id} value={sub.name}>
-                                {sub.name}
-                              </option>
-                            ))}
-                          </select>
-                          <button
-                            type="button"
-                            onClick={() => void handlePanelTicketClassificationSave()}
-                            disabled={ticketPanelClassSaving || !ticketPanelClassDirty}
-                            style={{
-                              padding: '8px 12px',
-                              borderRadius: 8,
-                              border: `1px solid ${S.accentMid}`,
-                              background: ticketPanelClassDirty ? S.accentLight : S.bg2,
-                              color: S.accent,
-                              fontSize: 12,
-                              fontWeight: 700,
-                              cursor: ticketPanelClassSaving || !ticketPanelClassDirty ? 'not-allowed' : 'pointer',
-                              fontFamily: 'inherit',
-                              opacity: ticketPanelClassSaving || !ticketPanelClassDirty ? 0.65 : 1,
-                            }}
-                          >
-                            {ticketPanelClassSaving ? 'Salvando...' : 'Salvar classificação'}
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      field('Serviço', ticketServiceLine)
-                    )}
-                    {field('Previsão de solução', formatTicketDateTime(currentTicket.slaResolveAt))}
-
-                    {slaInfo && (
-                      <div style={{ marginTop: 4 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                          <span
-                            style={{
-                              fontSize: 11,
-                              fontWeight: 700,
-                              color: slaInfo.violated ? '#DC2626' : slaInfo.pct > 80 ? '#EA580C' : '#16A34A',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: 4,
-                            }}
-                          >
-                            {slaInfo.violated && <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: '#DC2626' }} />}
-                            {slaInfo.label}
-                          </span>
-                          <span style={{ fontSize: 10, color: S.txt3, fontWeight: 500 }}>{Math.round(slaInfo.pct)}%</span>
-                        </div>
-                        <div style={{ height: 7, background: S.bg3, borderRadius: 4, overflow: 'hidden' }}>
-                          <div
-                            style={{
-                              height: '100%',
-                              borderRadius: 4,
-                              transition: 'width .4s',
-                              width: `${slaInfo.pct}%`,
-                              background: slaInfo.violated
-                                ? '#EF4444'
-                                : slaInfo.pct > 80
-                                  ? 'linear-gradient(90deg,#F97316,#EF4444)'
-                                  : slaInfo.pct > 50
-                                    ? '#EAB308'
-                                    : '#22C55E',
-                            }}
-                          />
-                        </div>
-                      </div>
-                    )}
-
-                    <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(15,23,42,.07)' }}>
-                      <span style={{ fontSize: 10, fontWeight: 700, color: S.txt3, textTransform: 'uppercase' as const, letterSpacing: '.07em', display: 'block', marginBottom: 8 }}>Responsável</span>
-                      {assignedUser ? (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <div
-                            style={{
-                              width: 28,
-                              height: 28,
-                              borderRadius: '50%',
-                              background: S.accent,
-                              color: '#fff',
-                              fontSize: 10,
-                              fontWeight: 700,
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              flexShrink: 0,
-                            }}
-                          >
-                            {initials(assignedUser.name || assignedUser.email || 'U')}
-                          </div>
-                          <span style={{ fontSize: 12, fontWeight: 500, color: S.txt }}>{assignedUser.name || assignedUser.email}</span>
                         </div>
                       ) : (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '6px 10px', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8 }}>
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#D97706" strokeWidth="2" strokeLinecap="round">
-                            <circle cx="12" cy="12" r="10" />
-                            <polyline points="12 6 12 12 16 14" />
-                          </svg>
-                          <span style={{ fontSize: 11, color: '#92400E', fontWeight: 500 }}>Aguardando distribuição automática</span>
+                        field('Serviço', ticketServiceLine)
+                      )}
+
+                      {/* ── divisor: Classificação ↔ SLA ── */}
+                      <div style={{ height: 1, background: 'rgba(15,23,42,.05)', margin: '4px -14px 10px' }} />
+
+                      {/* 7. Previsão + SLA */}
+                      {field('Previsão de solução', formatTicketDateTime(currentTicket.slaResolveAt))}
+                      {slaInfo && (
+                        <div style={{ marginTop: 4 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: slaInfo.violated ? '#DC2626' : slaInfo.pct > 80 ? '#EA580C' : '#16A34A', display: 'flex', alignItems: 'center', gap: 4 }}>
+                              {slaInfo.violated && <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: '#DC2626' }} />}
+                              {slaInfo.label}
+                            </span>
+                            <span style={{ fontSize: 10, color: S.txt3, fontWeight: 500 }}>{Math.round(slaInfo.pct)}%</span>
+                          </div>
+                          <div style={{ height: 7, background: S.bg3, borderRadius: 4, overflow: 'hidden' }}>
+                            <div
+                              style={{
+                                height: '100%',
+                                borderRadius: 4,
+                                transition: 'width .4s',
+                                width: `${slaInfo.pct}%`,
+                                background: slaInfo.violated
+                                  ? '#EF4444'
+                                  : slaInfo.pct > 80
+                                    ? 'linear-gradient(90deg,#F97316,#EF4444)'
+                                    : slaInfo.pct > 50
+                                      ? '#EAB308'
+                                      : '#22C55E',
+                              }}
+                            />
+                          </div>
                         </div>
                       )}
-                    </div>
+
+                      {/* 8. Responsável */}
+                      <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(15,23,42,.06)', display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                        <span style={{ fontSize: 10, fontWeight: 600, color: S.txt3, flexShrink: 0 }}>Responsável</span>
+                        {assignedUser ? (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+                            <div style={{ width: 20, height: 20, borderRadius: '50%', background: S.accent, color: '#fff', fontSize: 8, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                              {initials(assignedUser.name || assignedUser.email || 'U')}
+                            </div>
+                            <span style={{ fontSize: 11, fontWeight: 500, color: S.txt, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{assignedUser.name || assignedUser.email}</span>
+                          </div>
+                        ) : (
+                          <span style={{ fontSize: 10, color: '#92400E', fontWeight: 500 }}>Aguardando distribuição</span>
+                        )}
+                      </div>
+                    </>)}
                   </div>
                 )}
 
-                {/* Top: client avatar + name + tags */}
-                <div style={{ padding: '16px 16px 14px', borderBottom: S.border }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-                    <div style={{ width: 46, height: 46, borderRadius: '50%', background: avatarColor(dispName), display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 16, fontWeight: 700, flexShrink: 0 }}>
-                      {initials(dispName)}
-                    </div>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: S.txt, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{dispName}</div>
-                      <div style={{ fontSize: 12, color: S.txt2, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{customerName(selected.clientId)}</div>
-                    </div>
+                {/* Top: client header — compacto, sem duplicação */}
+                <div style={{ padding: '10px 12px', borderBottom: S.border, display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ width: 36, height: 36, borderRadius: '50%', background: avatarColor(dispName), display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>
+                    {initials(dispName)}
                   </div>
-                  <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-                    {conversationTags.map((tagName) => {
-                      const found = availableTags.find((tag: any) => String(tag.name).toLowerCase() === String(tagName).toLowerCase());
-                      return (
-                        <span
-                          key={tagName}
-                          style={{
-                            fontSize: 10,
-                            padding: '3px 8px',
-                            borderRadius: 5,
-                            fontWeight: 600,
-                            background: found?.color ? `${found.color}18` : '#EEF2FF',
-                            color: found?.color || '#4F46E5',
-                            border: `1px solid ${found?.color ? `${found.color}33` : '#C7D2FE'}`,
-                          }}
-                        >
-                          {tagName}
-                        </span>
-                      );
-                    })}
-                    <span style={{ fontSize: 10, padding: '3px 8px', borderRadius: 5, fontWeight: 500, background: isWhatsapp ? '#DCFCE7' : S.accentLight, color: isWhatsapp ? '#15803D' : S.accent }}>
-                      {isWhatsapp ? 'WhatsApp' : 'Portal'}
-                    </span>
-                    <span style={{ fontSize: 10, padding: '3px 8px', borderRadius: 5, fontWeight: 500, background: '#D1FAE5', color: '#065F46' }}>Ativo</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 2 }}>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: S.txt, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{dispName}</span>
+                      <span style={{ fontSize: 9, fontWeight: 600, padding: '1px 5px', borderRadius: 4, background: isWhatsapp ? '#DCFCE7' : S.accentLight, color: isWhatsapp ? '#15803D' : S.accent, flexShrink: 0 }}>
+                        {isWhatsapp ? 'WhatsApp' : 'Portal'}
+                      </span>
+                    </div>
+                    {customer && (
+                      <div style={{ fontSize: 11, color: S.txt2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{customer.tradeName || customer.companyName}</div>
+                    )}
                   </div>
+                  {contact && (
+                    <button
+                      type="button"
+                      onClick={() => void openEditContactModal()}
+                      disabled={loadingEditContact}
+                      title="Editar contato"
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, borderRadius: 7, border: S.border2, background: S.bg2, color: S.txt2, cursor: loadingEditContact ? 'wait' : 'pointer', flexShrink: 0 }}
+                    >
+                      <Edit2 size={13} />
+                    </button>
+                  )}
                 </div>
 
+                {/* INFORMAÇÕES — agrupado com o header do cliente */}
+                {customer && (
+                  <div style={{ padding: '10px 12px', borderBottom: S.border }}>
+                    {secTitle('Informações')}
+                    {customer.networkName && field('Rede', customer.networkName)}
+                    {customer.cnpj && field('CNPJ', <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11 }}>{customer.cnpj}</span>)}
+                    {contact?.whatsapp && field('WhatsApp', <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11 }}>{formatWhatsApp(contact.whatsapp)}</span>)}
+                    {contact?.email && field('E-mail', <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140, display: 'block', color: S.accent }}>{contact.email}</span>)}
+                    {customer.city && field('Cidade', `${customer.city}${customer.state ? `, ${customer.state}` : ''}`)}
+                    {customer.createdAt && field('Cliente desde', new Date(customer.createdAt).toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' }))}
+                  </div>
+                )}
+
                 {!isTicketType && (
-                  <div style={{ padding: '14px 16px', borderBottom: S.border }}>
-                    {secTitle('Tags da conversa', canEditConversationTags ? (
+                  <div style={{ padding: '10px 12px', borderBottom: S.border }}>
+                    {secTitle('Tags', canEditConversationTags ? (
                       <button
                         type="button"
                         onClick={saveConversationTags}
                         disabled={savingConversationTags}
-                        style={{ fontSize: 11, color: S.accent, fontWeight: 700, border: 'none', background: 'transparent', cursor: savingConversationTags ? 'wait' : 'pointer' }}
+                        style={{ fontSize: 11, color: S.accent, fontWeight: 700, border: 'none', background: 'transparent', cursor: savingConversationTags ? 'wait' : 'pointer', fontFamily: 'inherit' }}
                       >
                         {savingConversationTags ? 'Salvando...' : 'Salvar'}
                       </button>
                     ) : undefined)}
-                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                      <div style={{ width: 28, height: 28, borderRadius: 8, background: '#EEF2FF', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                        <Tag size={14} color="#4F46E5" />
-                      </div>
-                      <div style={{ flex: 1 }}>
-                        <TagMultiSelect
-                          options={availableTags}
-                          value={conversationTags}
-                          onChange={setConversationTags}
-                          disabled={!canEditConversationTags || selected?.status === 'closed'}
-                          placeholder="Selecione as tags da conversa"
-                          emptyText="Nenhuma tag cadastrada"
-                        />
-                        <p style={{ margin: '8px 0 0', fontSize: 11, color: S.txt3 }}>
-                          Use tags para organizar chats do cliente e facilitar filtros futuros.
-                        </p>
-                      </div>
-                    </div>
+                    <TagMultiSelect
+                      options={availableTags}
+                      value={conversationTags}
+                      onChange={setConversationTags}
+                      disabled={!canEditConversationTags || selected?.status === 'closed'}
+                      placeholder="Selecione as tags da conversa"
+                      emptyText="Nenhuma tag cadastrada"
+                    />
                   </div>
                 )}
 
                 {/* METRICAS DO ATENDIMENTO */}
                 {(attendanceMetrics.queuedAt || attendanceMetrics.attendanceStartedAt || attendanceMetrics.firstAgentReplyAt || attendanceMetrics.closedAt) && (
-                  <div style={{ padding: '14px 16px', borderBottom: S.border }}>
+                  <div style={{ padding: '10px 12px', borderBottom: S.border }}>
                     {secTitle('Métricas do atendimento')}
                     {field('Chat entrou na fila', attendanceMetrics.queuedAt ? timeAgo(attendanceMetrics.queuedAt) : '—')}
                     {field('Agente iniciou', attendanceMetrics.attendanceStartedAt ? timeAgo(attendanceMetrics.attendanceStartedAt) : '—')}
@@ -3862,45 +3854,9 @@ function AtendimentoPageInner() {
                   </div>
                 )}
 
-
-                {/* INFORMAÇÕES */}
-                {customer && (
-                  <div style={{ padding: '14px 16px', borderBottom: S.border }}>
-                    {secTitle('Informações', contact ? (
-                      <button
-                        type="button"
-                        onClick={() => void openEditContactModal()}
-                        disabled={loadingEditContact}
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 4,
-                          fontSize: 11,
-                          color: S.accent,
-                          fontWeight: 700,
-                          border: 'none',
-                          background: 'transparent',
-                          cursor: loadingEditContact ? 'wait' : 'pointer',
-                          fontFamily: 'inherit',
-                        }}
-                      >
-                        <Edit2 size={12} />
-                        {loadingEditContact ? 'Carregando...' : 'Editar'}
-                      </button>
-                    ) : undefined)}
-                    {field('Empresa', <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140, display: 'block' }}>{customer.tradeName || customer.companyName || '—'}</span>)}
-                    {customer.networkName && field('Rede', customer.networkName)}
-                    {customer.cnpj && field('CNPJ', <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11 }}>{customer.cnpj}</span>)}
-                    {contact?.whatsapp && field('WhatsApp', <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11 }}>{formatWhatsApp(contact.whatsapp)}</span>)}
-                    {contact?.email && field('E-mail', <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140, display: 'block', color: S.accent }}>{contact.email}</span>)}
-                    {customer.city && field('Cidade', `${customer.city}${customer.state ? `, ${customer.state}` : ''}`)}
-                    {customer.createdAt && field('Cliente desde', new Date(customer.createdAt).toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' }))}
-                  </div>
-                )}
-
                 {/* ATIVIDADE */}
                 {clientTickets.length > 0 && (
-                  <div style={{ padding: '14px 16px', borderBottom: S.border }}>
+                  <div style={{ padding: '10px 12px', borderBottom: S.border }}>
                     {secTitle('Atividade')}
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                       {[
@@ -3909,10 +3865,10 @@ function AtendimentoPageInner() {
                         { val: '—', label: 'Tempo médio', sub: null },
                         { val: urgent, label: 'Urgentes abertos', sub: null },
                       ].map(({ val, label, sub }) => (
-                        <div key={label} style={{ background: S.bg2, borderRadius: 10, padding: '10px 12px' }}>
-                          <div style={{ fontSize: 22, fontWeight: 700, color: S.txt, lineHeight: 1.1 }}>{val}</div>
-                          <div style={{ fontSize: 10, color: S.txt2, marginTop: 3, fontWeight: 500 }}>{label}</div>
-                          {sub && <div style={{ fontSize: 10, color: '#10B981', marginTop: 2, fontWeight: 500 }}>{sub}</div>}
+                        <div key={label} style={{ background: S.bg2, borderRadius: 8, padding: '8px 10px' }}>
+                          <div style={{ fontSize: 16, fontWeight: 700, color: S.txt, lineHeight: 1.2 }}>{val}</div>
+                          <div style={{ fontSize: 10, color: S.txt2, marginTop: 2, fontWeight: 500 }}>{label}</div>
+                          {sub && <div style={{ fontSize: 10, color: '#10B981', marginTop: 1, fontWeight: 500 }}>{sub}</div>}
                         </div>
                       ))}
                     </div>
@@ -3921,7 +3877,7 @@ function AtendimentoPageInner() {
 
                 {/* TICKETS RECENTES */}
                 {recentTickets.length > 0 && (
-                  <div style={{ padding: '14px 16px', borderBottom: S.border }}>
+                  <div style={{ padding: '10px 12px', borderBottom: S.border }}>
                     {secTitle('Tickets recentes', (
                       <button
                         type="button"
@@ -3978,6 +3934,7 @@ function AtendimentoPageInner() {
                     })}
                   </div>
                 )}
+
               </>
             );
           })() : (
