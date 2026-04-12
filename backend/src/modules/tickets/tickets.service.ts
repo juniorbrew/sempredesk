@@ -1077,16 +1077,17 @@ export class TicketsService {
       includeLastMessage,
     } = filters;
 
+    /** `orderBy('t.created_at')` quebra no getManyAndCount+join: TypeORM espera propertyPath (`createdAt`), não nome SQL. */
     const sortMap: Record<string, string> = {
-      ticketNumber: 't.ticket_number',
+      ticketNumber: 't.ticketNumber',
       subject: 't.subject',
-      createdAt: 't.created_at',
-      updatedAt: 't.updated_at',
+      createdAt: 't.createdAt',
+      updatedAt: 't.updatedAt',
       status: 't.status',
       priority: 't.priority',
     };
     const [rawField, rawDir] = ((filters as any).sort || 'createdAt:desc').split(':');
-    const sortCol = sortMap[rawField] ?? 't.created_at';
+    const sortCol = sortMap[rawField] ?? 't.createdAt';
     const sortDir: 'ASC' | 'DESC' = rawDir?.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
 
     const qb = this.ticketRepo.createQueryBuilder('t')
@@ -1201,7 +1202,7 @@ export class TicketsService {
       .createQueryBuilder('t')
       .where('t.tenant_id = :tenantId', { tenantId })
       .andWhere('t.conversation_id IS NULL')
-      .orderBy('t.updated_at', 'DESC')
+      .orderBy('t.updatedAt', 'DESC')
       .take(Math.min(perPage, 100));
 
     if (origin === 'portal') return [];
@@ -2136,7 +2137,7 @@ export class TicketsService {
     const qb = this.messageRepo.createQueryBuilder('m')
       .where('m.tenant_id = :tenantId', { tenantId })
       .andWhere('m.ticket_id = :ticketId', { ticketId })
-      .orderBy('m.created_at', 'ASC');
+      .orderBy('m.createdAt', 'ASC');
 
     if (!includeInternal) {
       qb.andWhere('m.messageType != :internal', { internal: MessageType.INTERNAL });
@@ -2157,7 +2158,7 @@ export class TicketsService {
     const qb = this.messageRepo.createQueryBuilder('m')
       .where('m.tenant_id = :tenantId', { tenantId })
       .andWhere('m.ticket_id = :ticketId', { ticketId })
-      .orderBy('m.created_at', 'DESC')
+      .orderBy('m.createdAt', 'DESC')
       .take(limit + 1);
 
     if (!includeInternal) {
