@@ -1593,9 +1593,12 @@ export default function AtendimentoPage() {
       const ticketId = res?.id ?? res?.data?.id;
       if (ticketId) {
         await api.linkTicketToConversation(selected.id, ticketId).catch(() => {});
-        setSelected({ ...selected, ticketId });
+        // Re-busca a conversa para obter slaResolutionDeadline e demais campos SLA atualizados pelo backend
+        const freshConv: any = await api.getConversation(selected.id).catch(() => null);
+        const updatedConv = freshConv ? { ...freshConv, ticketId } : { ...selected, ticketId };
+        setSelected(updatedConv);
         await loadConversations(false, true);
-        loadChat({ ...selected, ticketId });
+        loadChat(updatedConv);
         invalidateMyOpenTicketsCount();
       }
       setShowCreateModal(false);
@@ -1612,10 +1615,12 @@ export default function AtendimentoPage() {
     try {
       await api.linkTicketToConversation(selected.id, linkSelectedId);
       if (linkReason.trim()) await api.addMessage(linkSelectedId, { content: `Conversa vinculada ao ticket. Motivo: ${linkReason}`, messageType: 'system' }).catch(() => {});
-      setSelected({ ...selected, ticketId: linkSelectedId });
+      const freshConvLink: any = await api.getConversation(selected.id).catch(() => null);
+      const updatedConvLink = freshConvLink ? { ...freshConvLink, ticketId: linkSelectedId } : { ...selected, ticketId: linkSelectedId };
+      setSelected(updatedConvLink);
       setShowLinkModal(false); setLinkSelectedId(null); setLinkReason('');
       await loadConversations(false, true);
-      loadChat({ ...selected, ticketId: linkSelectedId });
+      loadChat(updatedConvLink);
       invalidateMyOpenTicketsCount();
     } catch (e: any) { showToast(e?.response?.data?.message || 'Erro ao vincular', 'error'); }
   };
