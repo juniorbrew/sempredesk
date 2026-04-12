@@ -3294,18 +3294,18 @@ function AtendimentoPageInner() {
               : '—';
             const panelStatusSelectValue = TICKET_STATUS_SELECT_OPTIONS.some((o) => o.value === ticketPanelStatusDraft)
               ? ticketPanelStatusDraft
-              : String(currentTicket.status || 'open');
+              : String(currentTicket?.status || 'open');
             const panelSelDeptEdit = ticketSettingsTree.find((d: any) => d.name === ticketPanelDeptDraft);
             const panelCatsEdit = panelSelDeptEdit?.categories || [];
             const panelSelCatEdit = panelCatsEdit.find((c: any) => c.name === ticketPanelCatDraft);
             const panelSubsEdit = panelSelCatEdit?.subcategories || [];
             const panelPrioritySelectValue = tenantPriorities.some((p: any) => p.id === ticketPanelPriorityIdDraft)
               ? ticketPanelPriorityIdDraft
-              : String(currentTicket.priorityId || tenantPriorities[0]?.id || '');
+              : String(currentTicket?.priorityId || tenantPriorities[0]?.id || '');
             const ticketPanelClassDirty =
-              String(ticketPanelDeptDraft).trim() !== String(currentTicket.department ?? '').trim() ||
-              String(ticketPanelCatDraft).trim() !== String(currentTicket.category ?? '').trim() ||
-              String(ticketPanelSubDraft).trim() !== String(currentTicket.subcategory ?? '').trim();
+              String(ticketPanelDeptDraft).trim() !== String(currentTicket?.department ?? '').trim() ||
+              String(ticketPanelCatDraft).trim() !== String(currentTicket?.category ?? '').trim() ||
+              String(ticketPanelSubDraft).trim() !== String(currentTicket?.subcategory ?? '').trim();
             const panelSelectCompact = {
               width: '100%',
               padding: '8px 10px',
