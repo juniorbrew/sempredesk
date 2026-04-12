@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
+import { atendimentoUrlWithOpenTicket } from '@/lib/atendimento-ticket-bridge';
 import { ArrowLeft, Building2, Ticket, Monitor, Users, TrendingUp, RefreshCw, ExternalLink, CheckCircle } from 'lucide-react';
 
 const STATUS_COLORS: Record<string,{bg:string;color:string}> = {
@@ -182,7 +183,7 @@ export default function NetworkDashboard() {
                   const client = clients.find(c => c.id === t.clientId);
                   return (
                     <tr key={t.id} style={{ borderBottom:'1px solid #F8FAFC', cursor:'pointer' }}
-                      onClick={() => router.push(`/dashboard/tickets/${t.id}`)}
+                      onClick={() => router.push(atendimentoUrlWithOpenTicket(t.id))}
                       onMouseEnter={e => (e.currentTarget.style.background='#F8FAFF')}
                       onMouseLeave={e => (e.currentTarget.style.background='')}>
                       <td style={{ padding:'10px 16px', fontFamily:'monospace', fontSize:12, fontWeight:700, color:'#4F46E5' }}>{t.ticketNumber}</td>

@@ -13,7 +13,6 @@ import {
   fetchWhatsappPrefixAgentEnabled,
   prependWhatsappAgentLine,
 } from '../whatsapp/whatsapp-outbound-agent-prefix.util';
-import { SlaService } from '../sla/sla.service';
 import { TicketSettingsService } from '../ticket-settings/ticket-settings.service';
 import { TenantPriority } from '../tenant-priorities/entities/tenant-priority.entity';
 
@@ -31,10 +30,10 @@ export class ConversationsService {
   }
 
   /**
-   * Fase 3: departamento (chatbot/menu ou portal) → prioridade padrão do ticket_settings →
-   * conversation.priority_id + SLA (policy da prioridade ou default do tenant).
+   * Fase 3: departamento (chatbot/menu ou portal) → prioridade padrão do ticket_settings
+   * para contexto operacional da conversa, sem aplicar SLA contratual na conversa.
    */
-  private async maybeApplyDepartmentPriorityAndSlaFromOpts(
+  private async maybeApplyDepartmentPriorityFromOpts(
     tenantId: string,
     conversation: Conversation,
     opts: { department?: string | null; departmentId?: string | null } | undefined,
@@ -52,11 +51,6 @@ export class ConversationsService {
     conversation.priorityId = priorityId;
     const convRepo = manager?.getRepository(Conversation) ?? this.convRepo;
     await convRepo.save(conversation);
-    await this.slaService.applyConversationSlaFromTenantPriorityId(
-      tenantId,
-      conversation.id,
-      priorityId,
-    );
   }
 
   /** Setter para ChatbotService — injetado via AppModule.onModuleInit (evita circular dep) */
@@ -165,7 +159,6 @@ export class ConversationsService {
     private readonly ticketsService: TicketsService,
     private readonly customersService: CustomersService,
     private readonly realtimeEmitter: RealtimeEmitterService,
-    private readonly slaService: SlaService,
     private readonly ticketSettingsService: TicketSettingsService,
   ) {
     if (!fs.existsSync(this.mediaRoot)) {
@@ -372,7 +365,7 @@ export class ConversationsService {
       return { conversation: active, ticket, ticketCreated: false };
     }
     if (active && !active.ticketId) {
-      await this.maybeApplyDepartmentPriorityAndSlaFromOpts(tenantId, active, opts, manager);
+      await this.maybeApplyDepartmentPriorityFromOpts(tenantId, active, opts, manager);
       this.logConversationResolution({
         scope: 'conversation-resolution',
         tenantId,
@@ -511,15 +504,13 @@ export class ConversationsService {
       chatAlert: opts?.chatAlert ?? false,
       initiatedBy: ConversationInitiatedBy.CONTACT,
       whatsappChannelId: opts?.whatsappChannelId ?? null,
+      queuedAt: new Date(),
     });
     try {
       const savedConv = await convRepo.save(conv);
       const hasDeptCtx = !!((opts?.department || '').trim() || (opts?.departmentId || '').trim());
       if (hasDeptCtx) {
-        await this.maybeApplyDepartmentPriorityAndSlaFromOpts(tenantId, savedConv, opts, manager);
-      } else {
-        // Aplica política SLA ANTES de retornar — evita corrida com recordFirstResponse.
-        await this.slaService.applyToConversation(tenantId, savedConv.id);
+        await this.maybeApplyDepartmentPriorityFromOpts(tenantId, savedConv, opts, manager);
       }
       return { conversation: savedConv, ticket: null };
     } catch (error) {
@@ -536,9 +527,7 @@ export class ConversationsService {
       const savedExisting = await convRepo.save(existing);
       const hasDeptCtx = !!((opts?.department || '').trim() || (opts?.departmentId || '').trim());
       if (hasDeptCtx) {
-        await this.maybeApplyDepartmentPriorityAndSlaFromOpts(tenantId, savedExisting, opts, manager);
-      } else {
-        await this.slaService.applyToConversation(tenantId, savedExisting.id);
+        await this.maybeApplyDepartmentPriorityFromOpts(tenantId, savedExisting, opts, manager);
       }
       return { conversation: savedExisting, ticket: null };
     }
@@ -645,6 +634,7 @@ export class ConversationsService {
       channel,
       status: ConversationStatus.ACTIVE,
       initiatedBy: ConversationInitiatedBy.AGENT,
+      queuedAt: new Date(),
     });
       try {
         const savedConversation = await convRepo.save(conv);
@@ -738,8 +728,7 @@ export class ConversationsService {
     // Cria ticket vinculado à conversa.
     // authorType='user' garante que o agente que clicou seja atribuído automaticamente
     // se nenhum outro agente estiver disponível (linha "if authorType=user && !assignedTo" no tickets.service).
-    // ATENÇÃO: syncConversationSlaWithTicket grava SLA via raw SQL → usar update() pontual
-    // para ticket_id a seguir (nunca convRepo.save), preservando os campos de deadline.
+    // Usa update() pontual para evitar sobrescrever métricas operacionais já gravadas na conversa.
     const ticket = await this.createTicketForConversation(
       tenantId,
       conv,
@@ -758,11 +747,13 @@ export class ConversationsService {
     );
 
     // Vincula conversa ao ticket via update pontual (preserva sla_first_response_deadline e sla_resolution_deadline)
-    await this.convRepo.update({ id: conversationId, tenantId }, { ticketId: ticket.id } as Partial<Conversation>);
+    const attendanceStartedAt = new Date();
+    await this.convRepo.update(
+      { id: conversationId, tenantId },
+      { ticketId: ticket.id, attendanceStartedAt } as Partial<Conversation>,
+    );
     conv.ticketId = ticket.id;
-
-    // Registra primeira resposta SLA da conversa (tempo de espera até iniciar atendimento)
-    await this.slaService.recordFirstResponse(tenantId, conversationId).catch(() => {});
+    conv.attendanceStartedAt = attendanceStartedAt;
 
     return { conversation: conv, ticket };
   }
@@ -1149,11 +1140,14 @@ export class ConversationsService {
     }
     await this.updateLastMessageAt(tenantId, conversationId);
 
-    // Registra primeira resposta do agente no SLA (fire-and-forget — não bloqueia).
-    // authorType='user' é exclusivamente atendente humano neste método (ver JSDoc acima).
-    // skipSlaFirstResponse permite que automações futuras que usem este método optem por sair.
+    // Registra a primeira resposta humana do agente nas métricas operacionais do chat.
     if (authorType === 'user' && !opts?.skipSlaFirstResponse) {
-      void this.slaService.recordFirstResponse(tenantId, conversationId);
+      if (!conv.firstAgentReplyAt) {
+        await this.convRepo.update(
+          { id: conversationId, tenantId },
+          { firstAgentReplyAt: new Date() } as Partial<Conversation>,
+        ).catch(() => undefined);
+      }
     }
 
     // Busca snapshot da mensagem citada (1 query leve, só se houver replyToId)
@@ -1466,21 +1460,8 @@ export class ConversationsService {
         }
       }
 
-      // Registra resolução SLA dentro da transação (sem query extra — dados já em memória)
-      if (convLocked.slaPolicyId) {
-        const resolvedAt = new Date();
-        const slaFinalStatus = this.slaService.computeStatus({
-          slaFirstResponseDeadline: convLocked.slaFirstResponseDeadline,
-          slaResolutionDeadline:    convLocked.slaResolutionDeadline,
-          slaFirstResponseAt:       convLocked.slaFirstResponseAt,
-          slaResolvedAt:            resolvedAt,
-          createdAt:                convLocked.createdAt,
-        });
-        convLocked.slaResolvedAt = resolvedAt;
-        convLocked.slaStatus     = slaFinalStatus;
-      }
-
       convLocked.status = ConversationStatus.CLOSED;
+      convLocked.conversationClosedAt = new Date();
       await em.getRepository(Conversation).save(convLocked);
 
       await queryRunner.commitTransaction();
@@ -1631,6 +1612,7 @@ export class ConversationsService {
         status: ConversationStatus.ACTIVE,
         ticketId: ticket.id,
         initiatedBy: ConversationInitiatedBy.CONTACT,
+        queuedAt: new Date(),
       });
       try {
         const saved = await convRepo.save(conv);

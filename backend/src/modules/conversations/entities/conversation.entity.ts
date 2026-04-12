@@ -65,6 +65,22 @@ export class Conversation {
   @Column({ name: 'last_message_at', type: 'timestamptz', nullable: true })
   lastMessageAt: Date;
 
+  /** Momento em que a conversa entrou na fila de atendimento/chat. */
+  @Column({ name: 'queued_at', type: 'timestamptz', nullable: true })
+  queuedAt: Date | null;
+
+  /** Momento em que um agente iniciou formalmente o atendimento (criação do ticket). */
+  @Column({ name: 'attendance_started_at', type: 'timestamptz', nullable: true })
+  attendanceStartedAt: Date | null;
+
+  /** Primeira resposta humana do agente após o início do atendimento. */
+  @Column({ name: 'first_agent_reply_at', type: 'timestamptz', nullable: true })
+  firstAgentReplyAt: Date | null;
+
+  /** Momento de encerramento da conversa/chat. */
+  @Column({ name: 'conversation_closed_at', type: 'timestamptz', nullable: true })
+  conversationClosedAt: Date | null;
+
   @Column({ type: 'simple-array', nullable: true })
   tags: string[] | null;
 

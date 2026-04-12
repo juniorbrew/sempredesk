@@ -11,6 +11,7 @@ import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { TagMultiSelect } from '@/components/ui/TagMultiSelect';
 import { getTicketPriorityDisplay } from '@/lib/ticket-priority-ui';
+import { atendimentoUrlWithOpenTicket } from '@/lib/atendimento-ticket-bridge';
 import AudioMessagePlayer from '@/components/chat/AudioMessagePlayer';
 import { MediaLightbox } from '@/components/chat/InlineChatMedia';
 
@@ -1660,7 +1661,7 @@ export default function TicketDetailsPage() {
           {ticket.clientId && (
             <div className="rounded-xl bg-white shadow-[0_1px_2px_rgba(15,23,42,0.05)] [html[data-theme=dark]_&]:bg-slate-900 [html[data-theme=dark]_&]:shadow-none [html[data-theme=dark]_&]:ring-1 [html[data-theme=dark]_&]:ring-slate-700/50" style={{ padding:'8px 10px', border:`1px solid ${S.bd}`, borderRadius:10 }}>
               {secLabel('Histórico do Cliente',
-                <a href={`/dashboard/tickets?clientId=${ticket.clientId}`} style={{ fontSize:11, color:S.accent, fontWeight:500, textDecoration:'none' }}>Ver todos</a>
+                <button type="button" onClick={() => router.push(`/dashboard/tickets?clientId=${ticket.clientId}`)} style={{ fontSize:11, color:S.accent, fontWeight:500, textDecoration:'none', background:'none', border:'none', padding:0, cursor:'pointer' }}>Ver todos</button>
               )}
               {clientHistory.length === 0
                 ? <p style={{ fontSize:12, color:S.txt3, margin:0 }}>Nenhum ticket anterior</p>
@@ -1672,14 +1673,14 @@ export default function TicketDetailsPage() {
                     const diffDays = Math.floor(diffMs / 86400000);
                     const timeLabel = t.id===id ? 'Atual' : diffDays===0 ? 'hoje' : diffDays < 7 ? `${diffDays}d` : `${Math.floor(diffDays/7)} sem`;
                     return (
-                      <a key={t.id} href={`/dashboard/tickets/${t.id}`} style={{ display:'flex', alignItems:'center', gap:6, padding:'5px 0', borderBottom:`1px solid ${S.bd}`, textDecoration:'none' }}>
+                      <button type="button" key={t.id} onClick={() => router.push(atendimentoUrlWithOpenTicket(t.id))} style={{ display:'flex', alignItems:'center', gap:6, padding:'5px 0', borderBottom:`1px solid ${S.bd}`, textDecoration:'none', width:'100%', textAlign:'left' as const, background:'none', borderLeft:'none', borderRight:'none', borderTop:'none', cursor:'pointer' }}>
                         <span style={{ width:7, height:7, borderRadius:'50%', background:dot, flexShrink:0 }} />
                         <div style={{ flex:1, minWidth:0 }}>
                           <div style={{ fontSize:10, color:S.txt3, fontFamily:"'DM Mono',monospace" }}>{t.ticketNumber}</div>
                           <div className="truncate" title={String(t.subject || '')} style={{ fontSize:11, color:S.txt, fontWeight:500 }}>{t.subject}</div>
                         </div>
                         <span style={{ fontSize:10, color:S.txt3, flexShrink:0 }}>{timeLabel}</span>
-                      </a>
+                      </button>
                     );
                   })
               }

@@ -154,8 +154,8 @@ export class TicketsService {
   }
 
   /**
-   * Com ticket vinculado, a conversa segue prioridade/SLA do ticket (Fase 4):
-   * atualiza conversations.priority_id e reaplica SLA via tenant_priorities ou enum legado.
+   * Com ticket vinculado, a conversa mantém apenas o contexto de prioridade
+   * para exibição operacional. O SLA oficial permanece exclusivo do ticket.
    */
   private async syncConversationSlaWithTicket(ticket: Ticket): Promise<void> {
     if (!ticket.conversationId) return;
@@ -172,20 +172,6 @@ export class TicketsService {
       `UPDATE conversations SET priority_id = $1 WHERE id = $2 AND tenant_id = $3`,
       [convPriorityId, ticket.conversationId, ticket.tenantId],
     );
-
-    if (ticket.priorityId) {
-      await this.slaService.applyConversationSlaFromTenantPriorityId(
-        ticket.tenantId,
-        ticket.conversationId,
-        ticket.priorityId,
-      );
-    } else {
-      await this.slaService.reapplyConversationPolicy(
-        ticket.tenantId,
-        ticket.conversationId,
-        toSlaPriority(ticket.priority),
-      );
-    }
   }
 
   private async assertTenantPriorityBelongs(tenantId: string, priorityId: string): Promise<void> {

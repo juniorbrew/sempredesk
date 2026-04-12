@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { MessageSquare, Send, Search, User, Paperclip, Phone, MoreHorizontal, FileText, Ticket as TicketIcon } from 'lucide-react';
 import { EmojiPicker } from '@/components/ui/EmojiPicker';
 import { api } from '@/lib/api';
@@ -8,6 +9,7 @@ import { useAuthStore, hasPermission } from '@/store/auth.store';
 import { usePresenceStore } from '@/store/presence.store';
 import { format, isToday, isYesterday } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { atendimentoUrlWithOpenTicket } from '@/lib/atendimento-ticket-bridge';
 
 const S = {
   bg: '#fff', bg2: '#F8F8FB', bg3: '#F1F1F6',
@@ -58,6 +60,7 @@ function dateSeparator(date: Date) {
 }
 
 export default function ChatInternoPage() {
+  const router = useRouter();
   const { user } = useAuthStore();
   const canViewAgents = hasPermission(user, 'chat.view_agents');
   const canViewStatus = hasPermission(user, 'chat.view_status');
@@ -519,8 +522,11 @@ export default function ChatInternoPage() {
                   <div style={{ fontSize:10, fontWeight:700, color:S.txt3, textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:10 }}>Tickets em Comum</div>
                   <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
                     {agentTickets.slice(0, 4).map((t: any) => (
-                      <a key={t.id} href={`/dashboard/tickets/${t.id}`}
-                        style={{ display:'flex', alignItems:'flex-start', gap:8, padding:'8px 10px', borderRadius:8, background:S.bg2, border:`1px solid ${S.bd}`, textDecoration:'none', transition:'background .1s' }}
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => router.push(atendimentoUrlWithOpenTicket(t.id))}
+                        style={{ display:'flex', alignItems:'flex-start', gap:8, padding:'8px 10px', borderRadius:8, background:S.bg2, border:`1px solid ${S.bd}`, textDecoration:'none', transition:'background .1s', width:'100%', textAlign:'left' as const, cursor:'pointer' }}
                         onMouseEnter={e => (e.currentTarget.style.background = S.bg3)}
                         onMouseLeave={e => (e.currentTarget.style.background = S.bg2)}
                       >
@@ -530,7 +536,7 @@ export default function ChatInternoPage() {
                           <div style={{ fontSize:11, color:S.txt, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{t.subject}</div>
                           <div style={{ fontSize:10, color:S.txt3, marginTop:1 }}>{STATUS_LABELS[t.status] || t.status}</div>
                         </div>
-                      </a>
+                      </button>
                     ))}
                   </div>
                 </div>

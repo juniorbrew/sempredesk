@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Bell, X, Ticket, MessageSquare, AlertTriangle, CheckCircle } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { atendimentoUrlWithOpenTicket, ticketIdFromTicketsHref } from '@/lib/atendimento-ticket-bridge';
 import { getSharedRealtimeSocket } from '@/lib/realtime';
 
 const STORAGE_KEY = 'app_notifications';
@@ -120,7 +121,13 @@ export default function NotificationBell() {
   const handleClick = (n: AppNotification) => {
     markRead(n.id);
     setOpen(false);
-    if (n.href) router.push(n.href);
+    if (!n.href) return;
+    const tid = ticketIdFromTicketsHref(n.href);
+    if (tid) {
+      router.push(atendimentoUrlWithOpenTicket(tid));
+      return;
+    }
+    router.push(n.href);
   };
 
   const iconFor = (type: AppNotification['type']) => {

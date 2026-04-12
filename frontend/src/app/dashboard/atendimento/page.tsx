@@ -1,13 +1,18 @@
 'use client';
-import { useEffect, useLayoutEffect, useState, useCallback, useRef, type ReactNode } from 'react';
+import { Suspense, useEffect, useLayoutEffect, useState, useCallback, useRef, type ReactNode } from 'react';
 import { api } from '@/lib/api';
+import {
+  ATENDIMENTO_OPEN_TICKET_EVENT,
+  ATENDIMENTO_OPEN_TICKET_QUERY,
+  type AtendimentoOpenTicketDetail,
+} from '@/lib/atendimento-ticket-bridge';
 import { DEFAULT_PRIORITY, PRIORITY_OPTIONS, type SystemPriority } from '@/lib/priorities';
-import Link from 'next/link';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useRealtimeConversation, useRealtimeTicket, useRealtimeTenantNewMessages, useRealtimeConversationClosed, useRealtimeTicketAssigned, useRealtimeContactTyping, emitTypingPresence, subscribeContactPresence } from '@/lib/realtime';
 import { useAuthStore, hasPermission } from '@/store/auth.store';
 import {
-  MessageSquare, Send, Phone, RefreshCw, Lock, ExternalLink, Plus, Link2, Globe,
-  Check, Search, X, CheckCircle2, User, Mail, MapPin, Building2, Hash, Tag, Edit2,
+  MessageSquare, Send, Phone, RefreshCw, Lock, PanelRight, Plus, Link2, Globe, Ticket,
+  Check, Search, X, CheckCircle2, User, Mail, MapPin, Building2, Hash, Tag, Edit2, Save,
   Paperclip, Mic, StopCircle, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { EmojiPicker } from '@/components/ui/EmojiPicker';
@@ -22,7 +27,42 @@ import {
   type ChatDensityMode,
 } from '@/components/chat/chatDensity';
 import { invalidateMyOpenTicketsCount } from '@/hooks/useMyOpenTicketsCount';
-import { isTicketCriticalUrgent } from '@/lib/ticket-priority-ui';
+import { getTicketPriorityDisplay, isTicketCriticalUrgent, ticketPriorityChipStyle } from '@/lib/ticket-priority-ui';
+
+/** Rótulos de status alinhados à página do ticket (painel lateral). */
+const TICKET_STATUS_PANEL: Record<string, { label: string; bg: string; color: string; dot: string }> = {
+  open: { label: 'Aberto', bg: '#EEF2FF', color: '#3730A3', dot: '#4F46E5' },
+  in_progress: { label: 'Em andamento', bg: '#FEF3C7', color: '#92400E', dot: '#D97706' },
+  waiting_client: { label: 'Aguardando cliente', bg: '#F0F9FF', color: '#0369A1', dot: '#0284C7' },
+  resolved: { label: 'Resolvido', bg: '#F0FDF4', color: '#166534', dot: '#16A34A' },
+  closed: { label: 'Fechado', bg: '#F9FAFB', color: '#374151', dot: '#374151' },
+  cancelled: { label: 'Cancelado', bg: '#FEF2F2', color: '#991B1B', dot: '#EF4444' },
+};
+
+const TICKET_STATUS_SELECT_OPTIONS: { value: string; label: string }[] = [
+  { value: 'open', label: 'Aberto' },
+  { value: 'in_progress', label: 'Em andamento' },
+  { value: 'waiting_client', label: 'Aguardando cliente' },
+  { value: 'resolved', label: 'Resolvido' },
+  { value: 'closed', label: 'Fechado' },
+  { value: 'cancelled', label: 'Cancelado' },
+];
+
+function formatTicketDateTime(iso: string | Date | null | undefined): string {
+  if (!iso) return '—';
+  try {
+    return new Date(iso).toLocaleString('pt-BR', {
+      weekday: 'long',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return '—';
+  }
+}
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -202,43 +242,84 @@ function extractSavedMessageFromSendResponse(res: any): any | null {
 
 // ── sub-components ────────────────────────────────────────────────────────────
 
-function ConvWaitSlaInfo({ conv }: { conv: any }) {
-  const deadline = conv?.slaFirstResponseDeadline;
+function formatDurationLabel(ms: number) {
+  const totalMinutes = Math.max(0, Math.floor(ms / 60000));
+  const hours = Math.floor(totalMinutes / 60);
+  const mins = totalMinutes % 60;
+  return hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+}
+
+
+function getQueueStartedAt(conv: any) {
+  return conv?.queuedAt || conv?.createdAt || null;
+}
+
+function getAttendanceStartedAt(conv: any) {
+  return conv?.attendanceStartedAt || null;
+}
+
+function getFirstAgentReplyAt(conv: any) {
+  return conv?.firstAgentReplyAt || conv?.slaFirstResponseAt || null;
+}
+
+function getConversationMetrics(conv: any) {
+  const queuedAt = getQueueStartedAt(conv);
+  const attendanceStartedAt = getAttendanceStartedAt(conv);
+  const firstAgentReplyAt = getFirstAgentReplyAt(conv);
+  const closedAt = conv?.conversationClosedAt || (conv?.status === 'closed' ? conv?.updatedAt : null);
+
+  const waitToStartMs =
+    queuedAt && attendanceStartedAt
+      ? Math.max(0, new Date(attendanceStartedAt).getTime() - new Date(queuedAt).getTime())
+      : null;
+  const firstReplyMs =
+    attendanceStartedAt && firstAgentReplyAt
+      ? Math.max(0, new Date(firstAgentReplyAt).getTime() - new Date(attendanceStartedAt).getTime())
+      : null;
+  const durationMs =
+    attendanceStartedAt && closedAt
+      ? Math.max(0, new Date(closedAt).getTime() - new Date(attendanceStartedAt).getTime())
+      : null;
+
+  return { queuedAt, attendanceStartedAt, firstAgentReplyAt, closedAt, waitToStartMs, firstReplyMs, durationMs };
+}
+
+function ConvWaitMetricsInfo({ conv }: { conv: any }) {
+  const metrics = getConversationMetrics(conv);
   const [, setTick] = useState(0);
   useEffect(() => {
-    if (!deadline) return;
+    if (!metrics.queuedAt || metrics.attendanceStartedAt) return;
     const t = setInterval(() => setTick(n => n + 1), 30000);
     return () => clearInterval(t);
-  }, [deadline]);
+  }, [metrics.queuedAt, metrics.attendanceStartedAt]);
 
-  if (!deadline) return null;
-  const diff = new Date(deadline).getTime() - Date.now();
-  const violated = diff < 0;
-  const atRisk  = !violated && diff < 15 * 60000; // < 15 min
-  const hours = Math.floor(Math.abs(diff) / 3600000);
-  const mins  = Math.floor((Math.abs(diff) % 3600000) / 60000);
-  const label = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+  if (!metrics.queuedAt || metrics.attendanceStartedAt) return null;
+  const waitingMs = Math.max(0, Date.now() - new Date(metrics.queuedAt).getTime());
+  const label = formatDurationLabel(waitingMs);
+  const highWait = waitingMs >= 60 * 60000;
+  const atRisk = !highWait && waitingMs >= 15 * 60000;
+  const dotStyle = { width: 8, height: 8, borderRadius: '50%', display: 'inline-block', flexShrink: 0 } as const;
 
-  if (violated) {
+  if (highWait) {
     return (
       <div style={{ display:'flex', alignItems:'center', gap:6, background:'#FEF2F2', border:'1px solid #FECACA', borderRadius:8, padding:'6px 12px' }}>
-        <span style={{ fontSize:16 }}>🚨</span>
-        <span style={{ fontSize:12, fontWeight:700, color:'#DC2626' }}>SLA 1ª resposta VIOLADO há {label}</span>
+        <span style={{ ...dotStyle, background:'#DC2626' }} />
+        <span style={{ fontSize:12, fontWeight:700, color:'#DC2626' }}>Chat na fila há {label}</span>
       </div>
     );
   }
   if (atRisk) {
     return (
       <div style={{ display:'flex', alignItems:'center', gap:6, background:'#FFF7ED', border:'1px solid #FED7AA', borderRadius:8, padding:'6px 12px' }}>
-        <span style={{ fontSize:16 }}>⚠️</span>
-        <span style={{ fontSize:12, fontWeight:700, color:'#EA580C' }}>SLA 1ª resposta expira em {label}</span>
+        <span style={{ ...dotStyle, background:'#EA580C' }} />
+        <span style={{ fontSize:12, fontWeight:700, color:'#EA580C' }}>Chat na fila há {label}</span>
       </div>
     );
   }
   return (
     <div style={{ display:'flex', alignItems:'center', gap:6, background:'#F0FDF4', border:'1px solid #BBF7D0', borderRadius:8, padding:'6px 12px' }}>
-      <span style={{ fontSize:14 }}>🟢</span>
-      <span style={{ fontSize:12, fontWeight:600, color:'#15803D' }}>SLA 1ª resposta: {label} restantes</span>
+      <span style={{ ...dotStyle, background:'#16A34A' }} />
+      <span style={{ fontSize:12, fontWeight:600, color:'#15803D' }}>Chat na fila há {label}</span>
     </div>
   );
 }
@@ -707,7 +788,10 @@ function ChatComposer({
   );
 }
 
-export default function AtendimentoPage() {
+function AtendimentoPageInner() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { user } = useAuthStore();
   const [conversations, setConversations] = useState<any[]>([]);
   const [selected, setSelected] = useState<any>(null);
@@ -761,6 +845,7 @@ export default function AtendimentoPage() {
   const [team, setTeam] = useState<any[]>([]);
   const [creatingTicket, setCreatingTicket] = useState(false);
   const [startingAttendance, setStartingAttendance] = useState(false);
+  const startingAttendanceRef = useRef(false);
   const [showStartModal, setShowStartModal] = useState(false);
   const [startMode, setStartMode] = useState<'contact' | 'phone'>('contact');
   const [startClientId, setStartClientId] = useState('');
@@ -803,7 +888,22 @@ export default function AtendimentoPage() {
   const COMPLEXITY_LABELS: Record<number,string> = { 1:'Muito simples', 2:'Simples', 3:'Moderado', 4:'Complexo', 5:'Muito complexo' };
   const [closeForm, setCloseForm] = useState({ solution:'', rootCause:'', timeSpent:'', internalNote:'', complexity:0 });
   const [currentTicket, setCurrentTicket] = useState<any>(null);
+  const ticketPanelRef = useRef<HTMLDivElement>(null);
+  const [ticketPanelStatusDraft, setTicketPanelStatusDraft] = useState('');
+  const [ticketPanelSubjectDraft, setTicketPanelSubjectDraft] = useState('');
+  const [ticketPanelStatusSaving, setTicketPanelStatusSaving] = useState(false);
+  const [ticketPanelSubjectSaving, setTicketPanelSubjectSaving] = useState(false);
+  const [ticketPanelPriorityIdDraft, setTicketPanelPriorityIdDraft] = useState('');
+  const [ticketPanelDeptDraft, setTicketPanelDeptDraft] = useState('');
+  const [ticketPanelCatDraft, setTicketPanelCatDraft] = useState('');
+  const [ticketPanelSubDraft, setTicketPanelSubDraft] = useState('');
+  const [ticketPanelPrioritySaving, setTicketPanelPrioritySaving] = useState(false);
+  const [ticketPanelClassSaving, setTicketPanelClassSaving] = useState(false);
   const [clientTickets, setClientTickets] = useState<any[]>([]);
+  /** Painel deslizante (Zenvia-style): detalhe de ticket sem sair do atendimento */
+  const [ticketDetailSheetOpen, setTicketDetailSheetOpen] = useState(false);
+  const [ticketDetailSheetTicket, setTicketDetailSheetTicket] = useState<any>(null);
+  const [ticketDetailSheetLoading, setTicketDetailSheetLoading] = useState(false);
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [transferAgentId, setTransferAgentId] = useState('');
   const [transferLoading, setTransferLoading] = useState(false);
@@ -874,6 +974,195 @@ export default function AtendimentoPage() {
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3500);
+  };
+
+  /** Abre o painel direito e rola até o bloco de detalhes do ticket (sem navegar para outra página). */
+  const openTicketPanelAndScroll = useCallback(() => {
+    setPanelOpen(true);
+    try { localStorage.setItem('atend_panel_open', 'true'); } catch {}
+    requestAnimationFrame(() => {
+      window.setTimeout(() => {
+        ticketPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 240);
+    });
+  }, []);
+
+  const closeTicketDetailSheet = useCallback(() => {
+    setTicketDetailSheetOpen(false);
+    setTicketDetailSheetTicket(null);
+    setTicketDetailSheetLoading(false);
+  }, []);
+
+  /** Abre drawer lateral com outro ticket; se for o da conversa atual, só foca o painel fixo. */
+  const openTicketDetailSheet = useCallback(
+    async (ticketId: string) => {
+      const currentId = String(currentTicket?.id || selected?.ticketId || '');
+      if (ticketId && String(ticketId) === currentId) {
+        openTicketPanelAndScroll();
+        return;
+      }
+      setTicketDetailSheetOpen(true);
+      setTicketDetailSheetLoading(true);
+      setTicketDetailSheetTicket(null);
+      try {
+        const res: any = await api.getTicket(ticketId);
+        const t = res?.data ?? res;
+        setTicketDetailSheetTicket(t);
+      } catch {
+        showToast('Não foi possível carregar o ticket', 'error');
+        closeTicketDetailSheet();
+      } finally {
+        setTicketDetailSheetLoading(false);
+      }
+    },
+    [currentTicket?.id, selected?.ticketId, openTicketPanelAndScroll, closeTicketDetailSheet, showToast],
+  );
+
+  const openTicketDetailSheetRef = useRef(openTicketDetailSheet);
+  openTicketDetailSheetRef.current = openTicketDetailSheet;
+
+  useEffect(() => {
+    if (!ticketDetailSheetOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closeTicketDetailSheet();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [ticketDetailSheetOpen, closeTicketDetailSheet]);
+
+  /** Busca global / notificações: abrir ticket no painel/drawer sem sair do atendimento. */
+  useEffect(() => {
+    const onOpen = (ev: Event) => {
+      const detail = (ev as CustomEvent<AtendimentoOpenTicketDetail>).detail;
+      const id = detail?.ticketId?.trim();
+      if (!id) return;
+      setPanelOpen(true);
+      try { localStorage.setItem('atend_panel_open', 'true'); } catch {}
+      void openTicketDetailSheet(id);
+    };
+    window.addEventListener(ATENDIMENTO_OPEN_TICKET_EVENT, onOpen);
+    return () => window.removeEventListener(ATENDIMENTO_OPEN_TICKET_EVENT, onOpen);
+  }, [openTicketDetailSheet]);
+
+  /**
+   * `?openTicket=` na URL: abre painel/drawer.
+   * Não depender de `openTicketDetailSheet` nas deps — a identidade dele muda com conversa/ticket atual
+   * e o re-run + cleanup pode atrapalhar o `router.replace` ou disparar abertura duplicada.
+   */
+  useEffect(() => {
+    const id = searchParams.get(ATENDIMENTO_OPEN_TICKET_QUERY)?.trim();
+    if (!id) return;
+    setPanelOpen(true);
+    try { localStorage.setItem('atend_panel_open', 'true'); } catch {}
+    void openTicketDetailSheetRef.current(id);
+    const nextParams = new URLSearchParams(searchParams.toString());
+    nextParams.delete(ATENDIMENTO_OPEN_TICKET_QUERY);
+    const qs = nextParams.toString();
+    const url = `${pathname}${qs ? `?${qs}` : ''}`;
+    queueMicrotask(() => {
+      router.replace(url, { scroll: false });
+    });
+  }, [searchParams, pathname, router]);
+
+  const handlePanelTicketStatusChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newStatus = e.target.value;
+    if (!currentTicket?.id) return;
+    if (newStatus === currentTicket.status) return;
+    setTicketPanelStatusDraft(newStatus);
+    setTicketPanelStatusSaving(true);
+    try {
+      const body: Record<string, string> = { status: newStatus };
+      if (newStatus === 'cancelled') body.cancelReason = 'Cancelado pelo agente no atendimento';
+      const updated: any = await api.updateTicket(currentTicket.id, body);
+      setCurrentTicket((prev: any) => (prev ? { ...prev, ...updated } : prev));
+      setTicketPanelStatusDraft(String(updated?.status ?? newStatus));
+      showToast('Status atualizado');
+    } catch (err: any) {
+      setTicketPanelStatusDraft(String(currentTicket.status ?? 'open'));
+      showToast(err?.response?.data?.message || 'Erro ao atualizar status', 'error');
+    }
+    setTicketPanelStatusSaving(false);
+  };
+
+  const handlePanelTicketSubjectSave = async () => {
+    if (!currentTicket?.id) return;
+    const s = ticketPanelSubjectDraft.trim();
+    if (s.length < 3) {
+      showToast('Assunto deve ter pelo menos 3 caracteres', 'error');
+      return;
+    }
+    const prevSub = String(currentTicket.subject ?? '').trim();
+    if (s === prevSub) return;
+    setTicketPanelSubjectSaving(true);
+    try {
+      const descTrim = String(currentTicket.description ?? '').trim();
+      const updated: any = await api.updateTicketContent(currentTicket.id, {
+        subject: s,
+        ...(descTrim.length >= 3 ? { description: descTrim } : {}),
+      });
+      setCurrentTicket((prev: any) =>
+        prev
+          ? {
+              ...prev,
+              subject: updated?.subject ?? s,
+              description: updated?.description ?? prev.description,
+            }
+          : prev,
+      );
+      setTicketPanelSubjectDraft(String(updated?.subject ?? s));
+      showToast('Assunto atualizado');
+    } catch (err: any) {
+      showToast(err?.response?.data?.message || 'Erro ao salvar assunto', 'error');
+    }
+    setTicketPanelSubjectSaving(false);
+  };
+
+  const handlePanelTicketPriorityChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const priorityId = e.target.value;
+    if (!currentTicket?.id) return;
+    if (String(priorityId || '') === String(currentTicket.priorityId ?? '')) return;
+    const sel = tenantPriorities.find((p: any) => p.id === priorityId);
+    setTicketPanelPriorityIdDraft(priorityId);
+    setTicketPanelPrioritySaving(true);
+    try {
+      const body: Record<string, unknown> = { priorityId: priorityId || null };
+      if (sel && ['low', 'medium', 'high', 'critical'].includes(sel.slug)) body.priority = sel.slug;
+      const updated: any = await api.updateTicket(currentTicket.id, body);
+      setCurrentTicket((prev: any) => (prev ? { ...prev, ...updated } : prev));
+      setTicketPanelPriorityIdDraft(String(updated?.priorityId ?? priorityId ?? ''));
+      showToast('Prioridade atualizada');
+    } catch (err: any) {
+      setTicketPanelPriorityIdDraft(String(currentTicket.priorityId ?? ''));
+      showToast(err?.response?.data?.message || 'Erro ao atualizar prioridade', 'error');
+    }
+    setTicketPanelPrioritySaving(false);
+  };
+
+  const handlePanelTicketClassificationSave = async () => {
+    if (!currentTicket?.id) return;
+    const d = ticketPanelDeptDraft.trim();
+    const c = ticketPanelCatDraft.trim();
+    const s = ticketPanelSubDraft.trim();
+    const curD = String(currentTicket.department ?? '').trim();
+    const curC = String(currentTicket.category ?? '').trim();
+    const curS = String(currentTicket.subcategory ?? '').trim();
+    if (d === curD && c === curC && s === curS) return;
+    setTicketPanelClassSaving(true);
+    try {
+      const updated: any = await api.updateTicket(currentTicket.id, {
+        department: d || undefined,
+        category: c || undefined,
+        subcategory: s || undefined,
+      });
+      setCurrentTicket((prev: any) => (prev ? { ...prev, ...updated } : prev));
+      setTicketPanelDeptDraft(String(updated?.department ?? d));
+      setTicketPanelCatDraft(String(updated?.category ?? c));
+      setTicketPanelSubDraft(String(updated?.subcategory ?? s));
+      showToast('Classificação atualizada');
+    } catch (err: any) {
+      showToast(err?.response?.data?.message || 'Erro ao salvar classificação', 'error');
+    }
+    setTicketPanelClassSaving(false);
   };
 
   const applyUpdatedContactLocally = useCallback((updatedContact: any, clientId: string) => {
@@ -1073,6 +1362,8 @@ export default function AtendimentoPage() {
   };
 
   const canEditConversationTags = hasPermission(user, 'ticket.edit');
+  const canEditTicketPanelFields = hasPermission(user, 'ticket.edit');
+  const canEditTicketPanelContent = hasPermission(user, 'ticket.edit_content');
   const canManageCustomerLink = hasPermission(user, 'customer.edit');
   const canCloseTicket = hasPermission(user, 'ticket.close');
   const [customerLinkRequired, setCustomerLinkRequired] = useState(false);
@@ -1080,6 +1371,30 @@ export default function AtendimentoPage() {
   useEffect(() => {
     setCustomerLinkRequired(false);
   }, [currentTicket?.id]);
+
+  useEffect(() => {
+    if (!currentTicket?.id) return;
+    setTicketPanelSubjectDraft(String(currentTicket.subject ?? ''));
+    setTicketPanelStatusDraft(String(currentTicket.status ?? 'open'));
+    setTicketPanelPriorityIdDraft(String(currentTicket.priorityId ?? ''));
+    setTicketPanelDeptDraft(String(currentTicket.department ?? ''));
+    setTicketPanelCatDraft(String(currentTicket.category ?? ''));
+    setTicketPanelSubDraft(String(currentTicket.subcategory ?? ''));
+  }, [currentTicket?.id]);
+
+  useEffect(() => {
+    if (!currentTicket?.id || !canEditTicketPanelFields) return;
+    if (ticketSettingsTree.length > 0) return;
+    void (async () => {
+      try {
+        const r: any = await api.getTicketSettingsTree();
+        const depts = Array.isArray(r) ? r : r?.departments ?? r?.data?.departments ?? [];
+        setTicketSettingsTree(depts);
+      } catch {
+        /* mantém vazio */
+      }
+    })();
+  }, [currentTicket?.id, canEditTicketPanelFields, ticketSettingsTree.length]);
 
   // ── data loading ──
   const loadConversations = useCallback(async (resetSelection = false, silent = false) => {
@@ -1603,7 +1918,8 @@ export default function AtendimentoPage() {
   };
 
   const handleStartAttendance = async () => {
-    if (!selected) return;
+    if (!selected || startingAttendanceRef.current) return;
+    startingAttendanceRef.current = true;
     setStartingAttendance(true);
     try {
       const res: any = await api.startAttendance(selected.id);
@@ -1617,9 +1933,32 @@ export default function AtendimentoPage() {
       invalidateMyOpenTicketsCount();
       showToast('Atendimento iniciado!');
     } catch (e: any) {
-      showToast(e?.response?.data?.message || 'Erro ao iniciar atendimento', 'error');
+      const msg = e?.response?.data?.message || 'Erro ao iniciar atendimento';
+      const msgNorm = String(msg).toLowerCase();
+      const jaIniciado =
+        msgNorm.includes('já iniciado')
+        || msgNorm.includes('ja iniciado')
+        || msgNorm.includes('já possui ticket')
+        || msgNorm.includes('ja possui ticket');
+
+      if (jaIniciado && selected?.id) {
+        const freshConv: any = await api.getConversation(selected.id).catch(() => null);
+        if (freshConv?.ticketId) {
+          setSelected(freshConv);
+          loadChat(freshConv);
+          await loadConversations(false, true);
+          invalidateMyOpenTicketsCount();
+          showToast('Esse atendimento já foi iniciado. Atualizei a conversa com o ticket atual.');
+        } else {
+          showToast(msg, 'error');
+        }
+      } else {
+        showToast(msg, 'error');
+      }
+    } finally {
+      startingAttendanceRef.current = false;
+      setStartingAttendance(false);
     }
-    setStartingAttendance(false);
   };
 
   const confirmCreateTicket = async () => {
@@ -2251,6 +2590,14 @@ export default function AtendimentoPage() {
   });
 
   // ── styles (shared) ──
+  const selectedAttendanceMetrics = selected ? getConversationMetrics(selected) : null;
+  const selectedResolvedContact = selected ? contacts.find((c: any) => c.id === selected.contactId) || null : null;
+  const selectedDisplayName = selected
+    ? (contactName(selected.contactId) !== '—'
+      ? contactName(selected.contactId)
+      : messages.find((m: any) => m.authorType === 'contact')?.authorName || selected.contactName || '—')
+    : '—';
+
   const S = {
     border: '1px solid rgba(15,23,42,.08)',
     border2: '1px solid rgba(15,23,42,.12)',
@@ -2502,33 +2849,17 @@ export default function AtendimentoPage() {
                           <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 5, fontWeight: 600, background: '#FEF2F2', color: '#DC2626' }}>● Urgente</span>
                         )}
                         {(() => {
-                          if (isClo || !c.slaResolutionDeadline) return null;
-                          const diff = new Date(c.slaResolutionDeadline).getTime() - Date.now();
-                          if (diff < 0) return <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 5, fontWeight: 700, background: '#FEF2F2', color: '#DC2626' }}>SLA VIOL.</span>;
-                          const total = new Date(c.slaResolutionDeadline).getTime() - new Date(c.createdAt).getTime();
-                          const atRisk = total > 0 && diff / total < 0.20;
-                          if (!atRisk) return null;
-                          const h = Math.floor(diff / 3600000);
-                          const m = Math.floor((diff % 3600000) / 60000);
-                          return <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 5, fontWeight: 700, background: '#FFF7ED', color: '#C2410C' }}>⚠ {h > 0 ? `${h}h${m}m` : `${m}m`}</span>;
-                        })()}
-                        {noTicket && !isClo && (() => {
-                          // SLA de 1ª resposta (tempo para Iniciar Atendimento) na sidebar
-                          const fd = c.slaFirstResponseDeadline ? new Date(c.slaFirstResponseDeadline).getTime() - Date.now() : null;
-                          if (fd === null) return <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 5, fontWeight: 500, background: '#FEF3C7', color: '#D97706' }}>Aguardando</span>;
-                          if (fd < 0) return <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 5, fontWeight: 700, background: '#FEF2F2', color: '#DC2626' }}>🚨 SLA expirado</span>;
-                          const fh = Math.floor(fd / 3600000); const fm = Math.floor((fd % 3600000) / 60000);
-                          const fAtRisk = fd < 15 * 60000;
-                          return <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 5, fontWeight: 700, background: fAtRisk ? '#FFF7ED' : '#F0FDF4', color: fAtRisk ? '#C2410C' : '#15803D' }}>
-                            {fAtRisk ? '⚠' : '🟢'} {fh > 0 ? `${fh}h${fm}m` : `${fm}m`}
+                          if (!noTicket) return null;
+                          const metrics = getConversationMetrics(c);
+                          if (!metrics.queuedAt || metrics.attendanceStartedAt) return <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 5, fontWeight: 700, background: '#F8FAFC', color: '#64748B' }}>Sem ticket</span>;
+                          const waitingMs = Math.max(0, Date.now() - new Date(metrics.queuedAt).getTime());
+                          const highWait = waitingMs >= 60 * 60000;
+                          const atRisk = !highWait && waitingMs >= 15 * 60000;
+                          const compactLabel = formatDurationLabel(waitingMs);
+                          return <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 5, fontWeight: 700, background: highWait ? '#FEF2F2' : atRisk ? '#FFF7ED' : '#F0FDF4', color: highWait ? '#DC2626' : atRisk ? '#C2410C' : '#15803D' }}>
+                            {highWait ? 'Fila' : atRisk ? 'Espera' : 'Novo'} {compactLabel}
                           </span>;
                         })()}
-                        {(() => { const badge = (unreadCounts[c.id] || 0) + (c.unreadCount || 0); return badge > 0 ? (
-                          <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 9, fontWeight: 600, background: S.accent, color: '#fff', minWidth: 18, textAlign: 'center', lineHeight: 1.4 }}>{badge > 99 ? '99+' : badge}</span>
-                        ) : null; })()}
-                        {!isClo && c.awaitingResponse && (
-                          <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 5, fontWeight: 500, background: '#EEF2FF', color: '#4338CA' }}>Aguardando</span>
-                        )}
                       </div>
                     </div>
                   </button>
@@ -2557,10 +2888,11 @@ export default function AtendimentoPage() {
                 </>
               );
             })()}
+
           </div>
         </div>
 
-        {/* ══════════ CHAT AREA (flex-1) ══════════ */}
+        {/* CHAT AREA (flex-1) */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: S.chatBg, minWidth: 0 }}>
           {!selected ? (
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, color: S.txt3 }}>
@@ -2574,9 +2906,7 @@ export default function AtendimentoPage() {
             </div>
           ) : (
             <>
-              {/* Chat header */}
               <div style={{ position: 'relative', padding: '18px 22px 16px', borderBottom: S.border, background: 'linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(248,250,252,0.95) 100%)', flexShrink: 0, boxShadow: '0 8px 22px rgba(15,23,42,.04)' }}>
-                {/* Barra de progresso discreta ao trocar de conversa */}
                 {loadingChat && (
                   <div className="animate-pulse" style={{
                     position: 'absolute', top: 0, left: 0, right: 0, height: 2,
@@ -2584,45 +2914,58 @@ export default function AtendimentoPage() {
                     backgroundSize: '200% 100%',
                   }} />
                 )}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                  {/* Avatar */}
-                  <div style={{ position: 'relative', flexShrink: 0 }}>
-                    <div style={{ width: 46, height: 46, borderRadius: 16, background: avatarColor(selected.contactName || customerName(selected.clientId) || '?'), display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 15, fontWeight: 700, boxShadow: '0 10px 20px rgba(15,23,42,.12)' }}>
-                      {initials(selected.contactName || customerName(selected.clientId) || '?')}
-                    </div>
-                    <ChannelDot channel={selected.channel || 'whatsapp'} />
-                  </div>
-                  {/* Info */}
+
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, justifyContent: 'space-between' }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: S.txt, letterSpacing: '-0.02em' }}>
-                      {contactName(selected.contactId) !== '—' ? contactName(selected.contactId) : messages.find((m: any) => m.authorType === 'contact')?.authorName || selected.contactName || '—'}
-                    </div>
-                    <div style={{ fontSize: 11, color: S.txt2, display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 600, padding: '1px 7px', borderRadius: 5, background: isWhatsapp ? '#DCFCE7' : '#EEF2FF', color: isWhatsapp ? '#15803D' : S.accent }}>
-                        {isWhatsapp ? <Phone size={9} /> : <Globe size={9} />}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <div style={{ fontSize: 18, fontWeight: 800, color: S.txt, letterSpacing: '-0.02em', minWidth: 0 }}>
+                        {selectedDisplayName}
+                      </div>
+                      {hasTicket && (
+                        <button
+                          type="button"
+                          onClick={openTicketPanelAndScroll}
+                          title="Ver ticket no painel à direita (sem sair do atendimento)"
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            width: 32,
+                            height: 32,
+                            borderRadius: 10,
+                            border: S.border2,
+                            background: S.bg2,
+                            color: S.accent,
+                            cursor: 'pointer',
+                            flexShrink: 0,
+                          }}
+                        >
+                          <Ticket size={16} strokeWidth={1.9} />
+                        </button>
+                      )}
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 600, padding: '3px 8px', borderRadius: 999, background: isWhatsapp ? '#DCFCE7' : '#EEF2FF', color: isWhatsapp ? '#15803D' : S.accent }}>
+                        {isWhatsapp ? <Phone size={10} /> : <Globe size={10} />}
                         {isWhatsapp ? 'WhatsApp' : 'Portal'}
                       </span>
-                      <span style={{ color: S.txt3 }}>·</span>
+                    </div>
+                    <div style={{ fontSize: 12, color: S.txt2, display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
                       <span>{customerName(selected.clientId)}</span>
-                      {/* Número do contato da conversa atual (usa contactId, não contacts[0]) */}
-                      {contacts.find((c: any) => c.id === selected?.contactId)?.whatsapp && isWhatsapp && (
+                      {selectedResolvedContact?.whatsapp && isWhatsapp && (
                         <>
-                          <span style={{ color: S.txt3 }}>·</span>
-                          <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 10 }}>{formatWhatsApp(contacts.find((c: any) => c.id === selected?.contactId)!.whatsapp)}</span>
-                        </>
-                      )}
-                      {selected.lastMessageAt && (
-                        <>
-                          <span style={{ color: S.txt3 }}>·</span>
-                          <span style={{ color: S.txt3 }}>Visto {timeAgo(selected.lastMessageAt)} atrás</span>
+                          <span style={{ color: S.txt3 }}>•</span>
+                          <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11 }}>{formatWhatsApp(selectedResolvedContact.whatsapp)}</span>
                         </>
                       )}
                     </div>
+                    {selected.lastMessageAt && (
+                      <div style={{ fontSize: 11, color: S.txt3, marginTop: 6 }}>
+                        Visto {timeAgo(selected.lastMessageAt)} atrás
+                      </div>
+                    )}
                   </div>
-                  {/* Actions */}
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
+
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                     <ChatDensityToggle value={chatDensity} onChange={setChatDensity} />
-                    {/* Busca dentro da conversa */}
                     <button
                       onClick={() => { setMsgSearchOpen(v => !v); if (msgSearchOpen) { setMsgSearchQuery(''); setMsgSearchIdx(0); } }}
                       title="Buscar na conversa (Ctrl+F)"
@@ -2635,28 +2978,18 @@ export default function AtendimentoPage() {
                       style={{ width: 30, height: 30, borderRadius: 8, border: S.border2, background: panelOpen ? S.accentLight : S.bg2, color: panelOpen ? S.accent : S.txt2, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                       {panelOpen ? <ChevronRight size={14} strokeWidth={1.8} /> : <ChevronLeft size={14} strokeWidth={1.8} />}
                     </button>
-                    {hasTicket && (
-                      <Link href={`/dashboard/tickets/${selected.ticketId}`} target="_blank"
-                        style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 999, background: S.accentLight, border: `1px solid ${S.accentMid}`, color: S.accent, fontSize: 12, fontWeight: 700, textDecoration: 'none', fontFamily: "'DM Mono', monospace" }}>
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v2z"/></svg>
-                        {currentTicket?.ticketNumber ?? selected?.ticketNumber ?? '—'}
-                      </Link>
-                    )}
-                    {selected?.slaFirstResponseAt && selected?.slaFirstResponseDeadline && (
-                      <span style={{ fontSize: 11, color: '#64748B', padding: '4px 8px', borderRadius: 999, background: S.bg2, border: S.border2 }}>
-                        1ª resp.: {Math.round((new Date(selected.slaFirstResponseAt).getTime() - new Date(selected.createdAt).getTime()) / 60000)}m
-                      </span>
-                    )}
                     {!hasTicket && !isPortalNoTicket && (
                       <button onClick={handleCreateTicket} disabled={creatingTicket}
                         style={{ padding: '7px 14px', borderRadius: 999, border: 'none', background: `linear-gradient(135deg, ${S.accent}, #3B82F6)`, color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit', boxShadow: '0 10px 20px rgba(29,78,216,.18)' }}>
                         <Plus size={13} /> Criar Ticket
                       </button>
                     )}
-                    <button onClick={() => { setShowLinkModal(true); setLinkTicketSearch(''); setLinkTickets([]); }}
-                      style={{ padding: '7px 14px', borderRadius: 999, border: S.border2, background: '#FFFFFF', color: S.txt, fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' }}>
-                      <Link2 size={13} /> Vincular ticket
-                    </button>
+                    {!hasTicket && (
+                      <button onClick={() => { setShowLinkModal(true); setLinkTicketSearch(''); setLinkTickets([]); }}
+                        style={{ padding: '7px 14px', borderRadius: 999, border: S.border2, background: '#FFFFFF', color: S.txt, fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' }}>
+                        <Link2 size={13} /> Vincular ticket
+                      </button>
+                    )}
                     <button onClick={openTransferModal}
                       style={{ padding: '7px 14px', borderRadius: 999, border: S.border2, background: '#FFFFFF', color: S.txt, fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' }}>
                       Transferir
@@ -2671,14 +3004,66 @@ export default function AtendimentoPage() {
                   </div>
                 </div>
 
-                {/* Warning banners */}
+                {(hasTicket || selectedAttendanceMetrics?.firstReplyMs != null) && (
+                  <div
+                    style={{
+                      marginTop: 12,
+                      paddingTop: 10,
+                      borderTop: '1px solid rgba(15,23,42,.07)',
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      alignItems: 'center',
+                      gap: 8,
+                    }}
+                  >
+                    {hasTicket && (
+                      <button
+                        type="button"
+                        onClick={openTicketPanelAndScroll}
+                        title="Ver ticket no painel lateral"
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          padding: '5px 11px',
+                          borderRadius: 999,
+                          background: S.accentLight,
+                          border: `1px solid ${S.accentMid}`,
+                          color: S.accent,
+                          fontSize: 12,
+                          fontWeight: 700,
+                          fontFamily: "'DM Mono', monospace",
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v2z"/></svg>
+                        {currentTicket?.ticketNumber ?? selected?.ticketNumber ?? '—'}
+                      </button>
+                    )}
+                    {selectedAttendanceMetrics?.firstReplyMs != null && (
+                      <span
+                        style={{
+                          fontSize: 11,
+                          color: '#475569',
+                          padding: '4px 10px',
+                          borderRadius: 999,
+                          background: 'rgba(248,250,252,0.95)',
+                          border: S.border2,
+                          fontWeight: 500,
+                        }}
+                      >
+                        Tempo até a primeira resposta: {formatDurationLabel(selectedAttendanceMetrics.firstReplyMs)}
+                      </span>
+                    )}
+                  </div>
+                )}
+
                 {!hasTicket && !isPortalNoTicket && (
                   <div style={{ marginTop: 10, padding: '10px 14px', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8, fontSize: 12, color: '#92400E' }}>
                     Sem ticket vinculado. Você ainda pode conversar normalmente e vincular o ticket depois, se necessário.
                   </div>
                 )}
 
-                {/* Contact validation banner — exibido apenas quando há ticket */}
                 {currentTicket?.id && (
                   <ContactValidationBanner
                     key={currentTicket.id}
@@ -2796,19 +3181,33 @@ export default function AtendimentoPage() {
 
               {/* Input */}
               {!isClosed && selected && !selected.ticketId && selected.channel === 'whatsapp' ? (
-                <div style={{ padding: '20px 24px', borderTop: '1px solid rgba(0,0,0,0.07)', background: '#fff', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, flexShrink: 0 }}>
-                  {/* SLA de conversa */}
-                  <ConvWaitSlaInfo conv={selected} />
-                  <p style={{ margin: 0, fontSize: 13, color: '#64748B', textAlign: 'center' }}>
-                    Para enviar uma mensagem, clique no botão abaixo e inicie o atendimento.
-                  </p>
-                  <button
-                    onClick={handleStartAttendance}
-                    disabled={startingAttendance}
-                    style={{ background: '#4F46E5', color: '#fff', border: 'none', borderRadius: 10, padding: '12px 32px', fontSize: 14, fontWeight: 600, cursor: startingAttendance ? 'not-allowed' : 'pointer', opacity: startingAttendance ? 0.7 : 1, fontFamily: 'inherit' }}
-                  >
-                    {startingAttendance ? 'Iniciando...' : 'Iniciar atendimento'}
-                  </button>
+                <div style={{ padding: '20px 24px 24px', borderTop: '1px solid rgba(0,0,0,0.07)', background: 'linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 100%)', flexShrink: 0 }}>
+                  <div style={{ maxWidth: 720, margin: '0 auto', borderRadius: 20, border: '1px solid #E2E8F0', background: 'linear-gradient(135deg, rgba(255,255,255,0.98), rgba(248,250,252,0.98))', boxShadow: '0 18px 40px rgba(15,23,42,0.08)', padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: 14, alignItems: 'flex-start' }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, width: '100%' }}>
+                      <div style={{ width: 42, height: 42, borderRadius: 14, background: 'linear-gradient(135deg, #DBEAFE, #E0E7FF)', color: '#4338CA', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <MessageSquare size={20} strokeWidth={1.9} />
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0 }}>
+                        <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: '#0F172A' }}>Atendimento aguardando inicio</h3>
+                        <p style={{ margin: 0, fontSize: 13, lineHeight: 1.55, color: '#64748B' }}>
+                          O chat ja entrou na fila, mas ainda nao foi assumido por um agente. Inicie o atendimento para criar o ticket, registrar o inicio e liberar o envio da primeira mensagem.
+                        </p>
+                      </div>
+                    </div>
+                    <ConvWaitMetricsInfo conv={selected} />
+                    <div style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', paddingTop: 4 }}>
+                      <span style={{ fontSize: 12, color: '#64748B', background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 999, padding: '8px 12px' }}>
+                        Depois do inicio, a tela passa a medir primeira resposta e duracao do atendimento.
+                      </span>
+                      <button
+                        onClick={handleStartAttendance}
+                        disabled={startingAttendance}
+                        style={{ background: '#4F46E5', color: '#fff', border: 'none', borderRadius: 12, padding: '12px 20px', minWidth: 220, fontSize: 14, fontWeight: 700, cursor: startingAttendance ? 'not-allowed' : 'pointer', opacity: startingAttendance ? 0.7 : 1, fontFamily: 'inherit', boxShadow: '0 10px 24px rgba(79,70,229,0.28)' }}
+                      >
+                        {startingAttendance ? 'Iniciando atendimento...' : 'Iniciar atendimento'}
+                      </button>
+                    </div>
+                  </div>
                 </div>
               ) : !isClosed && (
                   <ChatComposer
@@ -2848,7 +3247,7 @@ export default function AtendimentoPage() {
         </div>
 
         {/* ══════════ CLIENT PANEL (290px, colapsável) ══════════ */}
-        <div style={{ width: panelOpen ? 290 : 0, borderLeft: panelOpen ? S.border : 'none', background: S.bg, display: 'flex', flexDirection: 'column', overflow: panelOpen ? 'auto' : 'hidden', flexShrink: 0, transition: 'width .2s ease' }}>
+        <div style={{ width: panelOpen ? 308 : 0, borderLeft: panelOpen ? S.border : 'none', background: S.bg, display: 'flex', flexDirection: 'column', overflow: panelOpen ? 'auto' : 'hidden', flexShrink: 0, transition: 'width .2s ease' }}>
           {selected ? (() => {
             const customer = customers.find((c: any) => c.id === selected?.clientId);
             const contact = contacts.find((c: any) => c.id === (selected?.contactId || currentTicket?.contactId)) || null;
@@ -2866,23 +3265,7 @@ export default function AtendimentoPage() {
               const pct = Math.max(0, Math.min(100, 100 - (diff / Math.max(total, 1)) * 100));
               return { violated: false, label: h > 0 ? `${h}h ${m}m restantes` : `${m}m restantes`, pct };
             })();
-            // SLA calc — conversa (sla_policies)
-            const convSlaInfo = (() => {
-              if (!selected?.slaResolutionDeadline || selected?.status === 'closed') return null;
-              const diff = new Date(selected.slaResolutionDeadline).getTime() - Date.now();
-              if (diff < 0) return { violated: true, label: 'VIOLADO', pct: 100, firstResponse: null as string | null };
-              const h = Math.floor(diff / 3600000);
-              const m = Math.floor((diff % 3600000) / 60000);
-              const total = new Date(selected.slaResolutionDeadline).getTime() - new Date(selected.createdAt || Date.now()).getTime();
-              const pct = Math.max(0, Math.min(100, 100 - (diff / Math.max(total, 1)) * 100));
-              let firstResponse: string | null = null;
-              if (selected.slaFirstResponseDeadline && !selected.slaFirstResponseAt) {
-                const fd = new Date(selected.slaFirstResponseDeadline).getTime() - Date.now();
-                if (fd < 0) firstResponse = 'VIOLADO';
-                else { const fh = Math.floor(fd/3600000); const fm = Math.floor((fd%3600000)/60000); firstResponse = fh > 0 ? `${fh}h ${fm}m` : `${fm}m`; }
-              }
-              return { violated: false, label: h > 0 ? `${h}h ${m}m restantes` : `${m}m restantes`, pct, firstResponse };
-            })();
+            const attendanceMetrics = getConversationMetrics(selected);
             // Client stats from clientTickets
             const total = clientTickets.length;
             const resolved = clientTickets.filter((t: any) => ['resolved','closed'].includes(t.status)).length;
@@ -2904,8 +3287,496 @@ export default function AtendimentoPage() {
               </div>
             );
             const dispName = contactName(selected.contactId) !== '—' ? contactName(selected.contactId) : selected.contactName || '—';
+            const ticketSt = currentTicket ? (TICKET_STATUS_PANEL[currentTicket.status] || TICKET_STATUS_PANEL.open) : null;
+            const ticketPri = currentTicket ? getTicketPriorityDisplay(currentTicket) : null;
+            const ticketServiceLine = currentTicket
+              ? [currentTicket.department, currentTicket.category, currentTicket.subcategory].filter(Boolean).join(' › ') || '—'
+              : '—';
+            const panelStatusSelectValue = TICKET_STATUS_SELECT_OPTIONS.some((o) => o.value === ticketPanelStatusDraft)
+              ? ticketPanelStatusDraft
+              : String(currentTicket.status || 'open');
+            const panelSelDeptEdit = ticketSettingsTree.find((d: any) => d.name === ticketPanelDeptDraft);
+            const panelCatsEdit = panelSelDeptEdit?.categories || [];
+            const panelSelCatEdit = panelCatsEdit.find((c: any) => c.name === ticketPanelCatDraft);
+            const panelSubsEdit = panelSelCatEdit?.subcategories || [];
+            const panelPrioritySelectValue = tenantPriorities.some((p: any) => p.id === ticketPanelPriorityIdDraft)
+              ? ticketPanelPriorityIdDraft
+              : String(currentTicket.priorityId || tenantPriorities[0]?.id || '');
+            const ticketPanelClassDirty =
+              String(ticketPanelDeptDraft).trim() !== String(currentTicket.department ?? '').trim() ||
+              String(ticketPanelCatDraft).trim() !== String(currentTicket.category ?? '').trim() ||
+              String(ticketPanelSubDraft).trim() !== String(currentTicket.subcategory ?? '').trim();
+            const panelSelectCompact = {
+              width: '100%',
+              padding: '8px 10px',
+              borderRadius: 8,
+              border: S.border2,
+              background: '#FFFFFF',
+              fontSize: 12,
+              color: S.txt,
+              fontFamily: 'inherit',
+            } as const;
             return (
               <>
+                {currentTicket && (
+                  <div
+                    ref={ticketPanelRef}
+                    style={{
+                      padding: '14px 16px',
+                      borderBottom: S.border,
+                      background: 'linear-gradient(180deg, rgba(255,255,255,0.99) 0%, rgba(248,250,252,0.97) 100%)',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 12 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flexWrap: 'wrap' }}>
+                        <div
+                          style={{
+                            width: 36,
+                            height: 36,
+                            borderRadius: 10,
+                            background: S.accentLight,
+                            border: `1px solid ${S.accentMid}`,
+                            color: S.accent,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0,
+                          }}
+                        >
+                          <Ticket size={18} strokeWidth={1.8} />
+                        </div>
+                        <div style={{ minWidth: 0 }}>
+                          <span style={{ fontSize: 10, fontWeight: 700, color: S.txt3, textTransform: 'uppercase' as const, letterSpacing: '.07em', display: 'block' }}>Ticket</span>
+                          <button
+                            type="button"
+                            onClick={openTicketPanelAndScroll}
+                            title="Destacar este bloco no painel"
+                            style={{
+                              fontFamily: "'DM Mono', monospace",
+                              fontSize: 14,
+                              fontWeight: 800,
+                              color: S.accent,
+                              background: 'none',
+                              border: 'none',
+                              padding: '2px 0 0',
+                              cursor: 'pointer',
+                              display: 'block',
+                              textAlign: 'left' as const,
+                            }}
+                          >
+                            {currentTicket.ticketNumber ?? '—'}
+                          </button>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={openTicketPanelAndScroll}
+                        title="Focar painel do ticket"
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          width: 32,
+                          height: 32,
+                          borderRadius: 8,
+                          border: S.border2,
+                          background: S.bg2,
+                          color: S.txt2,
+                          flexShrink: 0,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <PanelRight size={16} strokeWidth={1.8} />
+                      </button>
+                    </div>
+
+                    <div style={{ marginBottom: 10 }}>
+                      {canEditTicketPanelFields ? (
+                        <div style={{ marginBottom: 8 }}>
+                          <label
+                            htmlFor="atend-ticket-status"
+                            style={{ fontSize: 10, fontWeight: 700, color: S.txt3, textTransform: 'uppercase' as const, letterSpacing: '.06em', display: 'block', marginBottom: 6 }}
+                          >
+                            Status
+                          </label>
+                          <select
+                            id="atend-ticket-status"
+                            value={panelStatusSelectValue}
+                            disabled={ticketPanelStatusSaving}
+                            onChange={handlePanelTicketStatusChange}
+                            style={{
+                              width: '100%',
+                              padding: '8px 10px',
+                              borderRadius: 8,
+                              border: S.border2,
+                              background: '#FFFFFF',
+                              fontSize: 12,
+                              color: S.txt,
+                              fontFamily: 'inherit',
+                              cursor: ticketPanelStatusSaving ? 'wait' : 'pointer',
+                              opacity: ticketPanelStatusSaving ? 0.75 : 1,
+                            }}
+                          >
+                            {TICKET_STATUS_SELECT_OPTIONS.map((opt) => (
+                              <option key={opt.value} value={opt.value}>
+                                {opt.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                          {(() => {
+                            const st = ticketSt ?? TICKET_STATUS_PANEL.open;
+                            return (
+                          <span
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4,
+                              fontSize: 10,
+                              fontWeight: 600,
+                              padding: '3px 8px',
+                              borderRadius: 999,
+                              background: st.bg,
+                              color: st.color,
+                              border: `1px solid ${st.dot}33`,
+                            }}
+                          >
+                            <span style={{ width: 5, height: 5, borderRadius: '50%', background: st.dot, flexShrink: 0 }} />
+                            {st.label}
+                          </span>
+                            );
+                          })()}
+                        </div>
+                      )}
+                    </div>
+
+                    {canEditTicketPanelContent ? (
+                      <div style={{ marginBottom: 8 }}>
+                        <label
+                          htmlFor="atend-ticket-subject"
+                          style={{ fontSize: 10, fontWeight: 700, color: S.txt3, textTransform: 'uppercase' as const, letterSpacing: '.06em', display: 'block', marginBottom: 6 }}
+                        >
+                          Assunto
+                        </label>
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'stretch' }}>
+                          <input
+                            id="atend-ticket-subject"
+                            value={ticketPanelSubjectDraft}
+                            onChange={(ev) => setTicketPanelSubjectDraft(ev.target.value)}
+                            maxLength={160}
+                            style={{
+                              flex: 1,
+                              minWidth: 0,
+                              padding: '8px 10px',
+                              borderRadius: 8,
+                              border: S.border2,
+                              background: '#FFFFFF',
+                              fontSize: 12,
+                              color: S.txt,
+                              fontFamily: 'inherit',
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => void handlePanelTicketSubjectSave()}
+                            disabled={ticketPanelSubjectSaving}
+                            title="Salvar assunto"
+                            style={{
+                              flexShrink: 0,
+                              width: 40,
+                              borderRadius: 8,
+                              border: S.border2,
+                              background: S.accentLight,
+                              color: S.accent,
+                              cursor: ticketPanelSubjectSaving ? 'wait' : 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              opacity: ticketPanelSubjectSaving ? 0.7 : 1,
+                            }}
+                          >
+                            <Save size={16} strokeWidth={2} />
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      field('Assunto', <span style={{ fontWeight: 600, textAlign: 'right' as const, display: 'block' }}>{currentTicket.subject || '—'}</span>)
+                    )}
+
+                    <div style={{ marginBottom: 10 }}>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: S.txt3, textTransform: 'uppercase' as const, letterSpacing: '.06em', display: 'block', marginBottom: 8 }}>Tipo de ticket</span>
+                      <div style={{ display: 'flex', gap: 18, alignItems: 'center', flexWrap: 'wrap' }}>
+                        {([
+                          { key: 'pub', label: 'Público', on: currentTicket.origin !== 'internal' },
+                          { key: 'int', label: 'Interno', on: currentTicket.origin === 'internal' },
+                        ] as const).map((row) => (
+                          <span
+                            key={row.key}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 8,
+                              fontSize: 12,
+                              color: row.on ? S.txt : S.txt3,
+                              fontWeight: row.on ? 600 : 500,
+                            }}
+                          >
+                            <span
+                              style={{
+                                width: 16,
+                                height: 16,
+                                borderRadius: '50%',
+                                border: `2px solid ${row.on ? S.accent : '#CBD5E1'}`,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                flexShrink: 0,
+                              }}
+                            >
+                              {row.on && <span style={{ width: 8, height: 8, borderRadius: '50%', background: S.accent }} />}
+                            </span>
+                            {row.label}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div style={{ marginBottom: 10 }}>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: S.txt3, textTransform: 'uppercase' as const, letterSpacing: '.06em', display: 'block', marginBottom: 6 }}>Solicitante</span>
+                      <div style={{ padding: '10px 12px', borderRadius: 10, border: S.border2, background: S.bg2 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: S.txt }}>{dispName}</div>
+                        {contact?.email && (
+                          <div style={{ fontSize: 11, color: S.txt2, marginTop: 4, wordBreak: 'break-word' as const }}>{contact.email}</div>
+                        )}
+                        {(contact?.whatsapp || contact?.phone) && (
+                          <div style={{ fontSize: 11, color: S.txt2, marginTop: 4, fontFamily: "'DM Mono', monospace" }}>
+                            {formatWhatsApp(String(contact.whatsapp || contact.phone || '')) || String(contact.phone || contact.whatsapp || '')}
+                          </div>
+                        )}
+                        {!contact?.email && !contact?.whatsapp && !contact?.phone && (
+                          <div style={{ fontSize: 11, color: S.txt3, marginTop: 4 }}>Sem e-mail/telefone no cadastro</div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+                      <div>
+                        <span style={{ fontSize: 10, fontWeight: 700, color: S.txt3, textTransform: 'uppercase' as const, letterSpacing: '.06em', display: 'block', marginBottom: 6 }}>Categoria</span>
+                        <div
+                          style={{
+                            ...panelSelectCompact,
+                            background: S.bg2,
+                            minHeight: 36,
+                            display: 'flex',
+                            alignItems: 'center',
+                            boxSizing: 'border-box' as const,
+                          }}
+                        >
+                          {(ticketPanelCatDraft || currentTicket.category || '').trim() || '—'}
+                        </div>
+                      </div>
+                      <div>
+                        <label
+                          htmlFor="atend-ticket-priority"
+                          style={{ fontSize: 10, fontWeight: 700, color: S.txt3, textTransform: 'uppercase' as const, letterSpacing: '.06em', display: 'block', marginBottom: 6 }}
+                        >
+                          Prioridade
+                        </label>
+                        {canEditTicketPanelFields && tenantPriorities.length > 0 ? (
+                          <select
+                            id="atend-ticket-priority"
+                            value={panelPrioritySelectValue}
+                            disabled={ticketPanelPrioritySaving}
+                            onChange={handlePanelTicketPriorityChange}
+                            style={{
+                              ...panelSelectCompact,
+                              cursor: ticketPanelPrioritySaving ? 'wait' : 'pointer',
+                              opacity: ticketPanelPrioritySaving ? 0.75 : 1,
+                            }}
+                          >
+                            {tenantPriorities.map((p: any) => (
+                              <option key={p.id} value={p.id}>
+                                {p.name}
+                                {p.active === false ? ' (inativa)' : ''}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <div style={{ display: 'flex', alignItems: 'center', minHeight: 36 }}>
+                            <span style={ticketPriorityChipStyle(currentTicket)}>{(ticketPri ?? getTicketPriorityDisplay(currentTicket)).label}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {field(
+                      'Descrição',
+                      <span
+                        style={{ display: 'block', maxHeight: 52, overflow: 'hidden', lineHeight: 1.35, textAlign: 'right' as const }}
+                        title={(currentTicket.description || '').trim() ? String(currentTicket.description) : undefined}
+                      >
+                        {(currentTicket.description || '').trim() || '—'}
+                      </span>,
+                    )}
+                    {canEditTicketPanelFields && ticketSettingsTree.length > 0 ? (
+                      <div style={{ padding: '8px 0' }}>
+                        <span style={{ fontSize: 10, fontWeight: 700, color: S.txt3, textTransform: 'uppercase' as const, letterSpacing: '.06em', display: 'block', marginBottom: 8 }}>Serviço</span>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                          <select
+                            value={ticketPanelDeptDraft}
+                            onChange={(ev) => {
+                              setTicketPanelDeptDraft(ev.target.value);
+                              setTicketPanelCatDraft('');
+                              setTicketPanelSubDraft('');
+                            }}
+                            style={panelSelectCompact}
+                          >
+                            <option value="">Departamento...</option>
+                            {ticketSettingsTree.map((d: any) => (
+                              <option key={d.id} value={d.name}>
+                                {d.name}
+                              </option>
+                            ))}
+                          </select>
+                          <select
+                            value={ticketPanelCatDraft}
+                            onChange={(ev) => {
+                              setTicketPanelCatDraft(ev.target.value);
+                              setTicketPanelSubDraft('');
+                            }}
+                            disabled={!ticketPanelDeptDraft}
+                            style={{
+                              ...panelSelectCompact,
+                              opacity: ticketPanelDeptDraft ? 1 : 0.55,
+                              cursor: ticketPanelDeptDraft ? 'pointer' : 'not-allowed',
+                            }}
+                          >
+                            <option value="">Categoria...</option>
+                            {panelCatsEdit.map((c: any) => (
+                              <option key={c.id} value={c.name}>
+                                {c.name}
+                              </option>
+                            ))}
+                          </select>
+                          <select
+                            value={ticketPanelSubDraft}
+                            onChange={(ev) => setTicketPanelSubDraft(ev.target.value)}
+                            disabled={!ticketPanelCatDraft}
+                            style={{
+                              ...panelSelectCompact,
+                              opacity: ticketPanelCatDraft ? 1 : 0.55,
+                              cursor: ticketPanelCatDraft ? 'pointer' : 'not-allowed',
+                            }}
+                          >
+                            <option value="">Subcategoria...</option>
+                            {panelSubsEdit.map((sub: any) => (
+                              <option key={sub.id} value={sub.name}>
+                                {sub.name}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            onClick={() => void handlePanelTicketClassificationSave()}
+                            disabled={ticketPanelClassSaving || !ticketPanelClassDirty}
+                            style={{
+                              padding: '8px 12px',
+                              borderRadius: 8,
+                              border: `1px solid ${S.accentMid}`,
+                              background: ticketPanelClassDirty ? S.accentLight : S.bg2,
+                              color: S.accent,
+                              fontSize: 12,
+                              fontWeight: 700,
+                              cursor: ticketPanelClassSaving || !ticketPanelClassDirty ? 'not-allowed' : 'pointer',
+                              fontFamily: 'inherit',
+                              opacity: ticketPanelClassSaving || !ticketPanelClassDirty ? 0.65 : 1,
+                            }}
+                          >
+                            {ticketPanelClassSaving ? 'Salvando...' : 'Salvar classificação'}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      field('Serviço', ticketServiceLine)
+                    )}
+                    {field('Previsão de solução', formatTicketDateTime(currentTicket.slaResolveAt))}
+
+                    {slaInfo && (
+                      <div style={{ marginTop: 4 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                          <span
+                            style={{
+                              fontSize: 11,
+                              fontWeight: 700,
+                              color: slaInfo.violated ? '#DC2626' : slaInfo.pct > 80 ? '#EA580C' : '#16A34A',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 4,
+                            }}
+                          >
+                            {slaInfo.violated && <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: '#DC2626' }} />}
+                            {slaInfo.label}
+                          </span>
+                          <span style={{ fontSize: 10, color: S.txt3, fontWeight: 500 }}>{Math.round(slaInfo.pct)}%</span>
+                        </div>
+                        <div style={{ height: 7, background: S.bg3, borderRadius: 4, overflow: 'hidden' }}>
+                          <div
+                            style={{
+                              height: '100%',
+                              borderRadius: 4,
+                              transition: 'width .4s',
+                              width: `${slaInfo.pct}%`,
+                              background: slaInfo.violated
+                                ? '#EF4444'
+                                : slaInfo.pct > 80
+                                  ? 'linear-gradient(90deg,#F97316,#EF4444)'
+                                  : slaInfo.pct > 50
+                                    ? '#EAB308'
+                                    : '#22C55E',
+                            }}
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(15,23,42,.07)' }}>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: S.txt3, textTransform: 'uppercase' as const, letterSpacing: '.07em', display: 'block', marginBottom: 8 }}>Responsável</span>
+                      {assignedUser ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <div
+                            style={{
+                              width: 28,
+                              height: 28,
+                              borderRadius: '50%',
+                              background: S.accent,
+                              color: '#fff',
+                              fontSize: 10,
+                              fontWeight: 700,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              flexShrink: 0,
+                            }}
+                          >
+                            {initials(assignedUser.name || assignedUser.email || 'U')}
+                          </div>
+                          <span style={{ fontSize: 12, fontWeight: 500, color: S.txt }}>{assignedUser.name || assignedUser.email}</span>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '6px 10px', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8 }}>
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#D97706" strokeWidth="2" strokeLinecap="round">
+                            <circle cx="12" cy="12" r="10" />
+                            <polyline points="12 6 12 12 16 14" />
+                          </svg>
+                          <span style={{ fontSize: 11, color: '#92400E', fontWeight: 500 }}>Aguardando distribuição automática</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 {/* Top: client avatar + name + tags */}
                 <div style={{ padding: '16px 16px 14px', borderBottom: S.border }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
@@ -2977,101 +3848,25 @@ export default function AtendimentoPage() {
                   </div>
                 )}
 
-                {/* RESPONSÁVEL */}
-                {currentTicket && (
+                {/* METRICAS DO ATENDIMENTO */}
+                {(attendanceMetrics.queuedAt || attendanceMetrics.attendanceStartedAt || attendanceMetrics.firstAgentReplyAt || attendanceMetrics.closedAt) && (
                   <div style={{ padding: '14px 16px', borderBottom: S.border }}>
-                    {secTitle('Responsável')}
-                    {assignedUser ? (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <div style={{ width: 26, height: 26, borderRadius: '50%', background: S.accent, color: '#fff', fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                          {initials(assignedUser.name || assignedUser.email || 'U')}
-                        </div>
-                        <span style={{ fontSize: 12, fontWeight: 500, color: S.txt }}>
-                          {assignedUser.name || assignedUser.email}
-                        </span>
-                      </div>
-                    ) : (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '6px 10px', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8 }}>
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#D97706" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                        <span style={{ fontSize: 11, color: '#92400E', fontWeight: 500 }}>Aguardando distribuição automática</span>
-                      </div>
-                    )}
+                    {secTitle('Métricas do atendimento')}
+                    {field('Chat entrou na fila', attendanceMetrics.queuedAt ? timeAgo(attendanceMetrics.queuedAt) : '—')}
+                    {field('Agente iniciou', attendanceMetrics.attendanceStartedAt ? timeAgo(attendanceMetrics.attendanceStartedAt) : '—')}
+                    {field('Espera para iniciar', attendanceMetrics.waitToStartMs != null ? formatDurationLabel(attendanceMetrics.waitToStartMs) : '—')}
+                    {field('Primeira resposta do agente', attendanceMetrics.firstAgentReplyAt ? timeAgo(attendanceMetrics.firstAgentReplyAt) : '—')}
+                    {field('Tempo até a primeira resposta', attendanceMetrics.firstReplyMs != null ? formatDurationLabel(attendanceMetrics.firstReplyMs) : '—')}
+                    {field('Chat encerrado', attendanceMetrics.closedAt ? timeAgo(attendanceMetrics.closedAt) : '—')}
+                    {field('Tempo total do atendimento', attendanceMetrics.durationMs != null ? formatDurationLabel(attendanceMetrics.durationMs) : '—')}
                   </div>
                 )}
 
-                {/* SLA DO TICKET */}
-                {slaInfo && (
-                  <div style={{ padding: '14px 16px', borderBottom: S.border }}>
-                    {secTitle('SLA do Ticket')}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                      <span style={{
-                        fontSize: 11, fontWeight: 700,
-                        color: slaInfo.violated ? '#DC2626' : slaInfo.pct > 80 ? '#EA580C' : '#16A34A',
-                        display: 'flex', alignItems: 'center', gap: 4,
-                      }}>
-                        {slaInfo.violated && <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: '#DC2626' }} />}
-                        {slaInfo.label}
-                      </span>
-                      <span style={{ fontSize: 10, color: S.txt3, fontWeight: 500 }}>{Math.round(slaInfo.pct)}%</span>
-                    </div>
-                    <div style={{ height: 8, background: S.bg3, borderRadius: 4, overflow: 'hidden' }}>
-                      <div style={{
-                        height: '100%', borderRadius: 4, transition: 'width .4s',
-                        width: `${slaInfo.pct}%`,
-                        background: slaInfo.violated
-                          ? '#EF4444'
-                          : slaInfo.pct > 80
-                          ? 'linear-gradient(90deg,#F97316,#EF4444)'
-                          : slaInfo.pct > 50
-                          ? '#EAB308'
-                          : '#22C55E',
-                      }} />
-                    </div>
-                  </div>
-                )}
-
-                {/* SLA DA CONVERSA */}
-                {convSlaInfo && (
-                  <div style={{ padding: '14px 16px', borderBottom: S.border }}>
-                    {secTitle('SLA Conversa')}
-                    {convSlaInfo.firstResponse && (
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                        <span style={{ fontSize: 11, color: convSlaInfo.firstResponse === 'VIOLADO' ? '#DC2626' : '#D97706', fontWeight: 600 }}>
-                          1ª resposta: {convSlaInfo.firstResponse}
-                        </span>
-                      </div>
-                    )}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                      <span style={{
-                        fontSize: 11, fontWeight: 700,
-                        color: convSlaInfo.violated ? '#DC2626' : convSlaInfo.pct > 80 ? '#EA580C' : '#16A34A',
-                        display: 'flex', alignItems: 'center', gap: 4,
-                      }}>
-                        {convSlaInfo.violated && <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: '#DC2626' }} />}
-                        {convSlaInfo.label}
-                      </span>
-                      <span style={{ fontSize: 10, color: S.txt3, fontWeight: 500 }}>{Math.round(convSlaInfo.pct)}%</span>
-                    </div>
-                    <div style={{ height: 8, background: S.bg3, borderRadius: 4, overflow: 'hidden' }}>
-                      <div style={{
-                        height: '100%', borderRadius: 4, transition: 'width .4s',
-                        width: `${convSlaInfo.pct}%`,
-                        background: convSlaInfo.violated
-                          ? '#EF4444'
-                          : convSlaInfo.pct > 80
-                          ? 'linear-gradient(90deg,#F97316,#EF4444)'
-                          : convSlaInfo.pct > 50
-                          ? '#EAB308'
-                          : '#22C55E',
-                      }} />
-                    </div>
-                  </div>
-                )}
 
                 {/* INFORMAÇÕES */}
                 {customer && (
                   <div style={{ padding: '14px 16px', borderBottom: S.border }}>
-                    {secTitle('Informacoes', contact ? (
+                    {secTitle('Informações', contact ? (
                       <button
                         type="button"
                         onClick={() => void openEditContactModal()}
@@ -3127,7 +3922,15 @@ export default function AtendimentoPage() {
                 {/* TICKETS RECENTES */}
                 {recentTickets.length > 0 && (
                   <div style={{ padding: '14px 16px', borderBottom: S.border }}>
-                    {secTitle('Tickets recentes', <Link href={`/dashboard/tickets?clientId=${selected.clientId}`} style={{ fontSize: 11, color: S.accent, fontWeight: 500, textDecoration: 'none' }}>Ver todos</Link>)}
+                    {secTitle('Tickets recentes', (
+                      <button
+                        type="button"
+                        onClick={() => router.push(`/dashboard/tickets?clientId=${selected.clientId}`)}
+                        style={{ fontSize: 11, color: S.accent, fontWeight: 600, background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', textDecoration: 'underline' }}
+                      >
+                        Ver todos
+                      </button>
+                    ))}
                     {recentTickets.map((t: any) => {
                       const isOpen = ['open','in_progress','waiting_client'].includes(t.status);
                       const isResolved = t.status === 'resolved';
@@ -3135,8 +3938,30 @@ export default function AtendimentoPage() {
                       const badge = isTicketCriticalUrgent(t) ? { bg: '#FEF2F2', color: '#DC2626', label: 'Urgente' } :
                                     t.status === 'resolved' ? { bg: '#F0FDF4', color: '#166534', label: 'Resolvido' } :
                                     isOpen ? { bg: S.accentLight, color: S.accent, label: 'Aberto' } : null;
+                      const isSameTicketAsChat = String(t.id) === String(selected?.ticketId || currentTicket?.id || '');
                       return (
-                        <Link key={t.id} href={`/dashboard/tickets/${t.id}`} style={{ textDecoration: 'none' }}>
+                        <button
+                          key={t.id}
+                          type="button"
+                          onClick={() => {
+                            if (isSameTicketAsChat) {
+                              openTicketPanelAndScroll();
+                              return;
+                            }
+                            void openTicketDetailSheet(t.id);
+                          }}
+                          title={isSameTicketAsChat ? 'Ver detalhes no painel' : 'Ver ticket no painel lateral'}
+                          style={{
+                            width: '100%',
+                            display: 'block',
+                            background: 'none',
+                            border: 'none',
+                            padding: 0,
+                            cursor: 'pointer',
+                            textAlign: 'left',
+                            fontFamily: 'inherit',
+                          }}
+                        >
                           <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: S.border }}>
                             <div style={{ width: 8, height: 8, borderRadius: '50%', background: dot, flexShrink: 0 }} />
                             <div style={{ flex: 1, minWidth: 0 }}>
@@ -3148,7 +3973,7 @@ export default function AtendimentoPage() {
                               <div style={{ fontSize: 10, color: S.txt3, marginTop: 2 }}>{timeAgo(t.createdAt)}</div>
                             </div>
                           </div>
-                        </Link>
+                        </button>
                       );
                     })}
                   </div>
@@ -4067,6 +4892,88 @@ export default function AtendimentoPage() {
         </div>
       )}
 
+      {ticketDetailSheetOpen && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 10050 }}>
+          <div
+            role="presentation"
+            onClick={closeTicketDetailSheet}
+            style={{ position: 'absolute', inset: 0, background: 'rgba(15,23,42,0.5)' }}
+          />
+          <aside
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="atend-ticket-sheet-title"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: 'absolute',
+              top: 0,
+              right: 0,
+              bottom: 0,
+              width: 'min(440px, 100vw)',
+              background: S.bg,
+              boxShadow: '-12px 0 40px rgba(15,23,42,0.18)',
+              display: 'flex',
+              flexDirection: 'column',
+            }}
+          >
+            <div style={{ padding: '16px 18px', borderBottom: S.border, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0, background: S.bg2 }}>
+              <div style={{ minWidth: 0 }}>
+                <div id="atend-ticket-sheet-title" style={{ fontSize: 10, fontWeight: 700, color: S.txt3, textTransform: 'uppercase' as const, letterSpacing: '0.07em' }}>Ticket</div>
+                <div style={{ fontFamily: "'DM Mono', monospace", fontSize: 15, fontWeight: 800, color: S.accent, marginTop: 4 }}>
+                  {ticketDetailSheetLoading ? '…' : (ticketDetailSheetTicket?.ticketNumber ?? '—')}
+                </div>
+              </div>
+              <button type="button" onClick={closeTicketDetailSheet} title="Fechar (Esc)" style={{ flexShrink: 0, width: 36, height: 36, borderRadius: 10, border: S.border2, background: S.bg, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: S.txt2 }}>
+                <X size={18} />
+              </button>
+            </div>
+            <div style={{ flex: 1, overflowY: 'auto', padding: '16px 18px' }}>
+              {ticketDetailSheetLoading && (
+                <div style={{ padding: 40, textAlign: 'center', color: S.txt3, fontSize: 13 }}>Carregando…</div>
+              )}
+              {!ticketDetailSheetLoading && ticketDetailSheetTicket && (() => {
+                const t = ticketDetailSheetTicket;
+                const st = TICKET_STATUS_PANEL[t.status] || TICKET_STATUS_PANEL.open;
+                const pri = getTicketPriorityDisplay(t);
+                const classLine = [t.department, t.category, t.subcategory].filter(Boolean).join(' › ') || '—';
+                const row = (label: string, value: ReactNode) => (
+                  <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, padding: '8px 0', borderBottom: S.border }}>
+                    <span style={{ fontSize: 12, color: S.txt2, flexShrink: 0 }}>{label}</span>
+                    <span style={{ fontSize: 12, color: S.txt, fontWeight: 500, textAlign: 'right' as const }}>{value}</span>
+                  </div>
+                );
+                const desc = t.description != null ? String(t.description) : '';
+                return (
+                  <>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 600, padding: '4px 10px', borderRadius: 999, background: st.bg, color: st.color, border: `1px solid ${st.dot}33` }}>
+                        <span style={{ width: 5, height: 5, borderRadius: '50%', background: st.dot }} />
+                        {st.label}
+                      </span>
+                      <span style={ticketPriorityChipStyle(t)}>{pri.label}</span>
+                    </div>
+                    {row('Assunto', <span style={{ whiteSpace: 'pre-wrap' }}>{t.subject || '—'}</span>)}
+                    {row('Classificação', classLine)}
+                    {row('Aberto em', formatTicketDateTime(t.createdAt))}
+                    {desc.trim() ? row('Descrição', <span style={{ whiteSpace: 'pre-wrap', maxHeight: 160, overflow: 'auto', display: 'block' }}>{desc.length > 2000 ? `${desc.slice(0, 2000)}…` : desc}</span>) : null}
+                  </>
+                );
+              })()}
+            </div>
+          </aside>
+        </div>
+      )}
+
     </>
   );
 }
+
+export default function AtendimentoPage() {
+  return (
+    <Suspense fallback={null}>
+      <AtendimentoPageInner />
+    </Suspense>
+  );
+}
+
+

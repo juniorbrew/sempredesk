@@ -3,6 +3,7 @@ import { FormEvent, useEffect, useMemo, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { api } from '@/lib/api';
+import { atendimentoUrlWithOpenTicket } from '@/lib/atendimento-ticket-bridge';
 import { DEFAULT_PRIORITY, PRIORITY_OPTIONS } from '@/lib/priorities';
 import { Search, X, User, Building2, FileText, ChevronDown, AlertCircle, Ticket, Tag, ArrowLeft, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -190,7 +191,7 @@ export default function NewTicketPage() {
         delete payload.priorityId;
       }
       const created = (await api.createTicket(payload)) as { id: string };
-      router.push(`/dashboard/tickets/${created.id}`);
+      router.push(atendimentoUrlWithOpenTicket(created.id));
     } catch(e:any){ toast.error(e?.response?.data?.message||'Erro ao criar ticket'); }
     setSaving(false);
   };
