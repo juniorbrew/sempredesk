@@ -84,15 +84,14 @@ export class TicketsController {
   @Get()
   @RequirePermission('ticket.view')
   async findAll(@Request() req: any, @TenantId() tenantId: string, @Query() filters: FilterTicketsDto) {
-    // Agentes sem ticket.view_all só enxergam os próprios tickets + não atribuídos
+    // Agentes sem ticket.view_all só enxergam os próprios tickets
     if (!req.user?.isPortal) {
       const role: string = req.user?.role || '';
       const perms: string[] = req.user?.permissions || [];
       const isAdmin = role === 'super_admin' || role === 'admin';
       if (!isAdmin && !perms.includes('ticket.view_all')) {
         if (!(filters as any).assignedTo) {
-          // Mostra tickets atribuídos ao agente OU sem responsável (fila aberta)
-          (filters as any).agentId = req.user.id;
+          (filters as any).assignedTo = req.user.id;
         }
       }
     }
