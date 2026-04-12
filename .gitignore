@@ -15,6 +15,9 @@
 #   • infra/nginx/nginx.local.conf
 # =============================================================================
 
+# TypeScript (incremental — gerado localmente)
+*.tsbuildinfo
+
 # Node
 node_modules/
 npm-debug.log*
