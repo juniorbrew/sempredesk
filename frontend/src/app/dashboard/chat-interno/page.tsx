@@ -9,7 +9,6 @@ import { useAuthStore, hasPermission } from '@/store/auth.store';
 import { usePresenceStore } from '@/store/presence.store';
 import { format, isToday, isYesterday } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { atendimentoUrlWithOpenTicket } from '@/lib/atendimento-ticket-bridge';
 
 const S = {
   bg: '#fff', bg2: '#F8F8FB', bg3: '#F1F1F6',
@@ -525,7 +524,7 @@ export default function ChatInternoPage() {
                       <button
                         key={t.id}
                         type="button"
-                        onClick={() => router.push(atendimentoUrlWithOpenTicket(t.id))}
+                        onClick={() => router.push(`/dashboard/tickets/${t.id}`)}
                         style={{ display:'flex', alignItems:'flex-start', gap:8, padding:'8px 10px', borderRadius:8, background:S.bg2, border:`1px solid ${S.bd}`, textDecoration:'none', transition:'background .1s', width:'100%', textAlign:'left' as const, cursor:'pointer' }}
                         onMouseEnter={e => (e.currentTarget.style.background = S.bg3)}
                         onMouseLeave={e => (e.currentTarget.style.background = S.bg2)}

@@ -11,7 +11,6 @@ import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { TagMultiSelect } from '@/components/ui/TagMultiSelect';
 import { getTicketPriorityDisplay } from '@/lib/ticket-priority-ui';
-import { atendimentoUrlWithOpenTicket } from '@/lib/atendimento-ticket-bridge';
 import AudioMessagePlayer from '@/components/chat/AudioMessagePlayer';
 import { MediaLightbox } from '@/components/chat/InlineChatMedia';
 
@@ -1673,7 +1672,7 @@ export default function TicketDetailsPage() {
                     const diffDays = Math.floor(diffMs / 86400000);
                     const timeLabel = t.id===id ? 'Atual' : diffDays===0 ? 'hoje' : diffDays < 7 ? `${diffDays}d` : `${Math.floor(diffDays/7)} sem`;
                     return (
-                      <button type="button" key={t.id} onClick={() => router.push(atendimentoUrlWithOpenTicket(t.id))} style={{ display:'flex', alignItems:'center', gap:6, padding:'5px 0', borderBottom:`1px solid ${S.bd}`, textDecoration:'none', width:'100%', textAlign:'left' as const, background:'none', borderLeft:'none', borderRight:'none', borderTop:'none', cursor:'pointer' }}>
+                      <button type="button" key={t.id} onClick={() => router.push(`/dashboard/tickets/${t.id}`)} style={{ display:'flex', alignItems:'center', gap:6, padding:'5px 0', borderBottom:`1px solid ${S.bd}`, textDecoration:'none', width:'100%', textAlign:'left' as const, background:'none', borderLeft:'none', borderRight:'none', borderTop:'none', cursor:'pointer' }}>
                         <span style={{ width:7, height:7, borderRadius:'50%', background:dot, flexShrink:0 }} />
                         <div style={{ flex:1, minWidth:0 }}>
                           <div style={{ fontSize:10, color:S.txt3, fontFamily:"'DM Mono',monospace" }}>{t.ticketNumber}</div>

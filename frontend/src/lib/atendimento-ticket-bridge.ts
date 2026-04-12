@@ -1,7 +1,10 @@
 /** Evento disparado para abrir um ticket no painel lateral da página de atendimento (sem router para /dashboard/tickets). */
 export const ATENDIMENTO_OPEN_TICKET_EVENT = 'sempredesk:atendimentoOpenTicket';
 
-/** Query string na rota `/dashboard/atendimento` para abrir ticket no painel (funciona com navegação do App Router). */
+/**
+ * Query na inbox `/dashboard/atendimento` para abrir detalhe de ticket no painel lateral/drawer.
+ * Usar só quando o utilizador já está no atendimento (ex.: busca global, notificação); não substitui `/dashboard/tickets/:id`.
+ */
 export const ATENDIMENTO_OPEN_TICKET_QUERY = 'openTicket';
 
 export function atendimentoUrlWithOpenTicket(ticketId: string): string {

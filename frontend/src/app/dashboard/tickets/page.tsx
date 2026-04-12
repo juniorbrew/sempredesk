@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
@@ -8,7 +8,6 @@ import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { getTicketPriorityDisplay } from '@/lib/ticket-priority-ui';
-import { atendimentoUrlWithOpenTicket } from '@/lib/atendimento-ticket-bridge';
 
 const STATUS_LABELS: Record<string,string> = { open:'Aberto', in_progress:'Em andamento', waiting_client:'Aguardando', resolved:'Resolvido', closed:'Fechado', cancelled:'Cancelado' };
 const PRIORITY_LABELS: Record<string,string> = { low:'Baixa', medium:'Média', high:'Alta', critical:'Crítica' };
@@ -202,7 +201,6 @@ function KanbanView({ tickets, customers, team, rootCauseOptions, onMove }: {
   const [pendingMove, setPendingMove] = useState<{ticket:any; newStatus:string; oldStatus:string}|null>(null);
   const [pendingReopen, setPendingReopen] = useState<{ticket:any; newStatus:string; oldStatus:string}|null>(null);
   const [reopenReason, setReopenReason] = useState('');
-  const kanbanCardPtrRef = useRef<{ id: string; x: number; y: number } | null>(null);
 
   const byStatus = useMemo(() => {
     const map: Record<string, any[]> = {};
@@ -375,17 +373,6 @@ function KanbanView({ tickets, customers, team, rootCauseOptions, onMove }: {
                     draggable
                     onDragStart={e => handleDragStart(e, t)}
                     onDragEnd={handleDragEnd}
-                    onPointerDown={(e) => {
-                      if (e.button !== 0) return;
-                      kanbanCardPtrRef.current = { id: t.id, x: e.clientX, y: e.clientY };
-                    }}
-                    onClick={(e) => {
-                      const st = kanbanCardPtrRef.current;
-                      kanbanCardPtrRef.current = null;
-                      if (!st || st.id !== t.id) return;
-                      if (Math.abs(e.clientX - st.x) > 12 || Math.abs(e.clientY - st.y) > 12) return;
-                      router.push(atendimentoUrlWithOpenTicket(t.id));
-                    }}
                     style={{
                       background: isDragging ? '#E0E7FF' : '#fff',
                       borderRadius:8,
@@ -403,8 +390,7 @@ function KanbanView({ tickets, customers, team, rootCauseOptions, onMove }: {
                     <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:6 }}>
                       <button
                         type="button"
-                        onPointerDown={(e) => e.stopPropagation()}
-                        onClick={(e) => { e.stopPropagation(); router.push(atendimentoUrlWithOpenTicket(t.id)); }}
+                        onClick={(e) => { e.stopPropagation(); router.push(`/dashboard/tickets/${t.id}`); }}
                         style={{ fontFamily:'monospace', color:'#4F46E5', fontWeight:700, fontSize:11, background:'#EEF2FF', padding:'2px 7px', borderRadius:5, border:'none', cursor:'pointer' }}
                       >
                         {t.ticketNumber}
@@ -415,8 +401,7 @@ function KanbanView({ tickets, customers, team, rootCauseOptions, onMove }: {
                     {/* Subject */}
                     <button
                       type="button"
-                      onPointerDown={(e) => e.stopPropagation()}
-                      onClick={(e) => { e.stopPropagation(); router.push(atendimentoUrlWithOpenTicket(t.id)); }}
+                      onClick={(e) => { e.stopPropagation(); router.push(`/dashboard/tickets/${t.id}`); }}
                       style={{ textAlign:'left', width:'100%', border:'none', background:'transparent', padding:0, cursor:'pointer', fontFamily:'inherit' }}
                     >
                       <div style={{ fontSize:12, fontWeight:600, color:'#172B4D', marginBottom:4, overflow:'hidden', textOverflow:'ellipsis', display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical' as any }}>
@@ -757,23 +742,14 @@ export default function TicketsPage() {
                 </div>
               ) : data.data.map((t:any) => (
                 <div key={t.id}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      router.push(atendimentoUrlWithOpenTicket(t.id));
-                    }
-                  }}
-                  onClick={() => router.push(atendimentoUrlWithOpenTicket(t.id))}
+                  onClick={() => router.push(`/dashboard/tickets/${t.id}`)}
                   onMouseEnter={e => (e.currentTarget as HTMLDivElement).style.background=S.bg2}
                   onMouseLeave={e => (e.currentTarget as HTMLDivElement).style.background=t.escalated?'#FFF8F8':'transparent'}
                   style={{ display:'grid', gridTemplateColumns:'90px 1fr 140px 130px 110px 100px 110px 80px 110px', padding:'0 16px', borderBottom:`1px solid ${S.bd}`, cursor:'pointer', transition:'background .1s', alignItems:'center', background:t.escalated?'#FFF8F8':'transparent' }}>
                   <div style={{ padding:'11px 8px' }}>
                     <button
                       type="button"
-                      onPointerDown={(e) => e.stopPropagation()}
-                      onClick={(e) => { e.stopPropagation(); router.push(atendimentoUrlWithOpenTicket(t.id)); }}
+                      onClick={(e) => { e.stopPropagation(); router.push(`/dashboard/tickets/${t.id}`); }}
                       style={{ fontFamily:"'DM Mono', monospace", color:S.accent, fontWeight:600, fontSize:11, textDecoration:'none', border:'none', background:'transparent', padding:0, cursor:'pointer' }}
                     >
                       {t.ticketNumber}
@@ -784,8 +760,7 @@ export default function TicketsPage() {
                       {t.escalated && <AlertTriangle style={{ width:13, height:13, color:'#EF4444', flexShrink:0 }} />}
                       <button
                         type="button"
-                        onPointerDown={(e) => e.stopPropagation()}
-                        onClick={(e) => { e.stopPropagation(); router.push(atendimentoUrlWithOpenTicket(t.id)); }}
+                        onClick={(e) => { e.stopPropagation(); router.push(`/dashboard/tickets/${t.id}`); }}
                         style={{ fontSize:12, fontWeight:500, color:S.txt, textDecoration:'none', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', display:'block', textAlign:'left', border:'none', background:'transparent', padding:0, cursor:'pointer', fontFamily:'inherit', minWidth:0, flex:1 }}
                       >
                         {t.subject}

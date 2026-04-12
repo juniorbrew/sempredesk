@@ -1,8 +1,8 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { Bell, X, Ticket, MessageSquare, AlertTriangle, CheckCircle } from 'lucide-react';
-import { useRouter } from 'next/navigation';
-import { atendimentoUrlWithOpenTicket, ticketIdFromTicketsHref } from '@/lib/atendimento-ticket-bridge';
+import { usePathname, useRouter } from 'next/navigation';
+import { atendimentoUrlWithOpenTicket, isAtendimentoPath, ticketIdFromTicketsHref } from '@/lib/atendimento-ticket-bridge';
 import { getSharedRealtimeSocket } from '@/lib/realtime';
 
 const STORAGE_KEY = 'app_notifications';
@@ -30,6 +30,7 @@ export default function NotificationBell() {
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
+  const pathname = usePathname();
 
   useEffect(() => { setNotifs(loadStored()); }, []);
 
@@ -122,10 +123,13 @@ export default function NotificationBell() {
     markRead(n.id);
     setOpen(false);
     if (!n.href) return;
-    const tid = ticketIdFromTicketsHref(n.href);
-    if (tid) {
-      router.push(atendimentoUrlWithOpenTicket(tid));
-      return;
+    const path = typeof window !== 'undefined' ? window.location.pathname : (pathname || '');
+    if (isAtendimentoPath(path) || isAtendimentoPath(pathname)) {
+      const tid = ticketIdFromTicketsHref(n.href);
+      if (tid) {
+        router.replace(atendimentoUrlWithOpenTicket(tid));
+        return;
+      }
     }
     router.push(n.href);
   };
