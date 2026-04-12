@@ -201,6 +201,25 @@ function extractSavedMessageFromSendResponse(res: any): any | null {
 }
 
 // ── sub-components ────────────────────────────────────────────────────────────
+
+function ConvWaitSlaInfo({ conv }: { conv: any }) {
+  const deadline = conv?.slaFirstResponseDeadline;
+  if (!deadline) return null;
+  const now = Date.now();
+  const diff = new Date(deadline).getTime() - now;
+  if (diff < 0) {
+    return <span style={{ fontSize: 12, fontWeight: 700, color: '#DC2626' }}>⚠ SLA de atendimento VIOLADO</span>;
+  }
+  const hours = Math.floor(diff / 3600000);
+  const mins = Math.floor((diff % 3600000) / 60000);
+  const atRisk = diff < 15 * 60000;
+  return (
+    <span style={{ fontSize: 12, fontWeight: 600, color: atRisk ? '#F97316' : '#64748B' }}>
+      SLA para iniciar: {hours > 0 ? `${hours}h ${mins}m` : `${mins}m`}
+    </span>
+  );
+}
+
 function ChannelDot({ channel }: { channel: string }) {
   const isWa = channel === 'whatsapp';
   return (
@@ -718,6 +737,7 @@ export default function AtendimentoPage() {
   const [ticketSettingsTree, setTicketSettingsTree] = useState<any[]>([]);
   const [team, setTeam] = useState<any[]>([]);
   const [creatingTicket, setCreatingTicket] = useState(false);
+  const [startingAttendance, setStartingAttendance] = useState(false);
   const [showStartModal, setShowStartModal] = useState(false);
   const [startMode, setStartMode] = useState<'contact' | 'phone'>('contact');
   const [startClientId, setStartClientId] = useState('');
@@ -1557,6 +1577,26 @@ export default function AtendimentoPage() {
     setCreateClientResults([]);
     setShowCreateClientDropdown(false);
     setShowCreateModal(true);
+  };
+
+  const handleStartAttendance = async () => {
+    if (!selected) return;
+    setStartingAttendance(true);
+    try {
+      const res: any = await api.startAttendance(selected.id);
+      const ticketId = res?.ticket?.id ?? res?.data?.ticket?.id;
+      // Reload conversation to get updated ticketId and SLA data
+      const freshConv: any = await api.getConversation(selected.id).catch(() => null);
+      const updatedConv = freshConv ? { ...freshConv, ticketId } : { ...selected, ticketId };
+      setSelected(updatedConv);
+      loadChat(updatedConv);
+      await loadConversations(false, true);
+      invalidateMyOpenTicketsCount();
+      showToast('Atendimento iniciado!');
+    } catch (e: any) {
+      showToast(e?.response?.data?.message || 'Erro ao iniciar atendimento', 'error');
+    }
+    setStartingAttendance(false);
   };
 
   const confirmCreateTicket = async () => {
@@ -2571,6 +2611,11 @@ export default function AtendimentoPage() {
                         {currentTicket?.ticketNumber ?? selected?.ticketNumber ?? '—'}
                       </Link>
                     )}
+                    {selected?.slaFirstResponseAt && selected?.slaFirstResponseDeadline && (
+                      <span style={{ fontSize: 11, color: '#64748B', padding: '4px 8px', borderRadius: 999, background: S.bg2, border: S.border2 }}>
+                        1ª resp.: {Math.round((new Date(selected.slaFirstResponseAt).getTime() - new Date(selected.createdAt).getTime()) / 60000)}m
+                      </span>
+                    )}
                     {!hasTicket && !isPortalNoTicket && (
                       <button onClick={handleCreateTicket} disabled={creatingTicket}
                         style={{ padding: '7px 14px', borderRadius: 999, border: 'none', background: `linear-gradient(135deg, ${S.accent}, #3B82F6)`, color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit', boxShadow: '0 10px 20px rgba(29,78,216,.18)' }}>
@@ -2719,7 +2764,22 @@ export default function AtendimentoPage() {
               </div>
 
               {/* Input */}
-              {!isClosed && (
+              {!isClosed && selected && !selected.ticketId && selected.channel === 'whatsapp' ? (
+                <div style={{ padding: '20px 24px', borderTop: '1px solid rgba(0,0,0,0.07)', background: '#fff', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, flexShrink: 0 }}>
+                  {/* SLA de conversa */}
+                  <ConvWaitSlaInfo conv={selected} />
+                  <p style={{ margin: 0, fontSize: 13, color: '#64748B', textAlign: 'center' }}>
+                    Para enviar uma mensagem, clique no botão abaixo e inicie o atendimento.
+                  </p>
+                  <button
+                    onClick={handleStartAttendance}
+                    disabled={startingAttendance}
+                    style={{ background: '#4F46E5', color: '#fff', border: 'none', borderRadius: 10, padding: '12px 32px', fontSize: 14, fontWeight: 600, cursor: startingAttendance ? 'not-allowed' : 'pointer', opacity: startingAttendance ? 0.7 : 1, fontFamily: 'inherit' }}
+                  >
+                    {startingAttendance ? 'Iniciando...' : 'Iniciar atendimento'}
+                  </button>
+                </div>
+              ) : !isClosed && (
                   <ChatComposer
                     accentColor={S.accent}
                     borderColor={S.border}

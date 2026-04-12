@@ -194,6 +194,18 @@ export class ConversationsController {
     );
   }
 
+  /** Agente inicia atendimento: cria ticket vinculado e registra SLA de primeira resposta. */
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermission('ticket.create')
+  @Post(':id/start-attendance')
+  async startAttendance(
+    @Request() req: any,
+    @TenantId() tenantId: string,
+    @Param('id') id: string,
+  ) {
+    return this.conversationsService.startAttendance(tenantId, id, req.user.id, req.user.name);
+  }
+
   @UseGuards(JwtAuthGuard, PermissionsGuard)
   @RequirePermission('ticket.edit')
   @Post(':id/link-ticket')

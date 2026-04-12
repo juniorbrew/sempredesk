@@ -373,33 +373,6 @@ export class ConversationsService {
     }
     if (active && !active.ticketId) {
       await this.maybeApplyDepartmentPriorityAndSlaFromOpts(tenantId, active, opts, manager);
-      if (opts?.autoCreateTicket && active.initiatedBy !== ConversationInitiatedBy.AGENT) {
-        const ticket = await this.createTicketForConversation(
-          tenantId,
-          active,
-          opts?.firstMessage,
-          opts?.contactName,
-          undefined,
-          undefined,
-          undefined,
-          opts?.firstMessage,
-          undefined,
-          opts?.department,
-        );
-        active.ticketId = ticket.id;
-        await convRepo.save(active);
-        this.logConversationResolution({
-          scope: 'conversation-resolution',
-          tenantId,
-          contactId,
-          clientId,
-          channel,
-          existingConversationId: active.id,
-          action: 'reuse',
-          stage: 'return-active-auto-ticket-getOrCreateForContact',
-        });
-        return { conversation: active, ticket, ticketCreated: true };
-      }
       this.logConversationResolution({
         scope: 'conversation-resolution',
         tenantId,
@@ -413,33 +386,6 @@ export class ConversationsService {
       return { conversation: active, ticket: null, ticketCreated: false };
     }
     const result = await this.startConversation(tenantId, clientId, contactId, channel, opts ?? {}, manager);
-    if (opts?.autoCreateTicket) {
-      const ticket = await this.createTicketForConversation(
-        tenantId,
-        result.conversation,
-        opts?.firstMessage,
-        opts?.contactName,
-        undefined,
-        undefined,
-        undefined,
-        opts?.firstMessage,
-        undefined,
-        opts?.department,
-      );
-      result.conversation.ticketId = ticket.id;
-      await convRepo.save(result.conversation);
-      this.logConversationResolution({
-        scope: 'conversation-resolution',
-        tenantId,
-        contactId,
-        clientId,
-        channel,
-        existingConversationId: null,
-        action: 'create',
-        stage: 'return-created-auto-ticket-getOrCreateForContact',
-      });
-      return { conversation: result.conversation, ticket, ticketCreated: true };
-    }
     this.logConversationResolution({
       scope: 'conversation-resolution',
       tenantId,
@@ -755,6 +701,54 @@ export class ConversationsService {
     const ticket = await this.createTicketForConversation(tenantId, conv, undefined, contactName, subject, authorId, authorName);
     conv.ticketId = ticket.id;
     await this.convRepo.save(conv);
+    return { conversation: conv, ticket };
+  }
+
+  /**
+   * Agente inicia atendimento manualmente: cria ticket vinculado à conversa e
+   * registra a primeira resposta SLA (tempo da chegada do chat até agora).
+   */
+  async startAttendance(
+    tenantId: string,
+    conversationId: string,
+    agentId: string,
+    agentName: string,
+  ): Promise<{ conversation: Conversation; ticket: any }> {
+    const conv = await this.convRepo.findOne({ where: { id: conversationId, tenantId } });
+    if (!conv) throw new NotFoundException('Conversa não encontrada');
+    if (conv.ticketId) throw new BadRequestException('Atendimento já iniciado para esta conversa');
+
+    const contact = await this.customersService.findContactById(tenantId, conv.contactId);
+    const contactName = contact?.name || 'Cliente';
+    const subject = `Atendimento WhatsApp - ${contactName}`;
+
+    // Cria ticket vinculado à conversa, com agente que clicou como autor
+    const ticket = await this.createTicketForConversation(
+      tenantId,
+      conv,
+      undefined,   // firstMessage
+      contactName,
+      subject,
+      agentId,     // authorId
+      agentName,   // authorName
+    );
+
+    // Vincula conversa ao ticket
+    conv.ticketId = ticket.id;
+    await this.convRepo.save(conv);
+
+    // Registra primeira resposta SLA da conversa (tempo de espera até iniciar atendimento)
+    await this.slaService.recordFirstResponse(tenantId, conversationId).catch(() => {});
+
+    // Atribui ticket ao agente que clicou (sobrepõe o round-robin) e define status in_progress
+    await this.dataSource
+      .createQueryBuilder()
+      .update('tickets')
+      .set({ assigned_to: agentId, status: 'in_progress' } as any)
+      .where('id = :id AND tenant_id = :tenantId', { id: ticket.id, tenantId })
+      .execute()
+      .catch(() => {});
+
     return { conversation: conv, ticket };
   }
 

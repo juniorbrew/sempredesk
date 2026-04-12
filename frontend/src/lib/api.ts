@@ -185,6 +185,8 @@ class ApiClient {
     this.http.post('/conversations/start-by-agent', data);
   createTicketForConversation = (conversationId: string, data?: { subject?: string }) =>
     this.http.post(`/conversations/${conversationId}/create-ticket`, data || {});
+  startAttendance = (conversationId: string) =>
+    this.http.post(`/conversations/${conversationId}/start-attendance`, {});
   linkTicketToConversation = (conversationId: string, ticketId: string) =>
     this.http.post(`/conversations/${conversationId}/link-ticket`, { ticketId });
   closeConversation = (id: string, opts?: { keepTicketOpen?: boolean; solution?: string; rootCause?: string; timeSpentMin?: number; internalNote?: string; complexity?: number }) =>
