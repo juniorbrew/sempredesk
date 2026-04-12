@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, NotFoundException, ConflictException } from '@nestjs/common';
+﻿import { Injectable, BadRequestException, NotFoundException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { TicketSetting, TicketSettingType } from './entities/ticket-setting.entity';
@@ -20,12 +20,12 @@ export class TicketSettingsService {
 
   private async getOrFail(tenantId: string, id: string) {
     const item = await this.repo.findOne({ where: { id, tenantId } });
-    if (!item) throw new NotFoundException('Cadastro não encontrado');
+    if (!item) throw new NotFoundException('Cadastro nÃ£o encontrado');
     return item;
   }
 
   /**
-   * Resolve departamento canónico pelo nome (case-insensitive, trim), para fluxo chatbot/WhatsApp.
+   * Resolve departamento canÃ³nico pelo nome (case-insensitive, trim), para fluxo chatbot/WhatsApp.
    */
   async findDepartmentByCanonicalName(tenantId: string, name: string): Promise<TicketSetting | null> {
     const trimmed = (name || '').trim();
@@ -40,7 +40,7 @@ export class TicketSettingsService {
   }
 
   /**
-   * Departamento usado para prioridade padrão + SLA da conversa (Fase 3).
+   * Departamento usado para prioridade padrÃ£o + SLA da conversa (Fase 3).
    * Aceita nome (menu chatbot) ou id (portal).
    */
   async resolveDepartmentSettingForSla(
@@ -64,7 +64,7 @@ export class TicketSettingsService {
     if (!parentId) return;
 
     const parent = await this.repo.findOne({ where: { id: parentId, tenantId, active: true } });
-    if (!parent) throw new BadRequestException('Pai inválido para este tenant');
+    if (!parent) throw new BadRequestException('Pai invÃ¡lido para este tenant');
 
     if (type === TicketSettingType.CATEGORY && parent.type !== TicketSettingType.DEPARTMENT) {
       throw new BadRequestException('Categoria deve pertencer a um departamento');
@@ -75,31 +75,53 @@ export class TicketSettingsService {
     }
 
     if (type === TicketSettingType.DEPARTMENT) {
-      throw new BadRequestException('Departamento não pode ter pai');
+      throw new BadRequestException('Departamento nÃ£o pode ter pai');
     }
   }
 
-  /**
-   * default_priority_id só é válido para departamentos; a prioridade deve existir no tenant.
-   */
-  private async assertDefaultPriorityValid(
+  private normalizeOptionalId(value: string | null | undefined): string | null {
+    if (value === undefined || value === null) return null;
+    const normalized = String(value).trim();
+    return normalized.length ? normalized : null;
+  }
+
+  private async findActiveSettingByCanonicalName(
     tenantId: string,
     type: TicketSettingType,
+    name?: string | null,
+    parentId?: string | null,
+  ): Promise<TicketSetting | null> {
+    const trimmed = (name || '').trim();
+    if (!trimmed) return null;
+
+    const qb = this.repo
+      .createQueryBuilder('s')
+      .where('s.tenant_id = :tenantId', { tenantId })
+      .andWhere('s.type = :type', { type })
+      .andWhere('s.active = true')
+      .andWhere('LOWER(TRIM(s.name)) = LOWER(:name)', { name: trimmed });
+
+    if (parentId) {
+      qb.andWhere('s.parent_id = :parentId', { parentId });
+    }
+
+    return (await qb.getOne()) ?? null;
+  }
+
+  private async assertDefaultPriorityValid(
+    tenantId: string,
+    _type: TicketSettingType,
     value: string | null | undefined,
   ): Promise<void> {
-    if (value === undefined || value === null || (typeof value === 'string' && value.trim() === '')) {
+    const normalized = this.normalizeOptionalId(value);
+    if (!normalized) {
       return;
     }
-    if (type !== TicketSettingType.DEPARTMENT) {
-      throw new BadRequestException(
-        'defaultPriorityId só é permitido para cadastros do tipo departamento',
-      );
-    }
     const p = await this.priorityRepo.findOne({
-      where: { id: value, tenantId },
+      where: { id: normalized, tenantId },
     });
     if (!p) {
-      throw new BadRequestException('Prioridade não encontrada ou não pertence ao tenant');
+      throw new BadRequestException('Prioridade nÃ£o encontrada ou nÃ£o pertence ao tenant');
     }
   }
 
@@ -117,11 +139,10 @@ export class TicketSettingsService {
     });
 
     if (exists) {
-      throw new ConflictException('Já existe um cadastro com esse nome');
+      throw new ConflictException('JÃ¡ existe um cadastro com esse nome');
     }
 
-    const defaultPriorityId =
-      dto.type === TicketSettingType.DEPARTMENT ? (dto.defaultPriorityId ?? null) : null;
+    const defaultPriorityId = this.normalizeOptionalId(dto.defaultPriorityId);
 
     const item = this.repo.create({
       tenantId,
@@ -172,6 +193,40 @@ export class TicketSettingsService {
     }));
   }
 
+  async resolveDefaultPriorityIdForClassification(
+    tenantId: string,
+    opts: {
+      department?: string | null;
+      category?: string | null;
+      subcategory?: string | null;
+    },
+  ): Promise<string | null> {
+    const department = await this.findActiveSettingByCanonicalName(
+      tenantId,
+      TicketSettingType.DEPARTMENT,
+      opts.department,
+    );
+    const category = await this.findActiveSettingByCanonicalName(
+      tenantId,
+      TicketSettingType.CATEGORY,
+      opts.category,
+      department?.id ?? null,
+    );
+    const subcategory = await this.findActiveSettingByCanonicalName(
+      tenantId,
+      TicketSettingType.SUBCATEGORY,
+      opts.subcategory,
+      category?.id ?? null,
+    );
+
+    return (
+      subcategory?.defaultPriorityId ??
+      category?.defaultPriorityId ??
+      department?.defaultPriorityId ??
+      null
+    );
+  }
+
   async findTree(tenantId: string) {
     const items = await this.repo.find({
       where: { tenantId, active: true },
@@ -202,7 +257,7 @@ export class TicketSettingsService {
       where: { id, tenantId },
       relations: ['defaultPriority'],
     });
-    if (!item) throw new NotFoundException('Cadastro não encontrado');
+    if (!item) throw new NotFoundException('Cadastro nÃ£o encontrado');
     return item;
   }
 
@@ -223,19 +278,13 @@ export class TicketSettingsService {
       });
 
       if (exists && exists.id !== id) {
-        throw new ConflictException('Já existe um cadastro com esse nome');
+        throw new ConflictException('JÃ¡ existe um cadastro com esse nome');
       }
     }
 
     if (dto.defaultPriorityId !== undefined) {
       await this.assertDefaultPriorityValid(tenantId, current.type, dto.defaultPriorityId);
-      current.defaultPriorityId =
-        current.type === TicketSettingType.DEPARTMENT
-          ? (dto.defaultPriorityId === null ||
-              String(dto.defaultPriorityId).trim() === ''
-              ? null
-              : dto.defaultPriorityId)
-          : null;
+      current.defaultPriorityId = this.normalizeOptionalId(dto.defaultPriorityId);
     }
 
     if (dto.name !== undefined) current.name = dto.name.trim();
@@ -266,3 +315,4 @@ export class TicketSettingsService {
     return this.repo.save(current);
   }
 }
+

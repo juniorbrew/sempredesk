@@ -1,7 +1,9 @@
-'use client';
+﻿'use client';
+import Link from 'next/link';
 import { useEffect, useState, useCallback } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
-import { DEFAULT_PRIORITY, PRIORITY_COLORS, PRIORITY_LABELS, PRIORITY_OPTIONS, type SystemPriority } from '@/lib/priorities';
+import { DEFAULT_PRIORITY, type SystemPriority } from '@/lib/priorities';
 import {
   Building2, Mail, Clock, Palette, User, Save, RefreshCw, CheckCircle,
   Eye, EyeOff, Send, ChevronRight, Lock, Bell, Key, Plus,
@@ -10,7 +12,7 @@ import {
 } from 'lucide-react';
 import PerfisPage from '../perfis/page';
 
-// ─── Chatbot types ────────────────────────────────────────────────────────────
+// �"?�"?�"? Chatbot types �"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?
 interface ChatbotConfig {
   id?: string; name: string; welcomeMessage: string; menuTitle: string;
   enabled: boolean; channelWhatsapp: boolean; channelWeb: boolean; channelPortal: boolean;
@@ -208,6 +210,8 @@ function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: 
 }
 
 export default function SettingsPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [settings, setSettings] = useState<Settings>(DEFAULT);
   const [profile, setProfile] = useState({ name:'', email:'', phone:'', currentPassword:'', newPassword:'', confirmPassword:'' });
   const [tab, setTab] = useState<'company'|'smtp'|'sla'|'visual'|'profile'|'perfis'|'notifications'|'business_hours'|'routing'|'webhooks'|'apikeys'|'inbound_email'|'chatbot'>('company');
@@ -255,6 +259,7 @@ export default function SettingsPage() {
   const [editingSlaId, setEditingSlaId] = useState<string|null>(null);
   const [slaSaving, setSlaSaving] = useState(false);
   const [slaReport, setSlaReport] = useState<{ breached: any[]; atRisk: any[]; conversations: { breached: any[]; atRisk: any[] } } | null>(null);
+  const tabKeys = ['company','smtp','sla','visual','profile','perfis','notifications','business_hours','routing','webhooks','apikeys','inbound_email','chatbot'] as const;
 
   const load = useCallback(async () => {
     try {
@@ -310,6 +315,16 @@ export default function SettingsPage() {
     }
   }, []);
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    const requestedTab = searchParams.get('tab');
+    if (!requestedTab) return;
+    if ((tabKeys as readonly string[]).includes(requestedTab) && requestedTab !== tab) {
+      setTab(requestedTab as typeof tab);
+      setSaved(false);
+      setProfileError('');
+    }
+  }, [searchParams, tab]);
 
   const upd = (key: keyof Settings, value: string) => setSettings(p => ({ ...p, [key]: value }));
   const updBH = (day: string, field: string, value: any) => setSettings(p => ({
@@ -427,7 +442,7 @@ export default function SettingsPage() {
     setEditingSlaId(p.id); setShowSlaForm(true);
   };
 
-  // ── Chatbot helpers ──────────────────────────────────────────────────────
+  // �"?�"? Chatbot helpers �"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?
   const saveBotConfig = async () => {
     setBotSaving(true);
     try {
@@ -514,7 +529,7 @@ export default function SettingsPage() {
         {/* Sidebar */}
         <div className="card p-1.5 lg:w-52 shrink-0 h-fit" style={{ borderColor:'#C9D3E0' }}>
           {TABS.map(({ key, label, icon:Icon }) => (
-            <button key={key} onClick={() => { setTab(key as any); setSaved(false); setProfileError(''); }}
+            <button key={key} onClick={() => { setTab(key as any); router.replace(`/dashboard/settings?tab=${key}`, { scroll: false }); setSaved(false); setProfileError(''); }}
               style={{ width:'100%', display:'flex', alignItems:'center', gap:8, padding:'7px 10px', borderRadius:8, border:'none', cursor:'pointer', background: tab===key ? '#EEF2FF' : 'transparent', color: tab===key ? '#4F46E5' : '#64748B', fontWeight: tab===key ? 600 : 400, fontSize:12, marginBottom:1 }}>
               <Icon className="w-3.5 h-3.5 shrink-0" /><span className="truncate flex-1 text-left">{label}</span>
               {tab===key && <ChevronRight className="w-3 h-3" />}
@@ -538,7 +553,7 @@ export default function SettingsPage() {
                 </p>
               </div>
 
-              {/* ── Seção 1: Identificação ───────────────────────────────── */}
+              {/* �"?�"? Seção 1: Identificação �"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"? */}
               <div style={{ borderRadius:12, border:'1.5px solid #E2E8F0', overflow:'hidden' }}>
                 <div style={{ padding:'10px 16px', background:'#F8FAFC', borderBottom:'1.5px solid #E2E8F0', display:'flex', alignItems:'center', gap:9 }}>
                   <Building2 className="w-4 h-4 shrink-0" style={{ color:'#6366F1' }} />
@@ -557,7 +572,7 @@ export default function SettingsPage() {
                 </div>
               </div>
 
-              {/* ── Seção 2: Contato ─────────────────────────────────────── */}
+              {/* �"?�"? Seção 2: Contato �"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"? */}
               <div style={{ borderRadius:12, border:'1.5px solid #E2E8F0', overflow:'hidden' }}>
                 <div style={{ padding:'10px 16px', background:'#F8FAFC', borderBottom:'1.5px solid #E2E8F0', display:'flex', alignItems:'center', gap:9 }}>
                   <Mail className="w-4 h-4 shrink-0" style={{ color:'#6366F1' }} />
@@ -576,7 +591,7 @@ export default function SettingsPage() {
                 </div>
               </div>
 
-              {/* ── Seção 3: Localização ─────────────────────────────────── */}
+              {/* �"?�"? Seção 3: Localização �"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"? */}
               <div style={{ borderRadius:12, border:'1.5px solid #E2E8F0', overflow:'hidden' }}>
                 <div style={{ padding:'10px 16px', background:'#F8FAFC', borderBottom:'1.5px solid #E2E8F0', display:'flex', alignItems:'center', gap:9 }}>
                   <Globe className="w-4 h-4 shrink-0" style={{ color:'#6366F1' }} />
@@ -592,7 +607,7 @@ export default function SettingsPage() {
                 </div>
               </div>
 
-              {/* ── Seção 4: Marca e exibição ────────────────────────────── */}
+              {/* �"?�"? Seção 4: Marca e exibição �"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"? */}
               <div style={{ borderRadius:12, border:'1.5px solid #E2E8F0', overflow:'hidden' }}>
                 <div style={{ padding:'10px 16px', background:'#F8FAFC', borderBottom:'1.5px solid #E2E8F0', display:'flex', alignItems:'center', gap:9 }}>
                   <Palette className="w-4 h-4 shrink-0" style={{ color:'#6366F1' }} />
@@ -602,7 +617,7 @@ export default function SettingsPage() {
                   </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4" style={{ padding:'16px' }}>
-                  <Field label="URL do logotipo" hint="Link público para imagem PNG, SVG ou JPEG — mínimo 200 × 60 px recomendado">
+                  <Field label="URL do logotipo" hint="Link público para imagem PNG, SVG ou JPEG — mínimo 200 x 60 px recomendado">
                     <input value={settings.companyLogo} onChange={e=>upd('companyLogo',e.target.value)} className="input" placeholder="Ex.: https://empresa.com/logo.png" />
                   </Field>
                   <div style={{ display:'flex', alignItems:'center', justifyContent:'center', background:'#F8FAFC', border:'1.5px dashed #E2E8F0', borderRadius:10, padding:'12px', minHeight:62 }}>
@@ -614,7 +629,7 @@ export default function SettingsPage() {
                 </div>
               </div>
 
-              {/* ── Zona de Perigo ───────────────────────────────────────── */}
+              {/* �"?�"? Zona de Perigo �"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"? */}
               <div style={{ borderTop:'1.5px solid #FEE2E2', paddingTop:16 }}>
                 <p style={{ fontSize:11, fontWeight:700, color:'#DC2626', textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:8 }}>Zona de perigo</p>
                 <DangerZone />
@@ -631,7 +646,7 @@ export default function SettingsPage() {
                 <p style={{ fontSize:12, color:'#94A3B8', marginTop:2 }}>Servidor de saída para notificações e alertas automáticos.</p>
               </div>
 
-              {/* ── Servidor ─────────────────────────────────────────────── */}
+              {/* �"?�"? Servidor �"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"? */}
               <div style={{ borderRadius:12, border:'1.5px solid #E2E8F0', overflow:'hidden' }}>
                 <div style={{ padding:'9px 14px', background:'#F8FAFC', borderBottom:'1.5px solid #E2E8F0', display:'flex', alignItems:'center', gap:8 }}>
                   <Globe className="w-4 h-4 shrink-0" style={{ color:'#6366F1' }} />
@@ -646,9 +661,9 @@ export default function SettingsPage() {
                   </Field>
                   <Field label="Porta" hint="587 (TLS recomendado) ou 465 (SSL)">
                     <select value={settings.smtpPort} onChange={e=>upd('smtpPort',e.target.value)} className="input">
-                      <option value="587">587 — TLS (recomendado)</option>
-                      <option value="465">465 — SSL/TLS</option>
-                      <option value="25">25 — Sem criptografia</option>
+                      <option value="587">587 - TLS (recomendado)</option>
+                      <option value="465">465 - SSL/TLS</option>
+                      <option value="25">25 - Sem criptografia</option>
                     </select>
                   </Field>
                   <Field label="Criptografia" hint="Deve coincidir com a porta escolhida">
@@ -660,7 +675,7 @@ export default function SettingsPage() {
                 </div>
               </div>
 
-              {/* ── Autenticação e remetente ─────────────────────────────── */}
+              {/* �"?�"? Autenticação e remetente �"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"? */}
               <div style={{ borderRadius:12, border:'1.5px solid #E2E8F0', overflow:'hidden' }}>
                 <div style={{ padding:'9px 14px', background:'#F8FAFC', borderBottom:'1.5px solid #E2E8F0', display:'flex', alignItems:'center', gap:8 }}>
                   <Lock className="w-4 h-4 shrink-0" style={{ color:'#6366F1' }} />
@@ -675,25 +690,25 @@ export default function SettingsPage() {
                   </Field>
                   <Field label="Senha SMTP" hint="Gmail: &quot;Senha de app&quot; · SendGrid: API key">
                     <div style={{ position:'relative' }}>
-                      <input type={showPass?'text':'password'} value={settings.smtpPass} onChange={e=>upd('smtpPass',e.target.value)} className="input" placeholder="••••••••" style={{ paddingRight:40 }} />
+                      <input type={showPass?'text':'password'} value={settings.smtpPass} onChange={e=>upd('smtpPass',e.target.value)} className="input" placeholder="Digite a senha SMTP" style={{ paddingRight:40 }} />
                       <button type="button" onClick={()=>setShowPass(p=>!p)} style={{ position:'absolute',right:12,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:'#94A3B8' }}>
                         {showPass?<EyeOff className="w-4 h-4"/>:<Eye className="w-4 h-4"/>}
                       </button>
                     </div>
                   </Field>
-                  <Field label="Remetente (From)" required hint="Nome e e-mail visíveis no recebimento — ex.: Suporte &lt;no-reply@empresa.com&gt;">
+                  <Field label="Remetente (From)" required hint="Nome e e-mail visíveis no recebimento - ex.: Suporte &lt;no-reply@empresa.com&gt;">
                     <input value={settings.smtpFrom} onChange={e=>upd('smtpFrom',e.target.value)} className="input" placeholder="Ex.: Suporte <no-reply@empresa.com>" />
                   </Field>
                 </div>
               </div>
 
-              {/* ── Testar conexão ────────────────────────────────────────── */}
+              {/* �"?�"? Testar conexão �"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"? */}
               <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap', padding:'10px 14px', background:'#F8FAFC', borderRadius:10, border:'1.5px solid #E2E8F0' }}>
                 <button onClick={async()=>{ setSmtpTesting(true);setSmtpResult(null);try{const r=await(api as any).testSmtp();setSmtpResult(r);}catch{setSmtpResult({success:false,message:'Erro ao testar'});}setSmtpTesting(false);}} disabled={smtpTesting||!settings.smtpHost} className="btn-secondary">
                   {smtpTesting?<RefreshCw className="w-4 h-4 animate-spin"/>:<Send className="w-4 h-4"/>} Testar conexão SMTP
                 </button>
                 {smtpResult
-                  ? <span style={{ fontSize:13, fontWeight:600, color:smtpResult.success?'#16A34A':'#DC2626' }}>{smtpResult.success?'✓':'✗'} {smtpResult.message}</span>
+                  ? <span style={{ fontSize:13, fontWeight:600, color:smtpResult.success?'#16A34A':'#DC2626' }}>{smtpResult.success ? 'Sucesso:' : 'Erro:'} {smtpResult.message}</span>
                   : <span style={{ fontSize:12, color:'#94A3B8' }}>Envia um e-mail de teste para validar as configurações</span>
                 }
               </div>
@@ -710,7 +725,7 @@ export default function SettingsPage() {
                 </p>
               </div>
 
-              {/* ── E-mails para o cliente ────────────────────────────────── */}
+              {/* �"?�"? E-mails para o cliente �"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"? */}
               <div style={{ borderRadius:12, border:'1.5px solid #E2E8F0', overflow:'hidden' }}>
                 <div style={{ padding:'10px 16px', background:'#F8FAFC', borderBottom:'1.5px solid #E2E8F0', display:'flex', alignItems:'center', gap:9 }}>
                   <Mail className="w-4 h-4 shrink-0" style={{ color:'#6366F1' }} />
@@ -735,7 +750,7 @@ export default function SettingsPage() {
                 </div>
               </div>
 
-              {/* ── Alertas internos da equipe ────────────────────────────── */}
+              {/* �"?�"? Alertas internos da equipe �"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"? */}
               <div style={{ borderRadius:12, border:'1.5px solid #E2E8F0', overflow:'hidden' }}>
                 <div style={{ padding:'10px 16px', background:'#F8FAFC', borderBottom:'1.5px solid #E2E8F0', display:'flex', alignItems:'center', gap:9 }}>
                   <Bell className="w-4 h-4 shrink-0" style={{ color:'#6366F1' }} />
@@ -754,14 +769,14 @@ export default function SettingsPage() {
                   </div>
                 </div>
                 <div style={{ padding:'16px' }}>
-                  <Field label="E-mail de destino dos alertas de SLA" hint="Endereço que recebe os avisos de SLA em risco — ex.: supervisor@empresa.com ou uma lista de distribuição">
+                  <Field label="E-mail de destino dos alertas de SLA" hint="Endereço que recebe os avisos de SLA em risco - ex.: supervisor@empresa.com ou uma lista de distribuição">
                     <input value={settings.escalationEmail} onChange={e=>upd('escalationEmail',e.target.value)} className="input" placeholder="Ex.: supervisor@empresa.com" />
                   </Field>
                 </div>
               </div>
 
               <div style={{ background:'#EEF2FF', borderRadius:10, padding:'11px 16px', border:'1.5px solid #C7D2FE' }}>
-                <p style={{ fontSize:12, color:'#4338CA' }}>💡 As notificações por e-mail exigem um servidor SMTP configurado na aba <strong>E-mail (SMTP)</strong>.</p>
+                <p style={{ fontSize:12, color:'#4338CA' }}>As notificações por e-mail exigem um servidor SMTP configurado na aba <strong>E-mail (SMTP)</strong>.</p>
               </div>
             </div>
           )}
@@ -771,30 +786,30 @@ export default function SettingsPage() {
             <div className="space-y-5">
               <div className="flex items-center justify-between flex-wrap gap-3">
                 <div>
-                  <h2 style={{ fontSize:16, fontWeight:700, color:'#0F172A', margin:0 }}>Políticas SLA</h2>
+                  <h2 style={{ fontSize:16, fontWeight:700, color:'#0F172A', margin:0 }}>Políticas de prazo</h2>
                   <p style={{ fontSize:13, color:'#94A3B8', marginTop:3 }}>
-                    Configure prazos de primeira resposta e resolução por prioridade usando minutos, horas ou dias. O sistema salva tudo internamente em minutos.
+                    Configure os prazos de primeira resposta e resolução. O vínculo entre prioridade e SLA é feito em Cadastros &gt; Prioridades, e o sistema continua salvando tudo internamente em minutos.
                   </p>
                 </div>
-                <button onClick={() => { setShowSlaForm(true); setEditingSlaId(null); setSlaForm(createEmptySlaForm()); }} className="btn-primary" style={{ display:'flex', alignItems:'center', gap:6 }}>
-                  <Plus className="w-4 h-4" /> Nova política
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Link href="/dashboard/priorities" className="btn-secondary">
+                    Gerenciar prioridades
+                  </Link>
+                  <button onClick={() => { setShowSlaForm(true); setEditingSlaId(null); setSlaForm(createEmptySlaForm()); }} className="btn-primary" style={{ display:'flex', alignItems:'center', gap:6 }}>
+                    <Plus className="w-4 h-4" /> Nova política de prazo
                 </button>
+                </div>
               </div>
 
               {showSlaForm && (
                 <div style={{ background:'#F8FAFC', borderRadius:12, border:'1.5px solid #E2E8F0', padding:'20px' }}>
-                  <h3 style={{ fontSize:14, fontWeight:700, color:'#0F172A', margin:'0 0 16px' }}>{editingSlaId ? 'Editar política' : 'Nova política SLA'}</h3>
+                  <h3 style={{ fontSize:14, fontWeight:700, color:'#0F172A', margin:'0 0 16px' }}>{editingSlaId ? 'Editar política de prazo' : 'Nova política de prazo'}</h3>
+                  <div style={{ marginBottom:16, padding:'10px 12px', borderRadius:10, background:'#EFF6FF', border:'1px solid #BFDBFE', color:'#1D4ED8', fontSize:12, lineHeight:1.5 }}>
+                    Esta tela define apenas os prazos. A prioridade que usa esta política é escolhida em <strong>Cadastros &gt; Prioridades</strong>.
+                  </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <Field label="Nome" required>
                       <input value={slaForm.name} onChange={e=>setSlaForm((p:any)=>({...p,name:e.target.value}))} className="input" placeholder="Ex.: Padrão, Urgente, VIP..." />
-                    </Field>
-                    <Field label="Prioridade">
-                      <select value={slaForm.priority} onChange={e=>setSlaForm((p:any)=>({...p,priority:e.target.value}))} className="input">
-                        <option value="low">Baixa</option>
-                        <option value="medium">Média</option>
-                        <option value="high">Alta</option>
-                        <option value="critical">Crítica</option>
-                      </select>
                     </Field>
                     <Field label="1ª resposta" hint={`Tempo máximo para o agente responder pela primeira vez. Equivale a ${toMinutes(slaForm.firstResponse, 60)} min.`}>
                       <div className="grid grid-cols-[minmax(0,1fr)_140px] gap-2">
@@ -823,7 +838,7 @@ export default function SettingsPage() {
                   <div className="flex items-center gap-3" style={{ marginTop:16 }}>
                     <button onClick={saveSlaPolicy} disabled={slaSaving || !slaForm.name.trim()} className="btn-primary">
                       {slaSaving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                      {editingSlaId ? 'Salvar alterações' : 'Criar política'}
+                      {editingSlaId ? 'Salvar alterações' : 'Criar política de prazo'}
                     </button>
                     <button onClick={() => { setShowSlaForm(false); setEditingSlaId(null); }} style={{ fontSize:13, color:'#64748B', background:'none', border:'none', cursor:'pointer', padding:'7px 12px' }}>Cancelar</button>
                   </div>
@@ -832,23 +847,19 @@ export default function SettingsPage() {
 
               {slaPolicies.length === 0 && !showSlaForm && (
                 <div style={{ textAlign:'center', padding:'40px 20px', color:'#94A3B8', fontSize:13 }}>
-                  Nenhuma política configurada. Clique em <strong>Nova política</strong> para começar.
+                  Nenhuma política de prazo configurada. Clique em <strong>Nova política de prazo</strong> para começar.
                 </div>
               )}
 
               {slaPolicies.length > 0 && (
                 <div style={{ borderRadius:12, border:'1.5px solid #E2E8F0', overflow:'hidden' }}>
                   {slaPolicies.map((p: any, idx: number) => {
-                    const priorityLabel: Record<string,string> = { high:'Alta', medium:'Média', low:'Baixa', critical:'Crítica' };
-                    const priorityColor: Record<string,string> = { high:'#C2410C', medium:'#1D4ED8', low:'#64748B', critical:'#86198F' };
-                    const priorityBg:    Record<string,string> = { high:'#FFEDD5', medium:'#DBEAFE', low:'#F1F5F9', critical:'#FDF2F8' };
                     return (
                       <div key={p.id} style={{ display:'flex', alignItems:'center', gap:12, padding:'13px 16px', background:'#fff', borderBottom: idx < slaPolicies.length-1 ? '1px solid #F1F5F9' : 'none', flexWrap:'wrap' }}>
                         <div style={{ flex:1, minWidth:0 }}>
                           <div className="flex items-center gap-2" style={{ flexWrap:'wrap' }}>
                             <span style={{ fontSize:14, fontWeight:700, color:'#0F172A' }}>{p.name}</span>
                             {p.isDefault && <span style={{ fontSize:10, fontWeight:700, background:'#EEF2FF', color:'#4338CA', borderRadius:6, padding:'2px 7px' }}>PADRÃO</span>}
-                            <span style={{ fontSize:11, fontWeight:700, background:priorityBg[p.priority]||'#F1F5F9', color:priorityColor[p.priority]||'#64748B', borderRadius:6, padding:'2px 7px' }}>{priorityLabel[p.priority]||p.priority}</span>
                           </div>
                           <p style={{ fontSize:12, color:'#64748B', margin:'3px 0 0' }}>
                             1ª resposta: <strong>{formatDuration(p.firstResponseMinutes)}</strong> <span style={{ color:'#94A3B8' }}>({p.firstResponseMinutes} min)</span> &nbsp;·&nbsp; Resolução: <strong>{formatDuration(p.resolutionMinutes)}</strong> <span style={{ color:'#94A3B8' }}>({p.resolutionMinutes} min)</span>
@@ -869,7 +880,7 @@ export default function SettingsPage() {
               )}
 
               <div style={{ background:'#EEF2FF', borderRadius:10, padding:'11px 16px', border:'1.5px solid #C7D2FE', fontSize:12, color:'#4338CA' }}>
-                As políticas SLA são aplicadas automaticamente a novas conversas e tickets conforme a prioridade. O alerta de risco é disparado quando restar menos de 20% do prazo de resolução.
+                As políticas de prazo são aplicadas automaticamente a novas conversas e tickets conforme o vínculo definido em Cadastros &gt; Prioridades. O alerta de risco é disparado quando restar menos de 20% do prazo de resolução.
               </div>
 
               {slaReport && (slaReport.breached.length > 0 || slaReport.atRisk.length > 0 || slaReport.conversations.breached.length > 0 || slaReport.conversations.atRisk.length > 0) && (
@@ -926,7 +937,7 @@ export default function SettingsPage() {
                 </div>
               </div>
               <div style={{ background:'#F8FAFC', borderRadius:10, padding:'11px 16px', border:'1.5px solid #E2E8F0', fontSize:12, color:'#64748B' }}>
-                💡 Os horários são interpretados no fuso horário do servidor. Tickets abertos fora do horário comercial ainda são registrados normalmente.
+                Os horários são interpretados no fuso horário do servidor. Tickets abertos fora do horário comercial ainda são registrados normalmente.
               </div>
             </div>
           )}
@@ -984,14 +995,14 @@ export default function SettingsPage() {
                 <div style={{ background:'#F8FAFC',borderRadius:14,padding:20,border:'1.5px solid #E2E8F0' }}>
                   <h3 style={{ fontSize:14,fontWeight:700,color:'#0F172A',marginBottom:16 }}>{editingRule?'Editar regra':'Nova regra'}</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                    <Field label="Nome da regra" hint="Descreva a intenção da regra — ex.: Alta prioridade para suporte crítico">
-                      <input value={ruleForm.name} onChange={e=>setRuleForm((p:any)=>({...p,name:e.target.value}))} className="input" placeholder="Ex.: Alta prioridade → João" />
+                    <Field label="Nome da regra" hint="Descreva a intenção da regra - ex.: Alta prioridade para suporte crítico">
+                      <input value={ruleForm.name} onChange={e=>setRuleForm((p:any)=>({...p,name:e.target.value}))} className="input" placeholder="Ex.: Alta prioridade - João" />
                     </Field>
                     <Field label="Ordem de execução" hint="Número menor = maior prioridade. Regras são aplicadas em ordem crescente.">
                       <input type="number" value={ruleForm.priority} onChange={e=>setRuleForm((p:any)=>({...p,priority:parseInt(e.target.value)||0}))} className="input" placeholder="Ex.: 1" />
                     </Field>
                   </div>
-                  <p style={{ fontSize:12,fontWeight:700,color:'#64748B',textTransform:'uppercase',letterSpacing:1,marginBottom:10 }}>Condições — deixe vazio para ignorar o campo</p>
+                  <p style={{ fontSize:12,fontWeight:700,color:'#64748B',textTransform:'uppercase',letterSpacing:1,marginBottom:10 }}>Condições - deixe vazio para ignorar o campo</p>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                     <Field label="Departamento" hint="Nome exato do departamento cadastrado no sistema">
                       <input value={ruleForm.condDepartment} onChange={e=>setRuleForm((p:any)=>({...p,condDepartment:e.target.value}))} className="input" placeholder="Ex.: Suporte Técnico" />
@@ -1047,7 +1058,7 @@ export default function SettingsPage() {
                         <p style={{ fontSize:13,fontWeight:700,color:'#0F172A' }}>{rule.name}</p>
                         <p style={{ fontSize:11,color:'#94A3B8' }}>
                           {[rule.condDepartment&&`Dept: ${rule.condDepartment}`,rule.condPriority&&`Prior: ${rule.condPriority}`,rule.condOrigin&&`Origem: ${rule.condOrigin}`].filter(Boolean).join(' · ')||'Sempre'}
-                          {' → '}
+                          {' - '}
                           {[rule.actionAssignTo&&`Atribuir: ${team.find((u:any)=>u.id===rule.actionAssignTo)?.name||rule.actionAssignTo}`,rule.actionSetPriority&&`Prioridade: ${rule.actionSetPriority}`,rule.actionNotifyEmail&&`Notif: ${rule.actionNotifyEmail}`].filter(Boolean).join(' · ')||'Sem ação'}
                         </p>
                       </div>
@@ -1074,13 +1085,13 @@ export default function SettingsPage() {
                 <div style={{ background:'#F8FAFC',borderRadius:14,padding:20,border:'1.5px solid #E2E8F0' }}>
                   <h3 style={{ fontSize:14,fontWeight:700,color:'#0F172A',marginBottom:16 }}>{editingWh?'Editar webhook':'Novo webhook'}</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                    <Field label="Nome do webhook" hint="Identificação interna — ex.: ERP Interno, Slack #suporte">
+                    <Field label="Nome do webhook" hint="Identificação interna - ex.: ERP Interno, Slack #suporte">
                       <input value={whForm.name} onChange={e=>setWhForm((p:any)=>({...p,name:e.target.value}))} className="input" placeholder="Ex.: ERP Interno" />
                     </Field>
                     <Field label="URL do endpoint" hint="Endpoint HTTPS público que receberá o payload JSON">
                       <input value={whForm.url} onChange={e=>setWhForm((p:any)=>({...p,url:e.target.value}))} className="input" placeholder="Ex.: https://meusite.com/webhook" />
                     </Field>
-                    <Field label="Segredo HMAC" hint="Opcional — usado para validar a assinatura do header X-Signature-256">
+                    <Field label="Segredo HMAC" hint="Opcional - usado para validar a assinatura do header X-Signature-256">
                       <input value={whForm.secret} onChange={e=>setWhForm((p:any)=>({...p,secret:e.target.value}))} className="input" placeholder="Ex.: meu_segredo_secreto" />
                     </Field>
                   </div>
@@ -1145,7 +1156,7 @@ export default function SettingsPage() {
               </div>
               {newKeyValue && (
                 <div style={{ background:'#DCFCE7',borderRadius:12,padding:16,border:'1.5px solid #86EFAC' }}>
-                  <p style={{ fontSize:13,fontWeight:700,color:'#166534',marginBottom:8 }}>✅ Chave criada! Copie agora — não será exibida novamente.</p>
+                  <p style={{ fontSize:13,fontWeight:700,color:'#166534',marginBottom:8 }}>Chave criada! Copie agora - ela não será exibida novamente.</p>
                   <div style={{ display:'flex',alignItems:'center',gap:8,background:'#fff',borderRadius:8,padding:'8px 12px',border:'1px solid #86EFAC' }}>
                     <code style={{ flex:1,fontSize:12,fontFamily:'monospace',color:'#166534',wordBreak:'break-all' }}>{newKeyValue}</code>
                     <button onClick={()=>{navigator.clipboard.writeText(newKeyValue);}} style={{ background:'none',border:'none',cursor:'pointer',color:'#166534',flexShrink:0 }} title="Copiar"><Copy className="w-4 h-4"/></button>
@@ -1157,10 +1168,10 @@ export default function SettingsPage() {
                 <div style={{ background:'#F8FAFC',borderRadius:14,padding:20,border:'1.5px solid #E2E8F0' }}>
                   <h3 style={{ fontSize:14,fontWeight:700,color:'#0F172A',marginBottom:16 }}>Nova chave de API</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                    <Field label="Identificação da chave" hint="Nome para identificar onde esta chave será usada — ex.: Integração ERP, App Mobile">
+                    <Field label="Identificação da chave" hint="Nome para identificar onde esta chave será usada - ex.: Integração ERP, App Mobile">
                       <input value={keyForm.name} onChange={e=>setKeyForm((p:any)=>({...p,name:e.target.value}))} className="input" placeholder="Ex.: Integração ERP" />
                     </Field>
-                    <Field label="Data de expiração" hint="Opcional — deixe em branco para chave sem expiração">
+                    <Field label="Data de expiração" hint="Opcional - deixe em branco para chave sem expiração">
                       <input type="date" value={keyForm.expiresAt} onChange={e=>setKeyForm((p:any)=>({...p,expiresAt:e.target.value}))} className="input" />
                     </Field>
                   </div>
@@ -1219,14 +1230,14 @@ export default function SettingsPage() {
                 <p style={{ fontSize:13, color:'#94A3B8', marginTop:2 }}>Configure seu provedor de e-mail para criar tickets automaticamente quando receber mensagens</p>
               </div>
               <div style={{ background:'#F8FAFC', borderRadius:14, padding:20, border:'1.5px solid #E2E8F0' }}>
-                <p style={{ fontSize:14, fontWeight:700, color:'#0F172A', marginBottom:12 }}>📨 URL do Webhook de Entrada</p>
+                <p style={{ fontSize:14, fontWeight:700, color:'#0F172A', marginBottom:12 }}>URL do webhook de entrada</p>
                 <div style={{ display:'flex', alignItems:'center', gap:8, background:'#fff', borderRadius:10, padding:'10px 14px', border:'1.5px solid #E2E8F0', marginBottom:12 }}>
                   <code style={{ flex:1, fontSize:12, fontFamily:'monospace', color:'#4F46E5', wordBreak:'break-all' }}>
                     {typeof window !== 'undefined' ? window.location.origin.replace(':3000', ':4000') : 'https://seu-servidor'}/api/v1/email/inbound
                   </code>
                   <button onClick={() => navigator.clipboard.writeText((typeof window !== 'undefined' ? window.location.origin.replace(':3000', ':4000') : '') + '/api/v1/email/inbound')}
                     style={{ background:'none', border:'none', cursor:'pointer', color:'#64748B', flexShrink:0 }} title="Copiar">
-                    📋
+                    <Copy className="w-4 h-4" />
                   </button>
                 </div>
                 <p style={{ fontSize:13, fontWeight:600, color:'#475569', marginBottom:8 }}>Headers obrigatórios:</p>
@@ -1237,9 +1248,9 @@ X-Api-Secret: {INBOUND_EMAIL_SECRET}`}</pre>
                 <p style={{ fontSize:13, fontWeight:600, color:'#475569', marginBottom:8 }}>Provedores suportados:</p>
                 <div className="grid grid-cols-2 gap-3">
                   {[
-                    ['Mailgun', 'Configure em Receiving → Routes → Forward to URL'],
-                    ['SendGrid', 'Configure em Settings → Inbound Parse → Add Host & URL'],
-                    ['Postmark', 'Configure em Inbound → Webhooks → Add webhook URL'],
+                    ['Mailgun', 'Configure em Receiving -> Routes -> Forward to URL'],
+                    ['SendGrid', 'Configure em Settings -> Inbound Parse -> Add Host & URL'],
+                    ['Postmark', 'Configure em Inbound -> Webhooks -> Add webhook URL'],
                     ['Forwardemail.net', 'Configure um forward para o webhook via API'],
                   ].map(([name, desc]) => (
                     <div key={name} style={{ background:'#fff', borderRadius:10, padding:12, border:'1.5px solid #E2E8F0' }}>
@@ -1250,7 +1261,7 @@ X-Api-Secret: {INBOUND_EMAIL_SECRET}`}</pre>
                 </div>
               </div>
               <div style={{ background:'#EEF2FF', borderRadius:12, padding:'12px 16px', border:'1.5px solid #C7D2FE', fontSize:12, color:'#4338CA' }}>
-                💡 Configure a variável de ambiente <code style={{ fontFamily:'monospace', background:'rgba(0,0,0,0.05)', padding:'1px 4px', borderRadius:4 }}>INBOUND_EMAIL_SECRET</code> no servidor para validar as requisições. O campo &quot;De&quot; do e-mail será usado como remetente e o assunto como título do ticket.
+                Configure a variável de ambiente <code style={{ fontFamily:'monospace', background:'rgba(0,0,0,0.05)', padding:'1px 4px', borderRadius:4 }}>INBOUND_EMAIL_SECRET</code> no servidor para validar as requisições. O campo &quot;De&quot; do e-mail será usado como remetente e o assunto como título do ticket.
               </div>
             </div>
           )}
@@ -1282,7 +1293,7 @@ X-Api-Secret: {INBOUND_EMAIL_SECRET}`}</pre>
                 </div>
               )}
 
-              {/* Mesma opção que em /dashboard/configuracoes/chatbot — aqui é onde a maioria entra (Configurações → Chatbot) */}
+              {/* Mesma opção que em /dashboard/configuracoes/chatbot �?" aqui é onde a maioria entra (Configurações �?' Chatbot) */}
               <div style={{ background:'#F8FAFC', borderRadius:12, border:'1.5px solid #A5B4FC', padding:'16px 18px' }}>
                 <p style={{ fontSize:11, fontWeight:800, color:'#4F46E5', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:10 }}>WhatsApp · nome do agente nas respostas</p>
                 <p style={{ fontSize:13, fontWeight:700, color:'#0F172A', marginBottom:8 }}>Mostrar nome do atendente na primeira linha (negrito) nas mensagens ao cliente</p>
@@ -1310,7 +1321,7 @@ X-Api-Secret: {INBOUND_EMAIL_SECRET}`}</pre>
                 <p style={{ fontSize:13, fontWeight:700, color:'#374151', marginBottom:4 }}>Mensagens do bot</p>
                 <p style={{ fontSize:12, color:'#94A3B8', marginBottom:14 }}>Textos exibidos ao cliente durante a interação com o assistente virtual</p>
                 <div className="space-y-4">
-                  <Field label="Nome do assistente" hint="Exibido para o cliente como identificação do bot — ex.: Assistente SempreDesk">
+                  <Field label="Nome do assistente" hint="Exibido para o cliente como identificação do bot - ex.: Assistente SempreDesk">
                     <input value={botConfig.name} onChange={e=>setBotConfig(c=>({...c,name:e.target.value}))} className="input" placeholder="Ex.: Assistente Virtual" />
                   </Field>
                   <Field label="Mensagem de boas-vindas" hint="Primeira mensagem enviada ao cliente ao iniciar uma conversa">
@@ -1328,7 +1339,7 @@ X-Api-Secret: {INBOUND_EMAIL_SECRET}`}</pre>
                   <Field label="Mensagem de opção inválida" hint="Exibida quando o cliente digita uma opção que não existe no menu">
                     <input value={botConfig.invalidOptionMessage} onChange={e=>setBotConfig(c=>({...c,invalidOptionMessage:e.target.value}))} className="input" />
                   </Field>
-                  <Field label="Tempo limite de sessão (minutos)" hint="Inatividade máxima antes de encerrar a conversa automaticamente — entre 5 e 240 min">
+                  <Field label="Tempo limite de sessão (minutos)" hint="Inatividade máxima antes de encerrar a conversa automaticamente - entre 5 e 240 min">
                     <input type="number" min={5} max={240} value={botConfig.sessionTimeoutMinutes} onChange={e=>setBotConfig(c=>({...c,sessionTimeoutMinutes:parseInt(e.target.value)||30}))} className="input" style={{ width:90 }} />
                   </Field>
                   <Field label="Mensagem após abertura do ticket (com agente)" hint="Variáveis: {contato}, {empresa_atendente}, {agente}, {numero_ticket}">
@@ -1336,7 +1347,7 @@ X-Api-Secret: {INBOUND_EMAIL_SECRET}`}</pre>
                       value={botConfig.postTicketMessage ?? ''}
                       onChange={e=>setBotConfig(c=>({...c,postTicketMessage:e.target.value||null}))}
                       className="input" rows={5} style={{ resize:'vertical' }}
-                      placeholder={'Olá, {contato}.\n\nBem-vindo(a) ao suporte da {empresa_atendente}.\n\nMeu nome é {agente} e estarei à disposição para ajudar.\n\n📌 O número do seu ticket é #{numero_ticket}.\n\nComo posso te auxiliar?'}
+                      placeholder={'Olá, {contato}.\n\nBem-vindo(a) ao suporte da {empresa_atendente}.\n\nMeu nome é {agente} e estarei à disposição para ajudar.\n\nO número do seu ticket é #{numero_ticket}.\n\nComo posso te auxiliar?'}
                     />
                   </Field>
                   <Field label="Mensagem após abertura do ticket (sem agente)" hint="Variáveis: {contato}, {empresa_atendente}, {numero_ticket}">
@@ -1344,7 +1355,7 @@ X-Api-Secret: {INBOUND_EMAIL_SECRET}`}</pre>
                       value={botConfig.postTicketMessageNoAgent ?? ''}
                       onChange={e=>setBotConfig(c=>({...c,postTicketMessageNoAgent:e.target.value||null}))}
                       className="input" rows={5} style={{ resize:'vertical' }}
-                      placeholder={'Olá, {contato}.\n\nBem-vindo(a) ao suporte da {empresa_atendente}.\n\nSeu atendimento foi iniciado com sucesso.\n\n📌 O número do seu ticket é #{numero_ticket}.\n\nEm instantes um atendente dará continuidade.'}
+                      placeholder={'Olá, {contato}.\n\nBem-vindo(a) ao suporte da {empresa_atendente}.\n\nSeu atendimento foi iniciado com sucesso.\n\nO número do seu ticket é #{numero_ticket}.\n\nEm instantes um atendente dará continuidade.'}
                     />
                   </Field>
                 </div>
@@ -1355,7 +1366,7 @@ X-Api-Secret: {INBOUND_EMAIL_SECRET}`}</pre>
                 <p style={{ fontSize:13,fontWeight:700,color:'#374151',marginBottom:4 }}>Avaliação do atendimento</p>
                 <p style={{ fontSize:12,color:'#94A3B8',marginBottom:14 }}>Mensagens enviadas ao cliente após o encerramento do atendimento via WhatsApp</p>
                 <div className="space-y-4">
-                  <Field label="Solicitação de avaliação (nota 1–5)">
+                  <Field label="Solicitação de avaliação (nota 1-5)">
                     <textarea
                       value={botConfig.ratingRequestMessage ?? ''}
                       onChange={e=>setBotConfig(c=>({...c,ratingRequestMessage:e.target.value||null}))}
@@ -1368,7 +1379,7 @@ X-Api-Secret: {INBOUND_EMAIL_SECRET}`}</pre>
                       value={botConfig.ratingCommentMessage ?? ''}
                       onChange={e=>setBotConfig(c=>({...c,ratingCommentMessage:e.target.value||null}))}
                       className="input" rows={3} style={{ resize:'vertical' }}
-                      placeholder={'Obrigado pela nota! 🙏 Gostaria de deixar um comentário? (Responda com o texto ou envie *pular* para finalizar.)'}
+                      placeholder={'Obrigado pela nota! Gostaria de deixar um comentário? (Responda com o texto ou envie *pular* para finalizar.)'}
                     />
                   </Field>
                   <Field label="Mensagem de agradecimento final">
@@ -1376,7 +1387,7 @@ X-Api-Secret: {INBOUND_EMAIL_SECRET}`}</pre>
                       value={botConfig.ratingThanksMessage ?? ''}
                       onChange={e=>setBotConfig(c=>({...c,ratingThanksMessage:e.target.value||null}))}
                       className="input" rows={2} style={{ resize:'vertical' }}
-                      placeholder={'Obrigado pela avaliação! 😊 Até a próxima.'}
+                      placeholder={'Obrigado pela avaliação! Até a próxima.'}
                     />
                   </Field>
                 </div>
@@ -1437,7 +1448,7 @@ X-Api-Secret: {INBOUND_EMAIL_SECRET}`}</pre>
                         {item.action === 'transfer' ? (
                           <Field label="Departamento">
                             <select value={item.department||''} onChange={e=>updBotItem(i,{department:e.target.value||undefined})} className="input">
-                              <option value="">— Qualquer atendente —</option>
+                              <option value="">- Qualquer atendente -</option>
                               {departments.map(d => <option key={d} value={d}>{d}</option>)}
                               {/* fallback: se departamento salvo não existe mais na lista */}
                               {item.department && !departments.includes(item.department) && (
@@ -1486,7 +1497,7 @@ X-Api-Secret: {INBOUND_EMAIL_SECRET}`}</pre>
                 </p>
               </div>
 
-              {/* ── Dados pessoais ────────────────────────────────────────── */}
+              {/* �"?�"? Dados pessoais �"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"? */}
               <div style={{ borderRadius:12, border:'1.5px solid #E2E8F0', overflow:'hidden' }}>
                 <div style={{ padding:'10px 16px', background:'#F8FAFC', borderBottom:'1.5px solid #E2E8F0', display:'flex', alignItems:'center', gap:9 }}>
                   <User className="w-4 h-4 shrink-0" style={{ color:'#6366F1' }} />
@@ -1499,16 +1510,16 @@ X-Api-Secret: {INBOUND_EMAIL_SECRET}`}</pre>
                   <Field label="Nome completo" required hint="Exibido nos tickets atribuídos e nas mensagens internas">
                     <input value={profile.name} onChange={e=>setProfile(p=>({...p,name:e.target.value}))} className="input" placeholder="Ex.: João da Silva" />
                   </Field>
-                  <Field label="E-mail" hint="Identificador único da conta — entre em contato com o administrador para alterar">
+                  <Field label="E-mail" hint="Identificador único da conta - entre em contato com o administrador para alterar">
                     <input value={profile.email} disabled className="input" />
                   </Field>
-                  <Field label="Telefone" hint="Opcional — visível para a equipe interna">
+                  <Field label="Telefone" hint="Opcional - visível para a equipe interna">
                     <input value={(profile as any).phone||''} onChange={e=>setProfile(p=>({...p,phone:e.target.value} as any))} className="input" placeholder="Ex.: (47) 99999-9999" />
                   </Field>
                 </div>
               </div>
 
-              {/* ── Segurança da conta ────────────────────────────────────── */}
+              {/* �"?�"? Segurança da conta �"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"? */}
               <div style={{ borderRadius:12, border:'1.5px solid #E2E8F0', overflow:'hidden' }}>
                 <div style={{ padding:'10px 16px', background:'#F8FAFC', borderBottom:'1.5px solid #E2E8F0', display:'flex', alignItems:'center', gap:9 }}>
                   <Lock className="w-4 h-4 shrink-0" style={{ color:'#6366F1' }} />
@@ -1520,13 +1531,13 @@ X-Api-Secret: {INBOUND_EMAIL_SECRET}`}</pre>
                 <form onSubmit={(e) => e.preventDefault()} style={{ padding:'16px' }}>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <Field label="Senha atual" hint="Necessária para confirmar a alteração">
-                      <input type="password" value={profile.currentPassword} onChange={e=>setProfile(p=>({...p,currentPassword:e.target.value}))} className="input" placeholder="••••••••" />
+                      <input type="password" value={profile.currentPassword} onChange={e=>setProfile(p=>({...p,currentPassword:e.target.value}))} className="input" placeholder="Digite sua senha atual" />
                     </Field>
                     <Field label="Nova senha" hint="Mínimo de 8 caracteres recomendado">
-                      <input type="password" value={profile.newPassword} onChange={e=>setProfile(p=>({...p,newPassword:e.target.value}))} className="input" placeholder="••••••••" />
+                      <input type="password" value={profile.newPassword} onChange={e=>setProfile(p=>({...p,newPassword:e.target.value}))} className="input" placeholder="Digite a nova senha" />
                     </Field>
                     <Field label="Confirmar nova senha" hint="Deve ser idêntica à nova senha">
-                      <input type="password" value={profile.confirmPassword} onChange={e=>setProfile(p=>({...p,confirmPassword:e.target.value}))} className="input" placeholder="••••••••" />
+                      <input type="password" value={profile.confirmPassword} onChange={e=>setProfile(p=>({...p,confirmPassword:e.target.value}))} className="input" placeholder="Confirme a nova senha" />
                     </Field>
                   </div>
                 </form>
@@ -1546,7 +1557,7 @@ X-Api-Secret: {INBOUND_EMAIL_SECRET}`}</pre>
   );
 }
 
-// ─── Zona de Perigo ───────────────────────────────────────────────────────────
+// �"?�"?�"? Zona de Perigo �"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?�"?
 
 function DangerZone() {
   const [confirm, setConfirm] = useState(false);
@@ -1572,7 +1583,7 @@ function DangerZone() {
     <div style={{ border: '1.5px solid #FCA5A5', borderRadius: 10, padding: '12px 14px', background: '#FFF5F5', marginTop: 4 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
         <div>
-          <p style={{ fontSize: 13, fontWeight: 700, color: '#DC2626', marginBottom: 2 }}>⚠️ Zona de Perigo</p>
+          <p style={{ fontSize: 13, fontWeight: 700, color: '#DC2626', marginBottom: 2 }}>Zona de perigo</p>
           <p style={{ fontSize: 11, color: '#991B1B', lineHeight: 1.5 }}>
             Apaga <strong>todos os tickets, conversas e sessões do chatbot</strong> do sistema. Use apenas para testes.
             Esta ação <strong>não pode ser desfeita</strong>.
@@ -1606,16 +1617,20 @@ function DangerZone() {
         <div style={{ marginTop: 10, padding: '10px 14px', background: result.ok ? '#F0FDF4' : '#FEF2F2', borderRadius: 8, border: `1px solid ${result.ok ? '#86EFAC' : '#FCA5A5'}` }}>
           {result.ok ? (
             <div style={{ fontSize: 12, color: '#15803D' }}>
-              ✅ Dados apagados com sucesso!
+              Dados apagados com sucesso!
               <span style={{ marginLeft: 8, color: '#166534' }}>
                 {Object.entries(result.data).map(([k, v]: any) => `${k}: ${v}`).join(' | ')}
               </span>
             </div>
           ) : (
-            <p style={{ fontSize: 12, color: '#DC2626' }}>❌ {result.msg}</p>
+            <p style={{ fontSize: 12, color: '#DC2626' }}>Erro: {result.msg}</p>
           )}
         </div>
       )}
     </div>
   );
 }
+
+
+
+

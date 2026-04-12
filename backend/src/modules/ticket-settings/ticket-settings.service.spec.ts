@@ -27,7 +27,7 @@ describe('TicketSettingsService — defaultPriorityId', () => {
     return { service, repo, priorityRepo };
   }
 
-  it('create com defaultPriorityId em categoria rejeita', async () => {
+  it('create categoria com defaultPriorityId do tenant permite salvar', async () => {
     const { service, repo } = makeService({ id: 'p1', tenantId });
     repo.findOne
       .mockResolvedValueOnce({
@@ -38,14 +38,14 @@ describe('TicketSettingsService — defaultPriorityId', () => {
       })
       .mockResolvedValueOnce(null);
 
-    await expect(
-      service.create(tenantId, {
-        type: TicketSettingType.CATEGORY,
-        name: 'Cat',
-        parentId: 'dept-1',
-        defaultPriorityId: '550e8400-e29b-41d4-a716-446655440001',
-      } as any),
-    ).rejects.toBeInstanceOf(BadRequestException);
+    const created = await service.create(tenantId, {
+      type: TicketSettingType.CATEGORY,
+      name: 'Cat',
+      parentId: 'dept-1',
+      defaultPriorityId: '550e8400-e29b-41d4-a716-446655440001',
+    } as any);
+
+    expect(created.defaultPriorityId).toBe('550e8400-e29b-41d4-a716-446655440001');
   });
 
   it('create departamento com prioridade inexistente rejeita', async () => {
@@ -60,5 +60,43 @@ describe('TicketSettingsService — defaultPriorityId', () => {
         defaultPriorityId: '550e8400-e29b-41d4-a716-446655440099',
       } as any),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('resolveDefaultPriorityIdForClassification aplica precedencia subcategoria > categoria > departamento', async () => {
+    const repo = {
+      findOne: jest.fn(),
+      create: jest.fn((x) => x),
+      save: jest.fn(async (x) => x),
+      createQueryBuilder: jest.fn(),
+      find: jest.fn().mockResolvedValue([]),
+    };
+    const qbFactory = (result: any) => ({
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      getOne: jest.fn().mockResolvedValue(result),
+    });
+    repo.createQueryBuilder
+      .mockReturnValueOnce(qbFactory({
+        id: 'dept-1',
+        defaultPriorityId: 'priority-dept',
+      }))
+      .mockReturnValueOnce(qbFactory({
+        id: 'cat-1',
+        defaultPriorityId: 'priority-cat',
+      }))
+      .mockReturnValueOnce(qbFactory({
+        id: 'sub-1',
+        defaultPriorityId: 'priority-sub',
+      }));
+
+    const service = new TicketSettingsService(repo as any, { findOne: jest.fn() } as any);
+
+    await expect(
+      service.resolveDefaultPriorityIdForClassification(tenantId, {
+        department: 'Pista',
+        category: 'Erro ao entrar',
+        subcategory: 'Senha',
+      }),
+    ).resolves.toBe('priority-sub');
   });
 });

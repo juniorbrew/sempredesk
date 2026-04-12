@@ -1,4 +1,4 @@
-import {
+﻿import {
   Entity,
   PrimaryGeneratedColumn,
   Column,
@@ -41,7 +41,7 @@ export class TicketSetting {
   @Column({ length: 20, nullable: true })
   color: string;
 
-  /** Apenas para type = department. Prioridade cadastrável do tenant (Fase 2). */
+  /** Prioridade padr\u00e3o cadastr\u00e1vel do tenant para department, category ou subcategory. */
   @Column({ name: 'default_priority_id', nullable: true })
   defaultPriorityId: string | null;
 
@@ -55,3 +55,4 @@ export class TicketSetting {
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
 }
+

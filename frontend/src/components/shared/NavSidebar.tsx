@@ -8,6 +8,7 @@ import {
   Network, FolderTree, Tag, Layers, Database, AlertTriangle,
   Activity,
   Bolt,
+  Flag,
 } from 'lucide-react';
 import { useAuthStore, hasPermission } from '@/store/auth.store';
 import { usePresenceStore } from '@/store/presence.store';
@@ -56,6 +57,7 @@ const CADASTROS_ITEMS = [
   { href: '/dashboard/customers',     icon: Users,      label: 'Clientes',          perm: 'customer.view' },
   { href: '/dashboard/networks',      icon: Network,    label: 'Redes',             perm: 'networks.view' },
   { href: '/dashboard/departments',   icon: FolderTree, label: 'Departamentos',     perm: 'settings.manage' },
+  { href: '/dashboard/priorities',    icon: Flag,       label: 'Prioridades',       perm: 'settings.manage' },
   { href: '/dashboard/tags',          icon: Tag,        label: 'Tags',              perm: 'settings.manage' },
   { href: '/dashboard/root-causes',   icon: AlertTriangle, label: 'Causa Raiz',     perm: 'settings.manage' },
   { href: '/dashboard/categories',    icon: Tag,        label: 'Categorias',        perm: 'settings.manage' },

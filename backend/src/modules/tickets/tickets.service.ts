@@ -740,6 +740,32 @@ export class TicketsService {
     };
   }
 
+  private async alignPriorityEnumFromPriorityId(
+    tenantId: string,
+    priorityId: string | null,
+    fallback: TicketPriority,
+  ): Promise<TicketPriority> {
+    if (!priorityId) return fallback;
+    const tenantPriority = await this.tenantPriorityRepo.findOne({
+      where: { id: priorityId, tenantId },
+    });
+    if (tenantPriority && SYSTEM_PRIORITY_VALUES.includes(tenantPriority.slug as any)) {
+      return tenantPriority.slug as TicketPriority;
+    }
+    return fallback;
+  }
+
+  private async resolveInheritedPriorityIdForClassification(
+    tenantId: string,
+    classification: { department?: string | null; category?: string | null; subcategory?: string | null },
+  ): Promise<string | null> {
+    return this.ticketSettingsService.resolveDefaultPriorityIdForClassification(tenantId, {
+      department: classification.department ?? null,
+      category: classification.category ?? null,
+      subcategory: classification.subcategory ?? null,
+    });
+  }
+
   private async registerSystemMessage(
     tenantId: string,
     ticketId: string,
@@ -869,12 +895,21 @@ export class TicketsService {
     let effectivePriorityId: string | null = dto.priorityId ?? null;
     if (dto.priorityId) {
       await this.assertTenantPriorityBelongs(tenantId, dto.priorityId);
-      const tpForEnum = await this.tenantPriorityRepo.findOne({
-        where: { id: dto.priorityId, tenantId },
-      });
-      if (tpForEnum && SYSTEM_PRIORITY_VALUES.includes(tpForEnum.slug as any)) {
-        effectivePriority = tpForEnum.slug as TicketPriority;
-      }
+      effectivePriority = await this.alignPriorityEnumFromPriorityId(
+        tenantId,
+        dto.priorityId,
+        effectivePriority,
+      );
+    } else if (dto.priority === undefined) {
+      effectivePriorityId = await this.resolveInheritedPriorityIdForClassification(
+        tenantId,
+        classification,
+      );
+      effectivePriority = await this.alignPriorityEnumFromPriorityId(
+        tenantId,
+        effectivePriorityId,
+        effectivePriority,
+      );
     }
 
     if (!effectivePriorityId) {
@@ -1354,6 +1389,11 @@ export class TicketsService {
     const oldPriority = ticket.priority;
     const oldPriorityId = ticket.priorityId ?? null;
     const oldDepartment = ticket.department ?? null;
+    const previousClassification = {
+      department: ticket.department ?? null,
+      category: ticket.category ?? null,
+      subcategory: ticket.subcategory ?? null,
+    };
 
     await this.assertUserBelongsToTenant(tenantId, dto.assignedTo);
 
@@ -1369,16 +1409,17 @@ export class TicketsService {
       }
     }
 
+    let nextClassification = previousClassification;
     if (userChangedClassification) {
-      const classification = await this.resolveTicketClassification(
+      nextClassification = await this.resolveTicketClassification(
         tenantId,
         dto.department ?? ticket.department,
         dto.category ?? ticket.category,
         dto.subcategory ?? ticket.subcategory,
       );
-      updates.department = classification.department || undefined;
-      updates.category = classification.category || undefined;
-      updates.subcategory = classification.subcategory || undefined;
+      updates.department = nextClassification.department || undefined;
+      updates.category = nextClassification.category || undefined;
+      updates.subcategory = nextClassification.subcategory || undefined;
     }
 
     if (dto.assignedTo && ticket.status === TicketStatus.OPEN) {
@@ -1404,18 +1445,44 @@ export class TicketsService {
         (await this.resolveTenantPriorityIdBySlug(tenantId, dto.priority!)) ?? null;
     }
 
+    if (dto.priorityId !== undefined) {
+      ticket.priority = await this.alignPriorityEnumFromPriorityId(
+        tenantId,
+        ticket.priorityId ?? null,
+        ticket.priority,
+      );
+    } else if (dto.priority === undefined && userChangedClassification) {
+      const previousDefaultPriorityId = await this.resolveInheritedPriorityIdForClassification(
+        tenantId,
+        previousClassification,
+      );
+      const shouldRefreshInheritedPriority =
+        oldPriorityId === null || oldPriorityId === previousDefaultPriorityId;
+
+      if (shouldRefreshInheritedPriority) {
+        ticket.priorityId = await this.resolveInheritedPriorityIdForClassification(
+          tenantId,
+          nextClassification,
+        );
+        ticket.priority = await this.alignPriorityEnumFromPriorityId(
+          tenantId,
+          ticket.priorityId ?? null,
+          ticket.priority,
+        );
+      }
+    }
+
     if (!ticket.priorityId && ticket.priority) {
       ticket.priorityId =
         (await this.resolveTenantPriorityIdBySlug(tenantId, String(ticket.priority))) ?? null;
     }
 
     if (ticket.priorityId) {
-      const tpAlign = await this.tenantPriorityRepo.findOne({
-        where: { id: ticket.priorityId, tenantId },
-      });
-      if (tpAlign && SYSTEM_PRIORITY_VALUES.includes(tpAlign.slug as any)) {
-        ticket.priority = tpAlign.slug as TicketPriority;
-      }
+      ticket.priority = await this.alignPriorityEnumFromPriorityId(
+        tenantId,
+        ticket.priorityId,
+        ticket.priority,
+      );
     }
 
     const priorityOrIdChanged =

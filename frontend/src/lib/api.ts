@@ -104,6 +104,12 @@ class ApiClient {
     this.http.get('/tenant-priorities/for-tickets', {
       params: currentPriorityId ? { currentPriorityId } : {},
     });
+  getTenantPriorities = () => this.http.get('/tenant-priorities');
+  getTenantPriority = (id: string) => this.http.get(`/tenant-priorities/${id}`);
+  createTenantPriority = (data: any) => this.http.post('/tenant-priorities', data);
+  updateTenantPriority = (id: string, data: any) => this.http.put(`/tenant-priorities/${id}`, data);
+  setTenantPriorityActive = (id: string, active: boolean) =>
+    this.http.patch(`/tenant-priorities/${id}/active`, { active });
 
   getTickets = (params?: any) => this.http.get('/tickets', { params });
   getTicket = (id: string) => this.http.get(`/tickets/${id}`);

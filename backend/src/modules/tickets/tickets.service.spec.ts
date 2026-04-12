@@ -218,4 +218,28 @@ describe('TicketsService SLA', () => {
     );
     expect(reapplyConversationPolicy).not.toHaveBeenCalled();
   });
+
+  it('resolve prioridade herdada pela classificacao com precedencia da mais especifica', async () => {
+    const service = new TicketsService(
+      { save: jest.fn(), manager: { query: jest.fn() } } as any,
+      {} as any,
+      {} as any,
+      { findOne: jest.fn().mockResolvedValue(null) } as any,
+      {} as any,
+      {
+        resolveDefaultPriorityIdForClassification: jest.fn().mockResolvedValue('priority-sub'),
+      } as any,
+      {} as any,
+      {} as any,
+      { calcDeadlines: jest.fn(), resolvePolicyForTicket: jest.fn().mockResolvedValue(null) } as any,
+    );
+
+    await expect(
+      (service as any).resolveInheritedPriorityIdForClassification('tenant-1', {
+        department: 'Pista',
+        category: 'Erro ao entrar',
+        subcategory: 'Senha',
+      }),
+    ).resolves.toBe('priority-sub');
+  });
 });

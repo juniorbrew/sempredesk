@@ -27,7 +27,7 @@ export class CreateTicketSettingDto {
   @IsOptional()
   color?: string;
 
-  /** Somente quando type = department. Opcional. */
+  /** Opcional para department, category e subcategory. */
   @IsOptional()
   @ValidateIf((_o, v) => v !== null && v !== undefined && v !== '')
   @IsUUID()
@@ -57,7 +57,7 @@ export class UpdateTicketSettingDto {
   @IsOptional()
   color?: string;
 
-  /** Somente para registros do tipo department. Use null para limpar. */
+  /** Opcional para department, category e subcategory. Use null para limpar. */
   @IsOptional()
   @ValidateIf((_o, v) => v !== null && v !== undefined && v !== '')
   @IsUUID()
