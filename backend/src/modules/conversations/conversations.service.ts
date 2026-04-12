@@ -699,8 +699,9 @@ export class ConversationsService {
     const contactName = contact?.name || 'Cliente';
     const subject = opts?.subject || `Atendimento ${conv.channel === ConversationChannel.WHATSAPP ? 'WhatsApp' : 'Chat'} - ${contactName}`;
     const ticket = await this.createTicketForConversation(tenantId, conv, undefined, contactName, subject, authorId, authorName);
+    // Usar update() pontual para não sobrescrever campos SLA gravados por syncConversationSlaWithTicket
+    await this.convRepo.update({ id: conversationId, tenantId }, { ticketId: ticket.id } as Partial<Conversation>);
     conv.ticketId = ticket.id;
-    await this.convRepo.save(conv);
     return { conversation: conv, ticket };
   }
 
@@ -722,7 +723,21 @@ export class ConversationsService {
     const contactName = contact?.name || 'Cliente';
     const subject = `Atendimento WhatsApp - ${contactName}`;
 
+    // Resolve clientId: prioridade para conv.clientId; fallback para contato direto ou pivot contact_customers
+    if (!conv.clientId && contact?.clientId) {
+      conv.clientId = contact.clientId;
+    }
+    if (!conv.clientId) {
+      const pivotRows: Array<{ client_id: string }> = await this.dataSource.query(
+        `SELECT client_id FROM contact_customers WHERE tenant_id = $1 AND contact_id = $2 LIMIT 1`,
+        [tenantId, conv.contactId],
+      ).catch(() => []);
+      if (pivotRows[0]?.client_id) conv.clientId = pivotRows[0].client_id;
+    }
+
     // Cria ticket vinculado à conversa, com agente que clicou como autor
+    // ATENÇÃO: createTicketForConversation → syncConversationSlaWithTicket grava SLA via raw SQL.
+    // Usar update() pontual para ticket_id — nunca convRepo.save(conv) — para não sobrescrever os campos SLA.
     const ticket = await this.createTicketForConversation(
       tenantId,
       conv,
@@ -733,9 +748,9 @@ export class ConversationsService {
       agentName,   // authorName
     );
 
-    // Vincula conversa ao ticket
+    // Vincula conversa ao ticket via update pontual (preserva sla_first_response_deadline e sla_resolution_deadline)
+    await this.convRepo.update({ id: conversationId, tenantId }, { ticketId: ticket.id } as Partial<Conversation>);
     conv.ticketId = ticket.id;
-    await this.convRepo.save(conv);
 
     // Registra primeira resposta SLA da conversa (tempo de espera até iniciar atendimento)
     await this.slaService.recordFirstResponse(tenantId, conversationId).catch(() => {});
