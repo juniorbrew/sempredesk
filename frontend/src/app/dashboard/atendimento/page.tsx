@@ -204,19 +204,42 @@ function extractSavedMessageFromSendResponse(res: any): any | null {
 
 function ConvWaitSlaInfo({ conv }: { conv: any }) {
   const deadline = conv?.slaFirstResponseDeadline;
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!deadline) return;
+    const t = setInterval(() => setTick(n => n + 1), 30000);
+    return () => clearInterval(t);
+  }, [deadline]);
+
   if (!deadline) return null;
-  const now = Date.now();
-  const diff = new Date(deadline).getTime() - now;
-  if (diff < 0) {
-    return <span style={{ fontSize: 12, fontWeight: 700, color: '#DC2626' }}>⚠ SLA de atendimento VIOLADO</span>;
+  const diff = new Date(deadline).getTime() - Date.now();
+  const violated = diff < 0;
+  const atRisk  = !violated && diff < 15 * 60000; // < 15 min
+  const hours = Math.floor(Math.abs(diff) / 3600000);
+  const mins  = Math.floor((Math.abs(diff) % 3600000) / 60000);
+  const label = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+
+  if (violated) {
+    return (
+      <div style={{ display:'flex', alignItems:'center', gap:6, background:'#FEF2F2', border:'1px solid #FECACA', borderRadius:8, padding:'6px 12px' }}>
+        <span style={{ fontSize:16 }}>🚨</span>
+        <span style={{ fontSize:12, fontWeight:700, color:'#DC2626' }}>SLA 1ª resposta VIOLADO há {label}</span>
+      </div>
+    );
   }
-  const hours = Math.floor(diff / 3600000);
-  const mins = Math.floor((diff % 3600000) / 60000);
-  const atRisk = diff < 15 * 60000;
+  if (atRisk) {
+    return (
+      <div style={{ display:'flex', alignItems:'center', gap:6, background:'#FFF7ED', border:'1px solid #FED7AA', borderRadius:8, padding:'6px 12px' }}>
+        <span style={{ fontSize:16 }}>⚠️</span>
+        <span style={{ fontSize:12, fontWeight:700, color:'#EA580C' }}>SLA 1ª resposta expira em {label}</span>
+      </div>
+    );
+  }
   return (
-    <span style={{ fontSize: 12, fontWeight: 600, color: atRisk ? '#F97316' : '#64748B' }}>
-      SLA para iniciar: {hours > 0 ? `${hours}h ${mins}m` : `${mins}m`}
-    </span>
+    <div style={{ display:'flex', alignItems:'center', gap:6, background:'#F0FDF4', border:'1px solid #BBF7D0', borderRadius:8, padding:'6px 12px' }}>
+      <span style={{ fontSize:14 }}>🟢</span>
+      <span style={{ fontSize:12, fontWeight:600, color:'#15803D' }}>SLA 1ª resposta: {label} restantes</span>
+    </div>
   );
 }
 
@@ -2489,9 +2512,17 @@ export default function AtendimentoPage() {
                           const m = Math.floor((diff % 3600000) / 60000);
                           return <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 5, fontWeight: 700, background: '#FFF7ED', color: '#C2410C' }}>⚠ {h > 0 ? `${h}h${m}m` : `${m}m`}</span>;
                         })()}
-                        {noTicket && !isClo && (
-                          <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 5, fontWeight: 500, background: '#FEF3C7', color: '#D97706' }}>Sem ticket</span>
-                        )}
+                        {noTicket && !isClo && (() => {
+                          // SLA de 1ª resposta (tempo para Iniciar Atendimento) na sidebar
+                          const fd = c.slaFirstResponseDeadline ? new Date(c.slaFirstResponseDeadline).getTime() - Date.now() : null;
+                          if (fd === null) return <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 5, fontWeight: 500, background: '#FEF3C7', color: '#D97706' }}>Aguardando</span>;
+                          if (fd < 0) return <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 5, fontWeight: 700, background: '#FEF2F2', color: '#DC2626' }}>🚨 SLA expirado</span>;
+                          const fh = Math.floor(fd / 3600000); const fm = Math.floor((fd % 3600000) / 60000);
+                          const fAtRisk = fd < 15 * 60000;
+                          return <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 5, fontWeight: 700, background: fAtRisk ? '#FFF7ED' : '#F0FDF4', color: fAtRisk ? '#C2410C' : '#15803D' }}>
+                            {fAtRisk ? '⚠' : '🟢'} {fh > 0 ? `${fh}h${fm}m` : `${fm}m`}
+                          </span>;
+                        })()}
                         {(() => { const badge = (unreadCounts[c.id] || 0) + (c.unreadCount || 0); return badge > 0 ? (
                           <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 9, fontWeight: 600, background: S.accent, color: '#fff', minWidth: 18, textAlign: 'center', lineHeight: 1.4 }}>{badge > 99 ? '99+' : badge}</span>
                         ) : null; })()}
