@@ -843,6 +843,7 @@ function AtendimentoPageInner() {
   const [createLoading, setCreateLoading] = useState(false);
   const [ticketSettingsTree, setTicketSettingsTree] = useState<any[]>([]);
   const [team, setTeam] = useState<any[]>([]);
+  const loadChatErrorShownRef = useRef(false);
   const [creatingTicket, setCreatingTicket] = useState(false);
   const [startingAttendance, setStartingAttendance] = useState(false);
   const startingAttendanceRef = useRef(false);
@@ -1123,8 +1124,13 @@ function AtendimentoPageInner() {
     setTicketPanelDescSaving(true);
     try {
       const subject = String(currentTicket.subject ?? '').trim();
+      if (!subject) {
+        showToast('Defina o assunto do ticket antes de salvar a descrição.', 'error');
+        setTicketPanelDescSaving(false);
+        return;
+      }
       const updated: any = await api.updateTicketContent(currentTicket.id, {
-        subject: subject || 'Sem assunto',
+        subject,
         description: d,
       });
       setCurrentTicket((prev: any) =>
@@ -1490,8 +1496,8 @@ function AtendimentoPageInner() {
       const [ticketRes, msgsRaw] = await Promise.all([
         tid ? api.getTicket(tid).catch(() => null) : Promise.resolve(null),
         isTicket && ticketId
-          ? api.getMessages(ticketId, false).catch(() => ({ messages: [], hasMore: false }))
-          : api.getConversationMessages(conv.id, { limit: 50 }).catch(() => ({ messages: [], hasMore: false })),
+          ? api.getMessages(ticketId, false)
+          : api.getConversationMessages(conv.id, { limit: 50 }),
       ]);
 
       if (myId !== loadIdRef.current) return; // conversa já mudou, descarta
@@ -1505,6 +1511,7 @@ function AtendimentoPageInner() {
         setHasMoreMsgs(paged?.hasMore === true);
         oldestMsgIdRef.current = arr[0]?.id ?? null;
       }
+      loadChatErrorShownRef.current = false;
       setLoadingChat(false); // ← conteúdo visível aqui; fase 2 roda em background
 
       // Envia read receipts para mensagens do contato via Baileys (best-effort, não bloqueia)
@@ -1655,6 +1662,10 @@ function AtendimentoPageInner() {
 
     } catch (e) {
       console.error(e);
+      if (!loadChatErrorShownRef.current) {
+        loadChatErrorShownRef.current = true;
+        showToast('Não foi possível carregar o histórico deste atendimento. Tente atualizar.', 'error');
+      }
       if (myId === loadIdRef.current) setLoadingChat(false);
     }
   };
@@ -1667,12 +1678,19 @@ function AtendimentoPageInner() {
       const msgsEndpoint = isTicket && ticketId
         ? api.getMessages(ticketId, false)
         : api.getConversationMessages(conv.id, { limit: 50 });
-      const paged: any = await msgsEndpoint.catch(() => ({ messages: [], hasMore: false }));
+      const paged: any = await msgsEndpoint;
       const arr: any[] = paged?.messages ?? [];
       setMessages(arr);
       setHasMoreMsgs(paged?.hasMore === true);
       oldestMsgIdRef.current = arr[0]?.id ?? null;
-    } catch {}
+      loadChatErrorShownRef.current = false;
+    } catch (e) {
+      console.error(e);
+      if (!loadChatErrorShownRef.current) {
+        loadChatErrorShownRef.current = true;
+        showToast('Não foi possível atualizar as mensagens deste atendimento.', 'error');
+      }
+    }
   };
 
   const searchTicketsForLink = useCallback(async () => {
@@ -4751,7 +4769,7 @@ function AtendimentoPageInner() {
               </div>
               <div style={{ flex: 1 }}>
                 <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#0F172A' }}>Encerrar Atendimento</h2>
-                <p style={{ margin: 0, fontSize: 12, color: '#94A3B8' }}>Preencha as informações. O ticket vinculado também será fechado.</p>
+                <p style={{ margin: 0, fontSize: 12, color: '#94A3B8' }}>Preencha as informações. O ticket vinculado será marcado como resolvido e o cliente poderá confirmar no portal.</p>
               </div>
               <button onClick={() => setShowCloseForm(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94A3B8' }}><X size={18} /></button>
             </div>

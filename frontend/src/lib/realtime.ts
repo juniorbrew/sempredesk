@@ -2,6 +2,9 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { resolveWsBase } from './ws-base';
 
+// Deploy conservador: manter o realtime ativo enquanto o frontend ainda
+// depende dele em fluxos críticos. Os detalhes de ticket usam polling leve
+// como fallback para não ficarem "mortos" se o socket oscilar.
 export const REALTIME_ENABLED = true;
 
 /**

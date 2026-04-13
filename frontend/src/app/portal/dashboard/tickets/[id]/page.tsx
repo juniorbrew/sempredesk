@@ -32,6 +32,7 @@ export default function PortalDashboardTicketDetailPage() {
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const attachFileInputRef = useRef<HTMLInputElement>(null);
   const [replyError, setReplyError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [focusMsg, setFocusMsg] = useState(false);
   const [showClient, setShowClient] = useState(true);
@@ -82,9 +83,9 @@ export default function PortalDashboardTicketDetailPage() {
       .sort((a:any,b:any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
   };
 
-  const load = async () => {
+  const load = async (silent = false) => {
     if (!accessToken || !routeTicketRef) return;
-    setLoading(true);
+    if (!silent) setLoading(true);
     try {
       const ticketUrl = !isUuidTicketRef && client?.id
         ? `${API_BASE}/tickets/by-number/${encodeURIComponent(routeTicketRef)}?clientId=${client.id}`
@@ -97,7 +98,8 @@ export default function PortalDashboardTicketDetailPage() {
         setTicket(null);
         setMessages([]);
         setHasMore(false);
-        setLoading(false);
+        setLoadError(null);
+        if (!silent) setLoading(false);
         return;
       }
       const mRes = await portalFetch(`${API_BASE}/tickets/${ticketData.id}/messages?includeInternal=false&limit=${PAGE_LIMIT}`, { headers:{ Authorization:`Bearer ${accessToken}` } });
@@ -118,8 +120,14 @@ export default function PortalDashboardTicketDetailPage() {
       setTicket(ticketData);
       setTeam(teamData);
       setMessages(mergeMessages(rawTicketMsgs, convMsgs));
-    } catch {}
-    setLoading(false);
+      setLoadError(null);
+    } catch (err) {
+      console.error(err);
+      if (!silent) {
+        setLoadError('Não foi possível carregar o histórico deste ticket agora.');
+      }
+    }
+    if (!silent) setLoading(false);
   };
 
   const loadMore = async () => {
@@ -145,11 +153,23 @@ export default function PortalDashboardTicketDetailPage() {
           }
         });
       }
-    } catch {}
+    } catch (err) {
+      console.error(err);
+      setLoadError('Não foi possível carregar mais mensagens deste ticket agora.');
+    }
     setLoadingMore(false);
   };
 
   useEffect(() => { load(); }, [routeTicketRef, accessToken, client?.id]);
+
+  useEffect(() => {
+    if (!accessToken || !routeTicketRef) return;
+    const interval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      void load(true);
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [routeTicketRef, accessToken, client?.id, ticket?.conversationId]);
 
   useEffect(() => {
     const toRevoke = { ...msgMediaUrlsRef.current };
@@ -396,6 +416,11 @@ export default function PortalDashboardTicketDetailPage() {
 
   return (
     <div style={{ maxWidth:800 }}>
+      {loadError && (
+        <div style={{ marginBottom: 16, padding: '12px 14px', borderRadius: 12, background: '#FEF2F2', border: '1px solid #FECACA', color: '#991B1B', fontSize: 13, fontWeight: 600 }}>
+          {loadError}
+        </div>
+      )}
       {/* Header */}
       <div style={{ display:'flex', alignItems:'flex-start', gap:12, marginBottom:20 }}>
         <Link href="/portal/dashboard/tickets" style={{ display:'flex', alignItems:'center', justifyContent:'center', width:36, height:36, background:'#fff', border:'1.5px solid #E2E8F0', borderRadius:10, color:'#475569', textDecoration:'none', flexShrink:0, marginTop:2 }}>

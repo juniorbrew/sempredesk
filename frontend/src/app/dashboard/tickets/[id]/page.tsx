@@ -158,6 +158,7 @@ export default function TicketDetailsPage() {
   const ticketReplyInflightRef = useRef<Set<string>>(new Set());
   const [ticketReplyAttachFailed, setTicketReplyAttachFailed] = useState<Record<string, boolean>>({});
   const [showConversation, setShowConversation] = useState(false);
+  const loadErrorShownRef = useRef(false);
   const [showConvFilter, setShowConvFilter] = useState(true);
   /** Mesmo modal do Atendimento: transcrição vinculada e anexos de resposta pública (imagem/vídeo). */
   const [convMediaLightbox, setConvMediaLightbox] = useState<null | { src: string; mediaKind: 'image' | 'video' }>(null);
@@ -170,8 +171,8 @@ export default function TicketDetailsPage() {
   const [contentSaving, setContentSaving] = useState(false);
   const [contentForm, setContentForm] = useState({ subject:'', description:'' });
 
-  const load = async () => {
-    setLoading(true);
+  const load = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const ticketRes = await api.getTicket(id);
       const t: any = ticketRes;
@@ -219,11 +220,27 @@ export default function TicketDetailsPage() {
         tags: Array.isArray(t.tags) ? t.tags : [],
       });
       setContentForm({ subject:t.subject || '', description:t.description || '' });
-    } catch(e){ console.error(e); }
-    setLoading(false);
+      loadErrorShownRef.current = false;
+    } catch(e){ 
+      console.error(e);
+      if (!silent && !loadErrorShownRef.current) {
+        loadErrorShownRef.current = true;
+        toast.error('Não foi possível carregar o ticket. Tente atualizar.');
+      }
+    }
+    if (!silent) setLoading(false);
   };
 
   useEffect(() => { if (id) load(); }, [id]);
+
+  useEffect(() => {
+    if (!id) return;
+    const interval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      void load(true);
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [id, ticket?.conversationId]);
 
   useEffect(() => {
     if (activeTab !== 'comment') {
