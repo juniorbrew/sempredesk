@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { Bell, X, Ticket, MessageSquare, AlertTriangle, CheckCircle } from 'lucide-react';
-import { usePathname, useRouter } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { atendimentoUrlWithOpenTicket, isAtendimentoPath, ticketIdFromTicketsHref } from '@/lib/atendimento-ticket-bridge';
 import { getSharedRealtimeSocket } from '@/lib/realtime';
 
@@ -30,7 +30,6 @@ export default function NotificationBell() {
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
-  const pathname = usePathname();
 
   useEffect(() => { setNotifs(loadStored()); }, []);
 
@@ -123,8 +122,10 @@ export default function NotificationBell() {
     markRead(n.id);
     setOpen(false);
     if (!n.href) return;
-    const path = typeof window !== 'undefined' ? window.location.pathname : (pathname || '');
-    if (isAtendimentoPath(path) || isAtendimentoPath(pathname)) {
+    // Só `window.location.pathname`: `usePathname()` pode ficar atrasado após navegação e
+    // forçaria `?openTicket=` mesmo já estando em /dashboard/tickets (regressão).
+    const effectivePath = typeof window !== 'undefined' ? window.location.pathname : '';
+    if (isAtendimentoPath(effectivePath)) {
       const tid = ticketIdFromTicketsHref(n.href);
       if (tid) {
         router.replace(atendimentoUrlWithOpenTicket(tid));

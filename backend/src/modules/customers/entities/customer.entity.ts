@@ -61,8 +61,7 @@ export class Contact {
   /**
    * Campo genérico para dados extras do contato.
    * Exemplos de uso: { pendingCnpj, pendingCnpjReceivedAt }
-   * ATENÇÃO: migration necessária para adicionar a coluna no banco:
-   *   ALTER TABLE contacts ADD COLUMN IF NOT EXISTS metadata jsonb DEFAULT '{}';
+   * Coluna presente no schema canônico (init.sql) e em bancos legados via migrations.
    */
   @Column({ type: 'jsonb', default: {}, nullable: true }) metadata: Record<string, any>;
   @CreateDateColumn({ name: 'created_at' }) createdAt: Date;

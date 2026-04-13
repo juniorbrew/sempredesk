@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { Search, X, Ticket } from 'lucide-react';
-import { usePathname, useRouter } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { atendimentoUrlWithOpenTicket, isAtendimentoPath } from '@/lib/atendimento-ticket-bridge';
 import { api } from '@/lib/api';
 
@@ -26,7 +26,6 @@ export default function GlobalSearch() {
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
-  const pathname = usePathname();
 
   // Ctrl+K shortcut
   useEffect(() => {
@@ -76,10 +75,8 @@ export default function GlobalSearch() {
   const goTo = (t: any) => {
     setOpen(false);
     setQuery('');
-    // usePathname pode atrasar; window confirma que estamos no atendimento
-    const path =
-      typeof window !== 'undefined' ? window.location.pathname : (pathname || '');
-    if (isAtendimentoPath(path) || isAtendimentoPath(pathname)) {
+    const effectivePath = typeof window !== 'undefined' ? window.location.pathname : '';
+    if (isAtendimentoPath(effectivePath)) {
       router.replace(atendimentoUrlWithOpenTicket(t.id));
       return;
     }

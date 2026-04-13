@@ -14,7 +14,8 @@ export class TeamController {
 
   @Get()
   @UseGuards(PermissionsGuard)
-  @RequirePermission('agent.view')
+  /** ticket.view: lista de técnicos na ficha / atribuição; agent.view: gestão de equipe */
+  @RequirePermission('agent.view', 'ticket.view')
   findAll(@TenantId() tenantId: string, @Request() req: any) {
     return this.teamService.findTechnicians(tenantId, req.user?.networkId);
   }
@@ -29,7 +30,7 @@ export class TeamController {
 
   @Get(':id')
   @UseGuards(PermissionsGuard)
-  @RequirePermission('agent.view')
+  @RequirePermission('agent.view', 'ticket.view')
   findOne(@TenantId() tenantId: string, @Param('id') id: string) {
     return this.teamService.findOne(tenantId, id);
   }

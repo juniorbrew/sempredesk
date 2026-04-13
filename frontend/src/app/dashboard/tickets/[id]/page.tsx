@@ -120,11 +120,26 @@ function conversationTranscriptMediaUi(cm: {
   return { bucket: 'file', typeLabel, downloadFilename };
 }
 
+/** Segmento de rota com formato UUID (qualquer variante). Caso contrário tratamos como número (#000001, etc.). */
+function isTicketRouteUuid(segment: string): boolean {
+  const s = segment.trim();
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+}
+
 export default function TicketDetailsPage() {
   const params = useParams();
   const router = useRouter();
   const { user } = useAuthStore();
-  const id = String(params?.id || '');
+  /** Alinhado ao GET /team: agent.view ou ticket.view (atribuição / nomes na ficha). */
+  const canViewTeam = hasPermission(user, 'agent.view') || hasPermission(user, 'ticket.view');
+  const rawSegment = Array.isArray(params?.id) ? (params.id[0] ?? '') : String(params?.id ?? '');
+  let decodedSegment = rawSegment;
+  try {
+    decodedSegment = decodeURIComponent(rawSegment);
+  } catch {
+    decodedSegment = rawSegment;
+  }
+  const id = decodedSegment.trim();
 
   const [ticket, setTicket] = useState<any>(null);
   const [messages, setMessages] = useState<any[]>([]);
@@ -170,15 +185,51 @@ export default function TicketDetailsPage() {
   const [showContentModal, setShowContentModal] = useState(false);
   const [contentSaving, setContentSaving] = useState(false);
   const [contentForm, setContentForm] = useState({ subject:'', description:'' });
+  const prevRouteIdRef = useRef<string | null>(null);
+
+  /** UUID do ticket para API/WS: após abrir por número, `id` da rota pode ainda ser "#000001" até o Next atualizar. */
+  const apiId = useMemo(
+    () => String(ticket?.id ?? '').trim() || (isTicketRouteUuid(id) ? id : ''),
+    [ticket?.id, id],
+  );
 
   const load = async (silent = false) => {
+    if (!id || id === 'undefined') {
+      if (!silent) setLoading(false);
+      setTicket(null);
+      return;
+    }
     if (!silent) setLoading(true);
     try {
-      const ticketRes = await api.getTicket(id);
-      const t: any = ticketRes;
+      let t: any;
+      if (isTicketRouteUuid(id)) {
+        t = await api.getTicket(id);
+      } else {
+        t = await api.getTicketByNumber(id);
+      }
+      const ticketUuid = String(t?.id || '').trim();
+      if (!ticketUuid) {
+        throw new Error('Resposta do ticket sem id');
+      }
+      // Normaliza URL para UUID e sincroniza o App Router (replaceState deixava `useParams().id` desatualizado).
+      if (ticketUuid !== id && !silent) {
+        try {
+          router.replace(`/dashboard/tickets/${encodeURIComponent(ticketUuid)}`, { scroll: false });
+        } catch {
+          /* ignore */
+        }
+      }
+      // Commit do ticket antes do Promise.all: falhas parciais não bloqueiam a ficha.
+      setTicket(t);
+
       const [messageRes, teamRes, treeRes, customersRes, contractsRes, tagsRes, rootCausesRes, tpRes] = await Promise.all([
-        api.getMessages(id, true), api.getTeam(),
-        api.getTicketSettingsTree(), api.getCustomers({ perPage:200 }), api.getContracts(), api.getTags({ active: true }), api.getRootCauses({ active: true }).catch(() => []),
+        api.getMessages(ticketUuid, true).catch(() => ({ messages: [] as any[] })),
+        canViewTeam ? api.getTeam().catch(() => [] as any) : Promise.resolve([] as any),
+        api.getTicketSettingsTree().catch(() => ({ departments: [] })),
+        api.getCustomers({ perPage: 200 }).catch(() => [] as any),
+        api.getContracts().catch(() => [] as any),
+        api.getTags({ active: true }).catch(() => [] as any),
+        api.getRootCauses({ active: true }).catch(() => []),
         api.getTenantPrioritiesForTickets(t?.priorityId || undefined).catch(() => []),
       ]);
       const rawMsgs: any = messageRes;
@@ -187,14 +238,15 @@ export default function TicketDetailsPage() {
       const filteredMsgs = msgs.filter((m: any) =>
         !t.conversationId || (m.channel !== 'portal' && m.channel !== 'whatsapp')
       );
-      setTicket(t); setMessages(filteredMsgs); setTeam((teamRes as any) || []);
+      setMessages(filteredMsgs);
+      setTeam((teamRes as any) || []);
       setTree((treeRes as any) || { departments:[] });
       setCustomers((customersRes as any)?.data || (customersRes as any) || []);
       setAvailableTags(Array.isArray(tagsRes) ? tagsRes : (tagsRes as any)?.data ?? []);
       setRootCauseOptions((Array.isArray(rootCausesRes) ? rootCausesRes : (rootCausesRes as any)?.data ?? []).map((item: any) => item.name).filter(Boolean));
       if (t.clientId) {
         try { const ct = await api.getContacts(t.clientId); setContacts(Array.isArray(ct) ? ct : (ct as any)?.data ?? []); } catch { setContacts([]); }
-        try { const hist: any = await api.getTickets({ clientId: t.clientId, perPage: 6, sort: 'createdAt:desc' }); const hList = Array.isArray(hist) ? hist : hist?.data ?? hist?.items ?? []; setClientHistory(hList.filter((x: any) => x.id !== id)); } catch { setClientHistory([]); }
+        try { const hist: any = await api.getTickets({ clientId: t.clientId, perPage: 6, sort: 'createdAt:desc' }); const hList = Array.isArray(hist) ? hist : hist?.data ?? hist?.items ?? []; setClientHistory(hList.filter((x: any) => x.id !== ticketUuid)); } catch { setClientHistory([]); }
       }
       if (t.conversationId) {
         try {
@@ -223,15 +275,38 @@ export default function TicketDetailsPage() {
       loadErrorShownRef.current = false;
     } catch(e){ 
       console.error(e);
-      if (!silent && !loadErrorShownRef.current) {
-        loadErrorShownRef.current = true;
-        toast.error('Não foi possível carregar o ticket. Tente atualizar.');
+      if (!silent) {
+        setTicket(null);
+        if (!loadErrorShownRef.current) {
+          loadErrorShownRef.current = true;
+          toast.error('Não foi possível carregar o ticket. Tente atualizar.');
+        }
       }
     }
     if (!silent) setLoading(false);
   };
 
-  useEffect(() => { if (id) load(); }, [id]);
+  useEffect(() => {
+    if (!id || id === 'undefined') {
+      prevRouteIdRef.current = null;
+      setLoading(false);
+      setTicket(null);
+      setMessages([]);
+      setConversationMsgs([]);
+      setClientHistory([]);
+      return;
+    }
+    const routeChanged = prevRouteIdRef.current !== id;
+    if (routeChanged) {
+      prevRouteIdRef.current = id;
+      setTicket(null);
+      setMessages([]);
+      setConversationMsgs([]);
+      setClientHistory([]);
+      loadErrorShownRef.current = false;
+    }
+    void load();
+  }, [id, canViewTeam]);
 
   useEffect(() => {
     if (!id) return;
@@ -305,7 +380,7 @@ export default function TicketDetailsPage() {
 
   /** Anexos de resposta pública (ticket_reply_file) — GET /tickets/.../reply-attachments/.../media */
   useEffect(() => {
-    if (!id) return;
+    if (!apiId) return;
     let cancelled = false;
     void (async () => {
       for (const m of messages) {
@@ -317,7 +392,7 @@ export default function TicketDetailsPage() {
           if (ticketReplyAttachUrlsRef.current[aid] || ticketReplyInflightRef.current.has(aid)) continue;
           ticketReplyInflightRef.current.add(aid);
           try {
-            const blob = await api.getTicketReplyAttachmentBlob(id, aid);
+            const blob = await api.getTicketReplyAttachmentBlob(apiId, aid);
             if (cancelled) return;
             const url = URL.createObjectURL(blob);
             setTicketReplyAttachUrls((prev) => {
@@ -343,16 +418,16 @@ export default function TicketDetailsPage() {
     return () => {
       cancelled = true;
     };
-  }, [messages, id]);
+  }, [messages, apiId]);
 
   const loadTicketReplyAttachmentUrl = useCallback(
     async (attachmentId: string): Promise<string | null> => {
       const aid = String(attachmentId);
-      if (!id) return null;
+      if (!apiId) return null;
       const existing = ticketReplyAttachUrlsRef.current[aid];
       if (existing) return existing;
       try {
-        const blob = await api.getTicketReplyAttachmentBlob(id, aid);
+        const blob = await api.getTicketReplyAttachmentBlob(apiId, aid);
         const url = URL.createObjectURL(blob);
         setTicketReplyAttachUrls((prev) => ({ ...prev, [aid]: url }));
         setTicketReplyAttachFailed((prev) => {
@@ -367,7 +442,7 @@ export default function TicketDetailsPage() {
         return null;
       }
     },
-    [id],
+    [apiId],
   );
 
   const openTicketReplyAttachment = useCallback(
@@ -441,7 +516,7 @@ export default function TicketDetailsPage() {
   linkedConvIdRef.current = ticket?.conversationId ?? null;
 
   // ── realtime: fio do ticket (sem duplicar mensagens da conversa vinculada) ──
-  useRealtimeTicket(id || null, (msg: any) => {
+  useRealtimeTicket(apiId || null, (msg: any) => {
     if (!msg) return;
     const linked = linkedConvIdRef.current;
     if (linked && msg.conversationId != null && String(msg.conversationId) === String(linked)) {
@@ -535,7 +610,7 @@ export default function TicketDetailsPage() {
       } else {
         body.priority = edit.priority;
       }
-      await api.updateTicket(id, body);
+      await api.updateTicket(apiId, body);
       toast.success('Ticket atualizado'); await load(); setShowEditPanel(false);
     } catch(e:any){ toast.error(e?.response?.data?.message||'Erro ao atualizar'); }
     setSaving(false);
@@ -553,9 +628,9 @@ export default function TicketDetailsPage() {
     setSending(true);
     try {
       if (file && activeTab === 'comment') {
-        await api.addTicketPublicReplyAttachment(id, { content: text || undefined, file });
+        await api.addTicketPublicReplyAttachment(apiId, { content: text || undefined, file });
       } else {
-        await api.addMessage(id, { content: text, messageType: activeTab === 'note' ? 'internal' : 'comment' });
+        await api.addMessage(apiId, { content: text, messageType: activeTab === 'note' ? 'internal' : 'comment' });
       }
       await load();
       setMessage('');
@@ -576,14 +651,14 @@ export default function TicketDetailsPage() {
     if (!closeForm.solution.trim()) { toast.error('Solução aplicada é obrigatória'); return; }
     const timeSpentMin = closeForm.timeSpent ? parseInt(closeForm.timeSpent) : 0;
     try {
-      await api.resolveTicket(id, {
+      await api.resolveTicket(apiId, {
         resolutionSummary: closeForm.solution,
         timeSpentMin,
         rootCause: closeForm.rootCause || undefined,
         complexity: closeForm.complexity || undefined,
       });
       if (closeForm.internalNote.trim()) {
-        await api.addMessage(id, { content: closeForm.internalNote, messageType: 'internal' });
+        await api.addMessage(apiId, { content: closeForm.internalNote, messageType: 'internal' });
       }
       setShowCloseModal(false);
       router.push('/dashboard/tickets');
@@ -594,7 +669,7 @@ export default function TicketDetailsPage() {
     setCloseForm({ solution:'', rootCause:'', timeSpent:'', internalNote:'', complexity:0 });
     setShowCloseModal(true);
   };
-  const cancelTicket = async () => { const r=window.prompt('Motivo:')||''; if (!window.confirm('Cancelar?')) return; try { await api.cancelTicket(id,{cancelReason:r}); router.push('/dashboard/tickets'); } catch(e:any){ toast.error(e?.response?.data?.message||'Erro'); } };
+  const cancelTicket = async () => { const r=window.prompt('Motivo:')||''; if (!window.confirm('Cancelar?')) return; try { await api.cancelTicket(apiId,{cancelReason:r}); router.push('/dashboard/tickets'); } catch(e:any){ toast.error(e?.response?.data?.message||'Erro'); } };
   const [showReopenModal, setShowReopenModal] = useState(false);
   const [reopenReason, setReopenReason] = useState('');
   const [showHistory, setShowHistory] = useState(false);
@@ -603,7 +678,7 @@ export default function TicketDetailsPage() {
     try {
       const res: any = await api.getTickets({ clientId, perPage: 6, sort: 'createdAt:desc' });
       const list = Array.isArray(res) ? res : res?.data ?? res?.items ?? [];
-      setClientHistory(list.filter((t: any) => t.id !== id));
+      setClientHistory(list.filter((t: any) => t.id !== apiId));
     } catch {}
   };
   const reopenTicket = () => { setReopenReason(''); setShowReopenModal(true); };
@@ -624,8 +699,8 @@ export default function TicketDetailsPage() {
   const confirmReopen = async () => {
     if (!reopenReason.trim()) { toast.error('Informe o motivo da reabertura'); return; }
     try {
-      await api.updateTicket(id, { status:'open' });
-      await api.addMessage(id, { content:`Ticket reaberto. Motivo: ${reopenReason}`, messageType:'system' });
+      await api.updateTicket(apiId, { status:'open' });
+      await api.addMessage(apiId, { content:`Ticket reaberto. Motivo: ${reopenReason}`, messageType:'system' });
       setShowReopenModal(false);
       await load();
     } catch(e:any){ toast.error(e?.response?.data?.message||'Erro'); }
@@ -639,7 +714,7 @@ export default function TicketDetailsPage() {
     }
     setContentSaving(true);
     try {
-      const updated: any = await (api as any).updateTicketContent(id, {
+      const updated: any = await (api as any).updateTicketContent(apiId, {
         subject: contentForm.subject.trim(),
         description: contentForm.description.trim() || undefined,
       });
@@ -1688,7 +1763,7 @@ export default function TicketDetailsPage() {
                     const dot = isOpen ? S.accent : isRes ? '#10B981' : '#A8A8BE';
                     const diffMs = Date.now() - new Date(t.createdAt).getTime();
                     const diffDays = Math.floor(diffMs / 86400000);
-                    const timeLabel = t.id===id ? 'Atual' : diffDays===0 ? 'hoje' : diffDays < 7 ? `${diffDays}d` : `${Math.floor(diffDays/7)} sem`;
+                    const timeLabel = t.id === ticket?.id ? 'Atual' : diffDays===0 ? 'hoje' : diffDays < 7 ? `${diffDays}d` : `${Math.floor(diffDays/7)} sem`;
                     return (
                       <button type="button" key={t.id} onClick={() => router.push(`/dashboard/tickets/${t.id}`)} style={{ display:'flex', alignItems:'center', gap:6, padding:'5px 0', borderBottom:`1px solid ${S.bd}`, textDecoration:'none', width:'100%', textAlign:'left' as const, background:'none', borderLeft:'none', borderRight:'none', borderTop:'none', cursor:'pointer' }}>
                         <span style={{ width:7, height:7, borderRadius:'50%', background:dot, flexShrink:0 }} />

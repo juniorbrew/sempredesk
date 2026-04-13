@@ -113,7 +113,7 @@ describeE2e('Customers — contatos: arquivo, listagem e reativação (E2E servi
     const res = await service.resolveCanonicalWhatsappContact(tenantId, {
       normalizedWhatsapp: phone,
       direction: 'inbound',
-      rawInput: phone,
+      rawWhatsapp: phone,
     });
 
     expect(res.contact?.id).toBe(contactId);

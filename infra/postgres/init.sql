@@ -2,7 +2,7 @@
 -- SempreDesk — Schema Canônico v2.0
 -- Gerado em 2026-03-27 a partir do schema real do banco de produção.
 -- Substitui o init.sql v1.0 que havia ficado desatualizado em relação
--- às entidades TypeORM e às migrations 001-009 aplicadas ao longo do tempo.
+-- às entidades TypeORM e às migrations em infra/postgres/migrations/.
 --
 -- Uso: este arquivo roda somente em inicializações de banco zerado
 -- (Docker entrypoint / fresh deploy). Em bancos existentes, as

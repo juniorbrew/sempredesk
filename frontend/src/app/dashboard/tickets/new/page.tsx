@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { api } from '@/lib/api';
 import { DEFAULT_PRIORITY, PRIORITY_OPTIONS } from '@/lib/priorities';
+import { useAuthStore, hasPermission } from '@/store/auth.store';
 import { Search, X, User, Building2, FileText, ChevronDown, AlertCircle, Ticket, Tag, ArrowLeft, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { TagMultiSelect } from '@/components/ui/TagMultiSelect';
@@ -25,6 +26,8 @@ const SECTION = ({ title, icon: Icon, color, children }: any) => (
 
 export default function NewTicketPage() {
   const router = useRouter();
+  const user = useAuthStore((s) => s.user);
+  const canViewTeam = hasPermission(user, 'agent.view') || hasPermission(user, 'ticket.view');
   const [saving, setSaving] = useState(false);
   const [customers, setCustomers] = useState<any[]>([]);
   const [team, setTeam] = useState<any[]>([]);
@@ -67,7 +70,11 @@ export default function NewTicketPage() {
           }
         }
         const [cr, tr, treeR, conR, tagR, tpR] = await Promise.all([
-          api.getCustomers({ perPage:500 }), api.getTeam(), api.getTicketSettingsTree(), api.getContracts(), api.getTags({ active: true }),
+          api.getCustomers({ perPage:500 }),
+          canViewTeam ? api.getTeam().catch(() => [] as any) : Promise.resolve([] as any),
+          api.getTicketSettingsTree(),
+          api.getContracts(),
+          api.getTags({ active: true }),
           api.getTenantPrioritiesForTickets().catch(() => []),
         ]);
         const customersList = Array.isArray(cr) ? cr : Array.isArray((cr as any)?.data) ? (cr as any).data : [];
@@ -96,7 +103,7 @@ export default function NewTicketPage() {
       } catch(e){ console.error(e); }
     };
     load();
-  }, []);
+  }, [canViewTeam]);
 
   useEffect(() => {
     const handler = (e:MouseEvent) => { if (searchRef.current && !searchRef.current.contains(e.target as Node)) setShowDropdown(false); };

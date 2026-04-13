@@ -27,12 +27,12 @@ export function useRealtimePanelData() {
     if (!silent) setLoading(true);
     try {
       const [statsRes, convRes, closedRes, teamRes] = await Promise.all([
-        api.getAttendanceQueueStats(),
-        api.getConversations({ status: 'active' }),
+        api.getAttendanceQueueStats().catch(() => null),
+        api.getConversations({ status: 'active' }).catch(() => []),
         api.getConversations({ status: 'closed' }).catch(() => []),
-        api.getTeam(),
+        api.getTeam().catch(() => []),
       ]);
-      setStats(statsRes as unknown as QueueStatsPayload);
+      if (statsRes) setStats(statsRes as unknown as QueueStatsPayload);
       const ca: ConvRow[] = Array.isArray(convRes) ? convRes : (convRes as any)?.data ?? [];
       setConvs(
         ca.sort(

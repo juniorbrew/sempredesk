@@ -3,11 +3,13 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
+import { useAuthStore, hasPermission } from '@/store/auth.store';
 import { Plus, Search, ChevronLeft, ChevronRight, AlertTriangle, Ticket, Clock, CheckCircle, XCircle, RotateCw, LayoutList, Columns, CheckCircle2, X, Download, ChevronsUpDown } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { getTicketPriorityDisplay } from '@/lib/ticket-priority-ui';
+import { useMyTicketMenuCounts } from '@/hooks/useMyTicketMenuCounts';
 
 const STATUS_LABELS: Record<string,string> = { open:'Aberto', in_progress:'Em andamento', waiting_client:'Aguardando', resolved:'Resolvido', closed:'Fechado', cancelled:'Cancelado' };
 const PRIORITY_LABELS: Record<string,string> = { low:'Baixa', medium:'Média', high:'Alta', critical:'Crítica' };
@@ -65,6 +67,15 @@ function SlaIndicator({ ticket }: { ticket: any }) {
 }
 
 const KANBAN_COLS = ['open','in_progress','waiting_client','resolved','closed','cancelled'];
+
+function openTicketDetail(router: { push: (href: string) => void }, t: { id?: string; ticketNumber?: string }) {
+  const ref = (t?.id ?? t?.ticketNumber ?? '').toString().trim();
+  if (!ref) {
+    toast.error('Não foi possível abrir o ticket (sem identificador).');
+    return;
+  }
+  router.push(`/dashboard/tickets/${encodeURIComponent(ref)}`);
+}
 
 const TIME_OPTIONS = [
   { v:'15', l:'15 minutos' }, { v:'30', l:'30 minutos' }, { v:'45', l:'45 minutos' },
@@ -390,7 +401,7 @@ function KanbanView({ tickets, customers, team, rootCauseOptions, onMove }: {
                     <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:6 }}>
                       <button
                         type="button"
-                        onClick={(e) => { e.stopPropagation(); router.push(`/dashboard/tickets/${t.id}`); }}
+                        onClick={(e) => { e.stopPropagation(); openTicketDetail(router, t); }}
                         style={{ fontFamily:'monospace', color:'#4F46E5', fontWeight:700, fontSize:11, background:'#EEF2FF', padding:'2px 7px', borderRadius:5, border:'none', cursor:'pointer' }}
                       >
                         {t.ticketNumber}
@@ -401,7 +412,7 @@ function KanbanView({ tickets, customers, team, rootCauseOptions, onMove }: {
                     {/* Subject */}
                     <button
                       type="button"
-                      onClick={(e) => { e.stopPropagation(); router.push(`/dashboard/tickets/${t.id}`); }}
+                      onClick={(e) => { e.stopPropagation(); openTicketDetail(router, t); }}
                       style={{ textAlign:'left', width:'100%', border:'none', background:'transparent', padding:0, cursor:'pointer', fontFamily:'inherit' }}
                     >
                       <div style={{ fontSize:12, fontWeight:600, color:'#172B4D', marginBottom:4, overflow:'hidden', textOverflow:'ellipsis', display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical' as any }}>
@@ -427,7 +438,7 @@ function KanbanView({ tickets, customers, team, rootCauseOptions, onMove }: {
                           <div style={{ width:18, height:18, borderRadius:'50%', background:'#DDD6FE', display:'flex', alignItems:'center', justifyContent:'center', fontSize:9, fontWeight:700, color:'#5B21B6', flexShrink:0 }}>
                             {techName(t.assignedTo)?.[0]?.toUpperCase()||'?'}
                           </div>
-                          <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:90 }}>{techName(t.assignedTo)}</span>
+                          <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:90 }}>{techName(t.assignedTo, t)}</span>
                         </div>
                       ) : (
                         <span style={{ fontSize:10, color:'#DFE1E6' }}>Sem técnico</span>
@@ -454,6 +465,9 @@ function KanbanView({ tickets, customers, team, rootCauseOptions, onMove }: {
 
 export default function TicketsPage() {
   const router = useRouter();
+  const user = useAuthStore((s) => s.user);
+  const canViewTeam = hasPermission(user, 'agent.view') || hasPermission(user, 'ticket.view');
+  const { ticketsCount } = useMyTicketMenuCounts();
   const [data, setData] = useState<any>({ data:[], total:0, totalPages:1 });
   const [stats, setStats] = useState<any>(null);
   const [page, setPage] = useState(1);
@@ -492,7 +506,7 @@ export default function TicketsPage() {
     setLoading(true);
     try {
       const [ticketsRes, statsRes, teamRes, customersRes, treeRes, rootCausesRes, tpRes] = await Promise.all([
-        api.getTickets(filters), api.ticketStats(), api.getTeam().catch(() => []),
+        api.getTickets(filters), api.ticketStats(), canViewTeam ? api.getTeam().catch(() => [] as any) : Promise.resolve([] as any),
         api.getCustomers({ perPage:200 }).catch(() => []), api.getTicketSettingsTree().catch(() => null), api.getRootCauses({ active: true }).catch(() => []),
         api.getTenantPrioritiesForTickets().catch(() => []),
       ]);
@@ -506,13 +520,18 @@ export default function TicketsPage() {
     setLoading(false);
   };
 
-  useEffect(() => { load(); }, [page, status, priorityFilter, department, assignedTo, viewMode, sortField, sortDir]);
-  useEffect(() => { const t = setTimeout(()=>{ setPage(1); load(); }, 400); return () => clearTimeout(t); }, [search]);
+  useEffect(() => { load(); }, [page, status, priorityFilter, department, assignedTo, viewMode, sortField, sortDir, canViewTeam]);
+  useEffect(() => { const t = setTimeout(()=>{ setPage(1); load(); }, 400); return () => clearTimeout(t); }, [search, canViewTeam]);
 
   const exportCSV = async () => {
     try {
       const cName = (id:string) => { const c=customers.find((c:any)=>c.id===id); return c?(c.tradeName||c.companyName):'—'; };
-      const tName = (id:string) => { const u=team.find((u:any)=>u.id===id); return u?(u.name||u.email):'Não atribuído'; };
+      const tName = (ticket:any) => {
+        const embedded = ticket?.assignedUser?.name || ticket?.assignedUser?.email || ticket?.assignedToName;
+        if (embedded) return embedded;
+        const u=team.find((u:any)=>u.id===ticket?.assignedTo);
+        return u?(u.name||u.email):'Não atribuído';
+      };
       const fmtDt = (d:string|null) => d ? new Date(d).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}) : '';
       const exportParams: any = { perPage:9999, search:search||undefined, status:status||undefined, department:department||undefined };
       if (priorityFilter.startsWith('id:')) exportParams.priorityId = priorityFilter.slice(3);
@@ -523,7 +542,7 @@ export default function TicketsPage() {
       all.forEach((t:any) => rows.push([
         t.ticketNumber, t.subject, cName(t.clientId),
         STATUS_LABELS[t.status]||t.status, getTicketPriorityDisplay(t).label,
-        tName(t.assignedTo), t.department||'', t.category||'',
+        tName(t), t.department||'', t.category||'',
         t.slaResolveAt?fmtDt(t.slaResolveAt):'', fmtDt(t.createdAt), fmtDt(t.resolvedAt), fmtDt(t.closedAt),
       ]));
       const csv = rows.map(r => r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
@@ -560,7 +579,12 @@ export default function TicketsPage() {
   };
 
   const customerName = (cid:string|null, fallback?:string, clientName?:string) => { if (clientName) return clientName; const c = customers.find((c:any)=>c.id===cid); return c?(c.tradeName||c.companyName):(fallback||'—'); };
-  const techName = (uid:string) => { const u = team.find((u:any)=>u.id===uid); return u?(u.name||u.email):'—'; };
+  const techName = (uid:string, ticket?: any) => {
+    const embedded = ticket?.assignedUser?.name || ticket?.assignedUser?.email || ticket?.assignedToName;
+    if (embedded) return embedded;
+    const u = team.find((u:any)=>u.id===uid);
+    return u?(u.name||u.email):'—';
+  };
 
   const STAT_CARDS = [
     { label:'Abertos',      value:stats?.open||0,          iconBg:'#EEF2FF', iconColor:'#4F46E5', numColor:'#4F46E5', labelColor:'#6366F1', activeColor:'#4F46E5', icon:Ticket,      status:'open' },
@@ -587,7 +611,12 @@ export default function TicketsPage() {
             <Ticket style={{ width:18, height:18, color:S.accent }} strokeWidth={1.8} />
           </div>
           <div>
-            <h1 style={{ margin:0, fontSize:16, fontWeight:600, color:S.txt }}>Tickets</h1>
+            <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+              <h1 style={{ margin:0, fontSize:16, fontWeight:600, color:S.txt }}>Tickets</h1>
+              <span style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', minWidth:22, height:22, padding:'0 8px', borderRadius:999, background:ticketsCount > 0 ? '#EEF2FF' : '#E5E7EB', color:ticketsCount > 0 ? '#3730A3' : '#6B7280', fontSize:11, fontWeight:800 }}>
+                {ticketsCount}
+              </span>
+            </div>
             <p style={{ margin:0, fontSize:11, color:S.txt2, marginTop:1 }}>{data.total||0} ticket{data.total!==1?'s':''} encontrado{data.total!==1?'s':''}</p>
           </div>
         </div>
@@ -673,11 +702,13 @@ export default function TicketsPage() {
             <option value="">Departamento</option>
             {departments.map(d => <option key={d} value={d}>{d}</option>)}
           </select>
-          <select value={assignedTo} onChange={e => { setAssignedTo(e.target.value); setPage(1); }}
-            style={{ padding:'7px 28px 7px 11px', background:`${S.bg} url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23A8A8BE' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 10px center`, border:`1px solid ${S.bd2}`, borderRadius:8, fontSize:12, color:S.txt, fontFamily:'inherit', cursor:'pointer', outline:'none', appearance:'none' as any }}>
-            <option value="">Técnico</option>
-            {team.map((u:any) => <option key={u.id} value={u.id}>{u.name||u.email}</option>)}
-          </select>
+          {canViewTeam && (
+            <select value={assignedTo} onChange={e => { setAssignedTo(e.target.value); setPage(1); }}
+              style={{ padding:'7px 28px 7px 11px', background:`${S.bg} url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23A8A8BE' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 10px center`, border:`1px solid ${S.bd2}`, borderRadius:8, fontSize:12, color:S.txt, fontFamily:'inherit', cursor:'pointer', outline:'none', appearance:'none' as any }}>
+              <option value="">Técnico</option>
+              {team.map((u:any) => <option key={u.id} value={u.id}>{u.name||u.email}</option>)}
+            </select>
+          )}
         </div>
 
         {/* Kanban */}
@@ -742,14 +773,14 @@ export default function TicketsPage() {
                 </div>
               ) : data.data.map((t:any) => (
                 <div key={t.id}
-                  onClick={() => router.push(`/dashboard/tickets/${t.id}`)}
+                  onClick={() => openTicketDetail(router, t)}
                   onMouseEnter={e => (e.currentTarget as HTMLDivElement).style.background=S.bg2}
                   onMouseLeave={e => (e.currentTarget as HTMLDivElement).style.background=t.escalated?'#FFF8F8':'transparent'}
                   style={{ display:'grid', gridTemplateColumns:'90px 1fr 140px 130px 110px 100px 110px 80px 110px', padding:'0 16px', borderBottom:`1px solid ${S.bd}`, cursor:'pointer', transition:'background .1s', alignItems:'center', background:t.escalated?'#FFF8F8':'transparent' }}>
                   <div style={{ padding:'11px 8px' }}>
                     <button
                       type="button"
-                      onClick={(e) => { e.stopPropagation(); router.push(`/dashboard/tickets/${t.id}`); }}
+                      onClick={(e) => { e.stopPropagation(); openTicketDetail(router, t); }}
                       style={{ fontFamily:"'DM Mono', monospace", color:S.accent, fontWeight:600, fontSize:11, textDecoration:'none', border:'none', background:'transparent', padding:0, cursor:'pointer' }}
                     >
                       {t.ticketNumber}
@@ -760,7 +791,7 @@ export default function TicketsPage() {
                       {t.escalated && <AlertTriangle style={{ width:13, height:13, color:'#EF4444', flexShrink:0 }} />}
                       <button
                         type="button"
-                        onClick={(e) => { e.stopPropagation(); router.push(`/dashboard/tickets/${t.id}`); }}
+                        onClick={(e) => { e.stopPropagation(); openTicketDetail(router, t); }}
                         style={{ fontSize:12, fontWeight:500, color:S.txt, textDecoration:'none', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', display:'block', textAlign:'left', border:'none', background:'transparent', padding:0, cursor:'pointer', fontFamily:'inherit', minWidth:0, flex:1 }}
                       >
                         {t.subject}
@@ -776,7 +807,7 @@ export default function TicketsPage() {
                   </div>
                   <div style={{ padding:'11px 8px' }}><StatusBadge status={t.status} /></div>
                   <div style={{ padding:'11px 8px' }}><PriorityBadge ticket={t} /></div>
-                  <div style={{ padding:'11px 8px', fontSize:11, color:S.txt2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{techName(t.assignedTo)||'—'}</div>
+                  <div style={{ padding:'11px 8px', fontSize:11, color:S.txt2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{techName(t.assignedTo, t)||'—'}</div>
                   <div style={{ padding:'11px 8px', whiteSpace:'nowrap' }}>
                     {(() => {
                       if (!t.slaResolveAt || ['resolved','closed','cancelled'].includes(t.status)) return null;

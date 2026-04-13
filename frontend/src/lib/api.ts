@@ -115,8 +115,10 @@ class ApiClient {
   getTicket = (id: string) => this.http.get(`/tickets/${id}`);
   getTicketConversations = (params?: { origin?: 'portal' | 'whatsapp'; status?: string; perPage?: number }) =>
     this.http.get('/tickets/conversations', { params });
-  getTicketByNumber = (number: string, clientId: string) =>
-    this.http.get(`/tickets/by-number/${encodeURIComponent(number)}`, { params: { clientId } });
+  getTicketByNumber = (number: string, clientId?: string) =>
+    this.http.get(`/tickets/by-number/${encodeURIComponent(number)}`, {
+      params: clientId ? { clientId } : {},
+    });
   createTicket = (data: any) => this.http.post('/tickets', data);
   updateTicket = (id: string, data: any) => this.http.put(`/tickets/${id}`, data);
   ticketStats = () => this.http.get('/tickets/stats');

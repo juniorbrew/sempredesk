@@ -27,6 +27,7 @@ import {
   type ChatDensityMode,
 } from '@/components/chat/chatDensity';
 import { invalidateMyOpenTicketsCount } from '@/hooks/useMyOpenTicketsCount';
+import { useMyTicketMenuCounts } from '@/hooks/useMyTicketMenuCounts';
 import { getTicketPriorityDisplay, isTicketCriticalUrgent, ticketPriorityChipStyle } from '@/lib/ticket-priority-ui';
 
 /** Rótulos de status alinhados à página do ticket (painel lateral). */
@@ -38,6 +39,13 @@ const TICKET_STATUS_PANEL: Record<string, { label: string; bg: string; color: st
   closed: { label: 'Fechado', bg: '#F9FAFB', color: '#374151', dot: '#374151' },
   cancelled: { label: 'Cancelado', bg: '#FEF2F2', color: '#991B1B', dot: '#EF4444' },
 };
+
+const ATTENDANCE_ALERT_RULES = {
+  queueWarnMs: 15 * 60_000,
+  queueCriticalMs: 60 * 60_000,
+  firstReplyWarnMs: 5 * 60_000,
+  firstReplyCriticalMs: 10 * 60_000,
+} as const;
 
 const TICKET_STATUS_SELECT_OPTIONS: { value: string; label: string }[] = [
   { value: 'open', label: 'Aberto' },
@@ -284,6 +292,43 @@ function getConversationMetrics(conv: any) {
   return { queuedAt, attendanceStartedAt, firstAgentReplyAt, closedAt, waitToStartMs, firstReplyMs, durationMs };
 }
 
+function getInboxAlertMeta(conv: any) {
+  const metrics = getConversationMetrics(conv);
+  if (!metrics.attendanceStartedAt && metrics.queuedAt) {
+    const waitingMs = Math.max(0, Date.now() - new Date(metrics.queuedAt).getTime());
+    const severity =
+      waitingMs >= ATTENDANCE_ALERT_RULES.queueCriticalMs
+        ? 'critical'
+        : waitingMs >= ATTENDANCE_ALERT_RULES.queueWarnMs
+          ? 'warning'
+          : 'fresh';
+    return {
+      kind: 'queue' as const,
+      severity,
+      waitingMs,
+      shouldPulse: true,
+    };
+  }
+
+  if (metrics.attendanceStartedAt && !metrics.firstAgentReplyAt) {
+    const pendingMs = Math.max(0, Date.now() - new Date(metrics.attendanceStartedAt).getTime());
+    const severity =
+      pendingMs >= ATTENDANCE_ALERT_RULES.firstReplyCriticalMs
+        ? 'critical'
+        : pendingMs >= ATTENDANCE_ALERT_RULES.firstReplyWarnMs
+          ? 'warning'
+          : 'fresh';
+    return {
+      kind: 'firstReply' as const,
+      severity,
+      waitingMs: pendingMs,
+      shouldPulse: severity !== 'fresh',
+    };
+  }
+
+  return null;
+}
+
 function ConvWaitMetricsInfo({ conv }: { conv: any }) {
   const metrics = getConversationMetrics(conv);
   const [, setTick] = useState(0);
@@ -296,8 +341,8 @@ function ConvWaitMetricsInfo({ conv }: { conv: any }) {
   if (!metrics.queuedAt || metrics.attendanceStartedAt) return null;
   const waitingMs = Math.max(0, Date.now() - new Date(metrics.queuedAt).getTime());
   const label = formatDurationLabel(waitingMs);
-  const highWait = waitingMs >= 60 * 60000;
-  const atRisk = !highWait && waitingMs >= 15 * 60000;
+  const highWait = waitingMs >= ATTENDANCE_ALERT_RULES.queueCriticalMs;
+  const atRisk = !highWait && waitingMs >= ATTENDANCE_ALERT_RULES.queueWarnMs;
   const dotStyle = { width: 8, height: 8, borderRadius: '50%', display: 'inline-block', flexShrink: 0 } as const;
 
   if (highWait) {
@@ -350,8 +395,8 @@ function ConversationLiveAlerts({ conv }: { conv: any }) {
     !metrics.firstAgentReplyAt
       ? Math.max(0, Date.now() - new Date(metrics.attendanceStartedAt).getTime())
       : null;
-  const firstReplyHigh = firstReplyPendingMs != null && firstReplyPendingMs >= 30 * 60000;
-  const firstReplyRisk = firstReplyPendingMs != null && !firstReplyHigh && firstReplyPendingMs >= 10 * 60000;
+  const firstReplyHigh = firstReplyPendingMs != null && firstReplyPendingMs >= ATTENDANCE_ALERT_RULES.firstReplyCriticalMs;
+  const firstReplyRisk = firstReplyPendingMs != null && !firstReplyHigh && firstReplyPendingMs >= ATTENDANCE_ALERT_RULES.firstReplyWarnMs;
   const firstReplyStyle = firstReplyHigh
     ? { bg: '#FEF2F2', border: '#FECACA', color: '#DC2626' }
     : firstReplyRisk
@@ -857,7 +902,8 @@ function AtendimentoPageInner() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { user } = useAuthStore();
-  const canViewTeam = hasPermission(user, 'agent.view');
+  const { atendimentoCount } = useMyTicketMenuCounts();
+  const canViewTeam = hasPermission(user, 'agent.view') || hasPermission(user, 'ticket.view');
   const [conversations, setConversations] = useState<any[]>([]);
   const [selected, setSelected] = useState<any>(null);
   const [messages, setMessages] = useState<any[]>([]);
@@ -2764,6 +2810,13 @@ function AtendimentoPageInner() {
   // ── render ────────────────────────────────────────────────────────────────
   return (
     <>
+      <style>{`
+        @keyframes atendimentoPulse {
+          0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(37,99,235,.18); }
+          50% { transform: scale(1.01); box-shadow: 0 0 0 6px rgba(37,99,235,.08); }
+          100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(37,99,235,0); }
+        }
+      `}</style>
 
       {/* ── Main layout ── */}
       <div style={{ margin: 0, height: 'calc(100vh - 44px)', display: 'flex', overflow: 'hidden', background: 'linear-gradient(135deg, #E0E7FF 0%, #F8FAFC 45%, #FEF3C7 100%)' }}>
@@ -2775,7 +2828,12 @@ function AtendimentoPageInner() {
           <div style={{ padding: '18px 16px 14px', borderBottom: S.border, flexShrink: 0, background: 'linear-gradient(180deg, rgba(255,255,255,0.95) 0%, rgba(241,245,249,0.92) 100%)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
               <div>
-                <span style={{ display: 'block', fontSize: 17, fontWeight: 800, color: S.txt, letterSpacing: '-0.02em' }}>Atendimento</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ display: 'block', fontSize: 17, fontWeight: 800, color: S.txt, letterSpacing: '-0.02em' }}>Atendimento</span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 22, height: 22, padding: '0 8px', borderRadius: 999, background: atendimentoCount > 0 ? '#DBEAFE' : '#E2E8F0', color: atendimentoCount > 0 ? '#1D4ED8' : '#64748B', fontSize: 11, fontWeight: 800 }}>
+                    {atendimentoCount}
+                  </span>
+                </div>
                 <span style={{ display: 'block', marginTop: 3, fontSize: 11, color: S.txt2 }}>Inbox unificado com contexto de conversa, ticket e empresa</span>
               </div>
               <div style={{ display: 'flex', gap: 6 }}>
@@ -2956,14 +3014,32 @@ function AtendimentoPageInner() {
                 const dispName = c.contactName || customerName(c.clientId) || '—';
                 const compName = c.clientName || (c.contactName ? customerName(c.clientId) : null) || (customerName(c.clientId) !== '—' ? customerName(c.clientId) : null);
                 const col = avatarColor(dispName);
+                const alertMeta = getInboxAlertMeta(c);
+                const alertAccent =
+                  alertMeta?.severity === 'critical'
+                    ? '#DC2626'
+                    : alertMeta?.severity === 'warning'
+                      ? '#EA580C'
+                      : alertMeta?.severity === 'fresh'
+                        ? '#2563EB'
+                        : null;
+                const alertBg =
+                  alertMeta?.severity === 'critical'
+                    ? '#FEF2F2'
+                    : alertMeta?.severity === 'warning'
+                      ? '#FFF7ED'
+                      : alertMeta?.severity === 'fresh'
+                        ? '#EFF6FF'
+                        : null;
                 return (
                   <button key={c.id} onClick={() => { setSelected(c); if (c?.id) setUnreadCounts(p => { const n = { ...p }; delete n[c.id]; return n; }); }}
                     style={{
-                      width: '100%', padding: 12, borderRadius: 16, border: isSelected ? `1px solid ${S.accentMid}` : '1px solid rgba(255,255,255,.35)',
-                      background: isSelected ? 'linear-gradient(135deg, #EFF6FF, #FFFFFF)' : 'rgba(255,255,255,.72)',
+                      width: '100%', padding: 12, borderRadius: 16, border: isSelected ? `1px solid ${alertAccent || S.accentMid}` : alertAccent ? `1px solid ${alertAccent}55` : '1px solid rgba(255,255,255,.35)',
+                      background: isSelected ? `linear-gradient(135deg, ${alertBg || '#EFF6FF'}, #FFFFFF)` : alertBg || 'rgba(255,255,255,.72)',
                       cursor: 'pointer', textAlign: 'left', transition: 'background .1s',
                       display: 'flex', gap: 10, alignItems: 'flex-start', marginBottom: 8, fontFamily: 'inherit',
-                      boxShadow: isSelected ? '0 12px 28px rgba(29,78,216,.10)' : '0 6px 20px rgba(15,23,42,.04)',
+                      boxShadow: alertAccent ? `0 0 0 1px ${alertAccent}20, 0 8px 24px ${alertAccent}18` : isSelected ? '0 12px 28px rgba(29,78,216,.10)' : '0 6px 20px rgba(15,23,42,.04)',
+                      animation: alertMeta?.shouldPulse ? 'atendimentoPulse 1.4s ease-in-out infinite' : undefined,
                     }}>
                     <div style={{ position: 'relative', flexShrink: 0 }}>
                       <div style={{ width: 40, height: 40, borderRadius: 14, background: isClo ? '#E2E8F0' : col, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 13, fontWeight: 700 }}>
@@ -2994,15 +3070,21 @@ function AtendimentoPageInner() {
                           <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 5, fontWeight: 600, background: '#FEF2F2', color: '#DC2626' }}>● Urgente</span>
                         )}
                         {(() => {
-                          if (!noTicket) return null;
-                          const metrics = getConversationMetrics(c);
-                          if (!metrics.queuedAt || metrics.attendanceStartedAt) return <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 5, fontWeight: 700, background: '#F8FAFC', color: '#64748B' }}>Sem ticket</span>;
-                          const waitingMs = Math.max(0, Date.now() - new Date(metrics.queuedAt).getTime());
-                          const highWait = waitingMs >= 60 * 60000;
-                          const atRisk = !highWait && waitingMs >= 15 * 60000;
-                          const compactLabel = formatDurationLabel(waitingMs);
-                          return <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 5, fontWeight: 700, background: highWait ? '#FEF2F2' : atRisk ? '#FFF7ED' : '#F0FDF4', color: highWait ? '#DC2626' : atRisk ? '#C2410C' : '#15803D' }}>
-                            {highWait ? 'Fila' : atRisk ? 'Espera' : 'Novo'} {compactLabel}
+                          if (!alertMeta) {
+                            if (!noTicket) return null;
+                            return <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 5, fontWeight: 700, background: '#F8FAFC', color: '#64748B' }}>Sem ticket</span>;
+                          }
+                          const compactLabel = formatDurationLabel(alertMeta.waitingMs);
+                          const label =
+                            alertMeta.kind === 'queue'
+                              ? alertMeta.severity === 'critical'
+                                ? 'Novo chat crítico'
+                                : 'Novo chat'
+                              : alertMeta.severity === 'critical'
+                                ? '1ª resposta crítica'
+                                : '1ª resposta pendente';
+                          return <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 5, fontWeight: 800, background: alertMeta.severity === 'critical' ? '#FEE2E2' : alertMeta.severity === 'warning' ? '#FFEDD5' : '#DBEAFE', color: alertMeta.severity === 'critical' ? '#B91C1C' : alertMeta.severity === 'warning' ? '#C2410C' : '#1D4ED8' }}>
+                            {label} • {compactLabel}
                           </span>;
                         })()}
                       </div>

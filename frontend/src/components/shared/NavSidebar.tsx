@@ -123,12 +123,14 @@ export default function NavSidebar({ isOpen, onClose, expanded = false, onToggle
   const setPresence = usePresenceStore((s) => s.setPresence);
   const router = useRouter();
   const pathname = usePathname();
-  const { atendimentoCount, ticketsCount, refetch } = useMyTicketMenuCounts();
+  const { atendimentoCount, atendimentoKeys, atendimentoItems, ticketsCount, refetch } = useMyTicketMenuCounts();
   const isCadastrosActive = CADASTROS_PATHS.some(p => pathname.startsWith(p));
   const [cadastrosOpen, setCadastrosOpen] = useState(isCadastrosActive);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
   const notifiedRef = useRef<Record<string, number>>({});
-  const prevAtendimentoCountRef = useRef<number | null>(null);
+  const prevAtendimentoKeysRef = useRef<string[] | null>(null);
+  const titleFlashRef = useRef<number | null>(null);
+  const titleBaseRef = useRef<string>('');
 
   // auto-open cadastros when navigating to a cadastros route
   useEffect(() => {
@@ -136,15 +138,76 @@ export default function NavSidebar({ isOpen, onClose, expanded = false, onToggle
   }, [isCadastrosActive]);
 
   useEffect(() => {
-    const prev = prevAtendimentoCountRef.current;
-    prevAtendimentoCountRef.current = atendimentoCount;
+    if (typeof document === 'undefined') return;
+    if (!titleBaseRef.current) {
+      titleBaseRef.current = document.title;
+    }
+    if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+      Notification.requestPermission().catch(() => {});
+    }
+    return () => {
+      if (titleFlashRef.current) {
+        window.clearInterval(titleFlashRef.current);
+        titleFlashRef.current = null;
+      }
+      if (titleBaseRef.current) {
+        document.title = titleBaseRef.current;
+      }
+    };
+  }, []);
+
+  const flashDocumentTitle = (message: string) => {
+    if (typeof document === 'undefined') return;
+    const baseTitle = titleBaseRef.current || document.title;
+    if (titleFlashRef.current) {
+      window.clearInterval(titleFlashRef.current);
+      titleFlashRef.current = null;
+    }
+    let toggle = false;
+    document.title = `Novo chamado • ${baseTitle}`;
+    titleFlashRef.current = window.setInterval(() => {
+      toggle = !toggle;
+      document.title = toggle ? `Novo chamado • ${message}` : baseTitle;
+    }, 900);
+    window.setTimeout(() => {
+      if (titleFlashRef.current) {
+        window.clearInterval(titleFlashRef.current);
+        titleFlashRef.current = null;
+      }
+      document.title = baseTitle;
+    }, 10_000);
+  };
+
+  const showBrowserNotification = (message: string) => {
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+    try {
+      const notification = new Notification('SempreDesk', {
+        body: message,
+        tag: 'sempredesk-attendance',
+      });
+      window.setTimeout(() => notification.close(), 6000);
+    } catch {}
+  };
+
+  const notifyGlobalAttendance = (message: string) => {
+    showToast(message);
+    playNotificationSound();
+    flashDocumentTitle(message);
+    showBrowserNotification(message);
+  };
+
+  useEffect(() => {
+    const prev = prevAtendimentoKeysRef.current;
+    prevAtendimentoKeysRef.current = atendimentoKeys;
     if (prev == null) return;
     if (pathname === '/dashboard/atendimento') return;
-    if (atendimentoCount > prev) {
-      showToast('Novo chamado recebido');
-      playNotificationSound();
+    const prevSet = new Set(prev);
+    const newItem = atendimentoItems.find((item) => !prevSet.has(item.key));
+    if (newItem) {
+      const detail = newItem.ticketNumber ? `${newItem.label} • ${newItem.ticketNumber}` : newItem.label;
+      notifyGlobalAttendance(`Novo chamado: ${detail}`);
     }
-  }, [atendimentoCount, pathname]);
+  }, [atendimentoItems, atendimentoKeys, pathname]);
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
     setToast({ msg, type });
@@ -177,8 +240,7 @@ export default function NavSidebar({ isOpen, onClose, expanded = false, onToggle
     if (id) notifiedRef.current[id] = now;
 
     const label = String(msg?.contactName || msg?.preview || 'Novo chamado').trim() || 'Novo chamado';
-    showToast(`Novo chamado: ${label}`);
-    playNotificationSound();
+    notifyGlobalAttendance(`Novo chamado: ${label}`);
   });
 
   useRealtimeTicketAssigned(() => {

@@ -337,6 +337,25 @@ export class ConversationsService {
     }
     if (active && !active.ticketId) {
       await this.maybeApplyDepartmentPriorityFromOpts(tenantId, active, opts, manager);
+      const autoCreated = await this.maybeAutoCreateTicketForConversation(
+        tenantId,
+        active,
+        opts,
+        convRepo,
+      );
+      if (autoCreated) {
+        this.logConversationResolution({
+          scope: 'conversation-resolution',
+          tenantId,
+          contactId,
+          clientId,
+          channel,
+          existingConversationId: active.id,
+          action: 'reuse',
+          stage: 'return-active-auto-ticket-getOrCreateForContact',
+        });
+        return autoCreated;
+      }
       this.logConversationResolution({
         scope: 'conversation-resolution',
         tenantId,
@@ -350,6 +369,25 @@ export class ConversationsService {
       return { conversation: active, ticket: null, ticketCreated: false };
     }
     const result = await this.startConversation(tenantId, clientId, contactId, channel, opts ?? {}, manager);
+    const autoCreated = await this.maybeAutoCreateTicketForConversation(
+      tenantId,
+      result.conversation,
+      opts,
+      convRepo,
+    );
+    if (autoCreated) {
+      this.logConversationResolution({
+        scope: 'conversation-resolution',
+        tenantId,
+        contactId,
+        clientId,
+        channel,
+        existingConversationId: null,
+        action: 'create',
+        stage: 'return-created-auto-ticket-getOrCreateForContact',
+      });
+      return autoCreated;
+    }
     this.logConversationResolution({
       scope: 'conversation-resolution',
       tenantId,
@@ -362,6 +400,52 @@ export class ConversationsService {
     });
     return { ...result, ticketCreated: false };
     });
+  }
+
+  private async maybeAutoCreateTicketForConversation(
+    tenantId: string,
+    conv: Conversation,
+    opts: {
+      autoCreateTicket?: boolean;
+      firstMessage?: string;
+      contactName?: string;
+      departmentId?: string;
+      department?: string;
+    } | undefined,
+    convRepo: Repository<Conversation>,
+  ): Promise<{ conversation: Conversation; ticket: any; ticketCreated: boolean } | null> {
+    if (!opts?.autoCreateTicket || conv.ticketId || !conv.clientId) {
+      return null;
+    }
+
+    const contact = await this.customersService.findContactById(tenantId, conv.contactId).catch(() => null);
+    const contactName = opts.contactName || contact?.name || contact?.email || 'Cliente';
+
+    try {
+      const ticket = await this.createTicketForConversation(
+        tenantId,
+        conv,
+        opts.firstMessage,
+        contactName,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        opts.departmentId,
+        opts.department,
+      );
+      conv.ticketId = ticket.id;
+      await convRepo.update(
+        { id: conv.id, tenantId },
+        { ticketId: ticket.id } as Partial<Conversation>,
+      );
+      return { conversation: conv, ticket, ticketCreated: true };
+    } catch (err: any) {
+      this.logger.warn(
+        `[getOrCreateForContact] Falha ao auto-criar ticket para a conversa ${conv.id}: ${err?.message}`,
+      );
+      return null;
+    }
   }
 
   /**

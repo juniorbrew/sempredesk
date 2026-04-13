@@ -125,7 +125,8 @@ export class TicketsController {
 
   /** Quantidade de tickets em aberto atribuídos ao usuário autenticado (tenant atual). Portal: sempre 0. */
   @Get('me/open-assigned-count')
-  @RequirePermission('attendance.view')
+  /** Contador do menu Tickets: utilizadores com ticket.view; também attendance.view (OR no guard). */
+  @RequirePermission('ticket.view', 'attendance.view')
   async myOpenAssignedCount(@Request() req: any, @TenantId() tenantId: string) {
     if (req.user?.isPortal === true) {
       return { count: 0 };

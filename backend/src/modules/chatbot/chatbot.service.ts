@@ -689,6 +689,7 @@ export class ChatbotService {
               firstMessage: 'Atendimento solicitado (sem descrição informada)',
               contactName: contact.name || session.identifier,
               department: pendingDepartment ?? undefined,
+              autoCreateTicket: true,
             } as any,
           ).catch((e) => this.logger.warn(`Auto-transfer failed for session ${session.id}`, e));
         }
