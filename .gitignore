@@ -78,6 +78,8 @@ backend/uploads/
 
 # Audits / backups locais
 audits/
+# Dumps PostgreSQL / DB na raiz (não versionar)
+*.dump
 
 # Rascunhos / SQL ad hoc na raiz do repo (máquina local — não versionar)
 /hash.txt
