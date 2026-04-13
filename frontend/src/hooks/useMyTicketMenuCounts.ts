@@ -15,7 +15,7 @@ type TicketMenuCounts = {
  * - Atendimento: tickets ativos atribuídos ao agente
  * - Tickets: tickets resolvidos/fechados atribuídos ao agente
  */
-export function useMyTicketMenuCounts(pollMs = 60_000) {
+export function useMyTicketMenuCounts(pollMs = 10_000) {
   const user = useAuthStore((s) => s.user);
   const [counts, setCounts] = useState<TicketMenuCounts>({
     atendimentoCount: 0,

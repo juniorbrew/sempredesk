@@ -857,6 +857,7 @@ function AtendimentoPageInner() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { user } = useAuthStore();
+  const canViewTeam = hasPermission(user, 'agent.view');
   const [conversations, setConversations] = useState<any[]>([]);
   const [selected, setSelected] = useState<any>(null);
   const [messages, setMessages] = useState<any[]>([]);
@@ -1641,7 +1642,7 @@ function AtendimentoPageInner() {
       const now = Date.now();
 
       const needCustomers = customersRef.current.length === 0 || (now - customersCachedAtRef.current) > PHASE2_CACHE_TTL;
-      const needTeam = teamRef.current.length === 0 || (now - teamCachedAtRef.current) > PHASE2_CACHE_TTL;
+      const needTeam = canViewTeam && (teamRef.current.length === 0 || (now - teamCachedAtRef.current) > PHASE2_CACHE_TTL);
 
       // Verifica cache de contatos — evita refetch a cada troca de contato
       const cachedClientContacts = clientId ? contactsCacheRef.current[clientId] : null;
@@ -1704,7 +1705,7 @@ function AtendimentoPageInner() {
       }
       // Garante que o agente responsável pelo ticket esteja na lista
       const ticketForAssign = ticketRes as { assignedTo?: string } | null;
-      if (ticketForAssign?.assignedTo) {
+      if (canViewTeam && ticketForAssign?.assignedTo) {
         const cur = teamRef.current;
         if (!cur.find((u: any) => String(u.id) === String(ticketForAssign.assignedTo))) {
           try {
@@ -1914,6 +1915,7 @@ function AtendimentoPageInner() {
   // ── assign agent ──
   // ── transfer ──
   const openTransferModal = async () => {
+    if (!canViewTeam) return;
     if (team.length === 0) { try { const r: any = await api.getTeam(); setTeam(Array.isArray(r) ? r : r?.data ?? []); } catch {} }
     setTransferAgentId('');
     setShowTransferModal(true);
@@ -3133,10 +3135,12 @@ function AtendimentoPageInner() {
                         <Link2 size={13} /> Vincular ticket
                       </button>
                     )}
-                    <button onClick={openTransferModal}
-                      style={{ padding: '7px 14px', borderRadius: 999, border: S.border2, background: '#FFFFFF', color: S.txt, fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' }}>
-                      Transferir
-                    </button>
+                    {canViewTeam && (
+                      <button onClick={openTransferModal}
+                        style={{ padding: '7px 14px', borderRadius: 999, border: S.border2, background: '#FFFFFF', color: S.txt, fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' }}>
+                        Transferir
+                      </button>
+                    )}
                     {!isClosed && (hasTicket || isPortalNoTicket) && (
                       <button onClick={openEndFlow} disabled={!canCloseTicket || customerLinkRequired}
                         title={customerLinkRequired ? 'Defina a empresa antes de encerrar' : undefined}

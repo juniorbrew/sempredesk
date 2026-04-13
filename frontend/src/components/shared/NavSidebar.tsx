@@ -128,11 +128,23 @@ export default function NavSidebar({ isOpen, onClose, expanded = false, onToggle
   const [cadastrosOpen, setCadastrosOpen] = useState(isCadastrosActive);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
   const notifiedRef = useRef<Record<string, number>>({});
+  const prevAtendimentoCountRef = useRef<number | null>(null);
 
   // auto-open cadastros when navigating to a cadastros route
   useEffect(() => {
     if (isCadastrosActive) setCadastrosOpen(true);
   }, [isCadastrosActive]);
+
+  useEffect(() => {
+    const prev = prevAtendimentoCountRef.current;
+    prevAtendimentoCountRef.current = atendimentoCount;
+    if (prev == null) return;
+    if (pathname === '/dashboard/atendimento') return;
+    if (atendimentoCount > prev) {
+      showToast('Novo chamado recebido');
+      playNotificationSound();
+    }
+  }, [atendimentoCount, pathname]);
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
     setToast({ msg, type });
