@@ -146,7 +146,14 @@ export class ConversationsController {
   @Get('active-count')
   async getActiveCount(@Request() req: any, @TenantId() tenantId: string) {
     if (req.user?.isPortal) throw new ForbiddenException('Endpoint disponivel apenas para a equipe interna');
-    return this.conversationsService.getActiveCount(tenantId);
+    let agentId: string | undefined;
+    const role: string = req.user?.role || '';
+    const perms: string[] = req.user?.permissions || [];
+    const isAdmin = role === 'super_admin' || role === 'admin';
+    if (!isAdmin && !perms.includes('attendance.view_all')) {
+      agentId = req.user?.id;
+    }
+    return this.conversationsService.getActiveCount(tenantId, { agentId });
   }
 
   @UseGuards(JwtAuthGuard, PermissionsGuard)

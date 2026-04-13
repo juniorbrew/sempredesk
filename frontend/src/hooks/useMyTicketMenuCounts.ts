@@ -29,8 +29,8 @@ export function useMyTicketMenuCounts(pollMs = 60_000) {
     }
 
     try {
-      const [openRes, closedRes] = await Promise.allSettled([
-        api.getMyOpenAssignedTicketsCount(),
+      const [attendanceRes, closedRes] = await Promise.allSettled([
+        api.getConversationsActiveCount(),
         api.getTickets({
           assignedTo: user.id,
           status: 'resolved,closed',
@@ -39,17 +39,17 @@ export function useMyTicketMenuCounts(pollMs = 60_000) {
         }),
       ]);
 
-      const openPayload = openRes.status === 'fulfilled' ? openRes.value : null;
+      const attendancePayload = attendanceRes.status === 'fulfilled' ? attendanceRes.value : null;
       const closedPayload = closedRes.status === 'fulfilled' ? closedRes.value : null;
-      const openCountRaw = typeof (openPayload as any)?.count === 'number'
-        ? (openPayload as any).count
-        : Number((openPayload as any)?.data?.count);
+      const attendanceCountRaw = typeof (attendancePayload as any)?.total === 'number'
+        ? (attendancePayload as any).total
+        : Number((attendancePayload as any)?.data?.total);
       const closedTotalRaw = typeof (closedPayload as any)?.total === 'number'
         ? (closedPayload as any).total
         : Number((closedPayload as any)?.data?.total);
 
       setCounts({
-        atendimentoCount: Number.isFinite(openCountRaw) && openCountRaw >= 0 ? openCountRaw : 0,
+        atendimentoCount: Number.isFinite(attendanceCountRaw) && attendanceCountRaw >= 0 ? attendanceCountRaw : 0,
         ticketsCount: Number.isFinite(closedTotalRaw) && closedTotalRaw >= 0 ? closedTotalRaw : 0,
       });
     } catch {

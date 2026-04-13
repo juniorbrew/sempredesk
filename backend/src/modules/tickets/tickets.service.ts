@@ -1182,9 +1182,9 @@ export class TicketsService {
    */
   async getConversationsAsInbox(
     tenantId: string,
-    opts: { origin?: 'portal' | 'whatsapp'; status?: string; perPage?: number },
+    opts: { origin?: 'portal' | 'whatsapp'; status?: string; perPage?: number; agentId?: string },
   ) {
-    const { origin, status = 'active', perPage = 50 } = opts;
+    const { origin, status = 'active', perPage = 50, agentId } = opts;
     const qb = this.ticketRepo
       .createQueryBuilder('t')
       .where('t.tenant_id = :tenantId', { tenantId })
@@ -1201,6 +1201,9 @@ export class TicketsService {
       });
     } else if (status === 'closed') {
       qb.andWhere('t.status IN (:...sts)', { sts: [TicketStatus.RESOLVED, TicketStatus.CLOSED, TicketStatus.CANCELLED] });
+    }
+    if (agentId) {
+      qb.andWhere('(t.assigned_to IS NULL OR t.assigned_to = :agentId)', { agentId });
     }
 
     const tickets = await qb.getMany();
@@ -1260,6 +1263,27 @@ export class TicketsService {
         conversationId: IsNull(),
         status: In([TicketStatus.OPEN, TicketStatus.IN_PROGRESS, TicketStatus.WAITING_CLIENT]),
       },
+    });
+  }
+
+  async getActiveInboxTicketCountForAgent(tenantId: string, agentUserId: string): Promise<number> {
+    return this.ticketRepo.count({
+      where: [
+        {
+          tenantId,
+          origin: TicketOrigin.WHATSAPP,
+          conversationId: IsNull(),
+          assignedTo: IsNull(),
+          status: In([TicketStatus.OPEN, TicketStatus.IN_PROGRESS, TicketStatus.WAITING_CLIENT]),
+        },
+        {
+          tenantId,
+          origin: TicketOrigin.WHATSAPP,
+          conversationId: IsNull(),
+          assignedTo: agentUserId,
+          status: In([TicketStatus.OPEN, TicketStatus.IN_PROGRESS, TicketStatus.WAITING_CLIENT]),
+        },
+      ],
     });
   }
 

@@ -138,15 +138,27 @@ export class TicketsController {
   @Get('conversations')
   @RequirePermission('ticket.view')
   getConversations(
+    @Request() req: any,
     @TenantId() tenantId: string,
     @Query('origin') origin?: 'portal' | 'whatsapp',
     @Query('status') status?: string,
     @Query('perPage') perPage?: string,
   ) {
+    let agentId: string | undefined;
+    if (!req.user?.isPortal) {
+      const role: string = req.user?.role || '';
+      const perms: string[] = req.user?.permissions || [];
+      const isAdmin = role === 'super_admin' || role === 'admin';
+      if (!isAdmin && !perms.includes('attendance.view_all')) {
+        agentId = req.user?.id;
+      }
+    }
+
     return this.ticketsService.getConversationsAsInbox(tenantId, {
       origin: origin === 'portal' || origin === 'whatsapp' ? origin : undefined,
       status: status || 'active',
       perPage: perPage ? parseInt(perPage, 10) : 50,
+      agentId,
     });
   }
 

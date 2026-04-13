@@ -923,10 +923,32 @@ export class ConversationsService {
     return base;
   }
 
-  async getActiveCount(tenantId: string): Promise<{ conversations: number; tickets: number; total: number }> {
+  async getActiveCount(
+    tenantId: string,
+    opts?: { agentId?: string },
+  ): Promise<{ conversations: number; tickets: number; total: number }> {
+    const agentId = opts?.agentId;
+    const convQb = this.convRepo
+      .createQueryBuilder('c')
+      .where('c.tenant_id = :tenantId', { tenantId })
+      .andWhere('c.status = :status', { status: ConversationStatus.ACTIVE });
+
+    if (agentId) {
+      convQb.andWhere(
+        `(c.ticket_id IS NULL OR EXISTS (
+          SELECT 1 FROM tickets t_ag
+          WHERE t_ag.id::text = c.ticket_id::text
+            AND (t_ag.assigned_to IS NULL OR t_ag.assigned_to = :agentId)
+        ))`,
+        { agentId },
+      );
+    }
+
     const [conversations, tickets] = await Promise.all([
-      this.convRepo.count({ where: { tenantId, status: ConversationStatus.ACTIVE } }),
-      this.ticketsService.getActiveInboxTicketCount(tenantId),
+      convQb.getCount(),
+      agentId
+        ? this.ticketsService.getActiveInboxTicketCountForAgent(tenantId, agentId)
+        : this.ticketsService.getActiveInboxTicketCount(tenantId),
     ]);
     return { conversations, tickets, total: conversations + tickets };
   }

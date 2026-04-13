@@ -2668,6 +2668,8 @@ function AtendimentoPageInner() {
     // Ignora mensagens da conversa atualmente selecionada (já renderizadas em tempo real)
     if (currentSelected && String(currentSelected.id) === String(msg.conversationId)) return;
 
+    notifyNewInboxItem({ id: msg.conversationId, contactName: msg.contactName }, msg.preview);
+
     // Incrementa badge
     setUnreadCounts(p => ({ ...p, [msg.conversationId]: (p[msg.conversationId] || 0) + 1 }));
 
@@ -2678,7 +2680,6 @@ function AtendimentoPageInner() {
     const currentList = conversationsRef.current;
     const idx = currentList.findIndex((c: any) => String(c.id) === String(msg.conversationId));
     if (idx < 0) {
-      notifyNewInboxItem({ id: msg.conversationId, contactName: msg.contactName }, msg.preview);
       if (!reloadPendingRef.current) {
         reloadPendingRef.current = true;
         loadConversations(false, true).finally(() => { reloadPendingRef.current = false; });
