@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Param, Query, UseGuards, BadRequestException, Request, Put, UseInterceptors, UploadedFile, StreamableFile, Logger } from '@nestjs/common';
+import { Body, Controller, Get, Post, Param, Query, UseGuards, BadRequestException, Request, Put, UseInterceptors, UploadedFile, StreamableFile, Logger, ForbiddenException } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
 import { Throttle } from '@nestjs/throttler';
@@ -124,6 +124,7 @@ export class ConversationsController {
     @Query('hasTicket') hasTicket?: 'yes' | 'no' | 'all',
     @Query('status') status?: 'active' | 'closed' | 'all',
   ) {
+    if (req.user?.isPortal) throw new ForbiddenException('Endpoint disponivel apenas para a equipe interna');
     const ch = channel === 'whatsapp' ? ConversationChannel.WHATSAPP : channel === 'portal' ? ConversationChannel.PORTAL : undefined;
 
     // Agentes sem attendance.view_all só veem suas conversas (ou sem dono ainda)
@@ -143,14 +144,16 @@ export class ConversationsController {
   @UseGuards(JwtAuthGuard, PermissionsGuard)
   @RequirePermission('ticket.view')
   @Get('active-count')
-  async getActiveCount(@TenantId() tenantId: string) {
+  async getActiveCount(@Request() req: any, @TenantId() tenantId: string) {
+    if (req.user?.isPortal) throw new ForbiddenException('Endpoint disponivel apenas para a equipe interna');
     return this.conversationsService.getActiveCount(tenantId);
   }
 
   @UseGuards(JwtAuthGuard, PermissionsGuard)
   @RequirePermission('ticket.view')
   @Get('by-client/:clientId')
-  async findByClient(@TenantId() tenantId: string, @Param('clientId') clientId: string, @Query('channel') channel?: string) {
+  async findByClient(@Request() req: any, @TenantId() tenantId: string, @Param('clientId') clientId: string, @Query('channel') channel?: string) {
+    if (req.user?.isPortal) throw new ForbiddenException('Endpoint disponivel apenas para a equipe interna');
     const ch = channel === 'whatsapp' ? ConversationChannel.WHATSAPP : channel === 'portal' ? ConversationChannel.PORTAL : undefined;
     return this.conversationsService.findByClient(tenantId, clientId, ch);
   }
@@ -166,13 +169,17 @@ export class ConversationsController {
     const portalId = req.user?.isPortal ? String(req.user.id) : undefined;
     const { stream, mime } = await this.conversationsService.getMessageMediaStream(tenantId, messageId, {
       portalContactId: portalId,
+      portalIsPrimary: !!req.user?.isPrimary,
     });
     return new StreamableFile(stream, { type: mime, disposition: `inline; filename="media-${messageId}"` });
   }
 
   @UseGuards(JwtAuthGuard)
   @Get(':id')
-  async findOne(@TenantId() tenantId: string, @Param('id') id: string) {
+  async findOne(@Request() req: any, @TenantId() tenantId: string, @Param('id') id: string) {
+    if (req.user?.isPortal) {
+      await this.conversationsService.assertPortalConversationAccess(tenantId, id, req.user.id, !!req.user.isPrimary);
+    }
     return this.conversationsService.findOneForDashboard(tenantId, id);
   }
 
@@ -180,7 +187,8 @@ export class ConversationsController {
   @UseGuards(JwtAuthGuard, PermissionsGuard)
   @RequirePermission('ticket.view')
   @Post(':id/mark-read')
-  async markRead(@TenantId() tenantId: string, @Param('id') id: string) {
+  async markRead(@Request() req: any, @TenantId() tenantId: string, @Param('id') id: string) {
+    if (req.user?.isPortal) throw new ForbiddenException('Endpoint disponivel apenas para a equipe interna');
     await this.conversationsService.markConversationRead(tenantId, id);
     return { ok: true };
   }
@@ -230,11 +238,15 @@ export class ConversationsController {
   @UseGuards(JwtAuthGuard)
   @Get(':id/messages')
   async getMessages(
+    @Request() req: any,
     @TenantId() tenantId: string,
     @Param('id') id: string,
     @Query('limit') limitStr?: string,
     @Query('before') before?: string,
   ) {
+    if (req.user?.isPortal) {
+      await this.conversationsService.assertPortalConversationAccess(tenantId, id, req.user.id, !!req.user.isPrimary);
+    }
     if (limitStr) {
       const limit = parseInt(limitStr, 10);
       if (!isNaN(limit) && limit > 0) {
@@ -261,6 +273,9 @@ export class ConversationsController {
     @UploadedFile() file?: { path?: string; mimetype?: string; size?: number },
   ) {
     const isPortal = req.user?.isPortal === true;
+    if (isPortal) {
+      await this.conversationsService.assertPortalConversationAccess(tenantId, id, req.user.id, !!req.user.isPrimary);
+    }
     const authorType = isPortal ? 'contact' : 'user';
     const contentRaw = (dto.content ?? '').trim();
     let mediaKind: 'image' | 'audio' | 'video' | 'file' | null = null;

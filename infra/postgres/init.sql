@@ -62,6 +62,7 @@ CREATE TABLE tenants (
   id         UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   name       VARCHAR(200) NOT NULL,
   slug       VARCHAR(100) UNIQUE NOT NULL,
+  cnpj       VARCHAR(18),
   plan       VARCHAR(30)  NOT NULL DEFAULT 'starter',
   status     VARCHAR(30)  NOT NULL DEFAULT 'trial',
   email      VARCHAR(200),
@@ -164,10 +165,10 @@ CREATE TABLE contacts (
 -- ── CONTACT_CUSTOMERS (vínculo N:N contato ↔ cliente) ─────────
 CREATE TABLE contact_customers (
   id         UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  tenant_id  VARCHAR      NOT NULL,
-  contact_id VARCHAR      NOT NULL,
-  client_id  VARCHAR      NOT NULL,
-  linked_by  VARCHAR,
+  tenant_id  UUID         NOT NULL,
+  contact_id UUID         NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+  client_id  UUID         NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  linked_by  UUID,
   linked_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
   CONSTRAINT uq_contact_client UNIQUE (contact_id, client_id)
 );
@@ -207,6 +208,17 @@ CREATE TABLE conversations (
   initiated_by   conversations_initiated_by_enum NOT NULL DEFAULT 'contact',
   whatsapp_channel_id UUID,
   last_message_at TIMESTAMPTZ,
+  queued_at      TIMESTAMPTZ,
+  attendance_started_at TIMESTAMPTZ,
+  first_agent_reply_at TIMESTAMPTZ,
+  conversation_closed_at TIMESTAMPTZ,
+  priority_id    UUID,
+  sla_policy_id  UUID,
+  sla_first_response_deadline TIMESTAMPTZ,
+  sla_resolution_deadline TIMESTAMPTZ,
+  sla_first_response_at TIMESTAMPTZ,
+  sla_resolved_at TIMESTAMPTZ,
+  sla_status     VARCHAR(12),
   tags           TEXT,
   created_at     TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
   updated_at     TIMESTAMPTZ  NOT NULL DEFAULT NOW()
@@ -241,6 +253,7 @@ CREATE TABLE tickets (
   assigned_to           VARCHAR,
   origin                tickets_origin_enum   NOT NULL DEFAULT 'portal',
   priority              tickets_priority_enum NOT NULL DEFAULT 'medium',
+  priority_id           UUID,
   status                tickets_status_enum   NOT NULL DEFAULT 'open',
   department            VARCHAR,
   category              VARCHAR,
@@ -287,6 +300,18 @@ CREATE TABLE ticket_messages (
   created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE ticket_reply_attachments (
+  id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  tenant_id           VARCHAR         NOT NULL,
+  ticket_id           UUID            NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  ticket_message_id   UUID            NOT NULL REFERENCES ticket_messages(id) ON DELETE CASCADE,
+  storage_key         TEXT            NOT NULL,
+  mime                VARCHAR(256),
+  size_bytes          BIGINT,
+  original_filename   TEXT,
+  created_at          TIMESTAMPTZ     NOT NULL DEFAULT NOW()
+);
+
 -- ── TICKET SETTINGS (departamentos, categorias, subcategorias) ─
 CREATE TABLE ticket_settings (
   id         UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -294,6 +319,7 @@ CREATE TABLE ticket_settings (
   type       ticket_settings_type_enum NOT NULL,
   name       VARCHAR(120) NOT NULL,
   parent_id  VARCHAR,
+  default_priority_id UUID,
   active     BOOLEAN    NOT NULL DEFAULT TRUE,
   sort_order INT        NOT NULL DEFAULT 0,
   color      VARCHAR(20),
@@ -321,6 +347,32 @@ CREATE TABLE root_causes (
   sort_order INT          NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE sla_policies (
+  id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id              VARCHAR      NOT NULL,
+  name                   VARCHAR(120) NOT NULL,
+  priority               VARCHAR(10)  NOT NULL CHECK (priority IN ('low', 'medium', 'high', 'critical')),
+  first_response_minutes INTEGER      NOT NULL DEFAULT 60,
+  resolution_minutes     INTEGER      NOT NULL DEFAULT 480,
+  is_default             BOOLEAN      NOT NULL DEFAULT FALSE,
+  created_at             TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+  updated_at             TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE tenant_priorities (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id     VARCHAR      NOT NULL,
+  name          VARCHAR(120) NOT NULL,
+  slug          VARCHAR(64)  NOT NULL,
+  color         VARCHAR(20)  NOT NULL DEFAULT '#64748B',
+  sort_order    INTEGER      NOT NULL DEFAULT 0,
+  active        BOOLEAN      NOT NULL DEFAULT TRUE,
+  sla_policy_id UUID         REFERENCES sla_policies(id) ON DELETE SET NULL,
+  created_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+  updated_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+  CONSTRAINT uq_tenant_priorities_tenant_slug UNIQUE (tenant_id, slug)
 );
 -- ── DEVICES ───────────────────────────────────────────────────
 CREATE TABLE devices (
@@ -418,6 +470,37 @@ ALTER TABLE conversations
   REFERENCES whatsapp_connections(id)
   ON DELETE SET NULL;
 
+ALTER TABLE conversations
+  ADD CONSTRAINT fk_conversations_priority
+  FOREIGN KEY (priority_id)
+  REFERENCES tenant_priorities(id)
+  ON DELETE SET NULL;
+
+ALTER TABLE conversations
+  ADD CONSTRAINT fk_conversations_sla_policy
+  FOREIGN KEY (sla_policy_id)
+  REFERENCES sla_policies(id)
+  ON DELETE SET NULL;
+
+ALTER TABLE tickets
+  ADD CONSTRAINT fk_tickets_priority
+  FOREIGN KEY (priority_id)
+  REFERENCES tenant_priorities(id)
+  ON DELETE SET NULL;
+
+ALTER TABLE ticket_settings
+  ADD CONSTRAINT fk_ticket_settings_default_priority
+  FOREIGN KEY (default_priority_id)
+  REFERENCES tenant_priorities(id)
+  ON DELETE SET NULL;
+
+ALTER TABLE ticket_settings
+  ADD CONSTRAINT ticket_settings_default_priority_allowed_types_chk
+  CHECK (
+    type::text IN ('department', 'category', 'subcategory')
+    OR default_priority_id IS NULL
+  );
+
 -- ── CHATBOT CONFIGS ───────────────────────────────────────────
 CREATE TABLE chatbot_configs (
   id                           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -425,8 +508,8 @@ CREATE TABLE chatbot_configs (
   name                         VARCHAR  NOT NULL DEFAULT 'Assistente Virtual',
   welcome_message              TEXT     NOT NULL DEFAULT 'Olá! Seja bem-vindo. Como posso te ajudar hoje?',
   menu_title                   VARCHAR  NOT NULL DEFAULT 'Escolha uma das opções abaixo:',
-  enabled                      BOOLEAN  NOT NULL DEFAULT TRUE,
-  channel_whatsapp             BOOLEAN  NOT NULL DEFAULT TRUE,
+  enabled                      BOOLEAN  NOT NULL DEFAULT FALSE,
+  channel_whatsapp             BOOLEAN  NOT NULL DEFAULT FALSE,
   channel_web                  BOOLEAN  NOT NULL DEFAULT FALSE,
   channel_portal               BOOLEAN  NOT NULL DEFAULT FALSE,
   transfer_message             TEXT     NOT NULL DEFAULT 'Aguarde um momento, estou te conectando com um atendente...',
@@ -443,6 +526,8 @@ CREATE TABLE chatbot_configs (
   rating_request_message       TEXT,
   rating_comment_message       TEXT,
   rating_thanks_message        TEXT,
+  collect_name                 BOOLEAN  NOT NULL DEFAULT false,
+  name_request_message         TEXT     NOT NULL DEFAULT 'Olá! Para começarmos, pode me informar seu nome completo?',
   whatsapp_prefix_agent_name   BOOLEAN  NOT NULL DEFAULT false,
   created_at                   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at                   TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -592,6 +677,35 @@ CREATE TABLE webhooks (
   updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- ── TENANT LICENSES ───────────────────────────────────────────
+CREATE TABLE tenant_licenses (
+  id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  tenant_id         UUID        NOT NULL,
+  plan_slug         VARCHAR(50) NOT NULL,
+  status            VARCHAR(30) NOT NULL DEFAULT 'trial',
+  billing_cycle     VARCHAR(30) NOT NULL DEFAULT 'monthly',
+  started_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at        TIMESTAMPTZ,
+  cancelled_at      TIMESTAMPTZ,
+  extra_limits      JSONB       NOT NULL DEFAULT '{}',
+  meta              JSONB       NOT NULL DEFAULT '{}',
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- ── AUDIT LOGS ────────────────────────────────────────────────
+CREATE TABLE audit_logs (
+  id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  action        VARCHAR(100)  NOT NULL,
+  user_id       VARCHAR(100)  NOT NULL,
+  user_email    VARCHAR(200),
+  user_type     VARCHAR(50)   NOT NULL,
+  entity_type   VARCHAR(100)  NOT NULL,
+  entity_id     VARCHAR(100)  NOT NULL,
+  details       JSONB         NOT NULL DEFAULT '{}',
+  created_at    TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+);
+
 -- ── TEAM CHAT ─────────────────────────────────────────────────
 CREATE TABLE team_chat_messages (
   id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -663,18 +777,58 @@ CREATE INDEX idx_tickets_assigned       ON tickets(assigned_to, status);
 CREATE INDEX idx_tickets_client         ON tickets(client_id, created_at DESC);
 CREATE INDEX idx_tickets_sla            ON tickets(sla_resolve_at) WHERE status NOT IN ('resolved','closed','cancelled');
 CREATE INDEX idx_tickets_conversation   ON tickets(conversation_id) WHERE conversation_id IS NOT NULL;
+CREATE INDEX idx_tickets_tenant_priority_id
+  ON tickets (tenant_id, priority_id)
+  WHERE priority_id IS NOT NULL;
 
 -- Ticket messages
 CREATE INDEX idx_messages_ticket        ON ticket_messages(ticket_id, created_at);
+CREATE INDEX idx_ticket_reply_attachments_tenant_message
+  ON ticket_reply_attachments (tenant_id, ticket_message_id);
+CREATE INDEX idx_ticket_reply_attachments_tenant_created
+  ON ticket_reply_attachments (tenant_id, created_at);
+CREATE INDEX idx_ticket_reply_attachments_tenant_ticket
+  ON ticket_reply_attachments (tenant_id, ticket_id);
 
 -- Clients / Contacts
 CREATE INDEX idx_clients_tenant         ON clients(tenant_id, status);
 CREATE INDEX idx_contacts_whatsapp      ON contacts(tenant_id, whatsapp);
 CREATE INDEX idx_contacts_email         ON contacts(tenant_id, email);
 CREATE INDEX idx_contacts_client        ON contacts(client_id) WHERE client_id IS NOT NULL;
+CREATE INDEX idx_contact_customers_contact
+  ON contact_customers(tenant_id, contact_id);
+CREATE INDEX idx_contact_customers_client
+  ON contact_customers(tenant_id, client_id);
 
 -- Contracts
 CREATE INDEX idx_contracts_client       ON contracts(tenant_id, client_id, status);
+
+-- Users / Team
+CREATE INDEX idx_users_role
+  ON users(role);
+CREATE INDEX idx_users_presence_timeout
+  ON users (presence_status, last_seen_at)
+  WHERE presence_status IS NOT NULL AND presence_status != 'offline';
+CREATE INDEX idx_users_tenant_role_status
+  ON users (tenant_id, role, status)
+  WHERE status = 'active';
+CREATE INDEX idx_users_tenant_presence
+  ON users (tenant_id, presence_status, last_seen_at)
+  WHERE presence_status IS NOT NULL AND presence_status <> 'offline';
+CREATE INDEX tenants_cnpj_idx
+  ON tenants(cnpj);
+CREATE INDEX tenant_licenses_tenant_idx
+  ON tenant_licenses (tenant_id);
+CREATE INDEX tenant_licenses_status_idx
+  ON tenant_licenses (status);
+CREATE INDEX audit_logs_action_idx
+  ON audit_logs (action);
+CREATE INDEX audit_logs_entity_idx
+  ON audit_logs (entity_type, entity_id);
+CREATE INDEX audit_logs_user_idx
+  ON audit_logs (user_type, user_id);
+CREATE INDEX audit_logs_created_at_idx
+  ON audit_logs (created_at);
 
 -- Devices
 CREATE INDEX idx_devices_heartbeat      ON devices(tenant_id, last_heartbeat);
@@ -688,6 +842,17 @@ CREATE INDEX idx_conversations_ticket   ON conversations(ticket_id) WHERE ticket
 CREATE INDEX idx_conversations_whatsapp_channel_id
   ON conversations(whatsapp_channel_id)
   WHERE whatsapp_channel_id IS NOT NULL;
+CREATE INDEX idx_conversations_priority
+  ON conversations (tenant_id, priority_id)
+  WHERE priority_id IS NOT NULL;
+CREATE INDEX idx_conversations_sla_status
+  ON conversations (tenant_id, sla_status)
+  WHERE sla_status IS NOT NULL;
+CREATE INDEX idx_conversations_queued_at
+  ON conversations(tenant_id, queued_at);
+CREATE INDEX idx_conversations_attendance_started_at
+  ON conversations(tenant_id, attendance_started_at)
+  WHERE attendance_started_at IS NOT NULL;
 CREATE UNIQUE INDEX uq_conversations_active_contact_channel
   ON conversations (tenant_id, contact_id, channel)
   WHERE status = 'active';
@@ -701,13 +866,39 @@ CREATE UNIQUE INDEX uq_conversation_messages_tenant_external_id
   ON conversation_messages (tenant_id, external_id)
   WHERE external_id IS NOT NULL AND btrim(external_id) <> '';
 
+CREATE INDEX idx_sla_policies_tenant
+  ON sla_policies (tenant_id);
+CREATE INDEX idx_sla_policies_tenant_priority
+  ON sla_policies (tenant_id, priority);
+CREATE UNIQUE INDEX uq_sla_policies_tenant_default
+  ON sla_policies (tenant_id)
+  WHERE is_default = TRUE;
+
+CREATE INDEX idx_tenant_priorities_tenant
+  ON tenant_priorities (tenant_id);
+CREATE INDEX idx_tenant_priorities_tenant_active
+  ON tenant_priorities (tenant_id, active);
+CREATE INDEX idx_tenant_priorities_sla_policy
+  ON tenant_priorities (sla_policy_id)
+  WHERE sla_policy_id IS NOT NULL;
+CREATE INDEX idx_ticket_settings_default_priority
+  ON ticket_settings (default_priority_id)
+  WHERE default_priority_id IS NOT NULL;
+
 CREATE UNIQUE INDEX uq_whatsapp_connections_tenant_meta_phone
   ON whatsapp_connections (tenant_id, meta_phone_number_id)
   WHERE meta_phone_number_id IS NOT NULL
     AND btrim(meta_phone_number_id) <> '';
 
 -- Chatbot sessions
-CREATE INDEX idx_chatbot_sessions       ON chatbot_sessions(tenant_id, identifier, channel);
+CREATE UNIQUE INDEX chatbot_configs_tenant_idx
+  ON chatbot_configs(tenant_id);
+CREATE INDEX chatbot_menu_chatbot_idx
+  ON chatbot_menu_items(chatbot_id);
+CREATE INDEX chatbot_sessions_lookup_idx
+  ON chatbot_sessions(tenant_id, identifier, channel);
+CREATE INDEX chatbot_widget_msgs_session_idx
+  ON chatbot_widget_messages(session_id, created_at);
 
 -- ── ROW LEVEL SECURITY ────────────────────────────────────────
 -- Política: se app.tenant_id não estiver definido, todos os registros

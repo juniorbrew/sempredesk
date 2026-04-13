@@ -1096,8 +1096,9 @@ export class BaileysService {
    */
   async getChannelConfigById(
     connectionId: string,
+    tenantId?: string,
   ): Promise<{ id: string; metaPhoneNumberId: string | null; metaToken: string | null; metaVerifyToken: string | null; metaWebhookUrl: string | null; metaWabaId: string | null } | null> {
-    const conn = await this.connRepo.findOne({ where: { id: connectionId } });
+    const conn = await this.connRepo.findOne({ where: tenantId ? { id: connectionId, tenantId } : { id: connectionId } });
     if (!conn) return null;
     return {
       id: conn.id,

@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { MessageSquare, Send, Search, User, Paperclip, Phone, MoreHorizontal, FileText, Ticket as TicketIcon } from 'lucide-react';
 import { EmojiPicker } from '@/components/ui/EmojiPicker';
 import { api } from '@/lib/api';
+import { REALTIME_ENABLED } from '@/lib/realtime';
 import { resolveWsBase } from '@/lib/ws-base';
 import { useAuthStore, hasPermission } from '@/store/auth.store';
 import { usePresenceStore } from '@/store/presence.store';
@@ -148,6 +149,7 @@ export default function ChatInternoPage() {
 
   // WebSocket
   useEffect(() => {
+    if (!REALTIME_ENABLED) return;
     let socket: any;
     let mounted = true;
     (async () => {

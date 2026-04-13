@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, Optional, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, MoreThan, LessThan, DataSource } from 'typeorm';
 import { ChatbotConfig } from './entities/chatbot-config.entity';
@@ -32,7 +32,7 @@ export interface ProcessResult {
 const SKIP_KEYWORDS = ['pular', 'pulei', 'skip', 'não sei', 'nao sei', 'nao', 'não', 'sem cnpj', 'p'];
 
 @Injectable()
-export class ChatbotService implements OnModuleInit {
+export class ChatbotService {
   private readonly logger = new Logger(ChatbotService.name);
 
   /** Setter para BaileysService — injetado via AppModule.onModuleInit (evita circular dep) */
@@ -51,15 +51,6 @@ export class ChatbotService implements OnModuleInit {
     private readonly ticketSatisfactionService: TicketSatisfactionService,
     @InjectDataSource() private readonly dataSource: DataSource,
   ) {}
-
-  async onModuleInit() {
-    await this.dataSource.query(`
-      ALTER TABLE chatbot_configs
-        ADD COLUMN IF NOT EXISTS collect_name boolean NOT NULL DEFAULT false,
-        ADD COLUMN IF NOT EXISTS name_request_message text NOT NULL DEFAULT 'Olá! Para começarmos, pode me informar seu nome completo?',
-        ADD COLUMN IF NOT EXISTS whatsapp_prefix_agent_name boolean NOT NULL DEFAULT false
-    `).catch((err: Error) => this.logger.warn('chatbot_configs schema migration skipped: ' + err.message));
-  }
 
   // ─── Config ────────────────────────────────────────────────────────────────
 

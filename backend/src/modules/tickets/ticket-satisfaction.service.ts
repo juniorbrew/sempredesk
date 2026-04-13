@@ -11,14 +11,14 @@ export class TicketSatisfactionService {
     private readonly dataSource: DataSource,
   ) {}
 
-  private async getTicketOrFail(ticketId: string): Promise<Ticket> {
-    const ticket = await this.ticketRepo.findOne({ where: { id: ticketId } });
+  private async getTicketOrFail(tenantId: string, ticketId: string): Promise<Ticket> {
+    const ticket = await this.ticketRepo.findOne({ where: { id: ticketId, tenantId } });
     if (!ticket) throw new NotFoundException('Ticket não encontrado');
     return ticket;
   }
 
-  async applyPortalSatisfaction(ticketId: string, approved: boolean): Promise<Ticket> {
-    const ticket = await this.getTicketOrFail(ticketId);
+  async applyPortalSatisfaction(tenantId: string, ticketId: string, approved: boolean): Promise<Ticket> {
+    const ticket = await this.getTicketOrFail(tenantId, ticketId);
 
     if (ticket.status !== TicketStatus.RESOLVED) {
       throw new BadRequestException('Somente tickets resolvidos podem receber avaliação');
@@ -80,7 +80,9 @@ export class TicketSatisfactionService {
 
     if ((result.affected ?? 0) > 0) return;
 
-    const ticket = await this.ticketRepo.findOne({ where: { id: ticketId } });
+    const ticket = await this.ticketRepo.findOne({
+      where: tenantId ? { id: ticketId, tenantId } : { id: ticketId },
+    });
     if (!ticket) {
       throw new NotFoundException('Ticket não encontrado');
     }

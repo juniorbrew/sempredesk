@@ -1428,7 +1428,7 @@ export class WhatsappService {
   ): Promise<string | null> {
     const metaConfig = this.baileysService
       ? (opts?.whatsappChannelId
-          ? await this.baileysService.getChannelConfigById(opts.whatsappChannelId).catch(() => null)
+          ? await this.baileysService.getChannelConfigById(opts.whatsappChannelId, tenantId).catch(() => null)
           : null) ??
         await this.baileysService.getDefaultChannelConfig(tenantId).catch(() => null)
       : null;
@@ -1590,7 +1590,7 @@ export class WhatsappService {
     // Resolve credenciais: canal específico > canal default do tenant > variáveis de ambiente
     const metaConfig = this.baileysService
       ? (whatsappChannelId
-          ? await this.baileysService.getChannelConfigById(whatsappChannelId).catch(() => null)
+          ? await this.baileysService.getChannelConfigById(whatsappChannelId, tenantId).catch(() => null)
           : null) ??
         await this.baileysService.getDefaultChannelConfig(tenantId).catch(() => null)
       : null;

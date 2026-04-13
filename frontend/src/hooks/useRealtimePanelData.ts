@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '@/lib/api';
+import { REALTIME_ENABLED } from '@/lib/realtime';
 import { usePresenceStore } from '@/store/presence.store';
 import type { ConvRow, QueueStatsPayload } from '@/lib/realtime-panel-filters';
 import toast from 'react-hot-toast';
@@ -80,6 +81,7 @@ export function useRealtimePanelData() {
   }, [onlineIds, load]);
 
   useEffect(() => {
+    if (!REALTIME_ENABLED) return;
     const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
     let socket: any;
     (async () => {

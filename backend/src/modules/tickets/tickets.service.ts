@@ -172,6 +172,21 @@ export class TicketsService {
       `UPDATE conversations SET priority_id = $1 WHERE id = $2 AND tenant_id = $3`,
       [convPriorityId, ticket.conversationId, ticket.tenantId],
     );
+
+    if (ticket.priorityId) {
+      await this.slaService.applyConversationSlaFromTenantPriorityId(
+        ticket.tenantId,
+        ticket.conversationId,
+        ticket.priorityId,
+      );
+      return;
+    }
+
+    await this.slaService.reapplyConversationPolicy(
+      ticket.tenantId,
+      ticket.conversationId,
+      toSlaPriority(ticket.priority),
+    );
   }
 
   private async assertTenantPriorityBelongs(tenantId: string, priorityId: string): Promise<void> {
@@ -2273,7 +2288,11 @@ export class TicketsService {
   }
 
   async submitSatisfaction(tenantId: string, ticketId: string, score: 'approved' | 'rejected'): Promise<Ticket> {
-    const ticket = await this.getTicketSatisfactionService().applyPortalSatisfaction(ticketId, score === 'approved');
+    const ticket = await this.getTicketSatisfactionService().applyPortalSatisfaction(
+      tenantId,
+      ticketId,
+      score === 'approved',
+    );
     const message =
       ticket.satisfactionScore === 'approved'
         ? 'Cliente confirmou a solução. Chamado encerrado automaticamente.'

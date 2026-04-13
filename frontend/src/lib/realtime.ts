@@ -2,6 +2,8 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { resolveWsBase } from './ws-base';
 
+export const REALTIME_ENABLED = false;
+
 /**
  * JWT para Socket.IO: o painel grava em `accessToken`; o portal do cliente usa
  * Zustand persist na chave `portal-auth` (state.accessToken apenas).
@@ -26,6 +28,7 @@ function readAccessTokenFromStorage(): string | null {
 let _sharedSocket: any = null;
 
 async function getSharedSocket(): Promise<any | null> {
+  if (!REALTIME_ENABLED) return null;
   const base = resolveWsBase();
   if (!base) return null;
   const token = readAccessTokenFromStorage();
@@ -51,6 +54,7 @@ export function useRealtimeTicket(ticketId: string | null, onMessage: (msg: any)
   onMessageRef.current = onMessage;
 
   useEffect(() => {
+    if (!REALTIME_ENABLED) return;
     if (!ticketId || !resolveWsBase()) return;
 
     let active = true;
@@ -85,6 +89,7 @@ export function useRealtimeConversation(conversationId: string | null, onMessage
   onMessageRef.current = onMessage;
 
   useEffect(() => {
+    if (!REALTIME_ENABLED) return;
     if (!conversationId || !resolveWsBase()) return;
 
     let active = true;
@@ -135,6 +140,7 @@ export function useRealtimeConversationClosed(
   onClosedRef.current = onClosed;
 
   useEffect(() => {
+    if (!REALTIME_ENABLED) return;
     if (!resolveWsBase()) return;
 
     let active = true;
@@ -180,6 +186,7 @@ export function useRealtimeTicketAssigned(
   onAssignedRef.current = onAssigned;
 
   useEffect(() => {
+    if (!REALTIME_ENABLED) return;
     if (!resolveWsBase()) return;
 
     let active = true;
@@ -208,6 +215,7 @@ export function useRealtimeTicketAssigned(
  * O backend repassa via sock.sendPresenceUpdate('composing'|'paused', jid).
  */
 export function emitTypingPresence(contactPhone: string, tenantId: string, isTyping: boolean) {
+  if (!REALTIME_ENABLED) return;
   if (_sharedSocket?.connected) {
     _sharedSocket.emit('typing:agent', { contactPhone, tenantId, isTyping });
   }
@@ -218,6 +226,7 @@ export function emitTypingPresence(contactPhone: string, tenantId: string, isTyp
  * Deve ser chamado quando o agente abre uma conversa WhatsApp.
  */
 export function subscribeContactPresence(jid: string, tenantId: string) {
+  if (!REALTIME_ENABLED) return;
   if (_sharedSocket?.connected) {
     _sharedSocket.emit('subscribe:presence', { jid, tenantId });
   }
@@ -236,6 +245,7 @@ export function useRealtimeContactTyping(
   onTypingRef.current = onTyping;
 
   useEffect(() => {
+    if (!REALTIME_ENABLED) return;
     if (!resolveWsBase()) return;
 
     let active = true;
@@ -279,6 +289,7 @@ export function useRealtimeTenantNewMessages(
   onMessageRef.current = onMessage;
 
   useEffect(() => {
+    if (!REALTIME_ENABLED) return;
     if (!resolveWsBase()) return;
 
     let active = true;

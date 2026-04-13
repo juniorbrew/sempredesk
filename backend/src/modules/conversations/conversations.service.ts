@@ -19,8 +19,6 @@ import { TenantPriority } from '../tenant-priorities/entities/tenant-priority.en
 @Injectable()
 export class ConversationsService {
   private readonly logger = new Logger(ConversationsService.name);
-  private conversationMessageMediaSchemaReady = false;
-  private conversationMessageMediaSchemaPromise: Promise<void> | null = null;
 
   private readonly mediaRoot =
     process.env.CONVERSATION_MEDIA_DIR || path.join(process.cwd(), 'uploads', 'conversation-media');
@@ -115,7 +113,6 @@ export class ConversationsService {
   async markConversationRead(tenantId: string, conversationId: string): Promise<void> {
     if (!this.markReadFn) return;
     try {
-      await this.ensureConversationMessageMediaSchemaReady();
       const conv = await this.convRepo.findOne({ where: { tenantId, id: conversationId } });
       if (!conv || conv.channel !== 'whatsapp' || !conv.contactId) return;
 
@@ -164,56 +161,6 @@ export class ConversationsService {
     if (!fs.existsSync(this.mediaRoot)) {
       fs.mkdirSync(this.mediaRoot, { recursive: true });
     }
-  }
-
-  private async ensureConversationMessageMediaSchema(): Promise<void> {
-    await this.dataSource.query(`
-      ALTER TABLE conversation_messages
-        ADD COLUMN IF NOT EXISTS media_kind varchar(16),
-        ADD COLUMN IF NOT EXISTS media_storage_key text,
-        ADD COLUMN IF NOT EXISTS media_mime varchar(128),
-        ADD COLUMN IF NOT EXISTS external_id text,
-        ADD COLUMN IF NOT EXISTS whatsapp_status text,
-        ADD COLUMN IF NOT EXISTS reply_to_id uuid REFERENCES conversation_messages(id) ON DELETE SET NULL
-    `);
-    await this.dataSource.query(`
-      CREATE INDEX IF NOT EXISTS idx_conv_messages_reply_to
-        ON conversation_messages(reply_to_id)
-        WHERE reply_to_id IS NOT NULL
-    `);
-  }
-
-  private async ensureConversationMessageMediaSchemaReady(): Promise<void> {
-    if (this.conversationMessageMediaSchemaReady) return;
-    if (!this.conversationMessageMediaSchemaPromise) {
-      this.conversationMessageMediaSchemaPromise = (async () => {
-        const requiredColumns = [
-          'media_kind',
-          'media_storage_key',
-          'media_mime',
-          'external_id',
-          'whatsapp_status',
-          'reply_to_id',
-        ];
-        const rows = await this.dataSource.query(
-          `SELECT column_name
-             FROM information_schema.columns
-            WHERE table_schema = current_schema()
-              AND table_name = 'conversation_messages'
-              AND column_name = ANY($1::text[])`,
-          [requiredColumns],
-        );
-        const existing = new Set((rows ?? []).map((row: { column_name?: string }) => row.column_name));
-        const hasAllColumns = requiredColumns.every((columnName) => existing.has(columnName));
-        if (!hasAllColumns) {
-          await this.ensureConversationMessageMediaSchema();
-        }
-        this.conversationMessageMediaSchemaReady = true;
-      })().finally(() => {
-        this.conversationMessageMediaSchemaPromise = null;
-      });
-    }
-    await this.conversationMessageMediaSchemaPromise;
   }
 
   private isActiveConversationUniqueViolation(error: any): boolean {
@@ -273,18 +220,22 @@ export class ConversationsService {
   async getMessageMediaStream(
     tenantId: string,
     messageId: string,
-    opts?: { portalContactId?: string },
+    opts?: { portalContactId?: string; portalIsPrimary?: boolean },
   ): Promise<{ stream: fs.ReadStream; mime: string }> {
-    await this.ensureConversationMessageMediaSchemaReady();
     const msg = await this.msgRepo.findOne({ where: { id: messageId, tenantId } });
     if (!msg?.mediaStorageKey || !msg.mediaMime) {
       throw new NotFoundException('Mídia não encontrada');
     }
     if (opts?.portalContactId) {
-      const conv = await this.convRepo.findOne({ where: { id: msg.conversationId, tenantId } });
-      if (!conv || conv.contactId !== opts.portalContactId) {
-        throw new NotFoundException('Mídia não encontrada');
-      }
+      await this.assertPortalConversationAccess(
+        tenantId,
+        msg.conversationId,
+        opts.portalContactId,
+        !!opts.portalIsPrimary,
+      );
+    }
+    if (!msg.mediaStorageKey.startsWith(`${tenantId}/`)) {
+      throw new NotFoundException('Mídia não encontrada');
     }
     const filePath = path.join(this.mediaRoot, msg.mediaStorageKey);
     await fs.promises.access(filePath).catch(() => {
@@ -855,6 +806,48 @@ export class ConversationsService {
     return conv;
   }
 
+  async assertPortalConversationAccess(
+    tenantId: string,
+    conversationId: string,
+    portalContactId: string,
+    isPrimary: boolean,
+  ): Promise<Conversation> {
+    const conv = await this.findOne(tenantId, conversationId);
+
+    if (conv.ticketId) {
+      const ticket = await this.ticketsService.findOne(tenantId, conv.ticketId);
+      if (ticket.clientId) {
+        const canAccess = await this.customersService.canContactAccessTicket(
+          tenantId,
+          portalContactId,
+          ticket.clientId,
+          ticket.contactId ?? null,
+          isPrimary,
+        );
+        if (!canAccess) throw new NotFoundException('Conversa não encontrada');
+      }
+      return conv;
+    }
+
+    if (conv.clientId) {
+      const canAccess = await this.customersService.canContactAccessTicket(
+        tenantId,
+        portalContactId,
+        conv.clientId,
+        conv.contactId ?? null,
+        isPrimary,
+      );
+      if (!canAccess) throw new NotFoundException('Conversa não encontrada');
+      return conv;
+    }
+
+    if (conv.contactId !== portalContactId) {
+      throw new NotFoundException('Conversa não encontrada');
+    }
+
+    return conv;
+  }
+
   /**
    * GET conversa (dashboard): inclui `priorityInfo` mesmo para prioridade inativa
    * (join direto por id; sem filtrar `active`).
@@ -987,13 +980,16 @@ export class ConversationsService {
    * Retorna mensagens da conversa (chat em tempo real do portal).
    */
   /** Enriquece mensagens com snapshot das citadas (1 query IN para todos os replyToIds). */
-  private async attachReplyToSnapshots(messages: ConversationMessage[]): Promise<void> {
+  private async attachReplyToSnapshots(tenantId: string, messages: ConversationMessage[]): Promise<void> {
     const ids = [...new Set(messages.map((m) => m.replyToId).filter(Boolean))] as string[];
     if (ids.length === 0) return;
     const rows: Array<{ id: string; author_name: string; content: string; media_kind: string | null }> =
       await this.dataSource.query(
-        `SELECT id, author_name, content, media_kind FROM conversation_messages WHERE id = ANY($1::uuid[])`,
-        [ids],
+        `SELECT id, author_name, content, media_kind
+         FROM conversation_messages
+         WHERE tenant_id = $1
+           AND id = ANY($2::uuid[])`,
+        [tenantId, ids],
       );
     const map = new Map(
       rows.map((r) => [r.id, { id: r.id, authorName: r.author_name, content: r.content.slice(0, 100), mediaKind: r.media_kind ?? null } as ReplyToSnapshot]),
@@ -1004,13 +1000,12 @@ export class ConversationsService {
   }
 
   async getMessages(tenantId: string, conversationId: string): Promise<ConversationMessage[]> {
-    await this.ensureConversationMessageMediaSchemaReady();
     const conv = await this.findOne(tenantId, conversationId);
     const messages = await this.msgRepo.find({
       where: { conversationId: conv.id, tenantId },
       order: { createdAt: 'ASC' },
     });
-    await this.attachReplyToSnapshots(messages);
+    await this.attachReplyToSnapshots(tenantId, messages);
     return messages;
   }
 
@@ -1024,7 +1019,6 @@ export class ConversationsService {
     conversationId: string,
     opts: { limit: number; before?: string },
   ): Promise<{ messages: ConversationMessage[]; hasMore: boolean }> {
-    await this.ensureConversationMessageMediaSchemaReady();
     const conv = await this.findOne(tenantId, conversationId);
     const limit = Math.min(opts.limit, 200);
 
@@ -1045,7 +1039,7 @@ export class ConversationsService {
     const rows = await qb.getMany();
     const hasMore = rows.length > limit;
     const messages = rows.slice(0, limit).reverse(); // ordena ASC para exibição
-    await this.attachReplyToSnapshots(messages);
+    await this.attachReplyToSnapshots(tenantId, messages);
     return { messages, hasMore };
   }
 
@@ -1091,7 +1085,6 @@ export class ConversationsService {
       skipSlaFirstResponse?: boolean;
     },
   ): Promise<ConversationMessage> {
-    await this.ensureConversationMessageMediaSchemaReady();
     const conv = await this.findOne(tenantId, conversationId);
     if (conv.status === ConversationStatus.CLOSED) {
       throw new BadRequestException('Conversa já encerrada.');
@@ -1112,6 +1105,14 @@ export class ConversationsService {
       }
     }
 
+    let replyToId: string | null = null;
+    if (opts?.replyToId) {
+      const parent = await this.msgRepo.findOne({
+        where: { id: opts.replyToId, tenantId, conversationId: conv.id },
+      });
+      replyToId = parent?.id ?? null;
+    }
+
     const msg = this.msgRepo.create({
       tenantId,
       conversationId: conv.id,
@@ -1124,7 +1125,7 @@ export class ConversationsService {
       mediaMime: opts?.mediaMime ?? null,
       whatsappStatus: opts?.initialWhatsappStatus ?? null,
       externalId: extId ?? null,
-      replyToId: opts?.replyToId ?? null,
+      replyToId,
     });
     let saved: ConversationMessage;
     try {
@@ -1153,7 +1154,7 @@ export class ConversationsService {
     // Busca snapshot da mensagem citada (1 query leve, só se houver replyToId)
     let replyToSnapshot: ReplyToSnapshot | null = null;
     if (saved.replyToId) {
-      const parent = await this.msgRepo.findOne({ where: { id: saved.replyToId } });
+      const parent = await this.msgRepo.findOne({ where: { id: saved.replyToId, tenantId, conversationId: conv.id } });
       if (parent) {
         replyToSnapshot = {
           id: parent.id,
@@ -1290,8 +1291,10 @@ export class ConversationsService {
             }
             // Resolve mensagem citada para reply nativo no WhatsApp
             let quotedMsg: { externalId: string; content: string; fromMe: boolean } | null = null;
-            if (opts?.replyToId) {
-              const parent = await this.msgRepo.findOne({ where: { id: opts.replyToId } });
+            if (replyToId) {
+              const parent = await this.msgRepo.findOne({
+                where: { id: replyToId, tenantId, conversationId: conv.id },
+              });
               if (parent?.externalId) {
                 quotedMsg = {
                   externalId: parent.externalId,
@@ -1643,7 +1646,6 @@ export class ConversationsService {
    * Só promove o status (sent → delivered → read), nunca rebaixa.
    */
   async updateMessageStatusByExternalId(tenantId: string, externalId: string, newStatus: string): Promise<void> {
-    await this.ensureConversationMessageMediaSchemaReady();
     const STATUS_RANK: Record<string, number> = { pending: 0, queued: 0, sent: 1, delivered: 2, read: 3 };
     const msg = await this.msgRepo.findOne({ where: { tenantId, externalId } });
     if (!msg) return; // mensagem ainda não persistida ou de outro tenant

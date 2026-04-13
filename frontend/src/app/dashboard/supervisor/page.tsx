@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { api } from '@/lib/api';
+import { REALTIME_ENABLED } from '@/lib/realtime';
 import { RefreshCw, X, Check, ArrowRightLeft, Send } from 'lucide-react';
 import { usePresenceStore } from '@/store/presence.store';
 
@@ -426,6 +427,7 @@ export default function SupervisorPage() {
 
   // Reload imediato ao receber evento de transferência/atribuição de ticket
   useEffect(() => {
+    if (!REALTIME_ENABLED) return;
     const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
     let socket: any;
     (async () => {

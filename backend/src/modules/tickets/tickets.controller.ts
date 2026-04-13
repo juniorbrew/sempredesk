@@ -155,6 +155,14 @@ export class TicketsController {
   async findByNumber(@Request() req: any, @TenantId() tenantId: string, @Param('number') number: string, @Query('clientId') clientId?: string) {
     const cid = clientId || req.user?.clientId;
     if (req.user?.isPortal && !cid) throw new BadRequestException('clientId é obrigatório para o portal');
+    if (req.user?.isPortal && clientId) {
+      const canAccess = await this.customersService.canPortalEmailAccessClient(
+        tenantId,
+        req.user?.email,
+        clientId,
+      );
+      if (!canAccess) throw new NotFoundException('Ticket não encontrado');
+    }
     return this.ticketsService.findByNumberForClient(tenantId, number.trim(), cid);
   }
 
@@ -317,13 +325,31 @@ export class TicketsController {
 
   @UseGuards(JwtAuthGuard)
   @Post(':id/satisfaction')
-  submitSatisfaction(@TenantId() tenantId: string, @Param('id') id: string, @Body() body: { score: 'approved' | 'rejected' }) {
+  async submitSatisfaction(
+    @Request() req: any,
+    @TenantId() tenantId: string,
+    @Param('id') id: string,
+    @Body() body: { score: 'approved' | 'rejected' },
+  ) {
+    if (req.user?.isPortal === true) {
+      const ticket = await this.ticketsService.findOne(tenantId, id);
+      if (ticket.clientId) {
+        const canAccess = await this.customersService.canContactAccessTicket(
+          tenantId,
+          req.user.id,
+          ticket.clientId,
+          ticket.contactId ?? null,
+          !!req.user.isPrimary,
+        );
+        if (!canAccess) throw new NotFoundException('Ticket não encontrado');
+      }
+    }
     return this.ticketsService.submitSatisfaction(tenantId, id, body.score);
   }
 
   @Get(':id/messages')
   @RequirePermission('ticket.view')
-  getMessages(
+  async getMessages(
     @Request() req,
     @TenantId() tenantId: string,
     @Param('id') id: string,
@@ -331,6 +357,19 @@ export class TicketsController {
     @Query('limit') limitStr?: string,
     @Query('before') before?: string,
   ) {
+    if (req.user?.isPortal === true) {
+      const ticket = await this.ticketsService.findOne(tenantId, id);
+      if (ticket.clientId) {
+        const canAccess = await this.customersService.canContactAccessTicket(
+          tenantId,
+          req.user.id,
+          ticket.clientId,
+          ticket.contactId ?? null,
+          !!req.user.isPrimary,
+        );
+        if (!canAccess) throw new NotFoundException('Ticket não encontrado');
+      }
+    }
     // Usuários portal NUNCA recebem notas internas, independente do parâmetro enviado
     const isPortal = req.user?.isPortal === true;
     const withInternal = isPortal ? false : includeInternal !== 'false';
@@ -457,8 +496,21 @@ export class TicketsController {
 
   @Post(':id/messages')
   @RequirePermission('ticket.reply')
-  addMessage(@Request() req, @Param('id') id: string, @Body() dto: AddMessageDto) {
+  async addMessage(@Request() req, @Param('id') id: string, @Body() dto: AddMessageDto) {
     const isPortal = req.user?.isPortal === true;
+    if (isPortal) {
+      const ticket = await this.ticketsService.findOne(req.tenantId, id);
+      if (ticket.clientId) {
+        const canAccess = await this.customersService.canContactAccessTicket(
+          req.tenantId,
+          req.user.id,
+          ticket.clientId,
+          ticket.contactId ?? null,
+          !!req.user.isPrimary,
+        );
+        if (!canAccess) throw new NotFoundException('Ticket não encontrado');
+      }
+    }
     const authorType = isPortal ? 'contact' : 'user';
     const { skipInAppBell: _ignore, ...safeDto } = dto as AddMessageDto & { skipInAppBell?: boolean };
     const dtoWithChannel = { ...safeDto, channel: isPortal ? 'portal' : safeDto.channel };
