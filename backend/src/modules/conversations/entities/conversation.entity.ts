@@ -104,6 +104,13 @@ export class Conversation {
   @JoinColumn({ name: 'priority_id' })
   tenantPriority?: TenantPriority | null;
 
+  /**
+   * Nome do departamento selecionado no chatbot (menu de opções).
+   * Persistido para que startAttendance herde o departamento ao criar o ticket.
+   */
+  @Column({ name: 'chatbot_department', type: 'varchar', nullable: true })
+  chatbotDepartment: string | null;
+
   // ── Campos SLA (migração 021) ─────────────────────────────────────────────
 
   /** FK para sla_policies.id — política vigente nesta conversa. */

@@ -2,7 +2,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { resolveWsBase } from './ws-base';
 
-export const REALTIME_ENABLED = false;
+export const REALTIME_ENABLED = true;
 
 /**
  * JWT para Socket.IO: o painel grava em `accessToken`; o portal do cliente usa

@@ -884,6 +884,7 @@ function AtendimentoPageInner() {
   const [showEndModal, setShowEndModal] = useState(false);
   const [showKeepOpenModal, setShowKeepOpenModal] = useState(false);
   const [keepOpenReason, setKeepOpenReason] = useState('');
+  const [keepOpenSolution, setKeepOpenSolution] = useState('');
   const [showCloseForm, setShowCloseForm] = useState(false);
   const COMPLEXITY_LABELS: Record<number,string> = { 1:'Muito simples', 2:'Simples', 3:'Moderado', 4:'Complexo', 5:'Muito complexo' };
   const [closeForm, setCloseForm] = useState({ solution:'', rootCause:'', timeSpent:'', internalNote:'', complexity:0 });
@@ -1489,22 +1490,17 @@ function AtendimentoPageInner() {
       const [ticketRes, msgsRaw] = await Promise.all([
         tid ? api.getTicket(tid).catch(() => null) : Promise.resolve(null),
         isTicket && ticketId
-          ? api.getMessages(ticketId, false).catch(() => [])
+          ? api.getMessages(ticketId, false).catch(() => ({ messages: [], hasMore: false }))
           : api.getConversationMessages(conv.id, { limit: 50 }).catch(() => ({ messages: [], hasMore: false })),
       ]);
 
       if (myId !== loadIdRef.current) return; // conversa já mudou, descarta
 
       if (ticketRes) setCurrentTicket(ticketRes);
-      // Conversa: resposta paginada { messages, hasMore }; ticket: array direto
-      if (isTicket) {
-        const arr = Array.isArray(msgsRaw) ? msgsRaw : (msgsRaw as any)?.data ?? [];
-        setMessages(arr);
-        setHasMoreMsgs(false);
-        oldestMsgIdRef.current = arr[0]?.id ?? null;
-      } else {
+      // Ambos retornam { messages, hasMore } — getMessages sempre passa limit=200
+      {
         const paged = msgsRaw as any;
-        const arr: any[] = paged?.messages ?? (Array.isArray(paged) ? paged : []);
+        const arr: any[] = paged?.messages ?? [];
         setMessages(arr);
         setHasMoreMsgs(paged?.hasMore === true);
         oldestMsgIdRef.current = arr[0]?.id ?? null;
@@ -1668,19 +1664,14 @@ function AtendimentoPageInner() {
     try {
       const isTicket = conv.type === 'ticket' || conv.id?.startsWith?.('ticket:');
       const ticketId = isTicket ? (conv.ticketId || conv.id?.replace?.(/^ticket:/, '')) : conv.ticketId;
-      if (isTicket && ticketId) {
-        const msgs = await api.getMessages(ticketId, false).catch(() => []);
-        const arr = Array.isArray(msgs) ? msgs : (msgs as any)?.data ?? [];
-        setMessages(arr);
-        setHasMoreMsgs(false);
-        oldestMsgIdRef.current = arr[0]?.id ?? null;
-      } else {
-        const paged: any = await api.getConversationMessages(conv.id, { limit: 50 }).catch(() => ({ messages: [], hasMore: false }));
-        const arr: any[] = paged?.messages ?? (Array.isArray(paged) ? paged : []);
-        setMessages(arr);
-        setHasMoreMsgs(paged?.hasMore === true);
-        oldestMsgIdRef.current = arr[0]?.id ?? null;
-      }
+      const msgsEndpoint = isTicket && ticketId
+        ? api.getMessages(ticketId, false)
+        : api.getConversationMessages(conv.id, { limit: 50 });
+      const paged: any = await msgsEndpoint.catch(() => ({ messages: [], hasMore: false }));
+      const arr: any[] = paged?.messages ?? [];
+      setMessages(arr);
+      setHasMoreMsgs(paged?.hasMore === true);
+      oldestMsgIdRef.current = arr[0]?.id ?? null;
     } catch {}
   };
 
@@ -1715,7 +1706,7 @@ function AtendimentoPageInner() {
     setCloseForm({ solution:'', rootCause:'', timeSpent:'', internalNote:'', complexity:0 });
     setShowEndModal(true);
   };
-  const handleKeepOpen = () => { setShowEndModal(false); setKeepOpenReason(''); setShowKeepOpenModal(true); };
+  const handleKeepOpen = () => { setShowEndModal(false); setKeepOpenReason(''); setKeepOpenSolution(''); setShowKeepOpenModal(true); };
   const handleCloseTicket = () => {
     if (customerLinkRequired) {
       showToast(
@@ -1736,14 +1727,20 @@ function AtendimentoPageInner() {
     try {
       const isTicket = selected?.type === 'ticket' || selected?.id?.startsWith?.('ticket:');
       const tid = isTicket ? (selected.ticketId || selected.id?.replace?.(/^ticket:/, '')) : selected?.ticketId;
+      const solution = keepOpenSolution.trim();
+      const parts: string[] = ['Atendimento encerrado. Ticket mantido em aberto.'];
+      if (solution) parts.push(`Descrição: ${solution}`);
+      parts.push(`Motivo: ${keepOpenReason.trim()}`);
+      const systemContent = parts.join('\n');
       if (isTicket && tid) {
-        await api.addMessage(tid, { content: `Atendimento encerrado. Ticket mantido em aberto. Motivo: ${keepOpenReason}`, messageType: 'system' });
+        await api.addMessage(tid, { content: systemContent, messageType: 'system' });
       } else if (selected?.id && !isTicket) {
-        await api.closeConversation(selected.id, { keepTicketOpen: true });
-        if (tid) await api.addMessage(tid, { content: `Conversa encerrada. Ticket mantido em aberto. Motivo: ${keepOpenReason}`, messageType: 'system' });
+        await api.closeConversation(selected.id, { keepTicketOpen: true, solution: solution || undefined });
+        if (tid) await api.addMessage(tid, { content: systemContent, messageType: 'system' });
       }
       setShowKeepOpenModal(false);
       setKeepOpenReason('');
+      setKeepOpenSolution('');
       showToast('Atendimento encerrado. Ticket mantido aberto.');
       loadConversations(true, true);
       invalidateMyOpenTicketsCount();
@@ -2192,14 +2189,14 @@ function AtendimentoPageInner() {
           });
           let fresh: any = null;
           if (reloadConversationId) {
-            fresh = await api.getConversationMessages(reloadConversationId).catch(() => null);
+            fresh = await api.getConversationMessages(reloadConversationId, { limit: 200 }).catch(() => null);
           } else if (isTicketType && ticketId) {
             fresh = await api.getMessages(ticketId, false).catch(() => null);
           } else {
-            fresh = await api.getConversationMessages(selected.id).catch(() => null);
+            fresh = await api.getConversationMessages(selected.id, { limit: 200 }).catch(() => null);
           }
           if (fresh) {
-            const arr = Array.isArray(fresh) ? fresh : (fresh as any)?.messages ?? (fresh as any)?.data ?? [];
+            const arr: any[] = (fresh as any)?.messages ?? [];
             setMessages(m => m.some((x: any) => x._optimistic) ? m : arr);
           }
         }, 1500);
@@ -4724,10 +4721,17 @@ function AtendimentoPageInner() {
               <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#0F172A' }}>Manter Ticket Aberto</h2>
               <p style={{ margin: '4px 0 0', fontSize: 12, color: '#94A3B8' }}>Informe o motivo pelo qual o ticket ficará em aberto</p>
             </div>
-            <div style={{ padding: '18px 22px' }}>
-              <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 6 }}>Motivo <span style={{ color: '#EF4444' }}>*</span></label>
-              <textarea value={keepOpenReason} onChange={e => setKeepOpenReason(e.target.value)} placeholder="Ex: Aguardando retorno do fornecedor..." rows={3} autoFocus
-                style={{ width: '100%', padding: '10px 12px', border: `1.5px solid ${keepOpenReason.trim() ? '#E2E8F0' : '#FCA5A5'}`, borderRadius: 8, fontSize: 13, color: '#0F172A', resize: 'vertical' as const, outline: 'none', boxSizing: 'border-box' as const }} />
+            <div style={{ padding: '18px 22px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 6 }}>Descrição da solução aplicada</label>
+                <textarea value={keepOpenSolution} onChange={e => setKeepOpenSolution(e.target.value)} placeholder="Descreva o que foi feito até o momento..." rows={3} autoFocus
+                  style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #E2E8F0', borderRadius: 8, fontSize: 13, color: '#0F172A', resize: 'vertical' as const, outline: 'none', boxSizing: 'border-box' as const }} />
+              </div>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 6 }}>Motivo para manter aberto <span style={{ color: '#EF4444' }}>*</span></label>
+                <textarea value={keepOpenReason} onChange={e => setKeepOpenReason(e.target.value)} placeholder="Ex: Aguardando retorno do fornecedor..." rows={3}
+                  style={{ width: '100%', padding: '10px 12px', border: `1.5px solid ${keepOpenReason.trim() ? '#E2E8F0' : '#FCA5A5'}`, borderRadius: 8, fontSize: 13, color: '#0F172A', resize: 'vertical' as const, outline: 'none', boxSizing: 'border-box' as const }} />
+              </div>
             </div>
             <div style={{ padding: '12px 22px', borderTop: '1px solid #F1F5F9', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button onClick={() => setShowKeepOpenModal(false)} style={{ padding: '8px 18px', borderRadius: 8, border: '1.5px solid #E2E8F0', background: '#fff', color: '#475569', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancelar</button>

@@ -630,7 +630,7 @@ export class WhatsappService {
    * Versão com agente: {contato}, {empresa_atendente}, {agente}, {numero_ticket}
    * Versão sem agente: {contato}, {empresa_atendente}, {numero_ticket}
    */
-  private async sendPostTicketMessage(
+  async sendPostTicketMessage(
     tenantId: string,
     wa: string,
     contact: { name?: string | null; email?: string | null },

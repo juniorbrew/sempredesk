@@ -100,6 +100,26 @@ export class ConversationsService {
     this.outboundSender = fn;
   }
 
+  /** Envia mensagem de boas-vindas pós-ticket (registrado pelo WhatsappModule.onModuleInit) */
+  private postTicketMessageSender:
+    | ((
+        tenantId: string,
+        wa: string,
+        contact: { name?: string | null; email?: string | null },
+        ticket: { ticketNumber: string; assignedTo?: string | null },
+      ) => Promise<void>)
+    | null = null;
+  setPostTicketMessageSender(
+    fn: (
+      tenantId: string,
+      wa: string,
+      contact: { name?: string | null; email?: string | null },
+      ticket: { ticketNumber: string; assignedTo?: string | null },
+    ) => Promise<void>,
+  ) {
+    this.postTicketMessageSender = fn;
+  }
+
   /** Dispatcher de read receipts (Baileys) — registrado pelo WhatsappModule.onModuleInit */
   private markReadFn: ((tenantId: string, remoteJid: string, messageIds: string[]) => Promise<void>) | null = null;
   setMarkReadHandler(fn: (tenantId: string, remoteJid: string, messageIds: string[]) => Promise<void>) {
@@ -456,6 +476,7 @@ export class ConversationsService {
       initiatedBy: ConversationInitiatedBy.CONTACT,
       whatsappChannelId: opts?.whatsappChannelId ?? null,
       queuedAt: new Date(),
+      chatbotDepartment: opts?.department?.trim() || null,
     });
     try {
       const savedConv = await convRepo.save(conv);
@@ -474,6 +495,9 @@ export class ConversationsService {
       }
       if (opts?.whatsappChannelId && existing.whatsappChannelId !== opts.whatsappChannelId) {
         existing.whatsappChannelId = opts.whatsappChannelId;
+      }
+      if (opts?.department?.trim() && !existing.chatbotDepartment) {
+        existing.chatbotDepartment = opts.department.trim();
       }
       const savedExisting = await convRepo.save(existing);
       const hasDeptCtx = !!((opts?.department || '').trim() || (opts?.departmentId || '').trim());
@@ -662,9 +686,9 @@ export class ConversationsService {
 
     const contact = await this.customersService.findContactById(tenantId, conv.contactId);
     const contactName = contact?.name || 'Cliente';
-    const subject = `Atendimento WhatsApp - ${contactName}`;
 
     // Resolve clientId: prioridade para conv.clientId; fallback para contato direto ou pivot contact_customers
+    const originalClientId = conv.clientId;
     if (!conv.clientId && contact?.clientId) {
       conv.clientId = contact.clientId;
     }
@@ -676,6 +700,26 @@ export class ConversationsService {
       if (pivotRows[0]?.client_id) conv.clientId = pivotRows[0].client_id;
     }
 
+    // Departamento registrado na conversa pelo chatbot (coluna chatbot_department).
+    const chatbotDepartment: string | null = conv.chatbotDepartment ?? null;
+
+    // Usa a primeira mensagem de texto do contato como assunto e descrição do ticket.
+    // Isso captura a demanda digitada pelo cliente no chatbot ("descreva sua demanda").
+    // Só cai no fallback genérico se não houver nenhuma mensagem de texto do contato.
+    const firstContactMsgRows: Array<{ content: string }> = await this.dataSource.query(
+      `SELECT content FROM conversation_messages
+        WHERE conversation_id = $1 AND tenant_id = $2
+          AND author_type = 'contact'
+          AND (media_kind IS NULL OR media_kind = '')
+          AND content <> ''
+        ORDER BY created_at ASC LIMIT 1`,
+      [conversationId, tenantId],
+    ).catch(() => []);
+    const demandText = firstContactMsgRows[0]?.content?.trim() || null;
+    const subject = demandText
+      ? demandText.slice(0, 120)
+      : `Atendimento WhatsApp - ${contactName}`;
+
     // Cria ticket vinculado à conversa.
     // authorType='user' garante que o agente que clicou seja atribuído automaticamente
     // se nenhum outro agente estiver disponível (linha "if authorType=user && !assignedTo" no tickets.service).
@@ -683,11 +727,14 @@ export class ConversationsService {
     const ticket = await this.createTicketForConversation(
       tenantId,
       conv,
-      undefined,   // firstMessage
+      undefined,                       // firstMessage
       contactName,
       subject,
-      agentId,     // authorId  → userId no ticketsService.create
-      agentName,   // authorName
+      agentId,                         // authorId  → userId no ticketsService.create
+      agentName,                       // authorName
+      demandText || undefined,         // descriptionOverride — demanda como descrição
+      undefined,                       // departmentId
+      chatbotDepartment || undefined,  // department — recuperado pelo priorityId da conversa
     );
 
     // Garante atribuição ao agente que clicou via SQL direto (substitui round-robin e é idempotente)
@@ -697,14 +744,23 @@ export class ConversationsService {
       [agentId, ticket.id, tenantId],
     );
 
-    // Vincula conversa ao ticket via update pontual (preserva sla_first_response_deadline e sla_resolution_deadline)
+    // Vincula conversa ao ticket via update pontual (preserva sla_first_response_deadline e sla_resolution_deadline).
+    // Persiste também o clientId resolvido pelos fallbacks caso não estivesse gravado na conversa.
     const attendanceStartedAt = new Date();
-    await this.convRepo.update(
-      { id: conversationId, tenantId },
-      { ticketId: ticket.id, attendanceStartedAt } as Partial<Conversation>,
-    );
+    const convUpdate: Partial<Conversation> = { ticketId: ticket.id, attendanceStartedAt };
+    if (conv.clientId && conv.clientId !== originalClientId) {
+      convUpdate.clientId = conv.clientId;
+    }
+    await this.convRepo.update({ id: conversationId, tenantId }, convUpdate);
     conv.ticketId = ticket.id;
     conv.attendanceStartedAt = attendanceStartedAt;
+
+    // Envia mensagem de boas-vindas ao contato via WhatsApp após iniciar atendimento
+    if (conv.channel === 'whatsapp' && contact?.whatsapp && this.postTicketMessageSender) {
+      this.postTicketMessageSender(tenantId, contact.whatsapp, { name: contactName }, ticket).catch((e) =>
+        this.logger.warn(`[startAttendance] Falha ao enviar mensagem de boas-vindas #${ticket.ticketNumber}: ${e?.message}`),
+      );
+    }
 
     return { conversation: conv, ticket };
   }
@@ -1498,8 +1554,9 @@ export class ConversationsService {
     // O frontend remove do inbox ativo sem precisar de polling
     this.realtimeEmitter.emitToTenant(tenantId, 'conversation:closed', { conversationId: id });
 
-    // WhatsApp: ao encerrar o atendimento formalmente, dispara avaliação ao cliente.
-    // Se o atendimento não foi encerrado (keepTicketOpen), apenas reseta a sessão.
+    // WhatsApp: ao encerrar a conversa, dispara avaliação ao cliente.
+    // Isso inclui o caso keepTicketOpen=true: a conversa foi encerrada, o cliente pode avaliar
+    // o atendimento mesmo que o ticket permaneça aberto para o agente continuar trabalhando.
     const convAfter = await this.findOne(tenantId, id);
     if (convAfter.channel === ConversationChannel.WHATSAPP && this.chatbotService) {
       const contact = convAfter.contactId
@@ -1511,14 +1568,14 @@ export class ConversationsService {
         || null;
 
       if (identifier) {
-        const deveAvaliar = !keepTicketOpen && !!ticketId && !!this.outboundSender;
+        const deveAvaliar = !!ticketId && !!this.outboundSender;
         console.log(`[ConversationsService.close] conversation=${id} ticket=${ticketId ?? 'none'} identifier=${identifier} keepTicketOpen=${!!keepTicketOpen} shouldRate=${deveAvaliar}`);
         if (deveAvaliar) {
           const sender = this.outboundSender!;
           await this.chatbotService.initiateRating(tenantId, identifier, ticketId!, 'whatsapp', async (text) => {
             await sender(tenantId, identifier, text);
           });
-        } else if (!keepTicketOpen) {
+        } else {
           this.chatbotService.resetSession(tenantId, identifier, 'whatsapp').catch(() => {});
         }
       }

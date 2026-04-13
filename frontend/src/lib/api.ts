@@ -120,7 +120,7 @@ class ApiClient {
   createTicket = (data: any) => this.http.post('/tickets', data);
   updateTicket = (id: string, data: any) => this.http.put(`/tickets/${id}`, data);
   ticketStats = () => this.http.get('/tickets/stats');
-  getMessages = (id: string, includeInternal = true) => this.http.get(`/tickets/${id}/messages`, { params: { includeInternal } });
+  getMessages = (id: string, includeInternal = true) => this.http.get(`/tickets/${id}/messages`, { params: { includeInternal, limit: 200 } });
   addMessage = (id: string, data: any) => this.http.post(`/tickets/${id}/messages`, data);
   /** Resposta pública com ficheiro (multipart). Domínio ticket — não usa conversa. */
   addTicketPublicReplyAttachment = (ticketId: string, data: { content?: string; file: File }) => {

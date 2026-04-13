@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { In } from 'typeorm';
 import { TicketsService } from './tickets.service';
+import { TicketClassificationHelper } from './ticket-classification.helper';
 import { TicketPriority, TicketStatus } from './entities/ticket.entity';
 import { SlaPriority } from '../sla/entities/sla-policy.entity';
 
@@ -16,6 +17,7 @@ describe('TicketsService.assertContactBelongsToTenant', () => {
       {} as any,
       {} as any,
       { findBestPolicy: jest.fn().mockResolvedValue(null) } as any,
+      {} as any, // classificationHelper
     );
   }
 
@@ -71,6 +73,7 @@ describe('TicketsService.countOpenTicketsAssignedToAgent', () => {
       {} as any,
       {} as any,
       { findBestPolicy: jest.fn().mockResolvedValue(null) } as any,
+      {} as any, // classificationHelper
     );
   }
 
@@ -108,6 +111,7 @@ describe('TicketsService SLA', () => {
       {} as any,
       {} as any,
       slaService as any,
+      {} as any, // classificationHelper
     );
   }
 
@@ -220,22 +224,16 @@ describe('TicketsService SLA', () => {
   });
 
   it('resolve prioridade herdada pela classificacao com precedencia da mais especifica', async () => {
-    const service = new TicketsService(
-      { save: jest.fn(), manager: { query: jest.fn() } } as any,
-      {} as any,
-      {} as any,
-      { findOne: jest.fn().mockResolvedValue(null) } as any,
-      {} as any,
-      {
-        resolveDefaultPriorityIdForClassification: jest.fn().mockResolvedValue('priority-sub'),
-      } as any,
-      {} as any,
-      {} as any,
-      { calcDeadlines: jest.fn(), resolvePolicyForTicket: jest.fn().mockResolvedValue(null) } as any,
+    const ticketSettingsService = {
+      resolveDefaultPriorityIdForClassification: jest.fn().mockResolvedValue('priority-sub'),
+    };
+    const helper = new TicketClassificationHelper(
+      { createQueryBuilder: jest.fn(), query: jest.fn() } as any,
+      ticketSettingsService as any,
     );
 
     await expect(
-      (service as any).resolveInheritedPriorityIdForClassification('tenant-1', {
+      (helper as any).resolveInheritedPriorityIdForClassification('tenant-1', {
         department: 'Pista',
         category: 'Erro ao entrar',
         subcategory: 'Senha',

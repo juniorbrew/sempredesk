@@ -4,6 +4,8 @@ import { Ticket, TicketMessage } from './entities/ticket.entity';
 import { TicketReplyAttachment } from './entities/ticket-reply-attachment.entity';
 import { TicketsService } from './tickets.service';
 import { TicketSatisfactionService } from './ticket-satisfaction.service';
+import { TicketClassificationHelper } from './ticket-classification.helper';
+import { TicketSlaCronService } from './ticket-sla-cron.service';
 import { TicketsController } from './tickets.controller';
 import { InboundEmailController } from './inbound-email.controller';
 import { PermissionsModule } from '../permissions/permissions.module';
@@ -39,13 +41,14 @@ import { TenantPriority } from '../tenant-priorities/entities/tenant-priority.en
     TicketAssignmentModule,
     SlaModule,
   ],
-  providers: [TicketsService, TicketSatisfactionService, StorageQuotaGuard],
+  providers: [TicketsService, TicketSatisfactionService, TicketClassificationHelper, TicketSlaCronService, StorageQuotaGuard],
   controllers: [TicketsController, InboundEmailController],
   exports: [TicketsService, TicketSatisfactionService],
 })
 export class TicketsModule {
   constructor(
     private readonly ticketsService: TicketsService,
+    private readonly ticketSlaCronService: TicketSlaCronService,
     private readonly emailService: EmailService,
     private readonly webhooksService: WebhooksService,
     private readonly routingService: RoutingRulesService,
@@ -57,5 +60,8 @@ export class TicketsModule {
     this.ticketsService.setWebhooksService(this.webhooksService);
     this.ticketsService.setRoutingService(this.routingService);
     this.ticketsService.setAssignmentService(this.assignmentService);
+    // Wira serviços com dep. circular também no cron service
+    this.ticketSlaCronService.setEmailService(this.emailService);
+    this.ticketSlaCronService.setWebhooksService(this.webhooksService);
   }
 }

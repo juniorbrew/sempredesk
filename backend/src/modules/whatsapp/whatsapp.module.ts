@@ -107,6 +107,11 @@ export class WhatsappModule implements OnModuleInit {
     });
     this.logger.log('Outbound WhatsApp sender registrado para conversas');
 
+    // Registra dispatcher de mensagem de boas-vindas pós-ticket (usado em startAttendance)
+    this.conversationsService.setPostTicketMessageSender(
+      (tenantId, wa, contact, ticket) => this.whatsappService.sendPostTicketMessage(tenantId, wa, contact, ticket),
+    );
+
     // 1. Wire Baileys incoming messages → chatbot → WhatsApp message handler
     // Wire read receipts: agente abre conversa no dashboard → Baileys envia readMessages ao contato
     this.conversationsService.setMarkReadHandler(

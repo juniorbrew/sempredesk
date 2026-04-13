@@ -3,10 +3,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, IsNull, EntityManager } from 'typeorm';
 import * as fs from 'fs';
 import * as path from 'path';
-import { Cron } from '@nestjs/schedule';
 import {
   Ticket, TicketMessage, TicketStatus, TicketPriority, TicketOrigin, MessageType,
 } from './entities/ticket.entity';
+import { normalizeText, TicketClassificationHelper } from './ticket-classification.helper';
 import { TicketReplyAttachment } from './entities/ticket-reply-attachment.entity';
 import { TenantPriority } from '../tenant-priorities/entities/tenant-priority.entity';
 import { TicketSatisfactionService } from './ticket-satisfaction.service';
@@ -42,6 +42,13 @@ const STATUS_LABELS_PT: Record<string, string> = {
   resolved: 'Resolvido',
   closed: 'Encerrado',
   cancelled: 'Cancelado',
+};
+
+const PRIORITY_LABELS_PT: Record<string, string> = {
+  low: 'Baixa',
+  medium: 'Média',
+  high: 'Alta',
+  critical: 'Crítica',
 };
 
 /** Anexo de resposta pública do ticket: não incluir áudio/vídeo como ficheiro de ticket. */
@@ -90,6 +97,7 @@ export class TicketsService {
     private readonly alertsService: AlertsService,
     private readonly realtimeEmitter: RealtimeEmitterService,
     private readonly slaService: SlaService,
+    private readonly classificationHelper: TicketClassificationHelper,
   ) {}
   private attendanceSvc: any = null;
   setAttendanceService(svc: any) { this.attendanceSvc = svc; }
@@ -125,17 +133,11 @@ export class TicketsService {
     return new TicketSatisfactionService(this.ticketRepo, null as any);
   }
 
-  private normalizeText(value?: string | null): string | null {
-    if (value === undefined || value === null) return null;
-    const normalized = String(value).trim().replace(/\s+/g, ' ');
-    return normalized.length ? normalized : null;
-  }
-
   /**
    * Recalcula os deadlines do ticket a partir da política vigente para a prioridade atual.
    * A base temporal é sempre a criação do ticket, para manter o SLA consistente com o cadastro.
    */
-  private async applyConfiguredSlaToTicket(ticket: Ticket): Promise<void> {
+  async applyConfiguredSlaToTicket(ticket: Ticket): Promise<void> {
     const policy = await this.slaService.resolvePolicyForTicket(
       ticket.tenantId,
       ticket.priorityId ?? null,
@@ -157,7 +159,7 @@ export class TicketsService {
    * Com ticket vinculado, a conversa mantém apenas o contexto de prioridade
    * para exibição operacional. O SLA oficial permanece exclusivo do ticket.
    */
-  private async syncConversationSlaWithTicket(ticket: Ticket): Promise<void> {
+  async syncConversationSlaWithTicket(ticket: Ticket): Promise<void> {
     if (!ticket.conversationId) return;
 
     let convPriorityId = ticket.priorityId ?? null;
@@ -196,7 +198,7 @@ export class TicketsService {
     }
   }
 
-  private async resolveTenantPriorityIdBySlug(tenantId: string, slug: string): Promise<string | null> {
+  async resolveTenantPriorityIdBySlug(tenantId: string, slug: string): Promise<string | null> {
     const tp = await this.tenantPriorityRepo.findOne({
       where: { tenantId, slug: String(slug) },
     });
@@ -657,90 +659,6 @@ export class TicketsService {
     await this.contractsService.findOne(tenantId, contractId);
   }
 
-  private async getTicketSettingByName(
-    tenantId: string,
-    type: 'department' | 'category' | 'subcategory',
-    name?: string | null,
-  ) {
-    const normalized = this.normalizeText(name);
-    if (!normalized) return null;
-
-    const rows = await this.ticketRepo.manager.query(
-      `
-      SELECT id, parent_id, name, type
-      FROM ticket_settings
-      WHERE tenant_id = $1
-        AND type = $2
-        AND active = true
-        AND LOWER(TRIM(name)) = LOWER(TRIM($3))
-      LIMIT 1
-      `,
-      [tenantId, type, normalized],
-    );
-
-    return rows[0] || null;
-  }
-
-  private async resolveTicketClassification(
-    tenantId: string,
-    department?: string | null,
-    category?: string | null,
-    subcategory?: string | null,
-  ) {
-    const normalizedDepartment = this.normalizeText(department);
-    const normalizedCategory = this.normalizeText(category);
-    const normalizedSubcategory = this.normalizeText(subcategory);
-
-    const departmentRow = await this.getTicketSettingByName(tenantId, 'department', normalizedDepartment);
-    const categoryRow = await this.getTicketSettingByName(tenantId, 'category', normalizedCategory);
-    const subcategoryRow = await this.getTicketSettingByName(tenantId, 'subcategory', normalizedSubcategory);
-
-    // Valores não cadastrados em ticket_settings são permitidos (ex.: tickets de automação)
-    if (normalizedDepartment && !departmentRow) {
-      return {
-        department: normalizedDepartment,
-        category: normalizedCategory || null,
-        subcategory: normalizedSubcategory || null,
-      };
-    }
-    if (normalizedCategory && !categoryRow) {
-      return {
-        department: departmentRow?.name || normalizedDepartment || null,
-        category: normalizedCategory,
-        subcategory: normalizedSubcategory || null,
-      };
-    }
-    if (normalizedSubcategory && !subcategoryRow) {
-      return {
-        department: departmentRow?.name || normalizedDepartment || null,
-        category: categoryRow?.name || normalizedCategory || null,
-        subcategory: normalizedSubcategory,
-      };
-    }
-
-    if (normalizedCategory && !normalizedDepartment) {
-      throw new BadRequestException('Categoria exige departamento');
-    }
-
-    if (normalizedSubcategory && !normalizedCategory) {
-      throw new BadRequestException('Subcategoria exige categoria');
-    }
-
-    if (departmentRow && categoryRow && categoryRow.parent_id !== departmentRow.id) {
-      throw new BadRequestException('Categoria não pertence ao departamento informado');
-    }
-
-    if (categoryRow && subcategoryRow && subcategoryRow.parent_id !== categoryRow.id) {
-      throw new BadRequestException('Subcategoria não pertence à categoria informada');
-    }
-
-    return {
-      department: departmentRow?.name || normalizedDepartment || null,
-      category: categoryRow?.name || normalizedCategory || null,
-      subcategory: subcategoryRow?.name || normalizedSubcategory || null,
-    };
-  }
-
   private async alignPriorityEnumFromPriorityId(
     tenantId: string,
     priorityId: string | null,
@@ -756,18 +674,7 @@ export class TicketsService {
     return fallback;
   }
 
-  private async resolveInheritedPriorityIdForClassification(
-    tenantId: string,
-    classification: { department?: string | null; category?: string | null; subcategory?: string | null },
-  ): Promise<string | null> {
-    return this.ticketSettingsService.resolveDefaultPriorityIdForClassification(tenantId, {
-      department: classification.department ?? null,
-      category: classification.category ?? null,
-      subcategory: classification.subcategory ?? null,
-    });
-  }
-
-  private async registerSystemMessage(
+  async registerSystemMessage(
     tenantId: string,
     ticketId: string,
     authorId: string,
@@ -879,7 +786,7 @@ export class TicketsService {
       } catch {}
     }
 
-    const classification = await this.resolveTicketClassification(
+    const classification = await this.classificationHelper.resolveTicketClassification(
       tenantId,
       departmentName,
       dto.category,
@@ -902,7 +809,7 @@ export class TicketsService {
         effectivePriority,
       );
     } else if (dto.priority === undefined) {
-      effectivePriorityId = await this.resolveInheritedPriorityIdForClassification(
+      effectivePriorityId = await this.classificationHelper.resolveInheritedPriorityIdForClassification(
         tenantId,
         classification,
       );
@@ -1185,9 +1092,9 @@ export class TicketsService {
         { contactId, tenantId },
       );
     }
-    if (department) qb.andWhere('t.department = :department', { department: this.normalizeText(department) });
-    if (category) qb.andWhere('t.category = :category', { category: this.normalizeText(category) });
-    if (subcategory) qb.andWhere('t.subcategory = :subcategory', { subcategory: this.normalizeText(subcategory) });
+    if (department) qb.andWhere('t.department = :department', { department: normalizeText(department) });
+    if (category) qb.andWhere('t.category = :category', { category: normalizeText(category) });
+    if (subcategory) qb.andWhere('t.subcategory = :subcategory', { subcategory: normalizeText(subcategory) });
     if (search) {
       qb.andWhere(
         `(t.subject ILIKE :s OR t.ticket_number ILIKE :s OR t.description ILIKE :s
@@ -1205,7 +1112,7 @@ export class TicketsService {
 
     const withPriority = data.map((t) => this.ticketWithPriorityPayload(t));
 
-    // Enriquece com contactName para tickets criados via WhatsApp (sem clientId)
+    // Enriquece com contactName e clientName num único batch (evita N+1 e não depende de perPage de clientes)
     if (withPriority.length > 0) {
       const contactIds = [...new Set(
         withPriority.filter((t) => (t as any).contactId).map((t) => (t as any).contactId as string),
@@ -1220,6 +1127,24 @@ export class TicketsService {
           withPriority.forEach((t) => {
             const cid = (t as any).contactId as string | undefined;
             if (cid) (t as any).contactName = contactMap.get(cid) ?? null;
+          });
+        } catch {}
+      }
+
+      const clientIds = [...new Set(
+        withPriority.filter((t) => (t as any).clientId).map((t) => (t as any).clientId as string),
+      )];
+      if (clientIds.length > 0) {
+        try {
+          const clients: Array<{ id: string; trade_name: string | null; company_name: string }> =
+            await this.ticketRepo.manager.query(
+              `SELECT id::text, trade_name, company_name FROM clients WHERE tenant_id = $1 AND id::text = ANY($2::text[])`,
+              [tenantId, clientIds],
+            );
+          const clientMap = new Map(clients.map((c) => [c.id, c.trade_name || c.company_name]));
+          withPriority.forEach((t) => {
+            const cid = (t as any).clientId as string | undefined;
+            if (cid) (t as any).clientName = clientMap.get(cid) ?? null;
           });
         } catch {}
       }
@@ -1365,7 +1290,7 @@ export class TicketsService {
         if (rows[0]) out.assignedUser = rows[0];
       } catch {}
     }
-    // Inclui contactName para tickets criados via WhatsApp (sem clientId)
+    // Inclui contactName e clientName para evitar lookups extras no frontend
     if (out.contactId) {
       try {
         const rows = await this.ticketRepo.manager.query(
@@ -1373,6 +1298,15 @@ export class TicketsService {
           [tenantId, String(out.contactId)],
         );
         if (rows[0]) out.contactName = rows[0].name;
+      } catch {}
+    }
+    if (out.clientId) {
+      try {
+        const rows = await this.ticketRepo.manager.query(
+          `SELECT trade_name, company_name FROM clients WHERE tenant_id = $1 AND id::text = $2 LIMIT 1`,
+          [tenantId, String(out.clientId)],
+        );
+        if (rows[0]) out.clientName = rows[0].trade_name || rows[0].company_name;
       } catch {}
     }
     return out;
@@ -1434,8 +1368,13 @@ export class TicketsService {
 
     await this.assertUserBelongsToTenant(tenantId, dto.assignedTo);
 
+    // Só considera classificação alterada quando pelo menos um campo mudou de valor.
+    // Isso evita chamar resolveTicketClassification ao salvar apenas prioridade/agente
+    // enquanto os selects de dept/cat/sub são enviados com os valores atuais do ticket.
     const userChangedClassification =
-      dto.department !== undefined || dto.category !== undefined || dto.subcategory !== undefined;
+      (dto.department !== undefined && (dto.department || null) !== (ticket.department || null)) ||
+      (dto.category !== undefined && (dto.category || null) !== (ticket.category || null)) ||
+      (dto.subcategory !== undefined && (dto.subcategory || null) !== (ticket.subcategory || null));
 
     const updates: any = { ...dto };
     if (dto.priorityId !== undefined) {
@@ -1448,11 +1387,21 @@ export class TicketsService {
 
     let nextClassification = previousClassification;
     if (userChangedClassification) {
-      nextClassification = await this.resolveTicketClassification(
+      // Quando o departamento muda, limpar categoria/subcategoria não fornecidas
+      // explicitamente para evitar validação cruzada com valores do departamento antigo.
+      const deptChanged =
+        dto.department !== undefined &&
+        (dto.department || null) !== (ticket.department || null);
+      const effectiveCat =
+        dto.category !== undefined ? dto.category : deptChanged ? null : ticket.category;
+      const effectiveSub =
+        dto.subcategory !== undefined ? dto.subcategory : deptChanged ? null : ticket.subcategory;
+
+      nextClassification = await this.classificationHelper.resolveTicketClassification(
         tenantId,
         dto.department ?? ticket.department,
-        dto.category ?? ticket.category,
-        dto.subcategory ?? ticket.subcategory,
+        effectiveCat,
+        effectiveSub,
       );
       updates.department = nextClassification.department || undefined;
       updates.category = nextClassification.category || undefined;
@@ -1489,7 +1438,7 @@ export class TicketsService {
         ticket.priority,
       );
     } else if (dto.priority === undefined && userChangedClassification) {
-      const previousDefaultPriorityId = await this.resolveInheritedPriorityIdForClassification(
+      const previousDefaultPriorityId = await this.classificationHelper.resolveInheritedPriorityIdForClassification(
         tenantId,
         previousClassification,
       );
@@ -1497,7 +1446,7 @@ export class TicketsService {
         oldPriorityId === null || oldPriorityId === previousDefaultPriorityId;
 
       if (shouldRefreshInheritedPriority) {
-        ticket.priorityId = await this.resolveInheritedPriorityIdForClassification(
+        ticket.priorityId = await this.classificationHelper.resolveInheritedPriorityIdForClassification(
           tenantId,
           nextClassification,
         );
@@ -1554,6 +1503,46 @@ export class TicketsService {
         `Chamado atribuído ao técnico: ${techName ?? dto.assignedTo}`,
         MessageType.SYSTEM,
       );
+    }
+
+    // Prioridade alterada
+    if ((saved.priority !== oldPriority) || ((saved.priorityId ?? null) !== oldPriorityId)) {
+      let priorityLabel: string;
+      if (saved.priorityId) {
+        try {
+          const tp = await this.tenantPriorityRepo.findOne({ where: { id: saved.priorityId, tenantId } });
+          priorityLabel = tp?.name ?? PRIORITY_LABELS_PT[saved.priority] ?? saved.priority;
+        } catch {
+          priorityLabel = PRIORITY_LABELS_PT[saved.priority] ?? saved.priority;
+        }
+      } else {
+        priorityLabel = PRIORITY_LABELS_PT[saved.priority] ?? saved.priority;
+      }
+      const oldPriorityLabel = PRIORITY_LABELS_PT[oldPriority] ?? oldPriority ?? '—';
+      await this.registerSystemMessage(
+        tenantId, id, userId, userName,
+        `Prioridade alterada de "${oldPriorityLabel}" para "${priorityLabel}"`,
+      );
+    }
+
+    // Classificação alterada (departamento / categoria / subcategoria)
+    if (userChangedClassification) {
+      const parts: string[] = [];
+      if ((saved.department ?? null) !== (previousClassification.department ?? null)) {
+        parts.push(`Departamento: "${previousClassification.department ?? '—'}" → "${saved.department ?? '—'}"`);
+      }
+      if ((saved.category ?? null) !== (previousClassification.category ?? null)) {
+        parts.push(`Categoria: "${previousClassification.category ?? '—'}" → "${saved.category ?? '—'}"`);
+      }
+      if ((saved.subcategory ?? null) !== (previousClassification.subcategory ?? null)) {
+        parts.push(`Subcategoria: "${previousClassification.subcategory ?? '—'}" → "${saved.subcategory ?? '—'}"`);
+      }
+      if (parts.length > 0) {
+        await this.registerSystemMessage(
+          tenantId, id, userId, userName,
+          `Classificação atualizada: ${parts.join('; ')}`,
+        );
+      }
     }
 
     // Fire webhook on status change
@@ -2339,150 +2328,5 @@ export class TicketsService {
     return { open, inProgress, waitingClient, resolved, closed, cancelled, resolvedToday };
   }
 
-  /**
-   * Job de SLA: alerta de 80% do prazo de resolução.
-   * Roda a cada 5 minutos e não altera status, apenas registra
-   * uma mensagem de sistema no ticket.
-   */
-  @Cron('*/5 * * * *')
-  async checkSlaWarnings() {
-    const now = new Date();
-
-    const tickets = await this.ticketRepo
-      .createQueryBuilder('t')
-      .where('t.sla_resolve_at IS NOT NULL')
-      .andWhere('t.created_at IS NOT NULL')
-      .andWhere('t.status NOT IN (:...done)', {
-        done: [
-          TicketStatus.RESOLVED,
-          TicketStatus.CLOSED,
-          TicketStatus.CANCELLED,
-        ],
-      })
-      .getMany();
-
-    for (const t of tickets) {
-      const totalMs = t.slaResolveAt.getTime() - t.createdAt.getTime();
-      if (totalMs <= 0) continue;
-
-      const elapsedMs = now.getTime() - t.createdAt.getTime();
-      const ratio = elapsedMs / totalMs;
-
-      // Janela de aviso: entre 80% e 100% do prazo total.
-      if (ratio >= 0.8 && ratio < 1) {
-        await this.registerSystemMessage(
-          t.tenantId,
-          t.id,
-          '',
-          'SLA Engine',
-          'SLA: ticket atingiu 80% do prazo de resolução.',
-          MessageType.SYSTEM,
-        );
-        try {
-          await this.alertsService.notifySlaWarning(t);
-        } catch {}
-      }
-    }
-  }
-
-  @Cron('*/5 * * * *')
-  async checkSlaBreaches() {
-    const now = new Date();
-
-    const tenants = await this.ticketRepo.manager.query(
-      'SELECT DISTINCT tenant_id FROM tickets WHERE tenant_id IS NOT NULL',
-    );
-
-    for (const row of tenants) {
-      const tenantId = row.tenant_id;
-
-      const breached = await this.ticketRepo
-        .createQueryBuilder('t')
-        .where('t.tenant_id = :tenantId', { tenantId })
-        .andWhere('t.status NOT IN (:...done)', {
-          done: [TicketStatus.RESOLVED, TicketStatus.CLOSED, TicketStatus.CANCELLED],
-        })
-        .andWhere('t.sla_resolve_at < :now', { now })
-        .andWhere('t.escalated = false')
-        .getMany();
-
-      if (breached.length) {
-        for (const t of breached) {
-          t.escalated = true;
-          t.priority = TicketPriority.CRITICAL;
-          t.priorityId =
-            (await this.resolveTenantPriorityIdBySlug(tenantId, TicketPriority.CRITICAL)) ?? null;
-          await this.applyConfiguredSlaToTicket(t);
-
-          await this.ticketRepo.save(t);
-          await this.syncConversationSlaWithTicket(t);
-
-          await this.registerSystemMessage(
-            t.tenantId,
-            t.id,
-            '',
-            'SLA Engine',
-            'SLA: prazo de resolução violado. Ticket escalonado automaticamente para prioridade crítica.',
-            MessageType.SYSTEM,
-          );
-          try {
-            await this.alertsService.notifySlaBreach(t);
-          } catch {}
-        }
-      }
-    }
-  }
-
-  @Cron('0 */30 * * * *')
-  async checkSlaEscalation(): Promise<void> {
-    try {
-      const threshold = new Date(Date.now() + 2 * 60 * 60 * 1000);
-      const atRisk = await this.ticketRepo.createQueryBuilder('t')
-        .where('t.sla_resolve_at IS NOT NULL')
-        .andWhere('t.sla_resolve_at <= :threshold', { threshold })
-        .andWhere('t.escalated = false')
-        .andWhere('t.status NOT IN (:...statuses)', { statuses: ['resolved', 'closed', 'cancelled'] })
-        .getMany();
-      for (const ticket of atRisk) {
-        await this.ticketRepo.update(ticket.id, { escalated: true });
-        if (this.webhooksSvc) {
-          await this.webhooksSvc.fire(ticket.tenantId, 'sla.warning', { id: ticket.id, ticketNumber: ticket.ticketNumber, subject: ticket.subject, slaResolveAt: ticket.slaResolveAt });
-        }
-        if (this.emailSvc) {
-          try {
-            const settings = await this.ticketRepo.manager.query('SELECT escalation_email FROM tenant_settings WHERE tenant_id = $1 LIMIT 1', [ticket.tenantId]);
-            if (settings[0]?.escalation_email) {
-              await this.emailSvc.sendEscalationAlert(ticket.tenantId, settings[0].escalation_email, ticket);
-            }
-          } catch {}
-        }
-      }
-    } catch (e) {
-      // eslint-disable-next-line no-console
-      console.error('SLA escalation check failed:', e.message);
-    }
-  }
-
-  @Cron('0 * * * *')
-  async autoCloseResolvedTickets() {
-    const cutoff = new Date(Date.now() - 7 * 24 * 3600 * 1000);
-
-    const tenants = await this.ticketRepo.manager.query(
-      'SELECT DISTINCT tenant_id FROM tickets WHERE tenant_id IS NOT NULL',
-    );
-
-    for (const row of tenants) {
-      const tenantId = row.tenant_id;
-
-      await this.ticketRepo
-        .createQueryBuilder()
-        .update(Ticket)
-        .set({ status: TicketStatus.CLOSED, closedAt: new Date() })
-        .where('tenant_id = :tenantId', { tenantId })
-        .andWhere('status = :status', { status: TicketStatus.RESOLVED })
-        .andWhere('resolved_at < :cutoff', { cutoff })
-        .execute();
-    }
-  }
 }
 

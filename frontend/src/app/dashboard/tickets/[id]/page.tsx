@@ -180,9 +180,10 @@ export default function TicketDetailsPage() {
         api.getTicketSettingsTree(), api.getCustomers({ perPage:200 }), api.getContracts(), api.getTags({ active: true }), api.getRootCauses({ active: true }).catch(() => []),
         api.getTenantPrioritiesForTickets(t?.priorityId || undefined).catch(() => []),
       ]);
-      const msgs: any = messageRes;
+      const rawMsgs: any = messageRes;
+      const msgs: any[] = Array.isArray(rawMsgs) ? rawMsgs : (rawMsgs?.messages ?? []);
       // Filter out chat channel messages — they belong to the conversation transcript block
-      const filteredMsgs = (Array.isArray(msgs) ? msgs : []).filter((m: any) =>
+      const filteredMsgs = msgs.filter((m: any) =>
         !t.conversationId || (m.channel !== 'portal' && m.channel !== 'whatsapp')
       );
       setTicket(t); setMessages(filteredMsgs); setTeam((teamRes as any) || []);
@@ -472,8 +473,8 @@ export default function TicketDetailsPage() {
   const selectedCat = useMemo(() => categories.find((c:any) => c.name===edit.category), [categories, edit.category]);
   const subcategories = selectedCat?.subcategories || [];
 
-  const customerName = (cid:string) => { const c = customers.find((c:any)=>c.id===cid); return c?(c.tradeName||c.companyName):'—'; };
-  const customerObj = (cid:string) => customers.find((c:any)=>c.id===cid);
+  const customerName = (cid:string, clientName?:string) => { if (clientName) return clientName; const c = customers.find((c:any)=>c.id===cid); return c?(c.tradeName||c.companyName):'—'; };
+  const customerObj = (cid:string, clientName?:string) => customers.find((c:any)=>c.id===cid) ?? (clientName ? { id: cid, tradeName: clientName, companyName: clientName } as any : undefined);
   const techName = (uid:string) => { const u = team.find((u:any)=>u.id===uid); return u?(u.name||u.email):'—'; };
   const initials = (name:string) => name==='—'?'?':name.split(' ').map((n:string)=>n[0]).join('').slice(0,2).toUpperCase();
   const contactName = (cid:string) => { const c = contacts.find((c:any)=>c.id===cid); return c?c.name:null; };
@@ -752,14 +753,14 @@ export default function TicketDetailsPage() {
           {/* Ticket info */}
           <div style={{ background:'#1E293B', padding:'10px 22px', display:'flex', alignItems:'center', gap:10 }}>
             <div style={{ width:32, height:32, borderRadius:8, background:'#334155', display:'flex', alignItems:'center', justifyContent:'center', fontSize:10, fontWeight:700, color:'#94A3B8', flexShrink:0 }}>
-              {initials(customerName(ticket.clientId))}
+              {initials(customerName(ticket.clientId, ticket.clientName))}
             </div>
             <div style={{ flex:1, minWidth:0 }}>
               <div style={{ display:'flex', alignItems:'center', gap:6 }}>
                 <span style={{ fontFamily:'monospace', fontSize:12, fontWeight:700, color:'#6366F1' }}>{ticket.ticketNumber}</span>
                 <span style={{ fontSize:12, color:'#CBD5E1', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{ticket.subject}</span>
               </div>
-              <div style={{ fontSize:11, color:'#64748B' }}>{customerName(ticket.clientId)}{ticket.department ? ` · ${ticket.department}` : ''}</div>
+              <div style={{ fontSize:11, color:'#64748B' }}>{customerName(ticket.clientId, ticket.clientName)}{ticket.department ? ` · ${ticket.department}` : ''}</div>
             </div>
             <span style={{
               background: priDisp.bg,
@@ -1240,7 +1241,7 @@ export default function TicketDetailsPage() {
                           <MessageSquare style={{ width:12, height:12 }} />
                         </div>
                         <div style={{ minWidth:0, flex:'1 1 120px' }}>
-                          <div style={{ fontSize:12, fontWeight:700, color:'#0F766E', lineHeight:1.25 }}>{customerName(ticket.clientId)}</div>
+                          <div style={{ fontSize:12, fontWeight:700, color:'#0F766E', lineHeight:1.25 }}>{customerName(ticket.clientId, ticket.clientName)}</div>
                           <div style={{ fontSize:10, color:'#0F766E', opacity:0.75, marginTop:1, lineHeight:1.3 }}>Transcrição da conversa vinculada ao ticket</div>
                         </div>
                         <span style={{ fontSize:9, background:'#CCFBF1', color:'#0F766E', padding:'3px 8px', borderRadius:999, fontWeight:700, display:'inline-flex', alignItems:'center', gap:3 }}>
@@ -1554,7 +1555,7 @@ export default function TicketDetailsPage() {
 
         {/* Right panel */}
         {(() => {
-          const cli = customerObj(ticket.clientId);
+          const cli = customerObj(ticket.clientId, ticket.clientName);
           const cont = ticket.contactId ? contactObj(ticket.contactId) : null;
           const hasWa = cont?.whatsapp || cont?.phone;
           const secLabel = (txt: string, action?: React.ReactNode) => (
@@ -1625,10 +1626,10 @@ export default function TicketDetailsPage() {
               {secLabel('Dados do Cliente', <button onClick={() => setShowEditPanel(true)} style={{ fontSize:10, color:S.accent, cursor:'pointer', border:'none', background:'none', fontWeight:500, fontFamily:'inherit', padding:0 }}>Editar</button>)}
               <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:6 }}>
                 <div style={{ width:32, height:32, borderRadius:'50%', background:'#DBEAFE', color:'#1E40AF', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:700, flexShrink:0 }}>
-                  {initials(customerName(ticket.clientId))}
+                  {initials(customerName(ticket.clientId, ticket.clientName))}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="truncate font-semibold" title={customerName(ticket.clientId)} style={{ fontSize:12, color:S.txt }}>{customerName(ticket.clientId)}</div>
+                  <div className="truncate font-semibold" title={customerName(ticket.clientId, ticket.clientName)} style={{ fontSize:12, color:S.txt }}>{customerName(ticket.clientId, ticket.clientName)}</div>
                   {cli?.cnpj && <div style={{ fontSize:11, color:S.txt2, fontFamily:"'DM Mono',monospace", marginTop:2 }}>{cli.cnpj}</div>}
                 </div>
               </div>
