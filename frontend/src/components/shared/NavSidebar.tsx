@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import {
   LayoutDashboard, MessageCircle, MessageSquare, Ticket,
@@ -14,6 +14,7 @@ import { usePresenceStore } from '@/store/presence.store';
 import { usePathname, useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useMyTicketMenuCounts } from '@/hooks/useMyTicketMenuCounts';
+import { useRealtimeConversationClosed, useRealtimeTenantNewMessages, useRealtimeTicketAssigned } from '@/lib/realtime';
 import NavItem from './NavItem';
 
 type MainNavChild = { href: string; icon: LucideIcon; label: string; perm: string };
@@ -122,14 +123,59 @@ export default function NavSidebar({ isOpen, onClose, expanded = false, onToggle
   const setPresence = usePresenceStore((s) => s.setPresence);
   const router = useRouter();
   const pathname = usePathname();
-  const { atendimentoCount, ticketsCount } = useMyTicketMenuCounts();
+  const { atendimentoCount, ticketsCount, refetch } = useMyTicketMenuCounts();
   const isCadastrosActive = CADASTROS_PATHS.some(p => pathname.startsWith(p));
   const [cadastrosOpen, setCadastrosOpen] = useState(isCadastrosActive);
+  const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
+  const notifiedRef = useRef<Record<string, number>>({});
 
   // auto-open cadastros when navigating to a cadastros route
   useEffect(() => {
     if (isCadastrosActive) setCadastrosOpen(true);
   }, [isCadastrosActive]);
+
+  const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
+    setToast({ msg, type });
+    window.setTimeout(() => setToast(null), 3500);
+  };
+
+  const playNotificationSound = () => {
+    try {
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.frequency.value = 880;
+      gain.gain.setValueAtTime(0.12, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.35);
+    } catch {}
+  };
+
+  useRealtimeTenantNewMessages((msg) => {
+    void refetch();
+    if (pathname === '/dashboard/atendimento') return;
+
+    const id = String(msg?.conversationId || '');
+    const now = Date.now();
+    const lastAt = notifiedRef.current[id] || 0;
+    if (id && now - lastAt < 20_000) return;
+    if (id) notifiedRef.current[id] = now;
+
+    const label = String(msg?.contactName || msg?.preview || 'Novo chamado').trim() || 'Novo chamado';
+    showToast(`Novo chamado: ${label}`);
+    playNotificationSound();
+  });
+
+  useRealtimeTicketAssigned(() => {
+    void refetch();
+  });
+
+  useRealtimeConversationClosed(() => {
+    void refetch();
+  });
 
   const logout = async () => {
     try { await api.logout(); } catch {}
@@ -414,6 +460,11 @@ export default function NavSidebar({ isOpen, onClose, expanded = false, onToggle
           </div>
         </div>
       </aside>
+      {toast && (
+        <div style={{ position: 'fixed', bottom: 28, left: '50%', transform: 'translateX(-50%)', background: toast.type === 'success' ? '#16A34A' : '#DC2626', color: '#fff', padding: '12px 24px', borderRadius: 12, fontSize: 14, fontWeight: 600, boxShadow: '0 4px 20px rgba(0,0,0,0.2)', zIndex: 10002, whiteSpace: 'nowrap' }}>
+          {toast.type === 'success' ? '✓ ' : '✗ '}{toast.msg}
+        </div>
+      )}
     </>
   );
 }
