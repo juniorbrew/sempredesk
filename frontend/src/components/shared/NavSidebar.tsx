@@ -13,7 +13,7 @@ import { useAuthStore, hasPermission } from '@/store/auth.store';
 import { usePresenceStore } from '@/store/presence.store';
 import { usePathname, useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
-import { useMyOpenTicketsCount } from '@/hooks/useMyOpenTicketsCount';
+import { useMyTicketMenuCounts } from '@/hooks/useMyTicketMenuCounts';
 import NavItem from './NavItem';
 
 type MainNavChild = { href: string; icon: LucideIcon; label: string; perm: string };
@@ -22,16 +22,16 @@ type MainNavItem = {
   icon: LucideIcon;
   label: string;
   perm: string;
-  badge?: boolean;
+  badgeKey?: 'atendimento' | 'tickets';
   children?: MainNavChild[];
 };
 
 const MAIN_ITEMS: MainNavItem[] = [
   { href: '/dashboard',              icon: LayoutDashboard, label: 'Dashboard',             perm: 'dashboard.view' },
-  { href: '/dashboard/atendimento',  icon: MessageCircle,   label: 'Atendimento',           perm: 'attendance.view', badge: true },
+  { href: '/dashboard/atendimento',  icon: MessageCircle,   label: 'Atendimento',           perm: 'attendance.view', badgeKey: 'atendimento' },
   { href: '/dashboard/supervisor',   icon: Activity,        label: 'Supervisor',             perm: 'settings.manage' },
   { href: '/dashboard/chat-interno', icon: MessageSquare,   label: 'Chat interno',           perm: 'chat.view' },
-  { href: '/dashboard/tickets',      icon: Ticket,          label: 'Tickets',                perm: 'ticket.view' },
+  { href: '/dashboard/tickets',      icon: Ticket,          label: 'Tickets',                perm: 'ticket.view', badgeKey: 'tickets' },
   { href: '/dashboard/contracts',    icon: FileText,        label: 'Contratos',              perm: 'contracts.view' },
   { href: '/dashboard/devices',      icon: Monitor,         label: 'Monitoramento PDV',      perm: 'devices.view' },
   { href: '/dashboard/knowledge',    icon: BookOpen,        label: 'Base de Conhecimento',   perm: 'knowledge.view' },
@@ -122,7 +122,7 @@ export default function NavSidebar({ isOpen, onClose, expanded = false, onToggle
   const setPresence = usePresenceStore((s) => s.setPresence);
   const router = useRouter();
   const pathname = usePathname();
-  const { count: atendimentoCount } = useMyOpenTicketsCount();
+  const { atendimentoCount, ticketsCount } = useMyTicketMenuCounts();
   const isCadastrosActive = CADASTROS_PATHS.some(p => pathname.startsWith(p));
   const [cadastrosOpen, setCadastrosOpen] = useState(isCadastrosActive);
 
@@ -267,14 +267,20 @@ export default function NavSidebar({ isOpen, onClose, expanded = false, onToggle
         {/* Main nav */}
         <nav style={{ display: 'flex', flexDirection: 'column', alignItems: expanded ? 'stretch' : 'center', gap: 4, flex: 1, padding: expanded ? '0 8px' : 0, overflowY: 'auto', overflowX: 'hidden' }}>
           {visibleMain.map((item) => {
-            const { href, icon: Icon, label, badge } = item;
+            const { href, icon: Icon, label, badgeKey } = item;
+            const badge =
+              badgeKey === 'atendimento'
+                ? atendimentoCount
+                : badgeKey === 'tickets'
+                  ? ticketsCount
+                  : undefined;
             return (
               <NavItem
                 key={href}
                 href={href}
                 label={label}
                 icon={<Icon size={18} strokeWidth={1.6} />}
-                badge={badge ? atendimentoCount : undefined}
+                badge={badge}
                 onClick={onClose}
                 expanded={expanded}
               />

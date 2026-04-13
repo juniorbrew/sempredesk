@@ -324,6 +324,70 @@ function ConvWaitMetricsInfo({ conv }: { conv: any }) {
   );
 }
 
+function ConversationLiveAlerts({ conv }: { conv: any }) {
+  const metrics = getConversationMetrics(conv);
+  const [, setTick] = useState(0);
+
+  useEffect(() => {
+    if (!metrics.attendanceStartedAt) return;
+    const t = setInterval(() => setTick((n) => n + 1), 30000);
+    return () => clearInterval(t);
+  }, [metrics.attendanceStartedAt]);
+
+  if (!metrics.attendanceStartedAt) return null;
+
+  const attendanceMs = Math.max(0, Date.now() - new Date(metrics.attendanceStartedAt).getTime());
+  const attendanceHigh = attendanceMs >= 4 * 60 * 60000;
+  const attendanceRisk = !attendanceHigh && attendanceMs >= 60 * 60000;
+
+  const attendanceStyle = attendanceHigh
+    ? { bg: '#FEF2F2', border: '#FECACA', color: '#DC2626' }
+    : attendanceRisk
+      ? { bg: '#FFF7ED', border: '#FED7AA', color: '#C2410C' }
+      : { bg: '#EFF6FF', border: '#BFDBFE', color: '#1D4ED8' };
+
+  const firstReplyPendingMs =
+    !metrics.firstAgentReplyAt
+      ? Math.max(0, Date.now() - new Date(metrics.attendanceStartedAt).getTime())
+      : null;
+  const firstReplyHigh = firstReplyPendingMs != null && firstReplyPendingMs >= 30 * 60000;
+  const firstReplyRisk = firstReplyPendingMs != null && !firstReplyHigh && firstReplyPendingMs >= 10 * 60000;
+  const firstReplyStyle = firstReplyHigh
+    ? { bg: '#FEF2F2', border: '#FECACA', color: '#DC2626' }
+    : firstReplyRisk
+      ? { bg: '#FFF7ED', border: '#FED7AA', color: '#C2410C' }
+      : { bg: '#F0FDF4', border: '#BBF7D0', color: '#15803D' };
+
+  const chipBase = {
+    fontSize: 11,
+    padding: '4px 10px',
+    borderRadius: 999,
+    fontWeight: 700,
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+  } as const;
+
+  return (
+    <>
+      <span style={{ ...chipBase, background: attendanceStyle.bg, border: `1px solid ${attendanceStyle.border}`, color: attendanceStyle.color }}>
+        Atendimento iniciado há {formatDurationLabel(attendanceMs)}
+      </span>
+      {metrics.firstAgentReplyAt
+        ? (
+          <span style={{ ...chipBase, background: '#F8FAFC', border: '1px solid rgba(15,23,42,.08)', color: '#475569' }}>
+            1ª resposta em {formatDurationLabel(metrics.firstReplyMs ?? 0)}
+          </span>
+        )
+        : firstReplyPendingMs != null && (
+          <span style={{ ...chipBase, background: firstReplyStyle.bg, border: `1px solid ${firstReplyStyle.border}`, color: firstReplyStyle.color }}>
+            1ª resposta pendente há {formatDurationLabel(firstReplyPendingMs)}
+          </span>
+        )}
+    </>
+  );
+}
+
 function ChannelDot({ channel }: { channel: string }) {
   const isWa = channel === 'whatsapp';
   return (
@@ -946,6 +1010,8 @@ function AtendimentoPageInner() {
   conversationsRef.current = conversations;
   // Guard contra burst de reloads quando várias mensagens chegam para conversa nova
   const reloadPendingRef = useRef(false);
+  const knownInboxIdsRef = useRef<Set<string>>(new Set());
+  const notifiedInboxIdsRef = useRef<Record<string, number>>({});
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messageMediaUrlsRef = useRef<Record<string, string>>({});
   messageMediaUrlsRef.current = messageMediaUrls;
@@ -980,6 +1046,43 @@ function AtendimentoPageInner() {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3500);
   };
+
+  const playInboxNotificationSound = useCallback(() => {
+    try {
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.frequency.value = 880;
+      gain.gain.setValueAtTime(0.12, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.35);
+    } catch {}
+  }, []);
+
+  const notifyNewInboxItem = useCallback((item: any, fallbackPreview?: string) => {
+    const id = String(item?.id || item?.conversationId || '');
+    if (!id) return;
+
+    const now = Date.now();
+    const lastAt = notifiedInboxIdsRef.current[id] || 0;
+    if (now - lastAt < 20_000) return;
+    notifiedInboxIdsRef.current[id] = now;
+
+    const label =
+      String(
+        item?.clientName ||
+        item?.contactName ||
+        item?.subject ||
+        fallbackPreview ||
+        'novo chamado',
+      ).trim() || 'novo chamado';
+
+    showToast(`Novo chamado recebido: ${label}`);
+    playInboxNotificationSound();
+  }, [playInboxNotificationSound]);
 
   /** Abre o painel direito e rola até o bloco de detalhes do ticket (sem navegar para outra página). */
   const openTicketPanelAndScroll = useCallback(() => {
@@ -1453,6 +1556,19 @@ function AtendimentoPageInner() {
         seenContacts.add(c.contactId);
         return true;
       });
+
+      const previousIds = knownInboxIdsRef.current;
+      const isFirstInboxLoad = previousIds.size === 0;
+      if (silent && !resetSelection && !isFirstInboxLoad) {
+        const newItems = merged.filter((item: any) => !previousIds.has(String(item?.id || '')));
+        newItems.forEach((item: any) => notifyNewInboxItem(item, item?.lastMessagePreview));
+      }
+      knownInboxIdsRef.current = new Set(
+        merged
+          .map((item: any) => String(item?.id || ''))
+          .filter((id: string) => id.length > 0),
+      );
+
       setConversations(merged);
       const currentSelected = selectedRef.current;
       if (resetSelection) {
@@ -1467,7 +1583,7 @@ function AtendimentoPageInner() {
       }
     } catch (e) { console.error(e); setConversations([]); }
     setLoading(false);
-  }, [filter, channelFilter]);
+  }, [filter, channelFilter, notifyNewInboxItem]);
 
   const loadChat = async (conv: any) => {
     if (!conv) return;
@@ -2562,6 +2678,7 @@ function AtendimentoPageInner() {
     const currentList = conversationsRef.current;
     const idx = currentList.findIndex((c: any) => String(c.id) === String(msg.conversationId));
     if (idx < 0) {
+      notifyNewInboxItem({ id: msg.conversationId, contactName: msg.contactName }, msg.preview);
       if (!reloadPendingRef.current) {
         reloadPendingRef.current = true;
         loadConversations(false, true).finally(() => { reloadPendingRef.current = false; });
@@ -2575,19 +2692,7 @@ function AtendimentoPageInner() {
       });
     }
 
-    // Som de notificação via Web Audio API (sem arquivos externos)
-    try {
-      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.frequency.value = 880;
-      gain.gain.setValueAtTime(0.12, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
-      osc.start(ctx.currentTime);
-      osc.stop(ctx.currentTime + 0.35);
-    } catch {}
+    playInboxNotificationSound();
   });
 
   // ── ticket transferido em tempo real ──────────────────────────────────────────
@@ -3041,7 +3146,7 @@ function AtendimentoPageInner() {
                   </div>
                 </div>
 
-                {(hasTicket || selectedAttendanceMetrics?.firstReplyMs != null) && (
+                {(hasTicket || selectedAttendanceMetrics?.attendanceStartedAt || selectedAttendanceMetrics?.firstReplyMs != null) && (
                   <div
                     style={{
                       marginTop: 12,
@@ -3077,21 +3182,7 @@ function AtendimentoPageInner() {
                         {currentTicket?.ticketNumber ?? selected?.ticketNumber ?? '—'}
                       </button>
                     )}
-                    {selectedAttendanceMetrics?.firstReplyMs != null && (
-                      <span
-                        style={{
-                          fontSize: 11,
-                          color: '#475569',
-                          padding: '4px 10px',
-                          borderRadius: 999,
-                          background: 'rgba(248,250,252,0.95)',
-                          border: S.border2,
-                          fontWeight: 500,
-                        }}
-                      >
-                        Tempo até a primeira resposta: {formatDurationLabel(selectedAttendanceMetrics.firstReplyMs)}
-                      </span>
-                    )}
+                    {selected && <ConversationLiveAlerts conv={selected} />}
                   </div>
                 )}
 
@@ -4762,16 +4853,38 @@ function AtendimentoPageInner() {
       {/* ══════════ MODAL: Encerrar (formulário completo) ══════════ */}
       {showCloseForm && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <div style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 520, maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.25)', overflow: 'hidden' }}>
-            <div style={{ padding: '18px 22px', borderBottom: '1px solid #F1F5F9', display: 'flex', gap: 12, alignItems: 'center' }}>
-              <div style={{ width: 40, height: 40, borderRadius: 10, background: '#FFF7ED', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <Lock size={18} color="#EA580C" />
+          <div style={{ background: '#fff', borderRadius: 16, width: '100%', maxWidth: 520, maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.25)', overflow: 'hidden' }}>
+            <div style={{ background: 'linear-gradient(135deg,#1E293B,#0F172A)', padding: '18px 22px', display: 'flex', gap: 14, alignItems: 'flex-start' }}>
+              <div style={{ width: 40, height: 40, borderRadius: 10, background: '#334155', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <CheckCircle2 size={20} color="#94A3B8" />
               </div>
               <div style={{ flex: 1 }}>
-                <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#0F172A' }}>Encerrar Atendimento</h2>
+                <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: '#F1F5F9' }}>Encerrar Atendimento</h2>
                 <p style={{ margin: 0, fontSize: 12, color: '#94A3B8' }}>Preencha as informações. O ticket vinculado será marcado como resolvido e o cliente poderá confirmar no portal.</p>
               </div>
-              <button onClick={() => setShowCloseForm(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94A3B8' }}><X size={18} /></button>
+              <button onClick={() => setShowCloseForm(false)} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#64748B', padding: 4 }}><X size={18} /></button>
+            </div>
+            <div style={{ background: '#1E293B', padding: '10px 22px', display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ width: 32, height: 32, borderRadius: 8, background: '#334155', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, color: '#94A3B8', flexShrink: 0 }}>
+                {String(currentTicket?.clientName || currentTicket?.contactName || selectedDisplayName || '—').slice(0, 2).toUpperCase()}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, fontWeight: 700, color: '#6366F1' }}>
+                    {currentTicket?.ticketNumber || selected?.ticketNumber || '—'}
+                  </span>
+                  <span style={{ fontSize: 12, color: '#CBD5E1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {currentTicket?.subject || 'Sem assunto'}
+                  </span>
+                </div>
+                <div style={{ fontSize: 11, color: '#64748B' }}>
+                  {currentTicket?.clientName || currentTicket?.contactName || selectedDisplayName || '—'}
+                  {currentTicket?.department ? ` · ${currentTicket.department}` : ''}
+                </div>
+              </div>
+              <span style={{ background: getTicketPriorityDisplay(currentTicket || selected || {}).bg, color: getTicketPriorityDisplay(currentTicket || selected || {}).color, padding: '2px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
+                {getTicketPriorityDisplay(currentTicket || selected || {}).label}
+              </span>
             </div>
             <div style={{ overflowY: 'auto', padding: '18px 22px', display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div>
@@ -4795,8 +4908,11 @@ function AtendimentoPageInner() {
                     <option value="">Selecione...</option>
                     <option value="15">15 minutos</option>
                     <option value="30">30 minutos</option>
+                    <option value="45">45 minutos</option>
                     <option value="60">1 hora</option>
+                    <option value="90">1h30</option>
                     <option value="120">2 horas</option>
+                    <option value="180">3 horas</option>
                     <option value="240">4 horas</option>
                     <option value="480">8 horas</option>
                   </select>
@@ -4809,23 +4925,29 @@ function AtendimentoPageInner() {
               </div>
               <div>
                 <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 8 }}>Complexidade</label>
-                <div style={{ display: 'flex', gap: 8 }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                   {[1,2,3,4,5].map(n => (
                     <button key={n} onClick={() => setCloseForm(f => ({ ...f, complexity: f.complexity === n ? 0 : n }))}
                       title={COMPLEXITY_LABELS[n]}
-                      style={{ flex: 1, padding: '7px 4px', borderRadius: 8, border: `1.5px solid ${closeForm.complexity === n ? '#4F46E5' : '#E2E8F0'}`, background: closeForm.complexity === n ? '#EEF2FF' : '#fff', color: closeForm.complexity === n ? '#4F46E5' : '#64748B', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
-                      {n}
+                      style={{ width: 44, height: 36, borderRadius: 8, border: `2px solid ${closeForm.complexity >= n ? '#D97706' : '#E2E8F0'}`, background: closeForm.complexity >= n ? '#FEF3C7' : '#F8FAFC', color: closeForm.complexity >= n ? '#D97706' : '#94A3B8', fontSize: 16, fontWeight: 700, cursor: 'pointer', flexShrink: 0 }}>
+                      {closeForm.complexity >= n ? '★' : '☆'}
                     </button>
                   ))}
                 </div>
-                {closeForm.complexity > 0 && <p style={{ margin: '6px 0 0', fontSize: 11, color: '#64748B' }}>{COMPLEXITY_LABELS[closeForm.complexity]}</p>}
+                {closeForm.complexity > 0 && <p style={{ margin: '6px 0 0', fontSize: 12, color: '#D97706', fontWeight: 600 }}>{COMPLEXITY_LABELS[closeForm.complexity]}</p>}
+              </div>
+              <div style={{ background: '#FFF7ED', border: '1.5px solid #FED7AA', borderRadius: 8, padding: '10px 14px', display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                <Lock size={15} color="#EA580C" style={{ flexShrink: 0, marginTop: 1 }} />
+                <p style={{ margin: 0, fontSize: 12, color: '#9A3412', lineHeight: 1.5 }}>
+                  Após encerrar, a conversa será finalizada e o ticket ficará como <strong>Resolvido</strong> até a confirmação final do cliente no portal.
+                </p>
               </div>
             </div>
             <div style={{ padding: '14px 22px', borderTop: '1px solid #F1F5F9', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button onClick={() => setShowCloseForm(false)} style={{ padding: '9px 18px', borderRadius: 8, border: '1.5px solid #E2E8F0', background: '#fff', color: '#475569', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancelar</button>
               <button onClick={confirmCloseTicket} disabled={customerLinkRequired}
-                style={{ padding: '9px 20px', borderRadius: 8, border: 'none', background: '#EA580C', color: '#fff', fontSize: 13, fontWeight: 700, cursor: customerLinkRequired ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, opacity: customerLinkRequired ? 0.6 : 1 }}>
-                <Lock size={14} /> Encerrar Atendimento
+                style={{ padding: '9px 22px', borderRadius: 8, border: 'none', background: 'linear-gradient(135deg,#1E293B,#0F172A)', color: '#F1F5F9', fontSize: 13, fontWeight: 700, cursor: customerLinkRequired ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 7, opacity: customerLinkRequired ? 0.6 : 1 }}>
+                <CheckCircle2 size={14} /> Encerrar Atendimento
               </button>
             </div>
           </div>
