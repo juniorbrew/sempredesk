@@ -80,7 +80,7 @@ export default function ChatInternoPage() {
 
   const onlineIds = usePresenceStore(s => s.onlineIds);
   const getStatus = usePresenceStore(s => s.getStatus);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const selectedAgentRef = useRef(selectedAgent);
   selectedAgentRef.current = selectedAgent;
@@ -144,7 +144,10 @@ export default function ChatInternoPage() {
   }, [selectedAgent?.id]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    messagesContainerRef.current?.scrollTo({
+      top: messagesContainerRef.current?.scrollHeight ?? 0,
+      behavior: 'smooth'
+    });
   }, [messages]);
 
   // WebSocket
@@ -179,7 +182,12 @@ export default function ChatInternoPage() {
             if (prev.some(m => m.id === msg.id)) return prev;
             return [...prev, msg];
           });
-          setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
+          setTimeout(() => {
+            messagesContainerRef.current?.scrollTo({
+              top: messagesContainerRef.current?.scrollHeight ?? 0,
+              behavior: 'smooth'
+            });
+          }, 50);
         } else if (msg.recipientId === user?.id) {
           setUnreadByAgent(prev => ({ ...prev, [msg.senderId]: (prev[msg.senderId] ?? 0) + 1 }));
           if ('Notification' in window && Notification.permission === 'granted') {
@@ -250,9 +258,8 @@ export default function ChatInternoPage() {
   const selIsOnline = selectedAgent ? onlineIds.has(String(selectedAgent.id)) : false;
   const openTickets = agentTickets.filter(t => ['open','in_progress','waiting_client'].includes(t.status)).length;
 
-  // Message grouping for date separators
-  type MsgGroup = { date: string; messages: any[] };
-  const groups: MsgGroup[] = [];
+  // Agrupamento por dia (separadores na timeline)
+  const groups: { date: string; messages: any[] }[] = [];
   messages.forEach(msg => {
     const d = format(new Date(msg.createdAt), 'yyyy-MM-dd');
     const last = groups[groups.length - 1];
@@ -385,7 +392,7 @@ export default function ChatInternoPage() {
               </div>
 
               {/* Messages */}
-              <div style={{ flex:1, overflowY:'auto', padding:'20px 24px', display:'flex', flexDirection:'column', gap:0, background:S.bg3 }}>
+              <div ref={messagesContainerRef} style={{ flex:1, overflowY:'auto', padding:'20px 24px', display:'flex', flexDirection:'column', gap:0, background:S.bg3 }}>
                 {loadingMessages ? (
                   <div style={{ textAlign:'center', color:S.txt3, fontSize:12, padding:40 }}>Carregando...</div>
                 ) : messages.length === 0 ? (
@@ -442,7 +449,6 @@ export default function ChatInternoPage() {
                     })}
                   </div>
                 ))}
-                <div ref={messagesEndRef} />
               </div>
 
               {/* Input bar */}
