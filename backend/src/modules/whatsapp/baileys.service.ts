@@ -173,11 +173,21 @@ export class BaileysService {
     if (m.includes('mpeg') || m.includes('mp3')) return 'mp3';
     if (m.includes('mp4') || m.includes('m4a') || m.includes('aac')) return 'm4a';
     if (m.includes('opus')) return 'opus';
+    // Documentos
+    if (m === 'application/pdf') return 'pdf';
+    if (m === 'text/plain') return 'txt';
+    if (m === 'text/csv' || m === 'application/csv') return 'csv';
+    if (m === 'application/msword') return 'doc';
+    if (m.includes('wordprocessingml')) return 'docx';
+    if (m === 'application/vnd.ms-excel') return 'xls';
+    if (m.includes('spreadsheetml')) return 'xlsx';
+    if (m === 'application/zip' || m === 'application/x-zip-compressed') return 'zip';
+    if (m.includes('rar')) return 'rar';
     return 'bin';
   }
 
   /** Grava buffer recebido do WhatsApp e devolve chave relativa a CONVERSATION_MEDIA_DIR. */
-  private async saveInboundMedia(tenantId: string, waMessageId: string, kind: 'image' | 'audio' | 'video', buffer: Buffer, mime: string): Promise<string> {
+  private async saveInboundMedia(tenantId: string, waMessageId: string, kind: 'image' | 'audio' | 'video' | 'file', buffer: Buffer, mime: string): Promise<string> {
     if (await this.quotaService.isOverQuota(tenantId)) {
       this.logger.warn(`[INBOUND] tenant=${tenantId} over storage quota — mídia ${kind} descartada`);
       throw new Error('Cota de armazenamento excedida para este tenant');
@@ -209,7 +219,7 @@ export class BaileysService {
     senderName?: string,
     isLid?: boolean,
     resolvedDigits?: string | null,
-    media?: { kind: 'image' | 'audio' | 'video'; storageKey: string; mime: string } | null,
+    media?: { kind: 'image' | 'audio' | 'video' | 'file'; storageKey: string; mime: string; fileName?: string | null } | null,
     quotedStanzaId?: string | null,
   ) => void) | null = null;
 
@@ -522,7 +532,7 @@ export class BaileysService {
           || msg.message?.videoMessage?.caption
           || msg.message?.documentMessage?.caption
           || '';
-        let media: { kind: 'image' | 'audio' | 'video'; storageKey: string; mime: string } | null = null;
+        let media: { kind: 'image' | 'audio' | 'video' | 'file'; storageKey: string; mime: string; fileName?: string | null } | null = null;
         const img = msg.message?.imageMessage;
         const vid = msg.message?.videoMessage;
         const aud = msg.message?.audioMessage;
@@ -634,6 +644,35 @@ export class BaileysService {
           } catch (e: any) {
             this.logger.warn(`[INBOUND] Falha ao descarregar imagem (documento): ${e?.message}`);
             if (!text) text = '📷 Imagem (erro ao obter ficheiro)';
+          }
+        } else if (doc && !docAsVideo && !docAsImage) {
+          // Documento puro: PDF, TXT, ZIP, DOCX, etc. enviado pelo contato
+          try {
+            const dl = await import('@whiskeysockets/baileys');
+            const downloadMediaMessage = (dl as any).downloadMediaMessage ?? (dl as any).default?.downloadMediaMessage;
+            if (typeof downloadMediaMessage === 'function') {
+              const buffer = (await downloadMediaMessage(
+                msg,
+                'buffer',
+                {},
+                { logger: pinoLogger, reuploadRequest: sock.updateMediaMessage },
+              )) as Buffer;
+              const mime = docMime || 'application/octet-stream';
+              const storageKey = await this.saveInboundMedia(tenantId, msg.key.id!, 'file', buffer, mime);
+              const docFileName = doc.fileName || null;
+              media = { kind: 'file', storageKey, mime, fileName: docFileName };
+              if (!text) text = docFileName ? `📎 ${docFileName}` : '📎 Documento';
+              this.logger.log(JSON.stringify({
+                event: 'inbound_document',
+                tenantId,
+                mime,
+                fileName: docFileName,
+                storageKey,
+              }));
+            }
+          } catch (e: any) {
+            this.logger.warn(`[INBOUND] Falha ao descarregar documento: ${e?.message}`);
+            if (!text) text = doc.fileName ? `📎 ${doc.fileName}` : '📎 Documento';
           }
         }
         if (!text.trim() && !media) return;
@@ -869,11 +908,11 @@ export class BaileysService {
     }
   }
 
-  /** Payload Baileys alinhado ao que o WhatsApp espera (imagem / áudio / vídeo). */
+  /** Payload Baileys alinhado ao que o WhatsApp espera (imagem / áudio / vídeo / documento). */
   private buildBaileysMediaPayload(
-    kind: 'image' | 'audio' | 'video',
+    kind: 'image' | 'audio' | 'video' | 'file',
     buffer: Buffer,
-    opts?: { caption?: string; mime?: string },
+    opts?: { caption?: string; mime?: string; fileName?: string },
   ): Record<string, unknown> {
     if (kind === 'image') {
       return { image: buffer, caption: opts?.caption || undefined };
@@ -889,6 +928,14 @@ export class BaileysService {
         ptt: isOgg,
       };
     }
+    if (kind === 'file') {
+      return {
+        document: buffer,
+        mimetype: opts?.mime || 'application/octet-stream',
+        fileName: opts?.fileName || 'documento',
+        caption: opts?.caption || undefined,
+      };
+    }
     return {
       video: buffer,
       caption: opts?.caption || undefined,
@@ -897,13 +944,13 @@ export class BaileysService {
     };
   }
 
-  /** Envia imagem, áudio ou vídeo (ficheiro local) via Baileys. */
+  /** Envia imagem, áudio, vídeo ou documento (ficheiro local) via Baileys. */
   async sendMedia(
     tenantId: string,
     to: string,
-    kind: 'image' | 'audio' | 'video',
+    kind: 'image' | 'audio' | 'video' | 'file',
     filePath: string,
-    opts?: { caption?: string; mime?: string; quoted?: { externalId: string; content: string; fromMe: boolean } | null },
+    opts?: { caption?: string; mime?: string; fileName?: string; quoted?: { externalId: string; content: string; fromMe: boolean } | null },
   ): Promise<SendMessageResult> {
     const sock = this.sessions.get(tenantId);
     this.logger.log(`[OUTBOUND-MEDIA] tenantId=${tenantId} kind=${kind} mime=${opts?.mime ?? 'n/a'} para=${to}`);

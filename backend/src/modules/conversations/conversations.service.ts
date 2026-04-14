@@ -75,6 +75,10 @@ export class ConversationsService {
     this.chatbotService = svc;
   }
 
+  /** Injetado via setter em app.module para evitar dependência circular */
+  private attendanceSvc: any = null;
+  setAttendanceService(svc: any) { this.attendanceSvc = svc; }
+
   /** Dispatcher de envio outbound (WhatsApp/Baileys) — registrado pelo WhatsappModule.onModuleInit */
   private outboundSender:
     | ((
@@ -82,7 +86,7 @@ export class ConversationsService {
         toWhatsapp: string,
         payload:
           | string
-          | { kind: 'image' | 'audio' | 'video'; filePath: string; caption?: string; mime?: string },
+          | { kind: 'image' | 'audio' | 'video' | 'file'; filePath: string; caption?: string; mime?: string; fileName?: string },
         quotedMsg?: { externalId: string; content: string; fromMe: boolean } | null,
         /** ID do canal WhatsApp (whatsapp_connections.id) — garante saída pelo número correto */
         whatsappChannelId?: string | null,
@@ -92,7 +96,7 @@ export class ConversationsService {
     fn: (
       tenantId: string,
       toWhatsapp: string,
-      payload: string | { kind: 'image' | 'audio' | 'video'; filePath: string; caption?: string; mime?: string },
+      payload: string | { kind: 'image' | 'audio' | 'video' | 'file'; filePath: string; caption?: string; mime?: string; fileName?: string },
       quotedMsg?: { externalId: string; content: string; fromMe: boolean } | null,
       whatsappChannelId?: string | null,
     ) => Promise<{ success: boolean; jid?: string | null; messageId?: string | null; error?: string } | boolean>,
@@ -764,6 +768,14 @@ export class ConversationsService {
     agentId: string,
     agentName: string,
   ): Promise<{ conversation: Conversation; ticket: any }> {
+    // Bloqueia início de atendimento por agente em pausa ativa
+    if (this.attendanceSvc) {
+      const available = await this.attendanceSvc.isAvailable(tenantId, agentId).catch(() => true);
+      if (available === false) {
+        throw new BadRequestException('Agente em pausa — não é possível iniciar atendimento');
+      }
+    }
+
     const conv = await this.convRepo.findOne({ where: { id: conversationId, tenantId } });
     if (!conv) throw new NotFoundException('Conversa não encontrada');
     if (conv.ticketId) throw new BadRequestException('Atendimento já iniciado para esta conversa');
@@ -1116,6 +1128,27 @@ export class ConversationsService {
       for (const r of rows) {
         (r as Conversation & { lastAgentMessageAt?: Date | null }).lastAgentMessageAt = lastAgentMap.get(r.id) ?? null;
       }
+
+      // Última mensagem do cliente (contact) — necessária para cálculo do ciclo de espera visual.
+      const lastClientRows: Array<{ conversation_id: string; last_client_at: Date | string | null }> =
+        await this.dataSource.query(
+          `SELECT conversation_id, MAX(created_at) AS last_client_at
+           FROM conversation_messages
+           WHERE tenant_id = $1
+             AND conversation_id = ANY($2::uuid[])
+             AND author_type = 'contact'
+           GROUP BY conversation_id`,
+          [tenantId, convIds],
+        );
+      const lastClientMap = new Map(
+        lastClientRows.map((r) => [
+          r.conversation_id,
+          r.last_client_at ? new Date(r.last_client_at as string | Date) : null,
+        ]),
+      );
+      for (const r of rows) {
+        (r as Conversation & { lastClientMessageAt?: Date | null }).lastClientMessageAt = lastClientMap.get(r.id) ?? null;
+      }
     }
 
     for (const r of rows) {
@@ -1159,6 +1192,46 @@ export class ConversationsService {
     for (const m of messages) {
       m.replyTo = m.replyToId ? (map.get(m.replyToId) ?? null) : null;
     }
+  }
+
+  /**
+   * Retorna os thresholds de SLA visual de fila configurados por tenant.
+   * Lê tenant.settings.queueVisualSlaWarningMinutes / queueVisualSlaCriticalMinutes (global).
+   * Lê tenant.settings.queueVisualSlaByChannel.{channel} para thresholds por canal.
+   * Aplica fallback seguro (2 / 5 minutos) quando ausente ou inválido.
+   */
+  async getQueueSlaConfig(tenantId: string): Promise<{
+    warningMinutes: number;
+    criticalMinutes: number;
+    byChannel: Record<string, { warningMinutes: number; criticalMinutes: number }>;
+  }> {
+    const rows: Array<{ settings: Record<string, unknown> }> = await this.dataSource.query(
+      `SELECT settings FROM tenants WHERE id = $1 LIMIT 1`,
+      [tenantId],
+    );
+    const s: Record<string, unknown> = rows[0]?.settings ?? {};
+
+    // Thresholds globais com fallback seguro
+    const rawW = Number(s.queueVisualSlaWarningMinutes);
+    const rawC = Number(s.queueVisualSlaCriticalMinutes);
+    const warningMinutes = Number.isFinite(rawW) && rawW >= 1 ? Math.floor(rawW) : 2;
+    const criticalMinutes =
+      Number.isFinite(rawC) && rawC > warningMinutes ? Math.floor(rawC) : Math.max(warningMinutes + 1, 5);
+
+    // Thresholds por canal: { whatsapp: { warningMinutes, criticalMinutes }, portal: {...} }
+    const rawByChannel = (s.queueVisualSlaByChannel ?? {}) as Record<string, unknown>;
+    const byChannel: Record<string, { warningMinutes: number; criticalMinutes: number }> = {};
+    for (const [ch, cfg] of Object.entries(rawByChannel)) {
+      if (!cfg || typeof cfg !== 'object') continue;
+      const obj = cfg as Record<string, unknown>;
+      const chW = Number(obj.warningMinutes);
+      const chC = Number(obj.criticalMinutes);
+      if (Number.isFinite(chW) && chW >= 1 && Number.isFinite(chC) && chC > chW) {
+        byChannel[ch] = { warningMinutes: Math.floor(chW), criticalMinutes: Math.floor(chC) };
+      }
+    }
+
+    return { warningMinutes, criticalMinutes, byChannel };
   }
 
   async getMessages(tenantId: string, conversationId: string): Promise<ConversationMessage[]> {
@@ -1235,6 +1308,8 @@ export class ConversationsService {
       mediaKind?: 'image' | 'audio' | 'video' | 'file' | null;
       mediaStorageKey?: string | null;
       mediaMime?: string | null;
+      /** Nome original do arquivo enviado pelo usuário (ex: "relatorio.pdf"). Usado como fileName no WhatsApp. */
+      mediaOriginalFilename?: string | null;
       /** Texto real do usuário para usar como caption no WhatsApp (sem emoji de placeholder). */
       mediaCaption?: string | null;
       /** ID da mensagem que está sendo respondida (reply estilo WhatsApp). */
@@ -1285,6 +1360,7 @@ export class ConversationsService {
       mediaKind: opts?.mediaKind ?? null,
       mediaStorageKey: opts?.mediaStorageKey ?? null,
       mediaMime: opts?.mediaMime ?? null,
+      mediaOriginalFilename: opts?.mediaOriginalFilename ?? null,
       whatsappStatus: opts?.initialWhatsappStatus ?? null,
       externalId: extId ?? null,
       replyToId,
@@ -1345,6 +1421,7 @@ export class ConversationsService {
         externalId: saved.externalId ?? null,
         mediaKind: saved.mediaKind ?? null,
         mediaMime: saved.mediaMime ?? null,
+        mediaOriginalFilename: saved.mediaOriginalFilename ?? null,
         hasMedia: !!(saved.mediaKind && saved.mediaStorageKey),
         replyToId: saved.replyToId ?? null,
         replyTo: replyToSnapshot,
@@ -1418,25 +1495,41 @@ export class ConversationsService {
                 : null;
             const mediaPathOk =
               opts?.mediaKind &&
-              opts.mediaKind !== 'file' &&
               absMedia &&
               (await fs.promises.access(absMedia).then(() => true).catch(() => false));
             const cap = ((opts && 'mediaCaption' in opts ? opts.mediaCaption : null) || '').trim();
             let outboundPayload:
               | string
-              | { kind: 'image' | 'audio' | 'video'; filePath: string; caption?: string; mime?: string };
-            if (opts?.mediaKind === 'file') {
-              outboundPayload = cap
-                ? `📎 Documento anexado: ${cap}\n(O ficheiro completo fica no historico desta conversa no painel.)`
-                : '📎 Documento anexado. O ficheiro completo esta no historico desta conversa no painel.';
-            } else if (mediaPathOk && opts?.mediaKind) {
+              | { kind: 'image' | 'audio' | 'video' | 'file'; filePath: string; caption?: string; mime?: string; fileName?: string };
+            if (mediaPathOk && opts?.mediaKind) {
+              const fileName = opts?.mediaOriginalFilename || (opts?.mediaStorageKey ? path.basename(opts.mediaStorageKey) : undefined);
+              this.logger.log(JSON.stringify({
+                event: 'whatsapp_media_send_attempt',
+                conversationId,
+                kind: opts.mediaKind,
+                mime: opts.mediaMime,
+                fileName,
+                filePath: absMedia,
+              }));
               outboundPayload = {
-                kind: opts.mediaKind as 'image' | 'audio' | 'video',
+                kind: opts.mediaKind as 'image' | 'audio' | 'video' | 'file',
                 filePath: absMedia!,
                 caption: (opts && 'mediaCaption' in opts) ? (opts.mediaCaption || undefined) : (content || undefined),
                 mime: opts.mediaMime || undefined,
+                // Usa nome original do arquivo se disponível; fallback para basename do storage key
+                fileName,
               };
             } else {
+              // Fallback para portal: só ocorre se não há mídia ou o arquivo não existe no disco
+              if (opts?.mediaKind) {
+                this.logger.warn(JSON.stringify({
+                  event: 'whatsapp_media_send_fallback_portal',
+                  conversationId,
+                  kind: opts.mediaKind,
+                  reason: !absMedia ? 'sem_storage_key' : 'arquivo_nao_encontrado_no_disco',
+                  absMedia,
+                }));
+              }
               outboundPayload = content;
             }
             const prefixAgent = await fetchWhatsappPrefixAgentEnabled(this.dataSource, tenantId);
@@ -1835,6 +1928,7 @@ export class ConversationsService {
       externalId: msg.externalId ?? null,
       mediaKind: msg.mediaKind ?? null,
       mediaMime: msg.mediaMime ?? null,
+      mediaOriginalFilename: msg.mediaOriginalFilename ?? null,
       hasMedia: !!(msg.mediaKind && msg.mediaStorageKey),
     };
     this.realtimeEmitter.emitNewConversationMessage(msg.conversationId, payload);

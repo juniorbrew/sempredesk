@@ -86,6 +86,36 @@ export function useRealtimeTicket(ticketId: string | null, onMessage: (msg: any)
   return { joinTicket };
 }
 
+// ── useRealtimeTicketUpdated ───────────────────────────────────────────────────
+// Escuta 'ticket:updated' na sala ticket:<id> para sincronizar campos como assignedTo,
+// status, prioridade etc. em tempo real sem depender do poll de 15 segundos.
+export function useRealtimeTicketUpdated(ticketId: string | null, onUpdate: (patch: any) => void) {
+  const onUpdateRef = useRef(onUpdate);
+  onUpdateRef.current = onUpdate;
+
+  useEffect(() => {
+    if (!REALTIME_ENABLED) return;
+    if (!ticketId || !resolveWsBase()) return;
+
+    let active = true;
+    let handler: ((patch: any) => void) | null = null;
+
+    getSharedSocket().then((socket) => {
+      if (!active || !socket) return;
+      // A sala já foi entrada por useRealtimeTicket — apenas adiciona o listener
+      handler = (patch: any) => onUpdateRef.current(patch);
+      socket.on('ticket:updated', handler);
+    });
+
+    return () => {
+      active = false;
+      if (_sharedSocket && handler) {
+        _sharedSocket.off('ticket:updated', handler);
+      }
+    };
+  }, [ticketId]);
+}
+
 // ── useRealtimeConversation ────────────────────────────────────────────────────
 export function useRealtimeConversation(conversationId: string | null, onMessage: (msg: any) => void) {
   const onMessageRef = useRef(onMessage);
@@ -308,6 +338,128 @@ export function useRealtimeTenantNewMessages(
       active = false;
       if (_sharedSocket && handler) {
         _sharedSocket.off('new-message', handler);
+      }
+    };
+  }, []);
+}
+
+// ── Hooks de Pausas de Agente ─────────────────────────────────────────────────
+
+export type PauseStatusChangedPayload = {
+  pauseRequestId: string;
+  agentId: string;
+  status: 'active' | 'rejected' | 'finished' | 'cancelled';
+  reviewerName?: string;
+  reviewerObservation?: string;
+};
+
+export type PauseRequestedPayload = {
+  pauseRequestId: string;
+  agentId: string;
+  agentName: string;
+  reasonName: string;
+  agentObservation?: string;
+  requestedAt: string;
+};
+
+/**
+ * Escuta mudanças de status de pausa do próprio agente.
+ * Backend emite 'pause:status-changed' para toda a sala tenant.
+ * O frontend filtra pelo agentId do usuário logado.
+ */
+export function useRealtimeMyPauseStatus(
+  myUserId: string | null,
+  onChange: (payload: PauseStatusChangedPayload) => void,
+) {
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+
+  useEffect(() => {
+    if (!REALTIME_ENABLED || !myUserId) return;
+    if (!resolveWsBase()) return;
+
+    let active = true;
+    let handler: ((p: any) => void) | null = null;
+
+    getSharedSocket().then((socket) => {
+      if (!active || !socket) return;
+      handler = (payload: any) => {
+        if (!payload || payload.agentId !== myUserId) return;
+        onChangeRef.current(payload);
+      };
+      socket.on('pause:status-changed', handler);
+    });
+
+    return () => {
+      active = false;
+      if (_sharedSocket && handler) _sharedSocket.off('pause:status-changed', handler);
+    };
+  }, [myUserId]);
+}
+
+/**
+ * Escuta novas solicitações de pausa — para o painel do supervisor.
+ * Backend emite 'pause:requested' para toda a sala tenant.
+ */
+export function useRealtimePauseRequested(
+  onRequested: (payload: PauseRequestedPayload) => void,
+) {
+  const onRef = useRef(onRequested);
+  onRef.current = onRequested;
+
+  useEffect(() => {
+    if (!REALTIME_ENABLED) return;
+    if (!resolveWsBase()) return;
+
+    let active = true;
+    let handler: ((p: any) => void) | null = null;
+
+    getSharedSocket().then((socket) => {
+      if (!active || !socket) return;
+      handler = (payload: any) => { if (payload) onRef.current(payload); };
+      socket.on('pause:requested', handler);
+    });
+
+    return () => {
+      active = false;
+      if (_sharedSocket && handler) _sharedSocket.off('pause:requested', handler);
+    };
+  }, []);
+}
+
+/**
+ * Escuta todos os eventos de pausa para o supervisor manter a lista atualizada.
+ * Eventos: pause:approved, pause:rejected, pause:ended, pause:cancelled
+ */
+export function useRealtimePauseEvents(
+  onEvent: (event: string, payload: any) => void,
+) {
+  const onRef = useRef(onEvent);
+  onRef.current = onEvent;
+
+  useEffect(() => {
+    if (!REALTIME_ENABLED) return;
+    if (!resolveWsBase()) return;
+
+    let active = true;
+    const handlers: Record<string, (p: any) => void> = {};
+    const EVENTS = ['pause:approved', 'pause:rejected', 'pause:ended', 'pause:cancelled'];
+
+    getSharedSocket().then((socket) => {
+      if (!active || !socket) return;
+      for (const ev of EVENTS) {
+        const h = (payload: any) => { if (payload) onRef.current(ev, payload); };
+        handlers[ev] = h;
+        socket.on(ev, h);
+      }
+    });
+
+    return () => {
+      active = false;
+      if (_sharedSocket) {
+        for (const ev of EVENTS) {
+          if (handlers[ev]) _sharedSocket.off(ev, handlers[ev]);
+        }
       }
     };
   }, []);

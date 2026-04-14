@@ -43,12 +43,9 @@ interface StalePresenceRow {
 export class TicketAssignmentService {
   private readonly logger = new Logger(TicketAssignmentService.name);
 
-  /** Máximo de conversas activas por agente antes de o excluir do round-robin.
-   *  0 = sem limite. Configurável via AGENT_MAX_CONVERSATIONS (padrão: 20). */
-  private readonly agentConversationCap = Math.max(
-    0,
-    parseInt(process.env.AGENT_MAX_CONVERSATIONS ?? '20', 10) || 20,
-  );
+  /** Injetado via setter em app.module para evitar dependência circular */
+  private pausesSvc: any = null;
+  setPausesService(svc: any) { this.pausesSvc = svc; }
 
   constructor(
     @InjectRepository(AgentDepartment)
@@ -112,7 +109,11 @@ export class TicketAssignmentService {
         ticketNumber: ticket.ticketNumber,
         subject: ticket.subject,
         department: dept,
-        agentId,
+        assignedTo: agentId,   // campo normalizado — frontend usa assignedTo
+        agentId,               // mantido para retrocompatibilidade
+        assignedBy: null,      // null indica atribuição automática (round-robin)
+        assignedByName: null,
+        prevAssignedTo: null,
       });
     } catch {
       // silencioso
@@ -215,54 +216,27 @@ export class TicketAssignmentService {
         return null;
       }
 
-      // 4c. Cap de conversas activas por agente
-      //     Agentes sobre o limite são excluídos do round-robin.
-      //     Se todos estiverem sobre o cap, atribui ao menos carregado (evita starvation).
-      const loadMap = new Map<string, number>();
-      if (this.agentConversationCap > 0) {
-        const loadRows = await em.query<{ agent_id: string; conv_count: string }[]>(
-          `SELECT t.assigned_to AS agent_id, COUNT(*) AS conv_count
-             FROM conversations c
-             JOIN tickets t ON t.id::text = c.ticket_id::text
-            WHERE c.tenant_id = $1
-              AND t.assigned_to = ANY($2::text[])
-              AND c.status = 'active'
-            GROUP BY t.assigned_to`,
-          [tenantId, onlineEligible],
-        );
-        for (const r of loadRows) loadMap.set(r.agent_id, parseInt(r.conv_count, 10));
-
-        const underCap = onlineEligible.filter(
-          (id) => (loadMap.get(id) ?? 0) < this.agentConversationCap,
-        );
-        if (underCap.length === 0) {
-          // Todos sobre o cap: fallback para o menos carregado
-          onlineEligible = [...onlineEligible].sort(
-            (a, b) => (loadMap.get(a) ?? 0) - (loadMap.get(b) ?? 0),
-          );
-          this.logger.warn(
-            `[getNextAgent] dept="${deptKey}": todos os ${onlineEligible.length} agente(s) ` +
-            `online acima do cap (${this.agentConversationCap}), a atribuir ao menos carregado`,
-          );
-        } else {
-          onlineEligible = underCap;
-        }
-      }
-
-      // 5. Ordem estável para rodízio: carga crescente, depois alfabética como tiebreaker
-      const sorted = [...onlineEligible].sort((a, b) => {
-        const loadDiff = (loadMap.get(a) ?? 0) - (loadMap.get(b) ?? 0);
-        return loadDiff !== 0 ? loadDiff : a.localeCompare(b);
-      });
+      // 5. Ordem estável para rodízio: puramente alfabética por userId
+      //    (rodízio independente da carga — o ponteiro circular avança sempre)
+      const sorted = [...onlineEligible].sort((a, b) => a.localeCompare(b));
 
       // 6. Avança ponteiro circular sobre a lista ordenada
+      //    — preserva progressão mesmo quando lastId saiu do pool (offline, removido, etc.)
       const lastId = queue?.last_assigned_user_id ?? null;
       let nextId: string;
-      if (!lastId || !sorted.includes(lastId)) {
+      if (!lastId) {
+        // Primeira atribuição neste departamento/tenant
         nextId = sorted[0];
-      } else {
+      } else if (sorted.includes(lastId)) {
+        // Caminho normal: avança para o próximo na sequência
         const idx = sorted.indexOf(lastId);
         nextId = sorted[(idx + 1) % sorted.length];
+      } else {
+        // lastId saiu do pool (agente offline, removido do depto, etc.)
+        // Avança para o primeiro elegível que vem APÓS lastId na ordem estável,
+        // evitando reiniciar sempre do zero e quebrando a equidade do rodízio.
+        const nextAfterLast = sorted.find(id => id.localeCompare(lastId) > 0);
+        nextId = nextAfterLast ?? sorted[0]; // wrap: lastId era o último alfabeticamente
       }
 
       // 7. Persiste novo ponteiro
@@ -361,6 +335,15 @@ export class TicketAssignmentService {
     const user = await this.userRepo.findOne({ where: { id: userId, tenantId } });
     if (!user) {
       throw new NotFoundException(`Agente ${userId} não encontrado`);
+    }
+
+    // Bloqueia burla via HTTP: agente em pausa ativa não pode retornar para online/away/busy manual
+    if (this.pausesSvc && status !== 'offline') {
+      const activePause = await this.pausesSvc.getMyPauseState(tenantId, userId).catch(() => null);
+      if (activePause?.status === 'active') {
+        // Retorna o estado atual sem aplicar a mudança
+        return { previous: user.presenceStatus ?? 'offline', current: user.presenceStatus ?? 'offline' };
+      }
     }
 
     const previous: AgentPresenceStatus = user.presenceStatus ?? 'offline';

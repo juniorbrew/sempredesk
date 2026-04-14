@@ -42,10 +42,12 @@ import { RealtimeGateway } from './modules/realtime/realtime.gateway';
 import { TicketAssignmentService } from './modules/ticket-assignment/ticket-assignment.service';
 import { AttendanceService } from './modules/attendance/attendance.service';
 import { AuditLogModule } from './modules/audit/audit-log.module';
+import { AgentPausesService } from './modules/agent-pauses/agent-pauses.service';
 import { SaasModule } from './modules/saas/saas.module';
 import { StorageModule } from './modules/storage/storage.module';
 import { SlaModule } from './modules/sla/sla.module';
 import { TenantPrioritiesModule } from './modules/tenant-priorities/tenant-priorities.module';
+import { AgentPausesModule } from './modules/agent-pauses/agent-pauses.module';
 
 @Module({
   imports: [
@@ -120,6 +122,7 @@ import { TenantPrioritiesModule } from './modules/tenant-priorities/tenant-prior
     StorageModule,
     SlaModule,
     TenantPrioritiesModule,
+    AgentPausesModule,
   ],
   providers: [
     // Rate limiting por tenant (não por IP) em todos os endpoints
@@ -179,6 +182,43 @@ export class AppModule implements NestModule, OnModuleInit {
       const ticketsSvc = this.moduleRef.get(TicketsService, { strict: false });
       const assignmentSvc = this.moduleRef.get(TicketAssignmentService, { strict: false });
       if (ticketsSvc && assignmentSvc) ticketsSvc.setAssignmentService(assignmentSvc);
+    } catch { /* opcional */ }
+
+    // Wira o TicketAssignmentService no AgentPausesService (rebalance ao sair/entrar na pausa)
+    try {
+      const pausesSvc = this.moduleRef.get(AgentPausesService, { strict: false });
+      const assignmentSvc = this.moduleRef.get(TicketAssignmentService, { strict: false });
+      if (pausesSvc && assignmentSvc) pausesSvc.setAssignmentService(assignmentSvc);
+    } catch { /* opcional */ }
+
+    // Wira o AgentPausesService no RealtimeGateway (bloqueia bypass de presença via socket)
+    try {
+      const gateway = this.moduleRef.get(RealtimeGateway, { strict: false });
+      const pausesSvc = this.moduleRef.get(AgentPausesService, { strict: false });
+      if (gateway && pausesSvc) gateway.setPausesService(pausesSvc);
+    } catch { /* opcional */ }
+
+    // Wira o AgentPausesService no TicketAssignmentService (bloqueia bypass de presença via HTTP)
+    try {
+      const assignmentSvc = this.moduleRef.get(TicketAssignmentService, { strict: false });
+      const pausesSvc = this.moduleRef.get(AgentPausesService, { strict: false });
+      if (assignmentSvc && pausesSvc) assignmentSvc.setPausesService(pausesSvc);
+    } catch { /* opcional */ }
+
+    // Wira o AttendanceService no TicketsService (bloqueia atribuição manual de ticket a agente em pausa)
+    try {
+      const { TicketsService } = require('./modules/tickets/tickets.service');
+      const ticketsSvc = this.moduleRef.get(TicketsService, { strict: false });
+      const attendanceSvc = this.moduleRef.get(AttendanceService, { strict: false });
+      if (ticketsSvc && attendanceSvc) ticketsSvc.setAttendanceService(attendanceSvc);
+    } catch { /* opcional */ }
+
+    // Wira o AttendanceService no ConversationsService (bloqueia startAttendance para agente em pausa)
+    try {
+      const { ConversationsService } = require('./modules/conversations/conversations.service');
+      const convSvc = this.moduleRef.get(ConversationsService, { strict: false });
+      const attendanceSvc = this.moduleRef.get(AttendanceService, { strict: false });
+      if (convSvc && attendanceSvc) convSvc.setAttendanceService(attendanceSvc);
     } catch { /* opcional */ }
 
     // Wira o ConversationsService no TicketsService (fecha conversa ao resolver/encerrar ticket)

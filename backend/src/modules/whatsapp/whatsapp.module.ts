@@ -53,7 +53,7 @@ export class WhatsappModule implements OnModuleInit {
     this.conversationsService.setOutboundSender(async (
       tenantId: string,
       toWhatsapp: string,
-      payload: string | { kind: 'image' | 'audio' | 'video'; filePath: string; caption?: string; mime?: string },
+      payload: string | { kind: 'image' | 'audio' | 'video' | 'file'; filePath: string; caption?: string; mime?: string; fileName?: string },
       quotedMsg?: { externalId: string; content: string; fromMe: boolean } | null,
       whatsappChannelId?: string | null,
     ) => {
@@ -64,12 +64,12 @@ export class WhatsappModule implements OnModuleInit {
             toWhatsapp,
             payload.kind,
             payload.filePath,
-            { caption: payload.caption, mime: payload.mime, quoted: quotedMsg ?? undefined },
+            { caption: payload.caption, mime: payload.mime, fileName: payload.fileName, quoted: quotedMsg ?? undefined },
           );
           if (result.success) return result;
           this.logger.warn(`[outboundSender] Baileys falhou para mídia (${result.error}), tentando Meta API`);
         }
-        // Fallback: Meta Cloud API — usa canal da conversa ou default do tenant
+        // Fallback: Meta Cloud API — suporta image/audio/video/document
         try {
           const digits = toWhatsapp.replace(/\D/g, '');
           const wamid = await this.whatsappService.sendMetaMedia(
@@ -80,6 +80,7 @@ export class WhatsappModule implements OnModuleInit {
             {
               caption: payload.caption,
               mime: payload.mime,
+              fileName: payload.fileName,
               contextMessageId: quotedMsg?.externalId ?? null,
               whatsappChannelId: whatsappChannelId ?? null,
             },
@@ -135,7 +136,7 @@ export class WhatsappModule implements OnModuleInit {
       senderName?: string,
       isLid?: boolean,
       resolvedDigits?: string | null,
-      media?: { kind: 'image' | 'audio' | 'video'; storageKey: string; mime: string } | null,
+      media?: { kind: 'image' | 'audio' | 'video' | 'file'; storageKey: string; mime: string; fileName?: string | null } | null,
       quotedStanzaId?: string | null,
     ) => {
       try {
@@ -223,7 +224,7 @@ export class WhatsappModule implements OnModuleInit {
         if (!transferClientId && foundActiveConversationClientId) {
           transferClientId = foundActiveConversationClientId;
         }
-        const msg = { provider: 'generic' as const, from, text, messageId, senderName, isLid, resolvedDigits, media: media ?? undefined, quotedStanzaId: quotedStanzaId ?? null };
+        const msg = { provider: 'generic' as const, from, text, messageId, senderName, isLid, resolvedDigits, media: media ?? undefined, metaMediaFilename: media?.fileName ?? null, quotedStanzaId: quotedStanzaId ?? null };
         const result = await this.whatsappService.handleIncomingMessage(tenantId, msg, transferDept, transferClientId);
         this.logger.log(`Baileys message processed: tenantId=${tenantId} from=${from} result=${JSON.stringify(result)}`);
       } catch (err) {

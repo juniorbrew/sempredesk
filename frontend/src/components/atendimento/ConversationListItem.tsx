@@ -114,7 +114,7 @@ export default function ConversationListItem({
       : alertMeta?.severity === 'warning'
         ? '#EA580C'
         : alertMeta?.severity === 'fresh'
-          ? '#2563EB'
+          ? '#16A34A'
           : null;
 
   const alertBgSoft =
@@ -123,7 +123,7 @@ export default function ConversationListItem({
       : alertMeta?.severity === 'warning'
         ? 'rgba(255, 247, 237, 0.65)'
         : alertMeta?.severity === 'fresh'
-          ? 'rgba(239, 246, 255, 0.65)'
+          ? 'rgba(240, 253, 244, 0.65)'
           : null;
 
   const selectedBg = 'linear-gradient(90deg, rgba(239,246,255,0.95) 0%, rgba(255,255,255,0.98) 12%, #FFFFFF 100%)';
@@ -142,13 +142,11 @@ export default function ConversationListItem({
       : (() => {
           const compactLabel = formatDurationLabel(alertMeta.waitingMs);
           const label =
-            alertMeta.kind === 'queue'
-              ? alertMeta.severity === 'critical'
-                ? 'Novo chat crítico'
-                : 'Novo chat'
-              : alertMeta.severity === 'critical'
-                ? '1ª resposta crítica'
-                : '1ª resposta pendente';
+            alertMeta.severity === 'critical'
+              ? 'Crítico'
+              : alertMeta.severity === 'warning'
+                ? 'Aguardando'
+                : 'Novo';
           return { label, sub: compactLabel };
         })();
 
@@ -326,13 +324,13 @@ export default function ConversationListItem({
                     ? '#B91C1C'
                     : alertMeta?.severity === 'warning'
                       ? '#C2410C'
-                      : '#1D4ED8',
+                      : '#15803D',
                 background:
                   alertMeta?.severity === 'critical'
                     ? '#FEE2E2'
                     : alertMeta?.severity === 'warning'
                       ? '#FFEDD5'
-                      : '#DBEAFE',
+                      : '#DCFCE7',
                 padding: '2px 6px',
                 borderRadius: 4,
                 flexShrink: 0,

@@ -98,14 +98,16 @@ export interface NormalizedWhatsappMessage {
   senderName?: string;
   resolvedDigits?: string | null;
   /** Mídia já gravada em disco (Baileys). */
-  media?: { kind: 'image' | 'audio' | 'video'; storageKey: string; mime: string } | null;
+  media?: { kind: 'image' | 'audio' | 'video' | 'file'; storageKey: string; mime: string; fileName?: string | null } | null;
   isLid?: boolean;
   /** stanzaId da mensagem citada (reply nativo WhatsApp → reply interno). */
   quotedStanzaId?: string | null;
   /** ID de mídia na Meta Graph API (precisa ser baixado antes de salvar). */
   metaMediaId?: string | null;
   metaMediaMime?: string | null;
-  metaMediaType?: 'image' | 'audio' | 'video' | null;
+  metaMediaType?: 'image' | 'audio' | 'video' | 'file' | null;
+  /** Nome original do arquivo para mensagens de documento (Meta API). */
+  metaMediaFilename?: string | null;
 }
 
 @Injectable()
@@ -179,6 +181,20 @@ export class WhatsappService {
           metaMediaId: mediaData?.id ?? null,
           metaMediaMime: mediaData?.mime_type ?? null,
           metaMediaType: msg.type as 'audio' | 'image' | 'video',
+        };
+      }
+
+      // Documento enviado pelo contato via Meta Cloud API
+      if (msg.type === 'document') {
+        const docData = msg.document as { id?: string; mime_type?: string; filename?: string } | undefined;
+        const docFilename = docData?.filename ?? null;
+        return {
+          ...base,
+          text: docFilename ? `📎 ${docFilename}` : '📎 Documento',
+          metaMediaId: docData?.id ?? null,
+          metaMediaMime: docData?.mime_type ?? null,
+          metaMediaType: 'file',
+          metaMediaFilename: docFilename,
         };
       }
 
@@ -521,7 +537,7 @@ export class WhatsappService {
           msg.messageId,
         );
         if (storageKey) {
-          resolvedMedia = { kind: msg.metaMediaType, storageKey, mime: msg.metaMediaMime ?? '' };
+          resolvedMedia = { kind: msg.metaMediaType, storageKey, mime: msg.metaMediaMime ?? '', fileName: msg.metaMediaFilename ?? null };
         }
       } catch (e) {
         this.logger.warn(`[Meta media] Falha ao baixar mídia ${msg.metaMediaId}: ${(e as Error).message}`);
@@ -591,12 +607,15 @@ export class WhatsappService {
             ? '🎤 Áudio'
             : resolvedMedia?.kind === 'video'
               ? '📹 Vídeo'
-              : ''),
+              : resolvedMedia?.kind === 'file'
+                ? (resolvedMedia.fileName ? `📎 ${resolvedMedia.fileName}` : '📎 Documento')
+                : ''),
       {
         initialExternalId: msg.messageId?.trim() || null,
         mediaKind: resolvedMedia?.kind ?? null,
         mediaStorageKey: resolvedMedia?.storageKey ?? null,
         mediaMime: resolvedMedia?.mime ?? null,
+        mediaOriginalFilename: resolvedMedia?.fileName ?? null,
         replyToId: inboundReplyToId,
       },
     );
@@ -955,22 +974,7 @@ export class WhatsappService {
     const caption = (opts?.content ?? '').trim() || undefined;
     let waOk = false;
 
-    if (mediaKind === 'file') {
-      const cap = (opts?.content ?? '').trim();
-      const txt = waPrefix(
-        cap
-          ? `📎 Documento anexado: ${cap}\n(O ficheiro completo fica no historico do chamado no painel.)`
-          : '📎 Documento anexado. O ficheiro completo fica no historico do chamado no painel.',
-      );
-      if (this.baileysService) {
-        const r = await this.baileysService.sendMessage(tenantId, destination.raw, txt, { quoted: quotedMsg ?? undefined });
-        waOk = r.success;
-      }
-      if (!waOk) {
-        const wamid = await this.sendWhatsappMessage(tenantId, destination.phone, txt, quotedMsg?.externalId ?? null, whatsappChannelId);
-        waOk = !!wamid;
-      }
-    } else {
+    {
       const captionForWa =
         prefixAgent && authorName.trim()
           ? prependWhatsappAgentLine(authorName, (opts?.content ?? '').trim()) || undefined
@@ -979,6 +983,7 @@ export class WhatsappService {
         const r = await this.baileysService.sendMedia(tenantId, destination.raw, mediaKind, file.path, {
           caption: captionForWa,
           mime: effectiveMime,
+          fileName: file.originalname || undefined,
           quoted: quotedMsg ?? undefined,
         });
         if (r.success) waOk = true;
@@ -988,6 +993,7 @@ export class WhatsappService {
         const wamid = await this.sendMetaMedia(tenantId, destination.phone, mediaKind, file.path, {
           caption: captionForWa,
           mime: effectiveMime,
+          fileName: file.originalname || undefined,
           contextMessageId: quotedMsg?.externalId ?? null,
           whatsappChannelId,
         });
@@ -1332,7 +1338,7 @@ export class WhatsappService {
   private async downloadMetaMedia(
     tenantId: string,
     mediaId: string,
-    kind: 'image' | 'audio' | 'video',
+    kind: 'image' | 'audio' | 'video' | 'file',
     mime?: string,
     messageId?: string,
   ): Promise<string | null> {
@@ -1411,20 +1417,31 @@ export class WhatsappService {
       if (m.includes('wav')) return 'wav';
       return 'ogg';
     }
+    // Documentos
+    if (m === 'application/pdf') return 'pdf';
+    if (m === 'text/plain') return 'txt';
+    if (m === 'text/csv' || m === 'application/csv') return 'csv';
+    if (m === 'application/msword') return 'doc';
+    if (m.includes('wordprocessingml')) return 'docx';
+    if (m === 'application/vnd.ms-excel') return 'xls';
+    if (m.includes('spreadsheetml')) return 'xlsx';
+    if (m === 'application/zip' || m === 'application/x-zip-compressed') return 'zip';
+    if (m.includes('rar')) return 'rar';
     return 'bin';
   }
 
   /**
-   * Envia mídia (áudio, imagem, vídeo) via Meta Cloud API.
+   * Envia mídia (áudio, imagem, vídeo, documento) via Meta Cloud API.
    * Faz upload do arquivo para a Meta e depois envia como mensagem de mídia.
    * Retorna o wamid da mensagem ou null em caso de falha.
+   * kind='file' → type 'document' na API Meta.
    */
   async sendMetaMedia(
     tenantId: string,
     to: string,
-    kind: 'image' | 'audio' | 'video',
+    kind: 'image' | 'audio' | 'video' | 'file',
     filePath: string,
-    opts?: { caption?: string; mime?: string; contextMessageId?: string | null; whatsappChannelId?: string | null },
+    opts?: { caption?: string; mime?: string; fileName?: string; contextMessageId?: string | null; whatsappChannelId?: string | null },
   ): Promise<string | null> {
     const metaConfig = this.baileysService
       ? (opts?.whatsappChannelId
@@ -1442,7 +1459,7 @@ export class WhatsappService {
 
     // Converte formatos não suportados pela Meta API
     let uploadPath = filePath;
-    let uploadMime = opts?.mime || this.guessMimeFromPath(filePath, kind);
+    let uploadMime = opts?.mime || this.guessMimeFromPath(filePath, kind === 'file' ? 'image' : kind);
     let tempConverted: string | null = null;
 
     // Converte WebM → MP3 para Meta Cloud API.
@@ -1493,16 +1510,35 @@ export class WhatsappService {
     if (tempConverted) fs.promises.unlink(tempConverted).catch(() => {});
 
     // 2. Enviar mensagem de mídia
+    // 'file' → type 'document' na Meta Cloud API
+    const metaType = kind === 'file' ? 'document' : kind;
     const mediaPayload: Record<string, unknown> = { id: uploadedMediaId };
-    if (opts?.caption && kind !== 'audio') mediaPayload.caption = opts.caption;
+    if (kind === 'file') {
+      // Documento: caption e filename suportados pela Meta
+      if (opts?.caption) mediaPayload.caption = opts.caption;
+      if (opts?.fileName) mediaPayload.filename = opts.fileName;
+      else mediaPayload.filename = path.basename(filePath);
+    } else if (opts?.caption && kind !== 'audio') {
+      mediaPayload.caption = opts.caption;
+    }
 
     const msgPayload: Record<string, unknown> = {
       messaging_product: 'whatsapp',
       to,
-      type: kind,
-      [kind]: mediaPayload,
+      type: metaType,
+      [metaType]: mediaPayload,
     };
     if (opts?.contextMessageId) msgPayload.context = { message_id: opts.contextMessageId };
+
+    this.logger.log(JSON.stringify({
+      event: 'whatsapp_document_send_attempt',
+      kind,
+      metaType,
+      to,
+      mime: uploadMime,
+      fileName: mediaPayload.filename ?? null,
+      mediaId: uploadedMediaId,
+    }));
 
     const msgUrl = `https://graph.facebook.com/v20.0/${phoneNumberId}/messages`;
     try {
@@ -1512,10 +1548,16 @@ export class WhatsappService {
         }),
       );
       const wamid = msgResp.data?.messages?.[0]?.id ?? null;
-      this.logger.log(`[Meta media] Mensagem ${kind} enviada para ${to} wamid=${wamid}`);
+      this.logger.log(`[Meta media] Mensagem ${metaType} enviada para ${to} wamid=${wamid}`);
       return wamid;
     } catch (e: any) {
-      this.logger.error(`[Meta media] Falha ao enviar mensagem de mídia`, e?.response?.data || e?.message);
+      this.logger.error(JSON.stringify({
+        event: 'whatsapp_document_send_fallback_portal',
+        reason: 'meta_api_error',
+        kind,
+        metaType,
+        error: e?.response?.data || e?.message,
+      }));
       return null;
     }
   }

@@ -3,10 +3,10 @@ import type { CSSProperties } from 'react';
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
-import { useRealtimeTicket, useRealtimeConversation } from '@/lib/realtime';
+import { useRealtimeTicket, useRealtimeConversation, useRealtimeTicketUpdated } from '@/lib/realtime';
 import { useAuthStore, hasPermission } from '@/store/auth.store';
 import toast from 'react-hot-toast';
-import { ArrowLeft, RotateCw, Tag, Clock, AlertTriangle, Lock, Send, Paperclip, CheckCircle2, XCircle, X, ChevronDown, Save, RefreshCw, User, UserCircle, Headphones, Building2, MessageSquare, PhoneCall, ThumbsUp, ThumbsDown, ChevronUp, Ticket as TicketIcon, CalendarClock, CalendarCheck, Pencil } from 'lucide-react';
+import { ArrowLeft, RotateCw, Tag, Clock, AlertTriangle, Lock, Send, Paperclip, CheckCircle2, XCircle, X, ChevronDown, Save, RefreshCw, User, UserCircle, Headphones, Building2, MessageSquare, PhoneCall, ThumbsUp, ThumbsDown, ChevronUp, Ticket as TicketIcon, CalendarClock, CalendarCheck, Pencil, UserMinus, Search } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { TagMultiSelect } from '@/components/ui/TagMultiSelect';
@@ -156,7 +156,12 @@ export default function TicketDetailsPage() {
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const attachFileInputRef = useRef<HTMLInputElement>(null);
   const [sending, setSending] = useState(false);
-  const [showEditPanel, setShowEditPanel] = useState(false);
+  const [showEditClientModal, setShowEditClientModal] = useState(false);
+  const [editClientForm, setEditClientForm] = useState<{ clientId: string; contactId: string }>({ clientId: '', contactId: '' });
+  const [editClientSaving, setEditClientSaving] = useState(false);
+  const [editClientContacts, setEditClientContacts] = useState<any[]>([]);
+  const [clientSearch, setClientSearch] = useState('');
+  const [contactSearch, setContactSearch] = useState('');
   const [showClient, setShowClient] = useState(true);
   const [showAgent, setShowAgent] = useState(true);
   const [showUpdates, setShowUpdates] = useState(true);
@@ -530,6 +535,24 @@ export default function TicketDetailsPage() {
     });
   });
 
+  // ── realtime: atualização de campos do ticket (assignedTo, status, prioridade…) ──
+  // Sincroniza ticket state e edit form imediatamente quando o backend emite ticket:updated,
+  // evitando que salvar qualquer campo reverta uma atribuição feita externamente.
+  useRealtimeTicketUpdated(apiId || null, (patch: any) => {
+    setTicket((prev: any) => prev ? { ...prev, ...patch } : prev);
+    setEdit((prev: any) => ({
+      ...prev,
+      ...(patch.assignedTo !== undefined ? { assignedTo: patch.assignedTo ?? '' } : {}),
+      ...(patch.status     !== undefined ? {} : {}),
+      ...(patch.priority   !== undefined ? { priority: patch.priority } : {}),
+      ...(patch.priorityId !== undefined ? { priorityId: patch.priorityId ?? '' } : {}),
+      ...(patch.department !== undefined ? { department: patch.department ?? '' } : {}),
+      ...(patch.category   !== undefined ? { category:   patch.category   ?? '' } : {}),
+      ...(patch.subcategory!== undefined ? { subcategory:patch.subcategory?? '' } : {}),
+      ...(patch.tags       !== undefined ? { tags: patch.tags ?? [] } : {}),
+    }));
+  });
+
   // ── realtime: transcrição da conversa (incl. mídia e status WhatsApp) ──
   useRealtimeConversation(ticket?.conversationId ?? null, (msg: any) => {
     if (!msg?.id) return;
@@ -595,8 +618,11 @@ export default function TicketDetailsPage() {
     e.preventDefault(); setSaving(true);
     try {
       const sel = tenantPriorities.find((p: any) => p.id === edit.priorityId);
+      // Só envia assignedTo se o usuário explicitamente alterou o select em relação ao
+      // valor atual do ticket — evita reverter reatribuições externas com form obsoleto.
+      const assignedToChanged = (edit.assignedTo || '') !== (ticket?.assignedTo || '');
       const body: any = {
-        assignedTo: edit.assignedTo || undefined,
+        ...(assignedToChanged ? { assignedTo: edit.assignedTo || undefined } : {}),
         department: edit.department || undefined,
         category: edit.category || undefined,
         subcategory: edit.subcategory || undefined,
@@ -611,9 +637,55 @@ export default function TicketDetailsPage() {
         body.priority = edit.priority;
       }
       await api.updateTicket(apiId, body);
-      toast.success('Ticket atualizado'); await load(); setShowEditPanel(false);
+      toast.success('Ticket atualizado'); await load();
     } catch(e:any){ toast.error(e?.response?.data?.message||'Erro ao atualizar'); }
     setSaving(false);
+  };
+
+  const openEditClientModal = async () => {
+    setEditClientForm({ clientId: ticket?.clientId || '', contactId: ticket?.contactId || '' });
+    setClientSearch('');
+    setContactSearch('');
+    // Carrega contatos do cliente atual
+    if (ticket?.clientId) {
+      try {
+        const ct = await api.getContacts(ticket.clientId);
+        setEditClientContacts(Array.isArray(ct) ? ct : (ct as any)?.data ?? []);
+      } catch { setEditClientContacts([]); }
+    } else {
+      setEditClientContacts([]);
+    }
+    setShowEditClientModal(true);
+  };
+
+  const onEditClientChangeClient = async (clientId: string) => {
+    setEditClientForm({ clientId, contactId: '' });
+    setContactSearch('');
+    if (clientId) {
+      try {
+        const ct = await api.getContacts(clientId);
+        setEditClientContacts(Array.isArray(ct) ? ct : (ct as any)?.data ?? []);
+      } catch { setEditClientContacts([]); }
+    } else {
+      setEditClientContacts([]);
+    }
+  };
+
+  const saveEditClient = async (e: FormEvent) => {
+    e.preventDefault();
+    setEditClientSaving(true);
+    try {
+      await api.updateTicket(apiId, {
+        clientId: editClientForm.clientId || undefined,
+        contactId: editClientForm.contactId || undefined,
+      });
+      toast.success('Dados do cliente atualizados');
+      setShowEditClientModal(false);
+      await load();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Erro ao salvar');
+    }
+    setEditClientSaving(false);
   };
 
   const sendMessage = async (e: FormEvent) => {
@@ -687,7 +759,7 @@ export default function TicketDetailsPage() {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        setShowEditPanel(false);
+        setShowEditClientModal(false);
         setShowCloseModal(false);
         setShowReopenModal(false);
         setShowHistory(false);
@@ -773,6 +845,95 @@ export default function TicketDetailsPage() {
 
   return (
     <div style={{ display:'flex', flexDirection:'column', margin:0, height:'calc(100vh - 44px)', overflow:'hidden', background:S.bg3 }}>
+
+    {/* Modal: editar cliente / contato do ticket */}
+    {showEditClientModal && (
+      <div style={{ position:'fixed', inset:0, zIndex:9999, background:'rgba(0,0,0,0.5)', display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
+        <div style={{ width:'100%', maxWidth:520, background:'#fff', borderRadius:18, boxShadow:'0 24px 60px rgba(15,23,42,0.28)', overflow:'hidden' }}>
+          <div style={{ padding:'18px 22px', borderBottom:`1px solid ${S.bd}`, display:'flex', alignItems:'flex-start', gap:14 }}>
+            <div style={{ width:40, height:40, borderRadius:12, background:'#DBEAFE', color:'#1E40AF', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+              <Building2 style={{ width:18, height:18 }} />
+            </div>
+            <div>
+              <h2 style={{ margin:0, fontSize:17, fontWeight:700, color:S.txt }}>Editar cliente e contato</h2>
+              <p style={{ margin:'4px 0 0', fontSize:12, color:S.txt2 }}>Vincule este ticket a outro cliente ou contato.</p>
+            </div>
+            <button onClick={() => setShowEditClientModal(false)} style={{ marginLeft:'auto', border:'none', background:'none', cursor:'pointer', color:S.txt3, padding:4 }}>
+              <X style={{ width:18, height:18 }} />
+            </button>
+          </div>
+          <form onSubmit={saveEditClient}>
+            <div style={{ padding:'18px 22px', display:'flex', flexDirection:'column', gap:14 }}>
+              {/* Cliente */}
+              <div>
+                <label style={{ fontSize:11, fontWeight:700, color:S.txt3, textTransform:'uppercase' as const, letterSpacing:'0.06em', display:'block', marginBottom:6 }}>Empresa / Cliente</label>
+                <div style={{ position:'relative', marginBottom:6 }}>
+                  <Search style={{ position:'absolute', left:8, top:'50%', transform:'translateY(-50%)', width:13, height:13, color:S.txt3, pointerEvents:'none' }} />
+                  <input
+                    value={clientSearch}
+                    onChange={e => setClientSearch(e.target.value)}
+                    placeholder="Buscar empresa..."
+                    style={{ width:'100%', boxSizing:'border-box' as const, padding:'7px 10px 7px 28px', border:`1px solid ${S.bd2}`, borderRadius:8, fontSize:12, fontFamily:'inherit', outline:'none', color:S.txt, background:'#fff' }}
+                  />
+                </div>
+                <select
+                  value={editClientForm.clientId}
+                  onChange={e => onEditClientChangeClient(e.target.value)}
+                  size={5}
+                  style={{ width:'100%', padding:'4px', border:`1px solid ${S.bd2}`, borderRadius:8, fontSize:12, fontFamily:'inherit', outline:'none', color:S.txt, background:'#fff' }}
+                >
+                  <option value="">— Sem empresa —</option>
+                  {(Array.isArray(customers) ? customers : [])
+                    .filter((c: any) => !clientSearch || (c.name||c.tradeName||'').toLowerCase().includes(clientSearch.toLowerCase()))
+                    .slice(0, 40)
+                    .map((c: any) => (
+                      <option key={c.id} value={c.id}>{c.name || c.tradeName || c.id}</option>
+                    ))}
+                </select>
+              </div>
+              {/* Contato */}
+              <div>
+                <label style={{ fontSize:11, fontWeight:700, color:S.txt3, textTransform:'uppercase' as const, letterSpacing:'0.06em', display:'block', marginBottom:6 }}>Contato (pessoa)</label>
+                <div style={{ position:'relative', marginBottom:6 }}>
+                  <Search style={{ position:'absolute', left:8, top:'50%', transform:'translateY(-50%)', width:13, height:13, color:S.txt3, pointerEvents:'none' }} />
+                  <input
+                    value={contactSearch}
+                    onChange={e => setContactSearch(e.target.value)}
+                    placeholder="Buscar contato..."
+                    style={{ width:'100%', boxSizing:'border-box' as const, padding:'7px 10px 7px 28px', border:`1px solid ${S.bd2}`, borderRadius:8, fontSize:12, fontFamily:'inherit', outline:'none', color:S.txt, background:'#fff' }}
+                    disabled={!editClientForm.clientId}
+                  />
+                </div>
+                <select
+                  value={editClientForm.contactId}
+                  onChange={e => setEditClientForm(f => ({ ...f, contactId: e.target.value }))}
+                  size={4}
+                  style={{ width:'100%', padding:'4px', border:`1px solid ${S.bd2}`, borderRadius:8, fontSize:12, fontFamily:'inherit', outline:'none', color:S.txt, background: editClientForm.clientId ? '#fff' : S.bg3 }}
+                  disabled={!editClientForm.clientId}
+                >
+                  <option value="">— Sem contato —</option>
+                  {editClientContacts
+                    .filter((c: any) => !contactSearch || (c.name||c.email||'').toLowerCase().includes(contactSearch.toLowerCase()))
+                    .slice(0, 40)
+                    .map((c: any) => (
+                      <option key={c.id} value={c.id}>{c.name || c.email}</option>
+                    ))}
+                </select>
+                {!editClientForm.clientId && <p style={{ fontSize:11, color:S.txt3, margin:'4px 0 0' }}>Selecione uma empresa primeiro para escolher o contato.</p>}
+              </div>
+            </div>
+            <div style={{ padding:'14px 22px', borderTop:`1px solid ${S.bd}`, display:'flex', justifyContent:'flex-end', gap:10 }}>
+              <button type="button" onClick={() => setShowEditClientModal(false)} style={{ padding:'9px 14px', borderRadius:10, border:`1px solid ${S.bd2}`, background:'#fff', color:S.txt2, cursor:'pointer', fontWeight:600, fontFamily:'inherit', fontSize:13 }}>
+                Cancelar
+              </button>
+              <button type="submit" disabled={editClientSaving} style={{ padding:'9px 16px', borderRadius:10, border:'none', background:S.accent, color:'#fff', cursor:'pointer', fontWeight:700, fontFamily:'inherit', fontSize:13, display:'inline-flex', alignItems:'center', gap:8 }}>
+                <Save style={{ width:14, height:14 }} /> {editClientSaving ? 'Salvando...' : 'Salvar'}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    )}
 
     {showContentModal && (
       <div style={{ position:'fixed', inset:0, zIndex:9999, background:'rgba(0,0,0,0.5)', display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
@@ -1148,12 +1309,16 @@ export default function TicketDetailsPage() {
                 })
                 .sort((a:any,b:any)=>new Date(a.createdAt).getTime()-new Date(b.createdAt).getTime());
 
-              // Group: each main message + system events that follow it
+              // Group: each main message + system events that follow it.
+              // System events that precede the first main message are collected separately
+              // so they still render (otherwise tickets with only system events show empty).
               type MsgGroup = { main: any; events: any[] };
+              const orphanEvents: any[] = [];
               const groups: MsgGroup[] = [];
               for (const m of allMsgs) {
                 if (isUpdate(m)) {
                   if (groups.length > 0) groups[groups.length-1].events.push(m);
+                  else orphanEvents.push(m);
                 } else {
                   groups.push({ main: m, events: [] });
                 }
@@ -1162,7 +1327,7 @@ export default function TicketDetailsPage() {
               const hasConv = conversationMsgs.length > 0;
               const totalNum = groups.length + (hasConv ? 1 : 0);
 
-              if (groups.length === 0 && !hasConv)
+              if (groups.length === 0 && orphanEvents.length === 0 && !hasConv)
                 return (
                   <div style={{ textAlign:'center', padding:'60px 0', color:'#334155' }}>
                     <MessageSquare style={{ width:36, height:36, margin:'0 auto 12px', opacity:0.3 }} />
@@ -1325,6 +1490,11 @@ export default function TicketDetailsPage() {
               return (
                 <div style={{ position:'relative' }}>
                   <div style={{ position:'absolute', left:15, top:0, bottom:0, width:1, background:'linear-gradient(180deg, rgba(148,163,184,0.16) 0%, rgba(148,163,184,0.04) 100%)', pointerEvents:'none' }} />
+                  {orphanEvents.length > 0 && (
+                    <div style={{ display:'flex', flexDirection:'column', gap:4, paddingBottom: groups.length > 0 || hasConv ? 12 : 0 }}>
+                      {orphanEvents.map(ev => renderEventRow(ev))}
+                    </div>
+                  )}
                   {groups.map((group, i) => renderGroup(group, i + 1))}
                   {hasConv && showConvFilter && (
                     <div style={{ border:'1px solid rgba(45,212,191,0.28)', borderRadius:12, background:'linear-gradient(180deg, #F7FFFD 0%, #EFFCF8 100%)', boxShadow:'0 6px 18px rgba(13,148,136,0.06)', overflow:'hidden', marginBottom:3, marginLeft:44 }}>
@@ -1715,7 +1885,7 @@ export default function TicketDetailsPage() {
           {/* DADOS DO CLIENTE */}
           {ticket.clientId && (
             <div className="rounded-xl bg-white shadow-[0_1px_2px_rgba(15,23,42,0.05)] [html[data-theme=dark]_&]:bg-slate-900 [html[data-theme=dark]_&]:shadow-none [html[data-theme=dark]_&]:ring-1 [html[data-theme=dark]_&]:ring-slate-700/50" style={{ padding:'8px 10px', border:`1px solid ${S.bd}`, borderRadius:10 }}>
-              {secLabel('Dados do Cliente', <button onClick={() => setShowEditPanel(true)} style={{ fontSize:10, color:S.accent, cursor:'pointer', border:'none', background:'none', fontWeight:500, fontFamily:'inherit', padding:0 }}>Editar</button>)}
+              {secLabel('Dados do Cliente', <button onClick={openEditClientModal} style={{ fontSize:10, color:S.accent, cursor:'pointer', border:'none', background:'none', fontWeight:500, fontFamily:'inherit', padding:0 }}>Editar</button>)}
               <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:6 }}>
                 <div style={{ width:32, height:32, borderRadius:'50%', background:'#DBEAFE', color:'#1E40AF', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:700, flexShrink:0 }}>
                   {initials(customerName(ticket.clientId, ticket.clientName))}
@@ -1779,9 +1949,70 @@ export default function TicketDetailsPage() {
             </div>
           )}
 
-          {/* ATRIBUIÇÃO */}
+          {/* ATRIBUIÇÃO — estilo Movidesk */}
           <div className="rounded-xl bg-white shadow-[0_1px_2px_rgba(15,23,42,0.05)] [html[data-theme=dark]_&]:bg-slate-900 [html[data-theme=dark]_&]:shadow-none [html[data-theme=dark]_&]:ring-1 [html[data-theme=dark]_&]:ring-slate-700/50" style={{ padding:'8px 10px', border:`1px solid ${S.bd}`, borderRadius:10 }}>
             {secLabel('Atribuição')}
+
+            {/* Resumo visual do estado atual */}
+            <div style={{ marginBottom:10, paddingBottom:10, borderBottom:`1px solid ${S.bd}` }}>
+
+              {/* Responsável atual */}
+              <div style={{ marginBottom:8 }}>
+                <span style={{ fontSize:9, fontWeight:700, color:S.txt3, textTransform:'uppercase' as const, letterSpacing:'0.07em', display:'block', marginBottom:5 }}>Responsável</span>
+                {ticket.assignedTo ? (() => {
+                  const ag = team.find((u:any) => u.id === ticket.assignedTo);
+                  const name = ag?.name || ag?.email || 'Agente';
+                  const email = ag?.email || '';
+                  const col = ['#4F46E5','#0891B2','#16A34A','#D97706','#DC2626','#7C3AED'][
+                    Math.abs(name.split('').reduce((h:number,c:string) => h*31+c.charCodeAt(0),0)) % 6
+                  ];
+                  return (
+                    <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                      <div style={{ width:34, height:34, borderRadius:'50%', background:col, color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:700, flexShrink:0, letterSpacing:0.5 }}>
+                        {initials(name)}
+                      </div>
+                      <div style={{ minWidth:0 }}>
+                        <div style={{ fontSize:12, fontWeight:600, color:S.txt, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{name}</div>
+                        {email && <div style={{ fontSize:10, color:S.txt2, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{email}</div>}
+                      </div>
+                    </div>
+                  );
+                })() : (
+                  <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                    <div style={{ width:34, height:34, borderRadius:'50%', border:`1.5px dashed ${S.bd2}`, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                      <UserMinus style={{ width:15, height:15, color:S.txt3 }} />
+                    </div>
+                    <span style={{ fontSize:12, color:S.txt3, fontStyle:'italic' }}>Não atribuído</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Departamento › Categoria › Subcategoria */}
+              {ticket.department && (
+                <div style={{ marginBottom:6 }}>
+                  <span style={{ fontSize:9, fontWeight:700, color:S.txt3, textTransform:'uppercase' as const, letterSpacing:'0.07em', display:'block', marginBottom:3 }}>Classificação</span>
+                  <div style={{ display:'flex', alignItems:'center', flexWrap:'wrap' as const, gap:2, fontSize:11, color:S.txt }}>
+                    <span style={{ fontWeight:500 }}>{ticket.department}</span>
+                    {ticket.category && <><span style={{ color:S.txt3, margin:'0 1px' }}>›</span><span>{ticket.category}</span></>}
+                    {ticket.subcategory && <><span style={{ color:S.txt3, margin:'0 1px' }}>›</span><span style={{ color:S.txt2 }}>{ticket.subcategory}</span></>}
+                  </div>
+                </div>
+              )}
+
+              {/* Tags atuais */}
+              {Array.isArray(ticket.tags) && ticket.tags.length > 0 && (
+                <div>
+                  <span style={{ fontSize:9, fontWeight:700, color:S.txt3, textTransform:'uppercase' as const, letterSpacing:'0.07em', display:'block', marginBottom:4 }}>Tags</span>
+                  <div style={{ display:'flex', flexWrap:'wrap' as const, gap:4 }}>
+                    {ticket.tags.map((tag:string) => (
+                      <span key={tag} style={{ fontSize:10, padding:'2px 7px', borderRadius:5, background:S.accentL, color:S.accent, fontWeight:500 }}>{tag}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Formulário de edição */}
             <form onSubmit={saveEdit} style={{ display:'flex', flexDirection:'column', gap:6 }}>
               <div>
                 <label style={{ fontSize:10, color:S.txt3, fontWeight:700, letterSpacing:'0.06em', textTransform:'uppercase' as const, display:'block', marginBottom:4 }}>Prioridade</label>
@@ -1792,27 +2023,17 @@ export default function TicketDetailsPage() {
                     onChange={(e) => {
                       const pid = e.target.value;
                       const p = tenantPriorities.find((x: any) => x.id === pid);
-                      setEdit({
-                        ...edit,
-                        priorityId: pid,
-                        priority:
-                          p && ['low', 'medium', 'high', 'critical'].includes(p.slug) ? p.slug : edit.priority,
-                      });
+                      setEdit({ ...edit, priorityId: pid, priority: p && ['low','medium','high','critical'].includes(p.slug) ? p.slug : edit.priority });
                     }}
                   >
                     {tenantPriorities.map((p: any) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                        {p.active === false ? ' (inativa)' : ''}
-                      </option>
+                      <option key={p.id} value={p.id}>{p.name}{p.active === false ? ' (inativa)' : ''}</option>
                     ))}
                   </select>
                 ) : (
                   <select style={inp} value={edit.priority} onChange={(e) => setEdit({ ...edit, priority: e.target.value })}>
-                    {[['low', 'Baixa'], ['medium', 'Média'], ['high', 'Alta'], ['critical', 'Crítico']].map(([v, l]) => (
-                      <option key={v} value={v}>
-                        {l}
-                      </option>
+                    {[['low','Baixa'],['medium','Média'],['high','Alta'],['critical','Crítico']].map(([v,l]) => (
+                      <option key={v} value={v}>{l}</option>
                     ))}
                   </select>
                 )}
@@ -1856,7 +2077,7 @@ export default function TicketDetailsPage() {
                 />
               </div>
               <button type="submit" disabled={saving}
-                style={{ width:'100%', padding:'9px 10px', background:S.accent, color:'#fff', border:'none', borderRadius:10, fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'inherit', display:'flex', alignItems:'center', justifyContent:'center', gap:6 }}>
+                style={{ width:'100%', padding:'9px 10px', background:S.accent, color:'#fff', border:'none', borderRadius:10, fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'inherit', display:'flex', alignItems:'center', justifyContent:'center', gap:6, marginTop:2 }}>
                 <Save style={{width:14,height:14}} /> {saving?'Salvando...':'Salvar alterações'}
               </button>
             </form>

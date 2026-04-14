@@ -13,11 +13,12 @@ import { useAuthStore, hasPermission } from '@/store/auth.store';
 import {
   MessageSquare, Send, Phone, RefreshCw, Lock, PanelRight, Plus, Link2, Globe, Ticket,
   Check, Search, X, CheckCircle2, User, Mail, MapPin, Building2, Hash, Tag, Edit2, Save,
-  Paperclip, Mic, StopCircle, ChevronLeft, ChevronRight, ChevronDown,
+  Paperclip, Mic, StopCircle, ChevronLeft, ChevronRight, ChevronDown, Trash2,
 } from 'lucide-react';
+import AudioMessagePlayer from '@/components/chat/AudioMessagePlayer';
 import { EmojiPicker } from '@/components/ui/EmojiPicker';
 import ContactValidationBanner, { type ResolvedData } from '@/components/atendimento/ContactValidationBanner';
-import ConversationListItem, { getConversationListUnreadCount } from '@/components/atendimento/ConversationListItem';
+import ConversationListItem, { getConversationListUnreadCount, type InboxListAlertMeta } from '@/components/atendimento/ConversationListItem';
 import { TagMultiSelect } from '@/components/ui/TagMultiSelect';
 import ConversationMessageList from '@/components/chat/ConversationMessageList';
 import ChatDensityToggle from '@/components/chat/ChatDensityToggle';
@@ -47,6 +48,18 @@ const ATTENDANCE_ALERT_RULES = {
   firstReplyWarnMs: 5 * 60_000,
   firstReplyCriticalMs: 10 * 60_000,
 } as const;
+
+type ChannelSlaMs = { warningMs: number; criticalMs: number };
+type QueueSlaConfig = ChannelSlaMs & { byChannel: Record<string, ChannelSlaMs> };
+
+/** Config padrão do SLA visual (fallback enquanto a config do tenant não carrega). */
+const DEFAULT_QUEUE_SLA_CFG: QueueSlaConfig = { warningMs: 2 * 60_000, criticalMs: 5 * 60_000, byChannel: {} };
+
+/** Resolve os thresholds de SLA para uma conversa específica (canal > global). */
+function resolveConvSla(conv: any, cfg: QueueSlaConfig): ChannelSlaMs {
+  const ch = conv?.channel ?? '';
+  return cfg.byChannel[ch] ?? { warningMs: cfg.warningMs, criticalMs: cfg.criticalMs };
+}
 
 const TICKET_STATUS_SELECT_OPTIONS: { value: string; label: string }[] = [
   { value: 'open', label: 'Aberto' },
@@ -293,41 +306,33 @@ function getConversationMetrics(conv: any) {
   return { queuedAt, attendanceStartedAt, firstAgentReplyAt, closedAt, waitToStartMs, firstReplyMs, durationMs };
 }
 
-function getInboxAlertMeta(conv: any) {
-  const metrics = getConversationMetrics(conv);
-  if (!metrics.attendanceStartedAt && metrics.queuedAt) {
-    const waitingMs = Math.max(0, Date.now() - new Date(metrics.queuedAt).getTime());
-    const severity =
-      waitingMs >= ATTENDANCE_ALERT_RULES.queueCriticalMs
-        ? 'critical'
-        : waitingMs >= ATTENDANCE_ALERT_RULES.queueWarnMs
-          ? 'warning'
-          : 'fresh';
-    return {
-      kind: 'queue' as const,
-      severity,
-      waitingMs,
-      shouldPulse: true,
-    };
-  }
+function getInboxAlertMeta(
+  conv: any,
+  cfg: QueueSlaConfig = DEFAULT_QUEUE_SLA_CFG,
+): InboxListAlertMeta {
+  // Encerrada: sem indicador
+  if (conv?.status === 'closed' || conv?.conversationClosedAt) return null;
 
-  if (metrics.attendanceStartedAt && !metrics.firstAgentReplyAt) {
-    const pendingMs = Math.max(0, Date.now() - new Date(metrics.attendanceStartedAt).getTime());
-    const severity =
-      pendingMs >= ATTENDANCE_ALERT_RULES.firstReplyCriticalMs
-        ? 'critical'
-        : pendingMs >= ATTENDANCE_ALERT_RULES.firstReplyWarnMs
-          ? 'warning'
-          : 'fresh';
-    return {
-      kind: 'firstReply' as const,
-      severity,
-      waitingMs: pendingMs,
-      shouldPulse: severity !== 'fresh',
-    };
-  }
+  const lastClientAt: Date | null = conv?.lastClientMessageAt ? new Date(conv.lastClientMessageAt) : null;
+  const lastAgentAt: Date | null = conv?.lastAgentMessageAt ? new Date(conv.lastAgentMessageAt) : null;
+  const queuedAt: Date | null = conv?.queuedAt ? new Date(conv.queuedAt) : null;
 
-  return null;
+  // "Aguardando desde": última msg do cliente, ou queuedAt se cliente ainda não enviou mensagem
+  const waitingSince: Date | null = lastClientAt ?? queuedAt;
+  if (!waitingSince) return null;
+
+  // Agente já respondeu DEPOIS do último contato do cliente → ciclo encerrado, sem indicador
+  if (lastAgentAt && lastAgentAt >= waitingSince) return null;
+
+  // Resolve thresholds: canal específico tem prioridade sobre o global do tenant
+  const { warningMs, criticalMs } = resolveConvSla(conv, cfg);
+
+  const waitingMs = Math.max(0, Date.now() - waitingSince.getTime());
+  const severity: 'critical' | 'warning' | 'fresh' =
+    waitingMs >= criticalMs ? 'critical' : waitingMs >= warningMs ? 'warning' : 'fresh';
+  const kind = conv?.attendanceStartedAt ? ('firstReply' as const) : ('queue' as const);
+
+  return { kind, severity, waitingMs, shouldPulse: severity !== 'fresh' };
 }
 
 function ConvWaitMetricsInfo({ conv }: { conv: any }) {
@@ -497,6 +502,39 @@ function ChatComposer({
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const shouldSaveRecordingRef = useRef(false);
 
+  // Preview de áudio gravado (antes do envio)
+  const [previewAudio, setPreviewAudio] = useState<{ file: File; url: string } | null>(null);
+  const previewUrlRef = useRef<string | null>(null);
+  const formRef = useRef<HTMLFormElement | null>(null);
+  const shouldAutoSubmitRef = useRef(false);
+
+  const discardPreview = useCallback(() => {
+    if (previewUrlRef.current) {
+      URL.revokeObjectURL(previewUrlRef.current);
+      previewUrlRef.current = null;
+    }
+    setPreviewAudio(null);
+  }, []);
+
+  // Quando pendingFile for preenchido por confirmPreview, dispara o submit automaticamente
+  useEffect(() => {
+    if (shouldAutoSubmitRef.current && pendingFile) {
+      shouldAutoSubmitRef.current = false;
+      formRef.current?.requestSubmit();
+    }
+  }, [pendingFile]);
+
+  const confirmPreview = useCallback(() => {
+    if (!previewAudio) return;
+    shouldAutoSubmitRef.current = true;
+    onRecordedAudio(previewAudio.file);
+    if (previewUrlRef.current) {
+      URL.revokeObjectURL(previewUrlRef.current);
+      previewUrlRef.current = null;
+    }
+    setPreviewAudio(null);
+  }, [previewAudio, onRecordedAudio]);
+
   const clearRecordingTimer = useCallback(() => {
     if (recordingTimerRef.current) {
       clearInterval(recordingTimerRef.current);
@@ -531,6 +569,7 @@ function ChatComposer({
     audioChunksRef.current = [];
     resetRecordingState();
     stopMediaStream();
+    if (previewUrlRef.current) { URL.revokeObjectURL(previewUrlRef.current); previewUrlRef.current = null; }
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
     } else {
@@ -543,6 +582,8 @@ function ChatComposer({
     audioChunksRef.current = [];
     resetRecordingState();
     stopMediaStream();
+    if (previewUrlRef.current) { URL.revokeObjectURL(previewUrlRef.current); previewUrlRef.current = null; }
+    setPreviewAudio(null);
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
     } else {
@@ -574,7 +615,7 @@ function ChatComposer({
   }, [finalizeRecording]);
 
   const startRecording = useCallback(async () => {
-    if (isRecording || !canSend || isSending || pendingFile) return;
+    if (isRecording || !canSend || isSending || pendingFile || previewAudio) return;
     if (typeof window === 'undefined' || typeof navigator === 'undefined') return;
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
       setRecordingError('O navegador atual nao suporta gravacao de audio.');
@@ -623,7 +664,10 @@ function ChatComposer({
         const file = new File([audioBlob], `gravacao-${Date.now()}.${extension}`, {
           type: recorder.mimeType || audioBlob.type || 'audio/webm',
         });
-        onRecordedAudio(file);
+        // Entra no modo de preview para ouvir antes de enviar
+        const url = URL.createObjectURL(audioBlob);
+        previewUrlRef.current = url;
+        setPreviewAudio({ file, url });
       };
 
       recorder.onerror = () => {
@@ -649,10 +693,10 @@ function ChatComposer({
       disposeRecorder();
       setRecordingError('Nao foi possivel acessar o microfone.');
     }
-  }, [canSend, disposeRecorder, isRecording, isSending, onRecordedAudio, pendingFile, resetRecordingState, stopMediaStream]);
+  }, [canSend, disposeRecorder, isRecording, isSending, onRecordedAudio, pendingFile, previewAudio, resetRecordingState, stopMediaStream]);
 
   const recordingLabel = `${String(Math.floor(recordingSeconds / 60)).padStart(2, '0')}:${String(recordingSeconds % 60).padStart(2, '0')}`;
-  const showMicButton = canSend && !isSending && !inputValue.trim() && !pendingFile && !isRecording;
+  const showMicButton = canSend && !isSending && !inputValue.trim() && !pendingFile && !isRecording && !previewAudio;
 
   return (
     <div style={{ borderTop: borderColor, background: backgroundColor, padding: 0, flexShrink: 0 }}>
@@ -663,7 +707,7 @@ function ChatComposer({
         style={{ display: 'none' }}
         onChange={onPendingFileChange}
       />
-      <form onSubmit={onSubmit}>
+      <form ref={formRef} onSubmit={onSubmit}>
         {/* Preview da mensagem sendo respondida */}
         {replyingTo && (
           <div style={{
@@ -777,102 +821,131 @@ function ChatComposer({
               </div>
             )}
 
-            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10 }}>
-              <textarea
-                ref={inputRef}
-                value={inputValue}
-                onChange={onInputChange}
-                onKeyDown={onInputKeyDown}
-                onPaste={onComposerPaste}
-                placeholder={canSend ? (isWhatsapp ? 'Mensagem WhatsApp... (Enter para enviar)' : 'Digite sua mensagem...') : 'Conversa indisponivel para envio'}
-                disabled={!canSend || isRecording}
-                rows={1}
-                style={{
-                  flex: 1,
-                  background: canSend && !isRecording ? inputBackgroundColor : '#F8F8FB',
+            {previewAudio ? (
+              /* ── Preview de áudio gravado ─────────────────────────────── */
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                {/* Descartar */}
+                <button
+                  type="button"
+                  onClick={discardPreview}
+                  title="Descartar áudio"
+                  style={{
+                    width: 40, height: 40, borderRadius: 11, flexShrink: 0,
+                    border: '1px solid rgba(220,38,38,.2)', background: '#FFF1F2',
+                    color: '#DC2626', cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    transition: 'background .15s',
+                  }}
+                >
+                  <Trash2 size={16} strokeWidth={2} />
+                </button>
+                {/* Player de preview */}
+                <div style={{
+                  flex: 1, minWidth: 0,
+                  background: inputBackgroundColor,
                   border: '1px solid rgba(0,0,0,.12)',
-                  borderRadius: 12,
-                  padding: '10px 14px',
-                  fontSize: 13,
-                  color: textColor,
-                  outline: 'none',
-                  resize: 'none',
-                  fontFamily: 'inherit',
-                  lineHeight: 1.5,
-                  minHeight: 44,
-                  maxHeight: 120,
-                  opacity: canSend && !isRecording ? 1 : 0.6,
-                  transition: 'border-color .15s',
-                }}
-              />
-              <EmojiPicker onSelect={onInsertEmoji} position="top" />
-              {/* Botão dinâmico: Mic (campo vazio) | Stop (gravando) | Send (tem texto/arquivo) */}
-              {isRecording ? (
+                  borderRadius: 12, padding: '8px 14px',
+                }}>
+                  <AudioMessagePlayer src={previewAudio.url} variant="sent" />
+                </div>
+                {/* Enviar */}
                 <button
                   type="button"
-                  onClick={stopRecording}
-                  title="Parar gravacao"
+                  onClick={confirmPreview}
+                  disabled={isSending || !canSend}
+                  title="Enviar áudio"
                   style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: 11,
-                    border: '1px solid rgba(220,38,38,.25)',
-                    background: '#FEE2E2',
-                    color: '#DC2626',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexShrink: 0,
-                    transition: 'background .15s',
-                  }}
-                >
-                  <StopCircle size={16} strokeWidth={2} />
-                </button>
-              ) : showMicButton ? (
-                <button
-                  type="button"
-                  onClick={startRecording}
-                  title="Gravar audio"
-                  style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: 11,
-                    border: '1px solid rgba(0,0,0,.08)',
-                    background: '#F8FAFC',
-                    color: mutedTextColor,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexShrink: 0,
-                    transition: 'background .15s',
-                  }}
-                >
-                  <Mic size={16} strokeWidth={2} />
-                </button>
-              ) : (
-                <button
-                  type="submit"
-                  disabled={isSending || !canSend || (!inputValue.trim() && !pendingFile)}
-                  style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: 11,
+                    width: 40, height: 40, borderRadius: 11, flexShrink: 0,
                     border: 'none',
-                    background: isSending || !canSend || (!inputValue.trim() && !pendingFile) ? '#E2E8F0' : accentColor,
-                    cursor: isSending || !canSend || (!inputValue.trim() && !pendingFile) ? 'not-allowed' : 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexShrink: 0,
+                    background: isSending || !canSend ? '#E2E8F0' : accentColor,
+                    cursor: isSending || !canSend ? 'not-allowed' : 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
                     transition: 'background .15s',
                   }}
                 >
                   <Send size={16} color="#fff" strokeWidth={2} />
                 </button>
-              )}
-            </div>
+              </div>
+            ) : (
+              /* ── Linha normal: textarea + emoji + botão ───────────────── */
+              <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10 }}>
+                <textarea
+                  ref={inputRef}
+                  value={inputValue}
+                  onChange={onInputChange}
+                  onKeyDown={onInputKeyDown}
+                  onPaste={onComposerPaste}
+                  placeholder={canSend ? (isWhatsapp ? 'Mensagem WhatsApp... (Enter para enviar)' : 'Digite sua mensagem...') : 'Conversa indisponivel para envio'}
+                  disabled={!canSend || isRecording}
+                  rows={1}
+                  style={{
+                    flex: 1,
+                    background: canSend && !isRecording ? inputBackgroundColor : '#F8F8FB',
+                    border: '1px solid rgba(0,0,0,.12)',
+                    borderRadius: 12,
+                    padding: '10px 14px',
+                    fontSize: 13,
+                    color: textColor,
+                    outline: 'none',
+                    resize: 'none',
+                    fontFamily: 'inherit',
+                    lineHeight: 1.5,
+                    minHeight: 44,
+                    maxHeight: 120,
+                    opacity: canSend && !isRecording ? 1 : 0.6,
+                    transition: 'border-color .15s',
+                  }}
+                />
+                <EmojiPicker onSelect={onInsertEmoji} position="top" />
+                {/* Botão dinâmico: Mic (campo vazio) | Stop (gravando) | Send (tem texto/arquivo) */}
+                {isRecording ? (
+                  <button
+                    type="button"
+                    onClick={stopRecording}
+                    title="Parar gravacao"
+                    style={{
+                      width: 40, height: 40, borderRadius: 11, flexShrink: 0,
+                      border: '1px solid rgba(220,38,38,.25)', background: '#FEE2E2',
+                      color: '#DC2626', cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      transition: 'background .15s',
+                    }}
+                  >
+                    <StopCircle size={16} strokeWidth={2} />
+                  </button>
+                ) : showMicButton ? (
+                  <button
+                    type="button"
+                    onClick={startRecording}
+                    title="Gravar audio"
+                    style={{
+                      width: 40, height: 40, borderRadius: 11, flexShrink: 0,
+                      border: '1px solid rgba(0,0,0,.08)', background: '#F8FAFC',
+                      color: mutedTextColor, cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      transition: 'background .15s',
+                    }}
+                  >
+                    <Mic size={16} strokeWidth={2} />
+                  </button>
+                ) : (
+                  <button
+                    type="submit"
+                    disabled={isSending || !canSend || (!inputValue.trim() && !pendingFile)}
+                    style={{
+                      width: 40, height: 40, borderRadius: 11, flexShrink: 0,
+                      border: 'none',
+                      background: isSending || !canSend || (!inputValue.trim() && !pendingFile) ? '#E2E8F0' : accentColor,
+                      cursor: isSending || !canSend || (!inputValue.trim() && !pendingFile) ? 'not-allowed' : 'pointer',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      transition: 'background .15s',
+                    }}
+                  >
+                    <Send size={16} color="#fff" strokeWidth={2} />
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </form>
@@ -889,6 +962,7 @@ function AtendimentoPageInner() {
   const canViewTeam = hasPermission(user, 'agent.view') || hasPermission(user, 'ticket.view');
   const [conversations, setConversations] = useState<any[]>([]);
   const [selected, setSelected] = useState<any>(null);
+  const [queueSlaConfig, setQueueSlaConfig] = useState<QueueSlaConfig>(DEFAULT_QUEUE_SLA_CFG);
   const [messages, setMessages] = useState<any[]>([]);
   const [customers, setCustomers] = useState<any[]>([]);
   const [contacts, setContacts] = useState<any[]>([]);
@@ -2517,7 +2591,39 @@ function AtendimentoPageInner() {
   }, [loadConversations]);
 
 
+  // Carrega configuração de SLA visual de fila do tenant uma vez no mount.
+  useEffect(() => {
+    api.getConversationsQueueSlaConfig()
+      .then((data: any) => {
+        const d = data?.data ?? data;
+        const w = Number(d?.warningMinutes);
+        const c = Number(d?.criticalMinutes);
+        const warningMs = Number.isFinite(w) && w >= 1 ? w * 60_000 : DEFAULT_QUEUE_SLA_CFG.warningMs;
+        const criticalMs = Number.isFinite(c) && c > w ? c * 60_000 : DEFAULT_QUEUE_SLA_CFG.criticalMs;
+
+        // Parseia config por canal (byChannel)
+        const byChannel: Record<string, ChannelSlaMs> = {};
+        const rawByCh = d?.byChannel ?? {};
+        for (const [ch, chCfg] of Object.entries(rawByCh)) {
+          const cw = Number((chCfg as any)?.warningMinutes);
+          const cc = Number((chCfg as any)?.criticalMinutes);
+          if (Number.isFinite(cw) && cw >= 1 && Number.isFinite(cc) && cc > cw) {
+            byChannel[ch] = { warningMs: cw * 60_000, criticalMs: cc * 60_000 };
+          }
+        }
+        setQueueSlaConfig({ warningMs, criticalMs, byChannel });
+      })
+      .catch(() => { /* mantém fallback padrão */ });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => { if (selected) loadChat(selected); else setMessages([]); }, [selected?.id]);
+
+  // Auto-foca o campo de digitação ao selecionar uma conversa
+  useEffect(() => {
+    if (!selected?.id) return;
+    requestAnimationFrame(() => { inputRef.current?.focus(); });
+  }, [selected?.id]);
 
   useEffect(() => {
     const toRevoke = { ...messageMediaUrlsRef.current };
@@ -2699,50 +2805,57 @@ function AtendimentoPageInner() {
     // Ignora mensagens da conversa atualmente selecionada (já renderizadas em tempo real)
     if (currentSelected && String(currentSelected.id) === String(msg.conversationId)) return;
 
-    notifyNewInboxItem({ id: msg.conversationId, contactName: msg.contactName }, msg.preview);
-
-    // Incrementa badge
-    setUnreadCounts(p => ({ ...p, [msg.conversationId]: (p[msg.conversationId] || 0) + 1 }));
-
-    // Sobe conversa para o topo da lista e atualiza prévia.
-    // Se a conversa ainda não está na lista (nova entrada via WhatsApp), recarrega silenciosamente.
-    // O lado-efeito (loadConversations) fica fora do updater para manter o idioma React correto;
-    // o guard reloadPendingRef evita múltiplos requests em caso de burst de mensagens.
     const currentList = conversationsRef.current;
     const idx = currentList.findIndex((c: any) => String(c.id) === String(msg.conversationId));
-    if (idx < 0) {
-      if (!reloadPendingRef.current) {
-        reloadPendingRef.current = true;
-        loadConversations(false, true).finally(() => { reloadPendingRef.current = false; });
-      }
-    } else {
+
+    if (idx >= 0) {
+      // Conversa está no inbox DESTE agente → notifica e incrementa badge
+      notifyNewInboxItem({ id: msg.conversationId, contactName: msg.contactName }, msg.preview);
+      setUnreadCounts(p => ({ ...p, [msg.conversationId]: (p[msg.conversationId] || 0) + 1 }));
       setConversations(prev => {
         const i = prev.findIndex((c: any) => String(c.id) === String(msg.conversationId));
         if (i < 0) return prev;
         const updated = { ...prev[i], lastMessage: msg.preview, lastMessageAt: new Date().toISOString() };
         return [updated, ...prev.slice(0, i), ...prev.slice(i + 1)];
       });
+      playInboxNotificationSound();
+    } else {
+      // Conversa não está no inbox ainda — pode ser nova atribuição; recarrega silenciosamente.
+      // O guard reloadPendingRef evita múltiplos requests em burst de mensagens.
+      if (!reloadPendingRef.current) {
+        reloadPendingRef.current = true;
+        loadConversations(false, true).finally(() => { reloadPendingRef.current = false; });
+      }
     }
-
-    playInboxNotificationSound();
   });
 
-  // ── ticket transferido em tempo real ──────────────────────────────────────────
+  // ── ticket atribuído / transferido em tempo real ──────────────────────────────
   useRealtimeTicketAssigned((payload) => {
     const myId = user?.id;
     if (!myId) return;
 
-    // 1. Ticket foi atribuído a MIM → toast + reload silencioso para aparecer no inbox
-    if (String(payload.assignedTo) === String(myId) && String(payload.assignedBy) !== String(myId)) {
+    // Normaliza: auto-assign emite { agentId }, transferência manual emite { assignedTo }
+    const assignedTo = payload.assignedTo ?? payload.agentId;
+    const prevAssignedTo = payload.prevAssignedTo ?? null;
+    const assignedBy = payload.assignedBy ?? null;
+
+    // 1. Ticket atribuído a MIM
+    if (assignedTo && String(assignedTo) === String(myId)) {
       const label = payload.ticketNumber ? `#${payload.ticketNumber}` : 'ticket';
-      const byName = payload.assignedByName || 'outro agente';
-      showToast(`🎯 ${label} transferido para você por ${byName}`, 'success');
+      if (assignedBy && String(assignedBy) !== String(myId)) {
+        // Transferência manual por outro agente
+        showToast(`🎯 ${label} transferido para você por ${payload.assignedByName || 'outro agente'}`, 'success');
+      } else if (!assignedBy) {
+        // Atribuição automática pelo sistema (round-robin)
+        showToast(`📋 ${label} atribuído automaticamente para você`, 'success');
+      }
+      playInboxNotificationSound();
       loadConversations(false, true);
       invalidateMyOpenTicketsCount();
     }
 
-    // 2. Ticket foi tirado de mim (transferido para outro) → atualiza silenciosamente
-    if (String(payload.prevAssignedTo) === String(myId) && String(payload.assignedTo) !== String(myId)) {
+    // 2. Ticket tirado de mim (transferido para outro) → atualiza silenciosamente
+    if (prevAssignedTo && String(prevAssignedTo) === String(myId) && assignedTo && String(assignedTo) !== String(myId)) {
       loadConversations(false, true);
       invalidateMyOpenTicketsCount();
     }
@@ -2989,6 +3102,21 @@ function AtendimentoPageInner() {
             ) : (() => {
               const open = filteredConversations.filter((c: any) => c.status !== 'closed');
               const closed = filteredConversations.filter((c: any) => c.status === 'closed');
+
+              // Pré-computa alertas para evitar chamadas redundantes no sort e na contagem.
+              const alertMetaMap = new Map<string, InboxListAlertMeta>(
+                open.map((c: any) => [c.id, getInboxAlertMeta(c, queueSlaConfig)]),
+              );
+              const SEVERITY_RANK: Record<string, number> = { critical: 0, warning: 1, fresh: 2 };
+              const sortedOpen = [...open].sort((a: any, b: any) => {
+                const ra = SEVERITY_RANK[alertMetaMap.get(a.id)?.severity ?? ''] ?? 3;
+                const rb = SEVERITY_RANK[alertMetaMap.get(b.id)?.severity ?? ''] ?? 3;
+                return ra - rb;
+              });
+
+              const critN = open.filter((c: any) => alertMetaMap.get(c.id)?.severity === 'critical').length;
+              const warnN = open.filter((c: any) => alertMetaMap.get(c.id)?.severity === 'warning').length;
+
               const renderItem = (c: any) => {
                 const isSelected = sameItem(c, selected);
                 const noTicket = !c.ticketId;
@@ -2997,7 +3125,7 @@ function AtendimentoPageInner() {
                 const dispName = c.contactName || customerName(c.clientId) || '—';
                 const compName = c.clientName || (c.contactName ? customerName(c.clientId) : null) || (customerName(c.clientId) !== '—' ? customerName(c.clientId) : null);
                 const col = avatarColor(dispName);
-                const alertMeta = getInboxAlertMeta(c);
+                const alertMeta = alertMetaMap.get(c.id) ?? getInboxAlertMeta(c, queueSlaConfig);
                 const previewRaw = c.lastMessage ?? c.lastMessagePreview ?? (c.type === 'ticket' && c.subject ? c.subject : null);
                 const preview = previewRaw != null && String(previewRaw).trim() ? String(previewRaw).trim() : null;
                 const unreadN = getConversationListUnreadCount(c, unreadCounts);
@@ -3033,7 +3161,21 @@ function AtendimentoPageInner() {
                         <span style={{ fontSize: 10, fontWeight: 600, color: S.txt3, textTransform: 'uppercase' as const, letterSpacing: '.06em' }}>Em aberto</span>
                         <span style={{ fontSize: 10, fontWeight: 500, color: S.txt3, background: S.bg2, borderRadius: 10, padding: '1px 7px' }}>{open.length}</span>
                       </div>
-                      {open.map(renderItem)}
+                      {(critN > 0 || warnN > 0) && (
+                        <div style={{ display: 'flex', gap: 6, padding: '0 2px 6px', flexShrink: 0 }}>
+                          {critN > 0 && (
+                            <span style={{ fontSize: 10, fontWeight: 700, color: '#B91C1C', background: '#FEE2E2', padding: '3px 8px', borderRadius: 6 }}>
+                              {critN} crítico{critN > 1 ? 's' : ''}
+                            </span>
+                          )}
+                          {warnN > 0 && (
+                            <span style={{ fontSize: 10, fontWeight: 700, color: '#C2410C', background: '#FFEDD5', padding: '3px 8px', borderRadius: 6 }}>
+                              {warnN} aguardando
+                            </span>
+                          )}
+                        </div>
+                      )}
+                      {sortedOpen.map(renderItem)}
                     </>
                   )}
                   {closed.length > 0 && (

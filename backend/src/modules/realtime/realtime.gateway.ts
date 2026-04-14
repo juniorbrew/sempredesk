@@ -35,7 +35,11 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayDisconnect {
   private baileysSvc: any = null;
   setBaileysService(svc: any) { this.baileysSvc = svc; }
 
-  /** Clock-outs pendentes: "tenantId:userId" → timer (grace period 60s) */
+  /** Injetado via setter em app.module para evitar dependência circular */
+  private pausesSvc: any = null;
+  setPausesService(svc: any) { this.pausesSvc = svc; }
+
+  /** Clock-outs pendentes: "tenantId:userId" → timer (cancelável em reconexão rápida) */
   private readonly pendingClockOuts = new Map<string, ReturnType<typeof setTimeout>>();
 
   /**
@@ -102,18 +106,25 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayDisconnect {
       if (this.assignmentSvc) {
         this.assignmentSvc.redistributeOnAgentOffline(info.tenantId, info.userId).catch(() => {});
       }
-      // Clock-out automático após grace period (60s) — cancela se reconectar
+      // Clock-out com grace period de 10s — mas SOMENTE se o usuário não tiver
+      // outras conexões ativas (outra aba aberta usa outro socket, mantém presença).
+      // O presence.remove() já decrementou o contador Redis; se ainda há sockets
+      // activos, getOnlineIdsAndStatus retorna o userId na lista.
       if (this.attendanceSvc) {
-        const key = `${info.tenantId}:${info.userId}`;
-        const existing = this.pendingClockOuts.get(key);
-        if (existing) clearTimeout(existing);
-        const timer = setTimeout(async () => {
-          this.pendingClockOuts.delete(key);
-          try {
-            await this.attendanceSvc.clockOut(info.tenantId, info.userId, 'Desconexão detectada');
-          } catch {}
-        }, 60_000);
-        this.pendingClockOuts.set(key, timer);
+        const { onlineIds } = await this.presence.getOnlineIdsAndStatus(info.tenantId);
+        const stillOnline = onlineIds.includes(info.userId);
+        if (!stillOnline) {
+          const key = `${info.tenantId}:${info.userId}`;
+          const existing = this.pendingClockOuts.get(key);
+          if (existing) clearTimeout(existing);
+          const timer = setTimeout(async () => {
+            this.pendingClockOuts.delete(key);
+            try {
+              await this.attendanceSvc.clockOut(info.tenantId, info.userId, 'Desconexão detectada');
+            } catch {}
+          }, 10_000);
+          this.pendingClockOuts.set(key, timer);
+        }
       }
     }
   }
@@ -213,6 +224,18 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayDisconnect {
 
       client.join(`tenant:${tenantId}`);
       this.presence.add(tenantId, String(userId), client.id);
+
+      // Bloqueia burla via reconexão: se o agente tem pausa ativa, restaura busy no Redis
+      // e NÃO rebalanceia (ele ainda está fora da distribuição)
+      let hasActivePause = false;
+      if (this.pausesSvc) {
+        const activePause = await this.pausesSvc.getMyPauseState(tenantId, String(userId)).catch(() => null);
+        if (activePause?.status === 'active') {
+          hasActivePause = true;
+          await this.presence.setBusy(tenantId, String(userId)).catch(() => {});
+        }
+      }
+
       const { onlineIds, statusMap } = await this.presence.getOnlineIdsAndStatus(tenantId);
       this.emitter.emitPresence(tenantId, onlineIds, statusMap);
       client.emit('internal-chat:presence', { onlineIds, statusMap });
@@ -224,8 +247,8 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayDisconnect {
         } catch {}
       }
 
-      // Rebalanceia tickets pendentes ao agente entrar online
-      if (this.assignmentSvc) {
+      // Rebalanceia tickets pendentes ao agente entrar online (apenas se não estiver em pausa)
+      if (!hasActivePause && this.assignmentSvc) {
         this.assignmentSvc.rebalanceOnAgentOnline(tenantId, String(userId)).catch(() => {});
       }
     }
@@ -258,6 +281,18 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayDisconnect {
   async handlePresenceSetStatus(client: any, payload: { status: 'online' | 'away' | 'busy' }) {
     const info = this.presence.getSocketInfo(client.id);
     if (!info || !payload?.status) return;
+
+    // Bloqueia burla via socket: agente em pausa ativa não pode alterar o próprio status
+    if (this.pausesSvc) {
+      const activePause = await this.pausesSvc.getMyPauseState(info.tenantId, info.userId).catch(() => null);
+      if (activePause?.status === 'active') {
+        // Força busy de volta no Redis para garantir consistência
+        await this.presence.setBusy(info.tenantId, info.userId).catch(() => {});
+        await this.emitPresenceToTenant(info.tenantId);
+        return;
+      }
+    }
+
     if (await this.presence.setStatusAsync(info.tenantId, info.userId, payload.status)) {
       await this.emitPresenceToTenant(info.tenantId);
     }

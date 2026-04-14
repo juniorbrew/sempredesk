@@ -160,6 +160,8 @@ class ApiClient {
   getConversations = (params?: { channel?: string; hasTicket?: string; status?: string }) =>
     this.http.get('/conversations', { params });
   getConversationsActiveCount = () => this.http.get('/conversations/active-count');
+  getConversationsQueueSlaConfig = () =>
+    this.http.get<{ warningMinutes: number; criticalMinutes: number }>('/conversations/queue-sla-config');
   /** Tickets em aberto (open / in_progress / waiting_client) atribuídos ao agente logado no tenant atual */
   getMyOpenAssignedTicketsCount = () => this.http.get('/tickets/me/open-assigned-count');
   getConversation = (id: string) => this.http.get(`/conversations/${id}`);
@@ -390,6 +392,53 @@ class ApiClient {
 
   adminListAuditLogs = (params?: { limit?: number; offset?: number; action?: string; entityType?: string }) =>
     this.http.get('/admin/audit-logs', { params });
+
+  // ── Pausas de agente ─────────────────────────────────────────────────────────
+
+  /** Lista motivos de pausa ativos do tenant (usado no modal de solicitação) */
+  getPauseReasons = () => this.http.get('/agent-pauses/reasons');
+
+  /** Lista todos os motivos (ativos + inativos) — admin/supervisor */
+  getAllPauseReasons = () => this.http.get('/agent-pauses/reasons/all');
+
+  /** Cria motivo de pausa personalizado */
+  createPauseReason = (data: { name: string; description?: string; requiresApproval?: boolean; sortOrder?: number }) =>
+    this.http.post('/agent-pauses/reasons', data);
+
+  /** Atualiza motivo de pausa */
+  updatePauseReason = (id: string, data: { name?: string; description?: string; requiresApproval?: boolean; active?: boolean; sortOrder?: number }) =>
+    this.http.patch(`/agent-pauses/reasons/${id}`, data);
+
+  /** Agente solicita pausa */
+  requestPause = (data: { reasonId: string; agentObservation?: string }) =>
+    this.http.post('/agent-pauses/request', data);
+
+  /** Agente cancela solicitação pendente */
+  cancelPauseRequest = () => this.http.post('/agent-pauses/cancel', {});
+
+  /** Retorna o estado atual de pausa do próprio agente */
+  getMyPauseState = () => this.http.get('/agent-pauses/my');
+
+  /** Agente encerra a própria pausa ativa */
+  endMyPause = () => this.http.post('/agent-pauses/end', {});
+
+  /** Supervisor: lista solicitações pendentes */
+  getPendingPauseRequests = () => this.http.get('/agent-pauses/pending');
+
+  /** Supervisor: aprova solicitação */
+  approvePauseRequest = (id: string, data?: { reviewerObservation?: string }) =>
+    this.http.post(`/agent-pauses/${id}/approve`, data || {});
+
+  /** Supervisor: rejeita solicitação */
+  rejectPauseRequest = (id: string, data?: { reviewerObservation?: string }) =>
+    this.http.post(`/agent-pauses/${id}/reject`, data || {});
+
+  /** Supervisor: encerra pausa de um agente específico */
+  endAgentPause = (agentId: string) => this.http.post(`/agent-pauses/end/${agentId}`, {});
+
+  /** Histórico de pausas */
+  getPauseHistory = (params?: { agentId?: string; page?: number; perPage?: number }) =>
+    this.http.get('/agent-pauses/history', { params });
 }
 
 export const api = new ApiClient();

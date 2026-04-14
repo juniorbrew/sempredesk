@@ -1505,6 +1505,18 @@ export class TicketsService {
     const saved = await this.ticketRepo.save(ticket);
     await this.syncConversationSlaWithTicket(saved);
 
+    // Notifica a sala ticket:<id> para sincronizar o painel de detalhes em tempo real
+    this.realtimeEmitter.emitTicketUpdated(saved.id, {
+      assignedTo: saved.assignedTo ?? null,
+      status: saved.status,
+      priority: saved.priority,
+      priorityId: saved.priorityId ?? null,
+      department: saved.department ?? null,
+      category: saved.category ?? null,
+      subcategory: saved.subcategory ?? null,
+      tags: saved.tags ?? [],
+    });
+
     if (oldStatus !== saved.status) {
       const fromLabel = STATUS_LABELS_PT[oldStatus] ?? oldStatus;
       const toLabel = STATUS_LABELS_PT[saved.status] ?? saved.status;
@@ -1652,6 +1664,12 @@ export class TicketsService {
       `Chamado atribuído ao técnico: ${techName ?? techId}`,
       MessageType.SYSTEM,
     );
+
+    // Notifica a sala ticket:<id> para atualizar o painel de detalhes em tempo real
+    this.realtimeEmitter.emitTicketUpdated(id, {
+      assignedTo: techId,
+      status: saved.status,
+    });
 
     // Notifica todos os agentes do tenant: atualização geral da fila
     this.realtimeEmitter.emitToTenant(tenantId, 'queue:updated', {

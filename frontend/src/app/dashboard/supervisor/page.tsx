@@ -2,7 +2,8 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { api } from '@/lib/api';
 import { REALTIME_ENABLED } from '@/lib/realtime';
-import { RefreshCw, X, Check, ArrowRightLeft, Send } from 'lucide-react';
+import { RefreshCw, X, Check, ArrowRightLeft, Send, Coffee } from 'lucide-react';
+import { PendingPausesPanel } from '@/components/pause/PendingPausesPanel';
 import { usePresenceStore } from '@/store/presence.store';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -59,6 +60,51 @@ interface Conv {
   status?: string; lastMessageAt?: string; createdAt?: string;
   lastMessage?: string; assignedTo?: string; assignedToName?: string;
   clientName?: string;
+  // Campos de SLA visual (preenchidos pelo findActive do backend)
+  lastClientMessageAt?: string | null;
+  lastAgentMessageAt?: string | null;
+  queuedAt?: string | null;
+  attendanceStartedAt?: string | null;
+  conversationClosedAt?: string | null;
+}
+
+// ── SLA visual (isolado do atendimento/page.tsx) ──────────────────────────────
+type ChannelSlaMs = { warningMs: number; criticalMs: number };
+type SlaConfig = ChannelSlaMs & { byChannel: Record<string, ChannelSlaMs> };
+const DEFAULT_SLA: SlaConfig = { warningMs: 2 * 60_000, criticalMs: 5 * 60_000, byChannel: {} };
+
+type SlaSeverity = 'critical' | 'warning' | 'fresh' | null;
+
+function getConvSlaSeverity(conv: Conv, cfg: SlaConfig): SlaSeverity {
+  if (conv.status === 'closed' || conv.conversationClosedAt) return null;
+  const lastClientAt = conv.lastClientMessageAt ? new Date(conv.lastClientMessageAt) : null;
+  const lastAgentAt  = conv.lastAgentMessageAt  ? new Date(conv.lastAgentMessageAt)  : null;
+  const queuedAt     = conv.queuedAt            ? new Date(conv.queuedAt)            : null;
+  const waitingSince = lastClientAt ?? queuedAt;
+  if (!waitingSince) return null;
+  if (lastAgentAt && lastAgentAt >= waitingSince) return null;
+  const ch = conv.channel ?? '';
+  const { warningMs, criticalMs } = cfg.byChannel[ch] ?? { warningMs: cfg.warningMs, criticalMs: cfg.criticalMs };
+  const ms = Math.max(0, Date.now() - waitingSince.getTime());
+  if (ms >= criticalMs) return 'critical';
+  if (ms >= warningMs)  return 'warning';
+  return 'fresh';
+}
+
+const SEVERITY_RANK: Record<string, number> = { critical: 0, warning: 1, fresh: 2 };
+
+function SlaBadge({ severity }: { severity: SlaSeverity }) {
+  if (!severity) return null;
+  const cfg = {
+    critical: { label: 'Crítico',    color: '#B91C1C', bg: '#FEE2E2' },
+    warning:  { label: 'Aguardando', color: '#C2410C', bg: '#FFEDD5' },
+    fresh:    { label: 'Novo',       color: '#15803D', bg: '#DCFCE7' },
+  }[severity];
+  return (
+    <span style={{ fontSize: 10, fontWeight: 700, color: cfg.color, background: cfg.bg, padding: '3px 8px', borderRadius: 5 }}>
+      {cfg.label}
+    </span>
+  );
 }
 
 // ── constants ─────────────────────────────────────────────────────────────────
@@ -199,11 +245,12 @@ function ChatsCell({ agent, onOpenConv }: { agent: Agent; onOpenConv: (ticketId:
 
 // ── Tabela de agentes (layout estilo Kentro) ──────────────────────────────────
 function AgentTable({
-  agents, onTransfer, onOpenConv,
+  agents, onTransfer, onOpenConv, onEndPause,
 }: {
   agents: Agent[];
   onTransfer: (agentId: string, agentName: string) => void;
   onOpenConv: (ticketId: string) => void;
+  onEndPause?: (agentId: string, agentName: string) => void;
 }) {
   const [, setTick] = useState(0);
 
@@ -213,7 +260,7 @@ function AgentTable({
     return () => clearInterval(t);
   }, []);
 
-  const COLS = ['Agente', 'Fila', 'Estado', 'Chats', 'Finalizados', 'Logado', 'Pausa', 'Funções'];
+  const COLS = ['Agente', 'Estado', 'Chats', 'Finalizados', 'Logado', 'Pausa', 'Funções'];
 
   return (
     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -253,19 +300,6 @@ function AgentTable({
                   <div style={{ fontSize: 11, color: S.txt3 }}>{a.userEmail}</div>
                 </div>
               </div>
-            </td>
-
-            {/* Fila (tickets ativos) */}
-            <td style={{ padding: '12px 12px 12px 0' }}>
-              <span style={{
-                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                minWidth: 28, height: 22, borderRadius: 6, padding: '0 8px',
-                fontSize: 12, fontWeight: 700,
-                background: a.activeTickets > 0 ? '#EEF2FF' : S.bg3,
-                color: a.activeTickets > 0 ? S.accent : S.txt3,
-              }}>
-                {a.activeTickets}
-              </span>
             </td>
 
             {/* Estado — ícone visual */}
@@ -313,6 +347,23 @@ function AgentTable({
             {/* Funções */}
             <td style={{ padding: '12px 0', textAlign: 'right' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end' }}>
+                {/* Encerrar pausa — só para agentes em pausa */}
+                {a.availability === 'paused' && onEndPause && (
+                  <button
+                    onClick={() => onEndPause(a.userId, a.userName)}
+                    title="Encerrar pausa"
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 4,
+                      padding: '4px 10px', borderRadius: 7,
+                      border: '1px solid #D97706',
+                      background: '#FFFBEB', cursor: 'pointer', color: '#D97706',
+                      fontSize: 12, fontWeight: 600,
+                    }}
+                  >
+                    <Coffee size={12} />
+                    Encerrar pausa
+                  </button>
+                )}
                 {/* Transferir todos os atendimentos */}
                 <button
                   onClick={() => onTransfer(a.userId, a.userName)}
@@ -361,6 +412,7 @@ export default function SupervisorPage() {
   const [loading, setLoading] = useState(true);
   const [lastAt, setLastAt]   = useState(new Date());
   const [toast, setToast]     = useState<{ msg: string; ok: boolean } | null>(null);
+  const [slaConfig, setSlaConfig]     = useState<SlaConfig>(DEFAULT_SLA);
 
   // Histórico de ponto
   const [history, setHistory]         = useState<any[]>([]);
@@ -377,21 +429,30 @@ export default function SupervisorPage() {
 
   const showToast = (msg: string, ok = true) => { setToast({ msg, ok }); setTimeout(() => setToast(null), 3500); };
 
+  /**
+   * Contador de versão: garante que respostas de cargas mais antigas sejam descartadas
+   * (evita race condition onde uma resposta lenta sobrescreve dados mais recentes).
+   */
+  const loadIdRef = useRef(0);
+
   const load = useCallback(async (silent = false) => {
+    const myId = ++loadIdRef.current;
     if (!silent) setLoading(true);
     try {
       const [statsRes, convRes, teamRes] = await Promise.all([
         api.getAttendanceQueueStats(),
         api.getConversations({ status: 'active' }),
-        team.length ? Promise.resolve(team) : api.getTeam(),
+        api.getTeam(),
       ]);
+      // Descarta resposta se uma carga mais recente já foi iniciada
+      if (myId !== loadIdRef.current) return;
       setStats(statsRes as any);
       const ca: Conv[] = Array.isArray(convRes) ? convRes : (convRes as any)?.data ?? [];
       setConvs(ca.sort((a,b) => new Date(b.lastMessageAt||b.createdAt||0).getTime() - new Date(a.lastMessageAt||a.createdAt||0).getTime()));
-      if (!team.length) setTeam(Array.isArray(teamRes) ? teamRes : (teamRes as any)?.data ?? []);
+      setTeam(Array.isArray(teamRes) ? teamRes : (teamRes as any)?.data ?? []);
       setLastAt(new Date());
     } catch (e) { console.error(e); }
-    setLoading(false);
+    finally { if (myId === loadIdRef.current) setLoading(false); }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -416,16 +477,19 @@ export default function SupervisorPage() {
     return () => clearInterval(t);
   }, [load]);
 
-  // Reload imediato quando presença muda via WebSocket (agente entra/sai)
-  const prevSizeRef = useRef(onlineIds.size);
+  // Reload imediato quando presença muda — compara CONTEÚDO, não apenas tamanho.
+  // Isso evita o bug onde agente A sai e agente B entra (mesmo tamanho) sem disparar reload.
+  const prevPresenceKeyRef = useRef('');
   useEffect(() => {
-    if (prevSizeRef.current !== onlineIds.size) {
-      prevSizeRef.current = onlineIds.size;
+    const key = [...onlineIds].sort().join(',');
+    if (prevPresenceKeyRef.current !== key) {
+      prevPresenceKeyRef.current = key;
       load(true);
     }
   }, [onlineIds, load]);
 
-  // Reload imediato ao receber evento de transferência/atribuição de ticket
+  // Reload imediato ao receber evento de transferência/atribuição de ticket.
+  // Também re-emite join-tenant ao reconectar para não perder eventos durante queda.
   useEffect(() => {
     if (!REALTIME_ENABLED) return;
     const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
@@ -438,8 +502,12 @@ export default function SupervisorPage() {
       const user = (await import('@/store/auth.store')).useAuthStore.getState().user;
       if (!user?.tenantId) return;
       socket = io(`${WS_BASE}/realtime`, { path: '/socket.io', transports: ['websocket', 'polling'], auth: { token } });
-      socket.emit('join-tenant', { tenantId: user.tenantId, userId: user.id });
+
+      const joinTenant = () => socket.emit('join-tenant', { tenantId: user.tenantId, userId: user.id });
+      joinTenant();
       socket.on('queue:updated', () => load(true));
+      // Ao reconectar, re-entra no room e recarrega para não perder eventos durante a queda
+      socket.on('connect', () => { joinTenant(); load(true); });
     })();
     return () => { if (socket) socket.disconnect(); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -449,6 +517,29 @@ export default function SupervisorPage() {
   useEffect(() => {
     if (tab === 'history') loadHistory(historyDate);
   }, [tab, historyDate, loadHistory]);
+
+  // Carrega config de SLA visual de fila uma vez no mount
+  useEffect(() => {
+    api.getConversationsQueueSlaConfig()
+      .then((d: any) => {
+        const r = d?.data ?? d;
+        const w = Number(r?.warningMinutes);
+        const c = Number(r?.criticalMinutes);
+        const warningMs  = Number.isFinite(w) && w >= 1 ? w * 60_000 : DEFAULT_SLA.warningMs;
+        const criticalMs = Number.isFinite(c) && c > w   ? c * 60_000 : DEFAULT_SLA.criticalMs;
+        const byChannel: Record<string, ChannelSlaMs> = {};
+        for (const [ch, cfg] of Object.entries(r?.byChannel ?? {})) {
+          const cw = Number((cfg as any)?.warningMinutes);
+          const cc = Number((cfg as any)?.criticalMinutes);
+          if (Number.isFinite(cw) && cw >= 1 && Number.isFinite(cc) && cc > cw) {
+            byChannel[ch] = { warningMs: cw * 60_000, criticalMs: cc * 60_000 };
+          }
+        }
+        setSlaConfig({ warningMs, criticalMs, byChannel });
+      })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const agentName = (id?: string) => {
     const u = team.find((u:any) => u.id === id);
@@ -485,6 +576,17 @@ export default function SupervisorPage() {
     setTransferAgentId('');
   };
 
+  const handleEndAgentPause = async (agentId: string, agentName: string) => {
+    if (!window.confirm(`Encerrar a pausa de ${agentName}?`)) return;
+    try {
+      await api.endAgentPause(agentId);
+      showToast(`Pausa de ${agentName} encerrada`);
+      load(true);
+    } catch (e: any) {
+      showToast(e?.response?.data?.message || 'Erro ao encerrar pausa', false);
+    }
+  };
+
   const summary = stats?.summary;
 
   return (
@@ -512,24 +614,34 @@ export default function SupervisorPage() {
       </div>
 
       {/* Cards de resumo */}
-      {summary && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 22 }}>
-          {[
-            { label: 'Online',              value: summary.online,      color: '#16A34A', bg: '#F0FDF4', icon: '🟢' },
-            { label: 'Em pausa',            value: summary.paused,      color: '#D97706', bg: '#FFFBEB', icon: '🟡' },
-            { label: 'Atendimentos ativos', value: convs.filter(c => c.status !== 'closed').length, color: S.accent, bg: '#EEF2FF', icon: '💬' },
-            { label: 'Na fila',             value: summary.queueLength, color: '#DC2626', bg: '#FEF2F2', icon: '⏳' },
-          ].map(({ label, value, color, bg, icon }) => (
-            <div key={label} style={{ background: S.bg, borderRadius: 12, padding: '14px 18px', border: S.border, display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div style={{ width: 40, height: 40, borderRadius: 10, background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>{icon}</div>
-              <div>
-                <div style={{ fontSize: 24, fontWeight: 800, color, lineHeight: 1 }}>{value}</div>
-                <div style={{ fontSize: 11, color: S.txt2, marginTop: 3, fontWeight: 500 }}>{label}</div>
+      {(() => {
+        const activeConvs = convs.filter(c => c.status !== 'closed');
+        const critN = activeConvs.filter(c => getConvSlaSeverity(c, slaConfig) === 'critical').length;
+        const warnN = activeConvs.filter(c => getConvSlaSeverity(c, slaConfig) === 'warning').length;
+        return (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 12, marginBottom: 22 }}>
+            {[
+              { label: 'Online',              value: summary?.online ?? 0,      color: '#16A34A', bg: '#F0FDF4', icon: '🟢' },
+              { label: 'Em pausa',            value: summary?.paused ?? 0,      color: '#D97706', bg: '#FFFBEB', icon: '🟡' },
+              { label: 'Atendimentos ativos', value: activeConvs.length,         color: S.accent,  bg: '#EEF2FF', icon: '💬' },
+              { label: 'Na fila',             value: summary?.queueLength ?? 0, color: '#DC2626', bg: '#FEF2F2', icon: '⏳' },
+              { label: 'Críticos',            value: critN,                      color: '#B91C1C', bg: '#FEF2F2', icon: '🔴' },
+              { label: 'Aguardando',          value: warnN,                      color: '#C2410C', bg: '#FFF7ED', icon: '🟠' },
+            ].map(({ label, value, color, bg, icon }) => (
+              <div key={label} style={{ background: S.bg, borderRadius: 12, padding: '14px 18px', border: S.border, display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ width: 40, height: 40, borderRadius: 10, background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>{icon}</div>
+                <div>
+                  <div style={{ fontSize: 24, fontWeight: 800, color, lineHeight: 1 }}>{value}</div>
+                  <div style={{ fontSize: 11, color: S.txt2, marginTop: 3, fontWeight: 500 }}>{label}</div>
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
-      )}
+            ))}
+          </div>
+        );
+      })()}
+
+      {/* Painel de solicitações de pausa pendentes */}
+      <PendingPausesPanel />
 
       {/* Abas */}
       <div style={{ background: S.bg, borderRadius: 14, border: S.border, overflow: 'hidden' }}>
@@ -559,22 +671,70 @@ export default function SupervisorPage() {
           ) : (
             <>
               {/* ── ABA AGENTES ─────────────────────────────────────────────── */}
-              {tab === 'agents' && (
-                <div>
-                  {(stats?.agents.length ?? 0) === 0 ? (
-                    <div style={{ padding: 48, textAlign: 'center', color: S.txt3 }}>
-                      <div style={{ fontSize: 32, marginBottom: 8, opacity: .3 }}>👤</div>
-                      <p style={{ margin: 0, fontSize: 13 }}>Nenhum agente em turno no momento</p>
-                    </div>
-                  ) : (
-                    <AgentTable
-                      agents={stats!.agents}
-                      onTransfer={openAgentTransfer}
-                      onOpenConv={openConvTransfer}
-                    />
-                  )}
-                </div>
-              )}
+              {tab === 'agents' && (() => {
+                // Usuários online (presença WebSocket) mas sem turno ativo no attendance
+                const clockedInIds = new Set((stats?.agents ?? []).map(a => a.userId));
+                const onlineNoShift = team.filter(u => onlineIds.has(u.id) && !clockedInIds.has(u.id));
+                return (
+                  <div>
+                    {(stats?.agents.length ?? 0) === 0 && onlineNoShift.length === 0 ? (
+                      <div style={{ padding: 48, textAlign: 'center', color: S.txt3 }}>
+                        <div style={{ fontSize: 32, marginBottom: 8, opacity: .3 }}>👤</div>
+                        <p style={{ margin: 0, fontSize: 13 }}>Nenhum agente em turno no momento</p>
+                      </div>
+                    ) : (
+                      <>
+                        {(stats?.agents.length ?? 0) > 0 && (
+                          <AgentTable
+                            agents={stats!.agents}
+                            onTransfer={openAgentTransfer}
+                            onOpenConv={openConvTransfer}
+                            onEndPause={handleEndAgentPause}
+                          />
+                        )}
+                        {onlineNoShift.length > 0 && (
+                          <div style={{ marginTop: (stats?.agents.length ?? 0) > 0 ? 24 : 0 }}>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: S.txt3, textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 10 }}>
+                              Online · Sem turno ativo ({onlineNoShift.length})
+                            </div>
+                            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                              <tbody>
+                                {onlineNoShift.map(u => (
+                                  <tr key={u.id} style={{ borderBottom: S.border }}
+                                    onMouseEnter={e => (e.currentTarget.style.background = S.bg2)}
+                                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                                  >
+                                    <td style={{ padding: '10px 12px 10px 0', width: 36 }}>
+                                      <div style={{ width: 32, height: 32, borderRadius: '50%', background: avatarBg(u.name || u.email || '?'), color: '#fff', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                        {initials(u.name || u.email || '?')}
+                                      </div>
+                                    </td>
+                                    <td style={{ padding: '10px 12px 10px 0' }}>
+                                      <div style={{ fontSize: 13, fontWeight: 600, color: S.txt }}>{u.name || '—'}</div>
+                                      <div style={{ fontSize: 11, color: S.txt3 }}>{u.email || ''}</div>
+                                    </td>
+                                    <td style={{ padding: '10px 12px 10px 0' }}>
+                                      <span style={{ fontSize: 11, fontWeight: 600, color: '#0891B2', background: '#E0F2FE', padding: '3px 8px', borderRadius: 5 }}>
+                                        {u.role === 'admin' ? 'Admin' : u.role === 'supervisor' ? 'Supervisor' : 'Agente'}
+                                      </span>
+                                    </td>
+                                    <td style={{ padding: '10px 0' }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                        <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#16A34A' }} />
+                                        <span style={{ fontSize: 11, color: S.txt2 }}>Conectado · sem registro de ponto</span>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* ── ABA ATENDIMENTOS ─────────────────────────────────────────── */}
               {tab === 'conversations' && (
@@ -588,7 +748,7 @@ export default function SupervisorPage() {
                     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                       <thead>
                         <tr>
-                          {['Contato', 'Canal', 'Agente', 'Ticket', 'Aguarda', ''].map(h => (
+                          {['Contato', 'Canal', 'Agente', 'Ticket', 'Aguarda', 'SLA', ''].map(h => (
                             <th key={h} style={{ textAlign: 'left', fontSize: 10, fontWeight: 700, color: S.txt3, textTransform: 'uppercase', letterSpacing: '.06em', padding: '0 12px 10px 0', borderBottom: S.border }}>
                               {h}
                             </th>
@@ -596,9 +756,12 @@ export default function SupervisorPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {convs.filter(c => c.status !== 'closed').map(c => {
+                        {[...convs.filter(c => c.status !== 'closed')]
+                          .sort((a, b) => (SEVERITY_RANK[getConvSlaSeverity(a, slaConfig) ?? ''] ?? 3) - (SEVERITY_RANK[getConvSlaSeverity(b, slaConfig) ?? ''] ?? 3))
+                          .map(c => {
                           const isWa = c.channel === 'whatsapp';
                           const agent = c.assignedToName || agentName(c.assignedTo);
+                          const slaSev = getConvSlaSeverity(c, slaConfig);
                           return (
                             <tr key={c.id} style={{ borderBottom: S.border }}
                               onMouseEnter={e => (e.currentTarget.style.background = S.bg2)}
@@ -632,6 +795,9 @@ export default function SupervisorPage() {
                               </td>
                               <td style={{ padding: '12px 12px 12px 0' }}>
                                 <span style={{ fontSize: 12, color: S.txt3 }}>{timeAgo(c.lastMessageAt || c.createdAt || new Date().toISOString())}</span>
+                              </td>
+                              <td style={{ padding: '12px 12px 12px 0' }}>
+                                <SlaBadge severity={slaSev} />
                               </td>
                               <td style={{ padding: '12px 0' }}>
                                 {c.ticketId && (

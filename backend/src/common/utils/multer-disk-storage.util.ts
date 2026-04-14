@@ -61,6 +61,21 @@ export function conversationMediaDiskStorage() {
         else if (mime.includes('3gpp')) ext = '3gp';
         else ext = 'mp4';
       } else if (mime.startsWith('audio/')) ext = 'm4a';
+      // Documentos: preserva extensão correta para que o WhatsApp exiba o tipo certo
+      else if (mime === 'application/pdf') ext = 'pdf';
+      else if (mime === 'text/plain') ext = 'txt';
+      else if (mime === 'text/csv' || mime === 'application/csv') ext = 'csv';
+      else if (mime === 'application/msword') ext = 'doc';
+      else if (mime.includes('wordprocessingml')) ext = 'docx';
+      else if (mime === 'application/vnd.ms-excel') ext = 'xls';
+      else if (mime.includes('spreadsheetml')) ext = 'xlsx';
+      else if (mime === 'application/zip' || mime === 'application/x-zip-compressed') ext = 'zip';
+      else if (mime.includes('rar')) ext = 'rar';
+      else {
+        // Fallback: tenta preservar extensão do nome original
+        const origExt = path.extname((file as any).originalname || '').replace(/^\./, '').toLowerCase();
+        if (origExt && /^[a-z0-9]{1,6}$/.test(origExt)) ext = origExt;
+      }
       cb(null, `agent-${crypto.randomUUID()}.${ext}`);
     },
   });

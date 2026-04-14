@@ -43,6 +43,10 @@ export class ConversationMessage {
   @Column({ name: 'media_mime', type: 'varchar', length: 128, nullable: true })
   mediaMime: string | null;
 
+  /** Nome original do arquivo enviado/recebido (ex.: "relatorio.pdf"). Exibido no chat. */
+  @Column({ name: 'media_original_filename', type: 'text', nullable: true })
+  mediaOriginalFilename: string | null;
+
   /** ID externo da mensagem no WhatsApp (Baileys key.id). Nulo para mensagens de chat/portal. */
   @Column({ name: 'external_id', nullable: true, type: 'text' })
   externalId: string | null;

@@ -73,6 +73,16 @@ export class RealtimeEmitterService {
   }
 
   /**
+   * Emite atualização de campos do ticket para a sala ticket:<id>.
+   * Usado quando assignedTo, status ou outros campos mudam externamente
+   * (round-robin, transferência manual) para manter o frontend sincronizado.
+   */
+  emitTicketUpdated(ticketId: string, patch: Record<string, any>) {
+    if (!this.server) return;
+    this.server.to(`ticket:${ticketId}`).emit('ticket:updated', { ticketId, ...patch });
+  }
+
+  /**
    * Emite a lista de agentes visualizando um ticket no momento.
    * Todos os sockets na sala ticket:{ticketId} recebem o evento "ticket:viewers".
    *

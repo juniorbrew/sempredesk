@@ -143,6 +143,14 @@ export class ConversationsController {
 
   @UseGuards(JwtAuthGuard, PermissionsGuard)
   @RequirePermission('ticket.view')
+  @Get('queue-sla-config')
+  async getQueueSlaConfig(@Request() req: any, @TenantId() tenantId: string) {
+    if (req.user?.isPortal) throw new ForbiddenException('Endpoint disponivel apenas para a equipe interna');
+    return this.conversationsService.getQueueSlaConfig(tenantId);
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermission('ticket.view')
   @Get('active-count')
   async getActiveCount(@Request() req: any, @TenantId() tenantId: string) {
     if (req.user?.isPortal) throw new ForbiddenException('Endpoint disponivel apenas para a equipe interna');
@@ -288,8 +296,10 @@ export class ConversationsController {
     let mediaKind: 'image' | 'audio' | 'video' | 'file' | null = null;
     let mediaStorageKey: string | null = null;
     let mediaMime: string | null = null;
+    let mediaOriginalFilename: string | null = null;
     if (file?.path && (file.size ?? 0) > 0) {
       const origName = String((file as { originalname?: string }).originalname || '');
+      mediaOriginalFilename = origName || null;
       let mime = normalizeConversationDeclaredMime(
         String(file.mimetype || '')
           .split(';')[0]
@@ -344,6 +354,7 @@ export class ConversationsController {
       mediaKind,
       mediaStorageKey,
       mediaMime,
+      mediaOriginalFilename,
       mediaCaption: contentRaw || null,
       replyToId: dto.replyToId || null,
     });

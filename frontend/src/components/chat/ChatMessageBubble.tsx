@@ -124,15 +124,17 @@ function bubbleFileTypeLabel(mime: string): string {
   return 'Arquivo';
 }
 
-function bubbleFileDownloadName(m: { content?: string | null; mediaMime?: string | null }): string {
-  const line = String(m.content || '')
-    .trim()
-    .split('\n')
-    .pop()
-    ?.trim();
+function bubbleFileDownloadName(m: { content?: string | null; mediaMime?: string | null; mediaOriginalFilename?: string | null }): string {
+  // Prioridade 1: nome original salvo no banco (inbound e outbound)
+  if (m.mediaOriginalFilename) return m.mediaOriginalFilename;
+  // Prioridade 2: última linha do content (pode conter nome do arquivo como fallback)
+  const rawLine = String(m.content || '').trim().split('\n').pop()?.trim() ?? '';
+  // Remove prefixo de emoji de documento (📎 ) se presente
+  const line = rawLine.replace(/^📎\s*/, '').trim();
   if (line && line.length <= 200 && /\.[a-z0-9]{2,8}$/i.test(line) && !/[\\/:*?"<>|\r\n]/.test(line)) {
     return line;
   }
+  // Prioridade 3: derivar extensão pelo MIME
   const mime = String(m.mediaMime || '').toLowerCase().split(';')[0].trim();
   let ext = 'bin';
   if (mime === 'application/pdf') ext = 'pdf';
@@ -145,6 +147,16 @@ function bubbleFileDownloadName(m: { content?: string | null; mediaMime?: string
   else if (mime === 'application/zip' || mime === 'application/x-zip-compressed') ext = 'zip';
   else if (mime === 'application/x-rar-compressed' || mime === 'application/vnd.rar') ext = 'rar';
   return `anexo.${ext}`;
+}
+
+function bubbleFileDisplayName(m: { content?: string | null; mediaOriginalFilename?: string | null }): string {
+  if (m.mediaOriginalFilename) return m.mediaOriginalFilename;
+  const rawLine = String(m.content || '').trim().split('\n').pop()?.trim() ?? '';
+  const line = rawLine.replace(/^📎\s*/, '').trim();
+  if (line && line.length <= 200 && /\.[a-z0-9]{2,8}$/i.test(line) && !/[\\/:*?"<>|\r\n]/.test(line)) {
+    return line;
+  }
+  return 'Arquivo';
 }
 
 function chatPalette(theme: 'light' | 'dark'): ChatPalette {
@@ -222,7 +234,9 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
     (m.content === '📷 Imagem' ||
       m.content === '🎤 Áudio' ||
       m.content === '📹 Vídeo' ||
-      m.content === '📎 Documento');
+      m.content === '📎 Documento' ||
+      // Oculta "📎 nome.pdf" quando o card de arquivo já exibe o nome
+      (bubbleMedia === 'file' && String(m.content || '').startsWith('📎 ')));
   const showCaption = !!(m.content && !hidePlaceholderCaption);
 
   const bubbleMax = density === 'compact' ? 580 : 520;
@@ -466,44 +480,86 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                flexWrap: 'wrap',
-                gap: density === 'compact' ? 5 : 6,
+                gap: density === 'compact' ? 8 : 10,
                 marginBottom: showCaption ? replyMb : 0,
                 maxWidth: '100%',
                 minWidth: 0,
+                padding: density === 'compact' ? '6px 8px' : '8px 10px',
+                borderRadius: 8,
+                background: isContact
+                  ? theme === 'dark' ? 'rgba(148,163,184,0.10)' : 'rgba(0,0,0,0.05)'
+                  : theme === 'dark' ? 'rgba(139,92,246,0.18)' : 'rgba(91,33,182,0.08)',
+                border: `1px solid ${isContact
+                  ? theme === 'dark' ? 'rgba(148,163,184,0.18)' : 'rgba(0,0,0,0.08)'
+                  : theme === 'dark' ? 'rgba(167,139,250,0.25)' : 'rgba(91,33,182,0.15)'}`,
               }}
             >
-              <span style={{ fontSize: density === 'compact' ? 12 : 13, fontWeight: 600, color: bubbleBase.color }}>
-                {bubbleFileTypeLabel(String(m.mediaMime || ''))}
-              </span>
-              <span style={{ fontSize: 11, color: P.loadingText }}>—</span>
-              <a
-                href={resolvedMediaSrc}
-                target="_blank"
-                rel="noopener noreferrer"
+              {/* Ícone do tipo de arquivo */}
+              <div
                 style={{
-                  fontSize: density === 'compact' ? 12 : 13,
-                  fontWeight: 700,
-                  color: isContact ? '#0D9488' : '#5B21B6',
-                  textDecoration: 'none',
+                  flexShrink: 0,
+                  width: density === 'compact' ? 32 : 36,
+                  height: density === 'compact' ? 32 : 36,
+                  borderRadius: 6,
+                  background: isContact ? '#0D9488' : '#5B21B6',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: density === 'compact' ? 10 : 11,
+                  fontWeight: 800,
+                  color: '#fff',
+                  letterSpacing: 0,
+                  textTransform: 'uppercase',
                 }}
               >
-                Abrir
-              </a>
-              <span style={{ fontSize: 11, color: P.loadingText }}>•</span>
-              <a
-                href={resolvedMediaSrc}
-                download={bubbleFileDownloadName(m)}
-                rel="noopener"
-                style={{
-                  fontSize: density === 'compact' ? 12 : 13,
-                  fontWeight: 700,
-                  color: isContact ? '#0D9488' : '#5B21B6',
-                  textDecoration: 'none',
-                }}
-              >
-                Baixar
-              </a>
+                {bubbleFileTypeLabel(String(m.mediaMime || '')).slice(0, 4)}
+              </div>
+              {/* Nome e ações */}
+              <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <span
+                  style={{
+                    fontSize: density === 'compact' ? 12 : 13,
+                    fontWeight: 600,
+                    color: bubbleBase.color,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    maxWidth: '100%',
+                  }}
+                  title={bubbleFileDisplayName(m)}
+                >
+                  {bubbleFileDisplayName(m)}
+                </span>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <a
+                    href={resolvedMediaSrc}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      fontSize: density === 'compact' ? 11 : 12,
+                      fontWeight: 600,
+                      color: isContact ? '#0D9488' : '#5B21B6',
+                      textDecoration: 'none',
+                    }}
+                  >
+                    Abrir
+                  </a>
+                  <span style={{ fontSize: 10, color: P.loadingText }}>·</span>
+                  <a
+                    href={resolvedMediaSrc}
+                    download={bubbleFileDownloadName(m)}
+                    rel="noopener"
+                    style={{
+                      fontSize: density === 'compact' ? 11 : 12,
+                      fontWeight: 600,
+                      color: isContact ? '#0D9488' : '#5B21B6',
+                      textDecoration: 'none',
+                    }}
+                  >
+                    Baixar
+                  </a>
+                </div>
+              </div>
             </div>
           )}
           {mediaLoading && (

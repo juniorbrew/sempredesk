@@ -30,7 +30,7 @@ type MainNavItem = {
 const MAIN_ITEMS: MainNavItem[] = [
   { href: '/dashboard',              icon: LayoutDashboard, label: 'Dashboard',             perm: 'dashboard.view' },
   { href: '/dashboard/atendimento',  icon: MessageCircle,   label: 'Atendimento',           perm: 'attendance.view', badgeKey: 'atendimento' },
-  { href: '/dashboard/supervisor',   icon: Activity,        label: 'Supervisor',             perm: 'settings.manage' },
+  { href: '/dashboard/supervisor',   icon: Activity,        label: 'Supervisor',             perm: 'attendance.view_all' },
   { href: '/dashboard/chat-interno', icon: MessageSquare,   label: 'Chat interno',           perm: 'chat.view' },
   { href: '/dashboard/tickets',      icon: Ticket,          label: 'Tickets',                perm: 'ticket.view', badgeKey: 'tickets' },
   { href: '/dashboard/contracts',    icon: FileText,        label: 'Contratos',              perm: 'contracts.view' },
@@ -229,18 +229,10 @@ export default function NavSidebar({ isOpen, onClose, expanded = false, onToggle
     } catch {}
   };
 
-  useRealtimeTenantNewMessages((msg) => {
+  useRealtimeTenantNewMessages(() => {
+    // Apenas recarrega contadores — a notificação sonora/toast é disparada pelo useEffect
+    // de atendimentoKeys abaixo, que já filtra pelos tickets DO AGENTE (não de todos do tenant).
     void refetch();
-    if (pathname === '/dashboard/atendimento') return;
-
-    const id = String(msg?.conversationId || '');
-    const now = Date.now();
-    const lastAt = notifiedRef.current[id] || 0;
-    if (id && now - lastAt < 20_000) return;
-    if (id) notifiedRef.current[id] = now;
-
-    const label = String(msg?.contactName || msg?.preview || 'Novo chamado').trim() || 'Novo chamado';
-    notifyGlobalAttendance(`Novo chamado: ${label}`);
   });
 
   useRealtimeTicketAssigned(() => {
