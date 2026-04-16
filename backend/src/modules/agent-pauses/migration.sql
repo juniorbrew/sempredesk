@@ -16,6 +16,8 @@ CREATE TABLE IF NOT EXISTS pause_reasons (
   created_at          TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
   updated_at          TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
 
+  max_duration_minutes    INTEGER,
+
   CONSTRAINT uq_pause_reason_tenant_name UNIQUE (tenant_id, name)
 );
 
@@ -51,6 +53,9 @@ CREATE TABLE IF NOT EXISTS agent_pause_requests (
   ended_at                  TIMESTAMPTZ,
   duration_seconds          INTEGER,
 
+  -- Duração máxima copiada do motivo (null = livre / sem limite de tempo)
+  max_duration_minutes      INTEGER,
+
   -- Auditoria: status de presença antes da pausa (para restauração)
   previous_presence_status  VARCHAR(20),
 
@@ -68,6 +73,12 @@ CREATE INDEX IF NOT EXISTS idx_pause_req_status
 CREATE UNIQUE INDEX IF NOT EXISTS uq_pause_req_agent_active
   ON agent_pause_requests (tenant_id, agent_id)
   WHERE status IN ('pending', 'active');
+
+-- =============================================================================
+-- Colunas incrementais (para bancos já criados com a versão anterior):
+-- =============================================================================
+ALTER TABLE pause_reasons          ADD COLUMN IF NOT EXISTS max_duration_minutes INTEGER;
+ALTER TABLE agent_pause_requests   ADD COLUMN IF NOT EXISTS max_duration_minutes INTEGER;
 
 -- =============================================================================
 -- Rollback (executar em ordem inversa para desfazer):

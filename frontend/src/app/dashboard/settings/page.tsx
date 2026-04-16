@@ -9,6 +9,7 @@ import {
   Eye, EyeOff, Send, ChevronRight, Lock, Bell, Key, Plus,
   Trash2, Edit2, Copy, Shield, ShieldCheck, Globe, Inbox, Bot,
   ToggleLeft, ToggleRight, ChevronUp, ChevronDown, MessageSquare, Zap, Smartphone, Users,
+  Coffee,
 } from 'lucide-react';
 import PerfisPage from '../perfis/page';
 
@@ -214,7 +215,7 @@ export default function SettingsPage() {
   const searchParams = useSearchParams();
   const [settings, setSettings] = useState<Settings>(DEFAULT);
   const [profile, setProfile] = useState({ name:'', email:'', phone:'', currentPassword:'', newPassword:'', confirmPassword:'' });
-  const [tab, setTab] = useState<'company'|'smtp'|'sla'|'visual'|'profile'|'perfis'|'notifications'|'business_hours'|'routing'|'webhooks'|'apikeys'|'inbound_email'|'chatbot'>('company');
+  const [tab, setTab] = useState<'company'|'smtp'|'sla'|'visual'|'profile'|'perfis'|'notifications'|'business_hours'|'routing'|'webhooks'|'apikeys'|'inbound_email'|'chatbot'|'pause_reasons'>('company');
   // Perfis (roles & permissions)
   const [allPerms, setAllPerms] = useState<Record<string, any[]>>({});
   const [roles, setRoles] = useState<any[]>([]);
@@ -252,6 +253,12 @@ export default function SettingsPage() {
   const [keyForm, setKeyForm] = useState<any>({ name:'', permissions:['read'], expiresAt:'' });
   const [showKeyForm, setShowKeyForm] = useState(false);
   const [newKeyValue, setNewKeyValue] = useState<string|null>(null);
+  // Motivos de Pausa
+  const [pauseReasons, setPauseReasons] = useState<any[]>([]);
+  const [prForm, setPrForm] = useState<{ name: string; description: string; requiresApproval: boolean; maxDurationMinutes: string; active: boolean; sortOrder: number }>({ name: '', description: '', requiresApproval: true, maxDurationMinutes: '', active: true, sortOrder: 0 });
+  const [showPrForm, setShowPrForm] = useState(false);
+  const [editingPrId, setEditingPrId] = useState<string | null>(null);
+  const [prSaving, setPrSaving] = useState(false);
   // SLA Policies
   const [slaPolicies, setSlaPolicies] = useState<any[]>([]);
   const [slaForm, setSlaForm] = useState<SlaFormState>(createEmptySlaForm());
@@ -259,11 +266,11 @@ export default function SettingsPage() {
   const [editingSlaId, setEditingSlaId] = useState<string|null>(null);
   const [slaSaving, setSlaSaving] = useState(false);
   const [slaReport, setSlaReport] = useState<{ breached: any[]; atRisk: any[]; conversations: { breached: any[]; atRisk: any[] } } | null>(null);
-  const tabKeys = ['company','smtp','sla','visual','profile','perfis','notifications','business_hours','routing','webhooks','apikeys','inbound_email','chatbot'] as const;
+  const tabKeys = ['company','smtp','sla','visual','profile','perfis','notifications','business_hours','routing','webhooks','apikeys','inbound_email','chatbot','pause_reasons'] as const;
 
   const load = useCallback(async () => {
     try {
-      const [s, me, t, r, wh, ak, bot, bst, depts, permsData, rolesData, slaData, slaRep] = await Promise.all([
+      const [s, me, t, r, wh, ak, bot, bst, depts, permsData, rolesData, slaData, slaRep, prData] = await Promise.all([
         (api as any).getSettings(), api.me(), api.getTeam(),
         (api as any).getRoutingRules(), (api as any).getWebhooks(), (api as any).getApiKeys(),
         (api as any).getChatbotConfig().catch(() => null),
@@ -273,6 +280,7 @@ export default function SettingsPage() {
         (api as any).getRoles().catch(() => null),
         (api as any).getSlaPolicies().catch(() => null),
         (api as any).slaReport().catch(() => null),
+        api.getAllPauseReasons().catch(() => null),
       ]);
       if (s) setSettings(coalesceSettings(s));
       if (me) {
@@ -310,6 +318,10 @@ export default function SettingsPage() {
         setSlaPolicies(slaList);
       }
       if (slaRep) setSlaReport(slaRep);
+      if (prData) {
+        const list = Array.isArray(prData) ? prData : Array.isArray((prData as any)?.data) ? (prData as any).data : [];
+        setPauseReasons(list);
+      }
     } catch {
       setLoadError('Falha ao carregar configurações. Verifique a conexão.');
     }
@@ -478,6 +490,56 @@ export default function SettingsPage() {
   };
   const updBotItem = (i: number, p: Partial<ChatbotMenuItem>) => setBotMenu(m => m.map((x,j) => j===i ? { ...x, ...p } : x));
 
+  // ── Motivos de Pausa CRUD ─────────────────────────────────────────────────────
+  const prFormEmpty = { name: '', description: '', requiresApproval: true, maxDurationMinutes: '', active: true, sortOrder: 0 };
+
+  const savePauseReason = async () => {
+    if (!prForm.name.trim()) return;
+    setPrSaving(true);
+    try {
+      const maxMin = prForm.maxDurationMinutes !== '' ? Number(prForm.maxDurationMinutes) : null;
+      const payload = {
+        name: prForm.name.trim(),
+        description: prForm.description.trim() || undefined,
+        requiresApproval: prForm.requiresApproval,
+        maxDurationMinutes: maxMin && maxMin > 0 ? maxMin : null,
+        active: prForm.active,
+        sortOrder: prForm.sortOrder,
+      };
+      if (editingPrId) { await api.updatePauseReason(editingPrId, payload); }
+      else { await api.createPauseReason(payload); }
+      setShowPrForm(false);
+      setEditingPrId(null);
+      setPrForm(prFormEmpty);
+      const fresh = await api.getAllPauseReasons().catch(() => null);
+      if (fresh) {
+        const list = Array.isArray(fresh) ? fresh : Array.isArray((fresh as any)?.data) ? (fresh as any).data : [];
+        setPauseReasons(list);
+      }
+    } catch (e: any) { alert(e?.response?.data?.message || 'Erro ao salvar motivo'); }
+    setPrSaving(false);
+  };
+
+  const editPauseReason = (r: any) => {
+    setPrForm({
+      name: r.name || '',
+      description: r.description || '',
+      requiresApproval: !!r.requiresApproval,
+      maxDurationMinutes: r.maxDurationMinutes != null ? String(r.maxDurationMinutes) : '',
+      active: !!r.active,
+      sortOrder: r.sortOrder || 0,
+    });
+    setEditingPrId(r.id);
+    setShowPrForm(true);
+  };
+
+  const togglePauseReasonActive = async (r: any) => {
+    try {
+      await api.updatePauseReason(r.id, { active: !r.active });
+      setPauseReasons(prev => prev.map(x => x.id === r.id ? { ...x, active: !x.active } : x));
+    } catch {}
+  };
+
   const TABS = [
     { key:'company', label:'Empresa', icon:Building2 },
     { key:'smtp', label:'E-mail (SMTP)', icon:Mail },
@@ -490,6 +552,7 @@ export default function SettingsPage() {
     { key:'apikeys', label:'Chaves de API', icon:Key },
     { key:'inbound_email', label:'E-mail Recebido', icon:Inbox },
     { key:'chatbot', label:'Chatbot', icon:Bot },
+    { key:'pause_reasons', label:'Motivos de Pausa', icon:Coffee },
     { key:'perfis', label:'Perfis e Permissões', icon:ShieldCheck },
     { key:'profile', label:'Meu perfil', icon:User },
   ] as const;
@@ -505,7 +568,7 @@ export default function SettingsPage() {
           <h1 style={{ fontSize:22, fontWeight:800, color:'#0F172A', letterSpacing:'-0.015em', margin:0 }}>Configurações</h1>
           <p style={{ fontSize:12, color:'#94A3B8', marginTop:3 }}>Configure os parâmetros globais do sistema de suporte</p>
         </div>
-        {!['profile','perfis','routing','webhooks','apikeys','inbound_email','chatbot','sla'].includes(tab) && (
+        {!['profile','perfis','routing','webhooks','apikeys','inbound_email','chatbot','sla','pause_reasons'].includes(tab) && (
           <div className="flex items-center gap-3">
             {saveError && <span style={{ fontSize:12, fontWeight:600, color:'#DC2626' }}>{saveError}</span>}
             <button onClick={handleSave} disabled={saving} className="btn-primary">
@@ -1548,6 +1611,148 @@ X-Api-Secret: {INBOUND_EMAIL_SECRET}`}</pre>
                 {saving?<RefreshCw className="w-4 h-4 animate-spin"/>:saved?<CheckCircle className="w-4 h-4"/>:<Save className="w-4 h-4"/>}
                 {saved?'Salvo!':'Salvar perfil'}
               </button>
+            </div>
+          )}
+
+          {/* ── Motivos de Pausa ──────────────────────────────────────────────── */}
+          {tab === 'pause_reasons' && (
+            <div className="space-y-5">
+              <div>
+                <h2 style={{ fontSize:16, fontWeight:700, color:'#0F172A', margin:0 }}>Motivos de pausa</h2>
+                <p style={{ fontSize:13, color:'#94A3B8', marginTop:3 }}>
+                  Configure os motivos disponíveis quando um agente solicitar pausa.
+                  Motivos marcados como <strong>Livre</strong> não têm limite de tempo.
+                </p>
+              </div>
+
+              {/* Lista */}
+              <div style={{ borderRadius:12, border:'1.5px solid #E2E8F0', overflow:'hidden' }}>
+                <div style={{ padding:'10px 16px', background:'#F8FAFC', borderBottom:'1.5px solid #E2E8F0', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                    <Coffee className="w-4 h-4" style={{ color:'#6366F1' }} />
+                    <p style={{ fontSize:13, fontWeight:700, color:'#0F172A', margin:0 }}>
+                      Motivos cadastrados
+                    </p>
+                    <span style={{ fontSize:11, background:'#E0E7FF', color:'#4338CA', borderRadius:99, padding:'1px 8px', fontWeight:600 }}>
+                      {pauseReasons.length}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => { setPrForm(prFormEmpty); setEditingPrId(null); setShowPrForm(true); }}
+                    style={{ display:'flex', alignItems:'center', gap:5, padding:'6px 12px', background:'#4F46E5', color:'#fff', border:'none', borderRadius:8, fontSize:12, fontWeight:600, cursor:'pointer' }}
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Novo motivo
+                  </button>
+                </div>
+
+                {pauseReasons.length === 0 ? (
+                  <div style={{ padding:'24px', textAlign:'center', fontSize:13, color:'#94A3B8' }}>
+                    Nenhum motivo cadastrado. Os padrões serão criados automaticamente na primeira solicitação de pausa.
+                  </div>
+                ) : (
+                  pauseReasons.map((r: any) => (
+                    <div key={r.id} style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 16px', borderBottom:'1px solid #F1F5F9' }}>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                          <span style={{ fontSize:14, fontWeight:600, color: r.active ? '#0F172A' : '#94A3B8' }}>{r.name}</span>
+                          {!r.active && <span style={{ fontSize:10, background:'#F1F5F9', color:'#94A3B8', borderRadius:4, padding:'1px 6px', fontWeight:600 }}>INATIVO</span>}
+                          {r.requiresApproval && <span style={{ fontSize:10, background:'#FEF3C7', color:'#92400E', borderRadius:4, padding:'1px 6px', fontWeight:600 }}>APROVAÇÃO</span>}
+                        </div>
+                        {r.description && <p style={{ fontSize:12, color:'#94A3B8', margin:'2px 0 0' }}>{r.description}</p>}
+                      </div>
+                      {/* Badge de duração */}
+                      <span style={{
+                        fontSize:12, fontWeight:700,
+                        background: r.maxDurationMinutes ? '#EEF2FF' : '#F0FDF4',
+                        color: r.maxDurationMinutes ? '#4338CA' : '#15803D',
+                        borderRadius:8, padding:'3px 10px', whiteSpace:'nowrap' as const,
+                      }}>
+                        {r.maxDurationMinutes
+                          ? (r.maxDurationMinutes < 60 ? `${r.maxDurationMinutes} min` : `${Math.floor(r.maxDurationMinutes/60)}h${r.maxDurationMinutes%60?` ${r.maxDurationMinutes%60}min`:''}`)
+                          : 'Livre'}
+                      </span>
+                      {/* Ações */}
+                      <button onClick={() => editPauseReason(r)} title="Editar"
+                        style={{ background:'none', border:'none', cursor:'pointer', color:'#64748B', padding:4 }}>
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </button>
+                      <button onClick={() => togglePauseReasonActive(r)} title={r.active ? 'Desativar' : 'Ativar'}
+                        style={{ background:'none', border:'none', cursor:'pointer', color: r.active ? '#64748B' : '#4F46E5', padding:4 }}>
+                        {r.active ? <ToggleRight className="w-4 h-4" /> : <ToggleLeft className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* Formulário de criação / edição */}
+              {showPrForm && (
+                <div style={{ borderRadius:12, border:'1.5px solid #C7D2FE', background:'#F5F3FF', padding:'20px' }}>
+                  <h3 style={{ fontSize:14, fontWeight:700, color:'#3730A3', margin:'0 0 16px' }}>
+                    {editingPrId ? 'Editar motivo' : 'Novo motivo de pausa'}
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <Field label="Nome" required hint="Ex.: Almoço, Reunião, Treinamento">
+                      <input
+                        value={prForm.name}
+                        onChange={e => setPrForm(p => ({ ...p, name: e.target.value }))}
+                        className="input" placeholder="Nome do motivo" maxLength={100}
+                      />
+                    </Field>
+                    <Field label="Duração máxima" hint="Deixe vazio para livre (sem limite de tempo)">
+                      <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                        <input
+                          type="number"
+                          value={prForm.maxDurationMinutes}
+                          onChange={e => setPrForm(p => ({ ...p, maxDurationMinutes: e.target.value }))}
+                          className="input" placeholder="Ex.: 30" min={1} max={480}
+                          style={{ flex:1 }}
+                        />
+                        <span style={{ fontSize:13, color:'#64748B', whiteSpace:'nowrap' as const }}>min</span>
+                      </div>
+                    </Field>
+                    <Field label="Descrição" hint="Opcional — aparece abaixo do nome">
+                      <input
+                        value={prForm.description}
+                        onChange={e => setPrForm(p => ({ ...p, description: e.target.value }))}
+                        className="input" placeholder="Descrição opcional" maxLength={255}
+                      />
+                    </Field>
+                    <Field label="Ordem de exibição" hint="Menor número = aparece primeiro">
+                      <input
+                        type="number"
+                        value={prForm.sortOrder}
+                        onChange={e => setPrForm(p => ({ ...p, sortOrder: Number(e.target.value) }))}
+                        className="input" min={0}
+                      />
+                    </Field>
+                  </div>
+                  <div style={{ display:'flex', gap:20, marginTop:16 }}>
+                    <Toggle
+                      checked={prForm.requiresApproval}
+                      onChange={v => setPrForm(p => ({ ...p, requiresApproval: v }))}
+                      label="Requer aprovação do supervisor"
+                    />
+                    {editingPrId && (
+                      <Toggle
+                        checked={prForm.active}
+                        onChange={v => setPrForm(p => ({ ...p, active: v }))}
+                        label="Motivo ativo"
+                      />
+                    )}
+                  </div>
+                  <div style={{ display:'flex', gap:10, marginTop:20 }}>
+                    <button onClick={savePauseReason} disabled={prSaving || !prForm.name.trim()}
+                      style={{ padding:'8px 20px', background:'#4F46E5', color:'#fff', border:'none', borderRadius:8, fontSize:13, fontWeight:600, cursor:'pointer', opacity: (!prForm.name.trim() || prSaving) ? 0.6 : 1 }}>
+                      {prSaving ? 'Salvando...' : editingPrId ? 'Salvar alterações' : 'Criar motivo'}
+                    </button>
+                    <button onClick={() => { setShowPrForm(false); setEditingPrId(null); setPrForm(prFormEmpty); }}
+                      style={{ padding:'8px 16px', background:'transparent', color:'#64748B', border:'1px solid #CBD5E1', borderRadius:8, fontSize:13, cursor:'pointer' }}>
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

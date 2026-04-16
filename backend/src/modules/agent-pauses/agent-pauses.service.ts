@@ -1,6 +1,7 @@
 import {
   Injectable,
   Logger,
+  OnModuleInit,
   NotFoundException,
   BadRequestException,
   ForbiddenException,
@@ -30,12 +31,41 @@ const DEFAULT_REASONS = [
 ];
 
 @Injectable()
-export class AgentPausesService {
+export class AgentPausesService implements OnModuleInit {
   private readonly logger = new Logger(AgentPausesService.name);
 
   /** Injetado via setter no app.module para evitar dependência circular */
   private assignmentSvc: any = null;
   setAssignmentService(svc: any) { this.assignmentSvc = svc; }
+
+  onModuleInit() {
+    // Verifica pausas expiradas a cada 30 segundos
+    setInterval(() => this.autoEndExpiredPauses(), 30_000);
+  }
+
+  /** Encerra automaticamente pausas que ultrapassaram maxDurationMinutes */
+  private async autoEndExpiredPauses(): Promise<void> {
+    try {
+      const expired = await this.dataSource.query<any[]>(`
+        SELECT id, tenant_id, agent_id
+          FROM agent_pause_requests
+         WHERE status = 'active'
+           AND max_duration_minutes IS NOT NULL
+           AND started_at IS NOT NULL
+           AND started_at + (max_duration_minutes * INTERVAL '1 minute') <= NOW()
+      `);
+      for (const row of expired) {
+        try {
+          const pause = await this.pauseRepo.findOne({ where: { id: row.id } });
+          if (pause) await this.doEndPause(pause, 'system-auto', row.tenant_id);
+        } catch (e: any) {
+          this.logger.warn(`[pause:auto-end] falha em ${row.id}: ${e?.message}`);
+        }
+      }
+    } catch (e: any) {
+      this.logger.warn(`[pause:auto-end] query falhou: ${e?.message}`);
+    }
+  }
 
   constructor(
     @InjectRepository(PauseReason)
@@ -79,6 +109,7 @@ export class AgentPausesService {
       requiresApproval: dto.requiresApproval ?? true,
       active: dto.active ?? true,
       sortOrder: dto.sortOrder ?? 0,
+      maxDurationMinutes: dto.maxDurationMinutes ?? null,
     });
     return this.reasonRepo.save(reason);
   }
@@ -91,6 +122,7 @@ export class AgentPausesService {
     if (dto.requiresApproval !== undefined) reason.requiresApproval = dto.requiresApproval;
     if (dto.active !== undefined) reason.active = dto.active;
     if (dto.sortOrder !== undefined) reason.sortOrder = dto.sortOrder;
+    if ('maxDurationMinutes' in dto) reason.maxDurationMinutes = dto.maxDurationMinutes ?? null;
     return this.reasonRepo.save(reason);
   }
 
@@ -159,11 +191,12 @@ export class AgentPausesService {
       const result = await em.query<any[]>(
         `INSERT INTO agent_pause_requests
           (tenant_id, agent_id, agent_name, reason_id, reason_name, agent_observation,
-           status, requested_at, previous_presence_status, created_at)
-         VALUES ($1,$2,$3,$4,$5,$6,'pending',NOW(),$7,NOW())
+           status, requested_at, previous_presence_status, max_duration_minutes, created_at)
+         VALUES ($1,$2,$3,$4,$5,$6,'pending',NOW(),$7,$8,NOW())
          RETURNING *`,
         [tenantId, agentId, agentName, reason.id, reason.name,
-         dto.agentObservation ?? null, previousPresenceStatus],
+         dto.agentObservation ?? null, previousPresenceStatus,
+         reason.maxDurationMinutes ?? null],
       );
       return result[0];
     });

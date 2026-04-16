@@ -36,6 +36,10 @@ export class PauseReason {
   @Column({ name: 'sort_order', default: 0 })
   sortOrder: number;
 
+  /** Duração máxima em minutos. null = livre (sem limite). */
+  @Column({ name: 'max_duration_minutes', nullable: true, type: 'integer', default: null })
+  maxDurationMinutes: number | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsBoolean, IsNumber, MinLength, MaxLength } from 'class-validator';
+import { IsString, IsOptional, IsBoolean, IsNumber, IsInt, Min, Max, MinLength, MaxLength } from 'class-validator';
 
 export class CreatePauseReasonDto {
   @IsString()
@@ -22,6 +22,13 @@ export class CreatePauseReasonDto {
   @IsOptional()
   @IsNumber()
   sortOrder?: number;
+
+  /** Duração máxima em minutos. null/omitido = livre (sem limite). Máximo: 480 min (8h). */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(480)
+  maxDurationMinutes?: number | null;
 }
 
 export class UpdatePauseReasonDto {
@@ -47,4 +54,10 @@ export class UpdatePauseReasonDto {
   @IsOptional()
   @IsNumber()
   sortOrder?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(480)
+  maxDurationMinutes?: number | null;
 }

@@ -1,13 +1,14 @@
 'use client';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '@/lib/api';
-import { Coffee, Clock, X, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Coffee, Clock, X, AlertCircle } from 'lucide-react';
 
 interface PauseReason {
   id: string;
   name: string;
   description?: string;
   requiresApproval: boolean;
+  maxDurationMinutes: number | null;
 }
 
 interface PauseRequest {
@@ -17,6 +18,7 @@ interface PauseRequest {
   requestedAt: string;
   startedAt?: string;
   agentObservation?: string;
+  maxDurationMinutes?: number | null;
 }
 
 interface Props {
@@ -122,12 +124,38 @@ const S = {
   },
 };
 
+/** Formata segundos decorridos como HH:MM:SS */
 function clockDuration(startedAt: string) {
   const diff = Math.max(0, Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000));
   const h = Math.floor(diff / 3600);
   const m = Math.floor((diff % 3600) / 60);
   const s = diff % 60;
   return [h, m, s].map(v => String(v).padStart(2, '0')).join(':');
+}
+
+/** Conta regressiva em HH:MM:SS */
+function clockCountdown(startedAt: string, maxMinutes: number) {
+  const elapsed = Math.max(0, Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000));
+  const remaining = Math.max(0, maxMinutes * 60 - elapsed);
+  const h = Math.floor(remaining / 3600);
+  const m = Math.floor((remaining % 3600) / 60);
+  const s = remaining % 60;
+  return [h, m, s].map(v => String(v).padStart(2, '0')).join(':');
+}
+
+/** Segundos restantes (negativo = já expirou) */
+function remainingSeconds(startedAt: string, maxMinutes: number) {
+  const elapsed = Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000);
+  return maxMinutes * 60 - elapsed;
+}
+
+/** Rótulo legível da duração máxima */
+function durationLabel(minutes: number | null): string {
+  if (!minutes) return 'Livre';
+  if (minutes < 60) return `${minutes} min`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return m === 0 ? `${h}h` : `${h}h ${m}min`;
 }
 
 export function PauseRequestModal({ open, onClose, currentPause, onPauseRequested, onPauseEnded }: Props) {
@@ -138,13 +166,37 @@ export function PauseRequestModal({ open, onClose, currentPause, onPauseRequeste
   const [loadingReasons, setLoadingReasons] = useState(false);
   const [error, setError] = useState('');
   const [tick, setTick] = useState(0);
+  const autoEndFiredRef = useRef(false);
 
-  // Relógio da pausa ativa
+  // Relógio (contagem ou regressiva)
   useEffect(() => {
     if (!currentPause || currentPause.status !== 'active') return;
     const t = setInterval(() => setTick(v => v + 1), 1000);
     return () => clearInterval(t);
   }, [currentPause]);
+
+  // Encerramento automático ao atingir o tempo limite
+  useEffect(() => {
+    if (
+      currentPause?.status === 'active' &&
+      currentPause.maxDurationMinutes &&
+      currentPause.startedAt &&
+      !autoEndFiredRef.current &&
+      !loading
+    ) {
+      const rem = remainingSeconds(currentPause.startedAt, currentPause.maxDurationMinutes);
+      if (rem <= 0) {
+        autoEndFiredRef.current = true;
+        handleEnd();
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tick]);
+
+  // Reset do guard de auto-end quando muda a pausa
+  useEffect(() => {
+    autoEndFiredRef.current = false;
+  }, [currentPause?.id]);
 
   const loadReasons = useCallback(async () => {
     setLoadingReasons(true);
@@ -238,6 +290,11 @@ export function PauseRequestModal({ open, onClose, currentPause, onPauseRequeste
               <div style={{ fontSize: 13, color: '#78350F' }}>
                 Motivo: <strong>{currentPause.reasonName}</strong>
               </div>
+              {currentPause.maxDurationMinutes && (
+                <div style={{ fontSize: 13, color: '#78350F', marginTop: 4 }}>
+                  Duração: <strong>{durationLabel(currentPause.maxDurationMinutes)}</strong>
+                </div>
+              )}
               {currentPause.agentObservation && (
                 <div style={{ fontSize: 13, color: '#78350F', marginTop: 4 }}>
                   Observação: {currentPause.agentObservation}
@@ -262,6 +319,16 @@ export function PauseRequestModal({ open, onClose, currentPause, onPauseRequeste
 
   // ── Pausa ATIVA ───────────────────────────────────────────────────────────────
   if (currentPause?.status === 'active') {
+    const hasLimit = !!(currentPause.maxDurationMinutes && currentPause.startedAt);
+    const rem = hasLimit
+      ? remainingSeconds(currentPause.startedAt!, currentPause.maxDurationMinutes!)
+      : null;
+    const isNearEnd = rem !== null && rem <= 60;
+    const timerColor = isNearEnd ? '#DC2626' : '#7C3AED';
+    const timeDisplay = hasLimit && currentPause.startedAt
+      ? clockCountdown(currentPause.startedAt, currentPause.maxDurationMinutes!)
+      : currentPause.startedAt ? clockDuration(currentPause.startedAt) : '00:00:00';
+
     return (
       <div style={S.overlay} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
         <div style={S.modal}>
@@ -276,13 +343,30 @@ export function PauseRequestModal({ open, onClose, currentPause, onPauseRequeste
           </div>
           <div style={S.body}>
             <div style={{ textAlign: 'center', padding: '8px 0 16px' }}>
-              <div style={{ fontSize: 42, fontWeight: 700, color: '#7C3AED', fontVariantNumeric: 'tabular-nums', letterSpacing: 2 }}>
-                {currentPause.startedAt ? clockDuration(currentPause.startedAt) : '00:00:00'}
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#9CA3AF', marginBottom: 4, letterSpacing: 1, textTransform: 'uppercase' }}>
+                {hasLimit ? 'Tempo restante' : 'Tempo decorrido'}
+              </div>
+              <div style={{
+                fontSize: 42, fontWeight: 700, color: timerColor,
+                fontVariantNumeric: 'tabular-nums', letterSpacing: 2,
+                transition: 'color .3s',
+              }}>
+                {timeDisplay}
               </div>
               <div style={{ fontSize: 14, color: 'var(--txt2, #555)', marginTop: 6 }}>
                 {currentPause.reasonName}
+                {currentPause.maxDurationMinutes && (
+                  <span style={{ marginLeft: 8, fontSize: 12, color: '#9CA3AF' }}>
+                    · {durationLabel(currentPause.maxDurationMinutes)}
+                  </span>
+                )}
               </div>
             </div>
+            {isNearEnd && (
+              <div style={{ padding: '10px 14px', background: '#FEF2F2', borderRadius: 10, border: '1px solid #FECACA', fontSize: 13, color: '#DC2626', fontWeight: 600, marginBottom: 12 }}>
+                Tempo quase esgotado — a pausa será encerrada automaticamente.
+              </div>
+            )}
             <div style={{ padding: '12px', background: '#F3F0FF', borderRadius: 10, border: '1px solid #DDD6FE', fontSize: 13, color: '#5B21B6' }}>
               Você está fora da distribuição automática de atendimentos.
             </div>
@@ -324,7 +408,19 @@ export function PauseRequestModal({ open, onClose, currentPause, onPauseRequeste
                   style={S.reasonBtn(selectedReason === r.id)}
                   onClick={() => setSelectedReason(r.id)}
                 >
-                  <div>{r.name}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span>{r.name}</span>
+                    <span style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: selectedReason === r.id ? '#6366F1' : '#9CA3AF',
+                      background: selectedReason === r.id ? '#E0E7FF' : '#F3F4F6',
+                      borderRadius: 6,
+                      padding: '2px 7px',
+                    }}>
+                      {durationLabel(r.maxDurationMinutes)}
+                    </span>
+                  </div>
                   {r.requiresApproval && (
                     <div style={{ fontSize: 11, color: selectedReason === r.id ? '#6366F1' : '#9CA3AF', marginTop: 2 }}>
                       Requer aprovação do supervisor

@@ -83,6 +83,10 @@ export class AgentPauseRequest {
   @Column({ name: 'duration_seconds', nullable: true })
   durationSeconds: number;
 
+  /** Duração máxima em minutos copiada do motivo (null = livre, sem limite). */
+  @Column({ name: 'max_duration_minutes', nullable: true, type: 'integer', default: null })
+  maxDurationMinutes: number | null;
+
   // ── Auditoria de estado ──────────────────────────────────────────────────────
 
   /**

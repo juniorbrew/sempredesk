@@ -22,6 +22,7 @@ interface PauseState {
   requestedAt: string;
   startedAt?: string;
   agentObservation?: string;
+  maxDurationMinutes?: number | null;
 }
 
 export function StatusSelector() {
