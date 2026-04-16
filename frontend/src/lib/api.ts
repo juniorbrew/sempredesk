@@ -35,7 +35,7 @@ class ApiClient {
     });
 
     this.client.interceptors.response.use(
-      (res) => res.data?.data ?? res.data,
+      (res) => { const d = res.data?.data; return d !== undefined ? d : res.data; },
       async (err) => {
         if (err.response?.status === 401 && typeof window !== 'undefined') {
           const refresh = localStorage.getItem('refreshToken');
