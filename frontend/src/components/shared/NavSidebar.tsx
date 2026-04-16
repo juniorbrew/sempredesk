@@ -6,8 +6,7 @@ import {
   Users, Users2, FileText, Monitor, BookOpen, BarChart2,
   Settings, Smartphone, LogOut, Headphones, ChevronRight, Bell,
   Network, FolderTree, Tag, Layers, Database, AlertTriangle,
-  Activity,
-  Flag,
+  Activity, Flag, Coffee,
 } from 'lucide-react';
 import { useAuthStore, hasPermission } from '@/store/auth.store';
 import { usePresenceStore } from '@/store/presence.store';
@@ -49,6 +48,7 @@ const CADASTROS_ITEMS = [
   { href: '/dashboard/categories',    icon: Tag,        label: 'Categorias',        perm: 'settings.manage' },
   { href: '/dashboard/subcategories', icon: Layers,     label: 'Sub-Categorias',    perm: 'settings.manage' },
   { href: '/dashboard/team',          icon: Users2,     label: 'Equipe e Usuários', perm: 'agent.view' },
+  { href: '/dashboard/pause-reasons', icon: Coffee,     label: 'Motivos de Pausa',  perm: 'settings.manage' },
 ];
 
 const BOTTOM_ITEMS = [

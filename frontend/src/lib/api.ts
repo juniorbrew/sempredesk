@@ -402,11 +402,11 @@ class ApiClient {
   getAllPauseReasons = () => this.http.get('/agent-pauses/reasons/all');
 
   /** Cria motivo de pausa personalizado */
-  createPauseReason = (data: { name: string; description?: string; requiresApproval?: boolean; sortOrder?: number }) =>
+  createPauseReason = (data: { name: string; description?: string; requiresApproval?: boolean; maxDurationMinutes?: number | null; sortOrder?: number }) =>
     this.http.post('/agent-pauses/reasons', data);
 
   /** Atualiza motivo de pausa */
-  updatePauseReason = (id: string, data: { name?: string; description?: string; requiresApproval?: boolean; active?: boolean; sortOrder?: number }) =>
+  updatePauseReason = (id: string, data: { name?: string; description?: string; requiresApproval?: boolean; active?: boolean; maxDurationMinutes?: number | null; sortOrder?: number }) =>
     this.http.patch(`/agent-pauses/reasons/${id}`, data);
 
   /** Agente solicita pausa */
