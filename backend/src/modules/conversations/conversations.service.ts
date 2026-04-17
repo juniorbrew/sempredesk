@@ -352,6 +352,9 @@ export class ConversationsService {
           stage: 'reuse-no-ticket-getOrCreateForContact',
         }));
       }
+      if (opts?.departmentId?.trim() && !active.chatbotDepartmentId) {
+        active.chatbotDepartmentId = opts.departmentId.trim();
+      }
       await this.maybeApplyDepartmentPriorityFromOpts(tenantId, active, opts, manager);
       const autoCreated = await this.maybeAutoCreateTicketForConversation(
         tenantId,
@@ -589,6 +592,7 @@ export class ConversationsService {
       whatsappChannelId: opts?.whatsappChannelId ?? null,
       queuedAt: new Date(),
       chatbotDepartment: opts?.department?.trim() || null,
+      chatbotDepartmentId: opts?.departmentId?.trim() || null,
     });
     try {
       const savedConv = await convRepo.save(conv);
@@ -610,6 +614,9 @@ export class ConversationsService {
       }
       if (opts?.department?.trim() && !existing.chatbotDepartment) {
         existing.chatbotDepartment = opts.department.trim();
+      }
+      if (opts?.departmentId?.trim() && !existing.chatbotDepartmentId) {
+        existing.chatbotDepartmentId = opts.departmentId.trim();
       }
       const savedExisting = await convRepo.save(existing);
       const hasDeptCtx = !!((opts?.department || '').trim() || (opts?.departmentId || '').trim());
@@ -776,11 +783,12 @@ export class ConversationsService {
     const contactName = contact?.name || 'Cliente';
     const subject = opts?.subject || `Atendimento ${conv.channel === ConversationChannel.WHATSAPP ? 'WhatsApp' : 'Chat'} - ${contactName}`;
     const chatbotDept = conv.chatbotDepartment?.trim() || undefined;
+    const chatbotDeptId = conv.chatbotDepartmentId ?? undefined;
     const ticket = await this.createTicketForConversation(
       tenantId, conv, undefined, contactName, subject, authorId, authorName,
-      undefined,    // descriptionOverride
-      undefined,    // departmentId
-      chatbotDept,  // department — herda do chatbot se disponível
+      undefined,      // descriptionOverride
+      chatbotDeptId,  // departmentId — chave estável
+      chatbotDept,    // department — nome para fallback/display
     );
     // Usar update() pontual para não sobrescrever campos SLA gravados por syncConversationSlaWithTicket
     await this.convRepo.update({ id: conversationId, tenantId }, { ticketId: ticket.id } as Partial<Conversation>);
@@ -826,8 +834,9 @@ export class ConversationsService {
       if (pivotRows[0]?.client_id) conv.clientId = pivotRows[0].client_id;
     }
 
-    // Departamento registrado na conversa pelo chatbot (coluna chatbot_department).
+    // Departamento registrado na conversa pelo chatbot (nome + ID canônico).
     const chatbotDepartment: string | null = conv.chatbotDepartment ?? null;
+    const chatbotDepartmentId: string | null = conv.chatbotDepartmentId ?? null;
 
     // Usa a primeira mensagem de texto do contato como assunto e descrição do ticket.
     // Isso captura a demanda digitada pelo cliente no chatbot ("descreva sua demanda").
@@ -858,9 +867,9 @@ export class ConversationsService {
       subject,
       agentId,                         // authorId  → userId no ticketsService.create
       agentName,                       // authorName
-      demandText || undefined,         // descriptionOverride — demanda como descrição
-      undefined,                       // departmentId
-      chatbotDepartment || undefined,  // department — recuperado pelo priorityId da conversa
+      demandText || undefined,              // descriptionOverride — demanda como descrição
+      chatbotDepartmentId || undefined,     // departmentId — chave estável
+      chatbotDepartment || undefined,       // department — nome para fallback/display
     );
 
     // Garante atribuição ao agente que clicou via SQL direto (substitui round-robin e é idempotente)

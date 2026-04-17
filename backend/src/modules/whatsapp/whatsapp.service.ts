@@ -228,6 +228,7 @@ export class WhatsappService {
 
     // For Meta webhook messages, run chatbot here (Baileys runs it in whatsapp.module.ts)
     let resolvedDepartment = department;
+    let resolvedDepartmentId: string | undefined;
     let resolvedChatbotClientId = chatbotClientId;
     if (msg.provider === 'meta' && !department && this.chatbotService) {
       // Verifica se existe conversa humana ativa antes de acionar chatbot.
@@ -270,6 +271,7 @@ export class WhatsappService {
               return { created: false, reason: 'CHATBOT_HANDLED' };
             }
             resolvedDepartment = botResult.transfer.department ?? undefined;
+            resolvedDepartmentId = botResult.transfer.departmentId ?? undefined;
             resolvedChatbotClientId = botResult.transfer.clientId ?? resolvedChatbotClientId;
           }
         } catch (e) {
@@ -562,6 +564,7 @@ export class WhatsappService {
         firstMessage: firstPreview,
         contactName: contact.name || contact.email || wa,
         department: resolvedDepartment,
+        departmentId: resolvedDepartmentId,
         autoCreateTicket: true,
         // Preserva o canal de origem — garante que respostas saiam pelo número correto
         whatsappChannelId: whatsappChannelId ?? null,

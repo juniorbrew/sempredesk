@@ -21,6 +21,8 @@ export interface ProcessResult {
   /** when bot hands off to human */
   transfer?: {
     department?: string;
+    /** UUID do ticket_settings — chave estável, não quebra com renomeações */
+    departmentId?: string;
     senderName?: string;
     /** clientId detectado via CNPJ — para auto-vincular ao ticket */
     clientId?: string;
@@ -414,6 +416,7 @@ export class ChatbotService {
           : undefined;
         return this.goToDescriptionStep(session, config, {
           pendingDepartment: chosen.department ?? null,
+          pendingDepartmentId: chosen.departmentId ?? null,
           pendingMenuLabel: selectedLabel,
           senderName: resolvedSenderName,
           pendingClientId: knownClientId,
@@ -424,6 +427,7 @@ export class ChatbotService {
         session.step = 'awaiting_cnpj';
         session.metadata = {
           pendingDepartment: chosen.department ?? null,
+          pendingDepartmentId: chosen.departmentId ?? null,
           pendingMenuLabel: selectedLabel,
           senderName: resolvedSenderName,
           cnpjAttempts: 0,
@@ -440,6 +444,7 @@ export class ChatbotService {
         session.step = 'awaiting_cnpj';
         session.metadata = {
           pendingDepartment: chosen.department ?? null,
+          pendingDepartmentId: chosen.departmentId ?? null,
           pendingMenuLabel: selectedLabel,
           senderName: resolvedSenderName,
           cnpjAttempts: 0,
@@ -451,6 +456,7 @@ export class ChatbotService {
       // collectCnpj desabilitado → pedir descrição
       return this.goToDescriptionStep(session, config, {
         pendingDepartment: chosen.department ?? null,
+        pendingDepartmentId: chosen.departmentId ?? null,
         pendingMenuLabel: selectedLabel,
         senderName: resolvedSenderName,
         pendingClientId: null,
@@ -461,6 +467,7 @@ export class ChatbotService {
     if (session.step === 'awaiting_cnpj') {
       const meta = (session.metadata ?? {}) as Record<string, unknown>;
       const pendingDepartment = meta.pendingDepartment as string | null;
+      const pendingDepartmentId = meta.pendingDepartmentId as string | null;
       const pendingMenuLabel = meta.pendingMenuLabel as string | null;
       const storedSenderName = (meta.senderName as string | null) ?? senderName;
       const attempts = (meta.cnpjAttempts as number) ?? 0;
@@ -469,6 +476,7 @@ export class ChatbotService {
       const goToDesc = (clientId: string | null, prefixMsg?: string, trustedSelection = false) =>
         this.goToDescriptionStep(session, config, {
           pendingDepartment,
+          pendingDepartmentId,
           pendingMenuLabel,
           senderName: storedSenderName,
           pendingClientId: clientId,
@@ -532,6 +540,7 @@ export class ChatbotService {
     if (session.step === 'awaiting_description') {
       const meta = (session.metadata ?? {}) as Record<string, unknown>;
       const pendingDepartment = meta.pendingDepartment as string | null;
+      const pendingDepartmentId = meta.pendingDepartmentId as string | null;
       const storedSenderName = (meta.senderName as string | null) ?? senderName;
       const pendingClientId = await this.resolveTrustedPendingClientId(
         tenantId,
@@ -544,14 +553,12 @@ export class ChatbotService {
       session.metadata = null;
       await this.sessionRepo.save(session);
 
-      // pendingDepartment → ConversationsService.getOrCreateForContact/startConversation:
-      // resolve departamento canónico, grava conversation.priority_id e SLA (Fase 3).
-      // A própria mensagem do usuário vira o firstMessage/assunto do ticket
       return {
         handled: true,
         replies: [config.transferMessage],
         transfer: {
           department: pendingDepartment ?? undefined,
+          departmentId: pendingDepartmentId ?? undefined,
           senderName: storedSenderName ?? undefined,
           clientId: pendingClientId ?? undefined,
         },
@@ -567,6 +574,7 @@ export class ChatbotService {
     config: ChatbotConfig,
     meta: {
       pendingDepartment: string | null;
+      pendingDepartmentId?: string | null;
       pendingMenuLabel: string | null;
       senderName: string | null;
       pendingClientId: string | null;
@@ -577,6 +585,7 @@ export class ChatbotService {
     session.step = 'awaiting_description';
     session.metadata = {
       pendingDepartment: meta.pendingDepartment,
+      pendingDepartmentId: meta.pendingDepartmentId ?? null,
       pendingMenuLabel: meta.pendingMenuLabel,
       senderName: meta.senderName,
       pendingClientId: meta.pendingClientId,
@@ -650,6 +659,7 @@ export class ChatbotService {
           const tenantId = session.tenantId;
           const meta = (session.metadata ?? {}) as Record<string, unknown>;
           const pendingDepartment = meta.pendingDepartment as string | null;
+          const pendingDepartmentId = meta.pendingDepartmentId as string | null;
           const pendingClientId = await this.resolveTrustedPendingClientId(
             tenantId,
             session.identifier,
@@ -689,6 +699,7 @@ export class ChatbotService {
               firstMessage: 'Atendimento solicitado (sem descrição informada)',
               contactName: contact.name || session.identifier,
               department: pendingDepartment ?? undefined,
+              departmentId: pendingDepartmentId ?? undefined,
               autoCreateTicket: true,
             } as any,
           ).catch((e) => this.logger.warn(`Auto-transfer failed for session ${session.id}`, e));

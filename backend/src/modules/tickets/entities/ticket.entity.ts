@@ -68,6 +68,10 @@ export class Ticket {
   @Column({ nullable: true })
   department: string;
 
+  /** UUID do ticket_settings correspondente — identificador estável a renomeações */
+  @Column({ name: 'department_id', nullable: true })
+  departmentId: string | null;
+
   @Column({ nullable: true })
   category: string;
 

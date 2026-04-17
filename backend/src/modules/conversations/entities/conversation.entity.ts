@@ -111,6 +111,10 @@ export class Conversation {
   @Column({ name: 'chatbot_department', type: 'varchar', nullable: true })
   chatbotDepartment: string | null;
 
+  /** UUID do ticket_settings correspondente — identificador estável a renomeações */
+  @Column({ name: 'chatbot_department_id', nullable: true })
+  chatbotDepartmentId: string | null;
+
   // ── Campos SLA (migração 021) ─────────────────────────────────────────────
 
   /** FK para sla_policies.id — política vigente nesta conversa. */

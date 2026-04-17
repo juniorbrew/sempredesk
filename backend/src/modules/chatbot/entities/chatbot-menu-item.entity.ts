@@ -29,6 +29,10 @@ export class ChatbotMenuItem {
   @Column({ nullable: true })
   department: string | null;
 
+  /** UUID do ticket_settings correspondente — identificador estável a renomeações */
+  @Column({ name: 'department_id', nullable: true })
+  departmentId: string | null;
+
   @Column({ default: true })
   enabled: boolean;
 

@@ -31,6 +31,7 @@ export class UpsertMenuItemDto {
   @IsString() action: string; // 'auto_reply' | 'transfer'
   @IsString() @IsOptional() autoReplyText?: string;
   @IsString() @IsOptional() department?: string;
+  @IsString() @IsOptional() departmentId?: string;
   @IsBoolean() @IsOptional() enabled?: boolean;
 }
 

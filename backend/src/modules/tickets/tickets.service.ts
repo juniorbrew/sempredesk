@@ -779,7 +779,9 @@ export class TicketsService {
     await this.assertContractBelongsToTenant(tenantId, dto.contractId);
 
     let departmentName = dto.department;
-    if (dto.departmentId && !departmentName) {
+    // Quando departmentId disponível, sempre resolve nome do DB — imune a renomeações.
+    // Isso substitui qualquer string stale que possa vir em dto.department.
+    if (dto.departmentId) {
       try {
         const dept = await this.ticketSettingsService.findOne(tenantId, dto.departmentId);
         departmentName = dept.name;
@@ -860,6 +862,7 @@ export class TicketsService {
         description: descriptionText,
         conversationId: dto.conversationId || undefined,
         department: classification.department || undefined,
+        departmentId: dto.departmentId || undefined,
         category: classification.category || undefined,
         subcategory: classification.subcategory || undefined,
         tenantId,
