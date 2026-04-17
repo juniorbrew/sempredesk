@@ -482,7 +482,7 @@ export default function TicketsPage() {
   const [team, setTeam] = useState<any[]>([]);
   const [customers, setCustomers] = useState<any[]>([]);
   const [rootCauseOptions, setRootCauseOptions] = useState<string[]>([]);
-  const [departments, setDepartments] = useState<string[]>([]);
+  const [departments, setDepartments] = useState<{id: string; name: string}[]>([]);
   const [viewMode, setViewMode] = useState<'list'|'kanban'>('list');
   const [sortField, setSortField] = useState<'ticketNumber'|'subject'|'createdAt'>('createdAt');
   const [sortDir, setSortDir] = useState<'asc'|'desc'>('desc');
@@ -493,7 +493,7 @@ export default function TicketsPage() {
       perPage: viewMode === 'kanban' ? 500 : 25,
       search: search || undefined,
       status: status || undefined,
-      department: department || undefined,
+      departmentId: department || undefined,
       assignedTo: assignedTo || undefined,
       sort: `${sortField}:${sortDir}`,
     };
@@ -512,7 +512,7 @@ export default function TicketsPage() {
       ]);
       setData(ticketsRes as any); setStats(statsRes); setTeam((teamRes as any)||[]); setCustomers((customersRes as any)?.data||(customersRes as any)||[]);
       const depts: any[] = (treeRes as any)?.departments ?? (Array.isArray(treeRes) ? treeRes : []);
-      setDepartments(depts.map((d: any) => d.name).filter(Boolean));
+      setDepartments(depts.filter((d: any) => d.id && d.name).map((d: any) => ({ id: d.id, name: d.name })));
       setRootCauseOptions((Array.isArray(rootCausesRes) ? rootCausesRes : (rootCausesRes as any)?.data ?? []).map((item: any) => item.name).filter(Boolean));
       const tpl = Array.isArray(tpRes) ? tpRes : (tpRes as any)?.data ?? [];
       setTenantPriorities(tpl);
@@ -533,7 +533,7 @@ export default function TicketsPage() {
         return u?(u.name||u.email):'Não atribuído';
       };
       const fmtDt = (d:string|null) => d ? new Date(d).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}) : '';
-      const exportParams: any = { perPage:9999, search:search||undefined, status:status||undefined, department:department||undefined };
+      const exportParams: any = { perPage:9999, search:search||undefined, status:status||undefined, departmentId:department||undefined };
       if (priorityFilter.startsWith('id:')) exportParams.priorityId = priorityFilter.slice(3);
       else if (priorityFilter.startsWith('slug:')) exportParams.priority = priorityFilter.slice(5);
       const res:any = await api.getTickets(exportParams);
@@ -700,7 +700,7 @@ export default function TicketsPage() {
           <select value={department} onChange={e => { setDepartment(e.target.value); setPage(1); }}
             style={{ padding:'7px 28px 7px 11px', background:`${S.bg} url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23A8A8BE' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 10px center`, border:`1px solid ${S.bd2}`, borderRadius:8, fontSize:12, color:S.txt, fontFamily:'inherit', cursor:'pointer', outline:'none', appearance:'none' as any }}>
             <option value="">Departamento</option>
-            {departments.map(d => <option key={d} value={d}>{d}</option>)}
+            {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
           </select>
           {canViewTeam && (
             <select value={assignedTo} onChange={e => { setAssignedTo(e.target.value); setPage(1); }}

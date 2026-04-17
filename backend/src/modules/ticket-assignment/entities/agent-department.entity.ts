@@ -16,9 +16,13 @@ export class AgentDepartment {
   @Column({ name: 'user_id' })
   userId: string;
 
-  /** Igual ao valor em Ticket.department */
+  /** Igual ao valor em Ticket.department — mantido para compatibilidade */
   @Column({ name: 'department_name' })
   departmentName: string;
+
+  /** UUID do ticket_settings correspondente — identificador estável a renomeações */
+  @Column({ name: 'department_id', nullable: true })
+  departmentId: string | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

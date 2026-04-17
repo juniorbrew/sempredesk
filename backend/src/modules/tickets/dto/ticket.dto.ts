@@ -221,6 +221,12 @@ export class FilterTicketsDto {
   @IsOptional()
   department?: string;
 
+  /** Filtro por UUID de departamento (tem precedência sobre `department` string quando presente). */
+  @IsOptional()
+  @ValidateIf((_, v) => v != null && v !== '')
+  @IsUUID()
+  departmentId?: string;
+
   @IsString()
   @IsOptional()
   category?: string;

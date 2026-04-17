@@ -47,8 +47,11 @@ export class RoutingRulesService {
         !rule.condPriority ||
         rule.condPriority === ticket.priority ||
         (!!ticketPrioritySlug && rule.condPriority === ticketPrioritySlug);
+      const deptMatch = rule.condDepartmentId
+        ? rule.condDepartmentId === ticket.departmentId
+        : (!rule.condDepartment || rule.condDepartment === ticket.department);
       const match =
-        (!rule.condDepartment || rule.condDepartment === ticket.department) &&
+        deptMatch &&
         (!rule.condCategory || rule.condCategory === ticket.category) &&
         condPriorityOk &&
         (!rule.condOrigin || rule.condOrigin === ticket.origin);

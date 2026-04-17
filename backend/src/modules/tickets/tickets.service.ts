@@ -1015,6 +1015,7 @@ export class TicketsService {
       clientId,
       contactId,
       department,
+      departmentId: filterDepartmentId,
       category,
       subcategory,
       search,
@@ -1095,7 +1096,8 @@ export class TicketsService {
         { contactId, tenantId },
       );
     }
-    if (department) qb.andWhere('t.department = :department', { department: normalizeText(department) });
+    if (filterDepartmentId) qb.andWhere('t.department_id = :filterDepartmentId', { filterDepartmentId });
+    else if (department) qb.andWhere('t.department = :department', { department: normalizeText(department) });
     if (category) qb.andWhere('t.category = :category', { category: normalizeText(category) });
     if (subcategory) qb.andWhere('t.subcategory = :subcategory', { subcategory: normalizeText(subcategory) });
     if (search) {

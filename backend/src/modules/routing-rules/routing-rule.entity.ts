@@ -9,6 +9,8 @@ export class RoutingRule {
   @Column({ type: 'int', default: 0 }) priority: number;
   // Conditions: match by department, category, priority, origin
   @Column({ name: 'cond_department', nullable: true }) condDepartment: string;
+  /** UUID do ticket_settings correspondente — identificador estável a renomeações */
+  @Column({ name: 'cond_department_id', nullable: true }) condDepartmentId: string | null;
   @Column({ name: 'cond_category', nullable: true }) condCategory: string;
   @Column({ name: 'cond_priority', nullable: true }) condPriority: string;
   @Column({ name: 'cond_origin', nullable: true }) condOrigin: string;

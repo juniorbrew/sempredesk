@@ -13,9 +13,13 @@ export class DistributionQueue {
   @Column({ name: 'tenant_id' })
   tenantId: string;
 
-  /** Nome do departamento ou '__global__' */
+  /** Nome do departamento ou '__global__' — mantido para compatibilidade */
   @Column({ name: 'department_name' })
   departmentName: string;
+
+  /** UUID do ticket_settings correspondente — identificador estável a renomeações (null para __global__) */
+  @Column({ name: 'department_id', nullable: true })
+  departmentId: string | null;
 
   /** Último agente que recebeu um ticket neste departamento */
   @Column({ name: 'last_assigned_user_id', type: 'varchar', nullable: true })

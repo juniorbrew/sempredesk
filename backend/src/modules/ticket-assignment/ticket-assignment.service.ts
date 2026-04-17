@@ -80,7 +80,7 @@ export class TicketAssignmentService {
     }
 
     const dept = ticket.department ?? null;
-    const agentId = await this.getNextAgent(tenantId, dept);
+    const agentId = await this.getNextAgent(tenantId, dept, ticket.departmentId ?? undefined);
 
     if (!agentId) {
       this.logger.warn(
@@ -135,7 +135,7 @@ export class TicketAssignmentService {
    *
    * SELECT FOR UPDATE garante atomicidade em alta concorrência.
    */
-  async getNextAgent(tenantId: string, departmentName: string | null): Promise<string | null> {
+  async getNextAgent(tenantId: string, departmentName: string | null, departmentId?: string): Promise<string | null> {
     const deptKey = departmentName ?? GLOBAL_DEPT_KEY;
 
     return this.dataSource.transaction(async (em) => {
@@ -159,8 +159,18 @@ export class TicketAssignmentService {
       const queue = queueRows[0] ?? null;
 
       // 3. IDs de agentes elegíveis para o departamento
+      // Prefere correspondência por department_id (estável a renomeações) quando disponível,
+      // com fallback para department_name em linhas que ainda não foram backfilladas.
       let eligibleIds: string[];
-      if (departmentName) {
+      if (departmentId) {
+        const deptRows = await em.query<UserIdDeptRow[]>(
+          `SELECT user_id FROM agent_departments
+            WHERE tenant_id = $1
+              AND (department_id = $2 OR (department_id IS NULL AND department_name = $3))`,
+          [tenantId, departmentId, departmentName ?? ''],
+        );
+        eligibleIds = deptRows.map((r) => r.user_id);
+      } else if (departmentName) {
         const deptRows = await em.query<UserIdDeptRow[]>(
           `SELECT user_id FROM agent_departments
             WHERE tenant_id = $1 AND department_name = $2`,
@@ -313,6 +323,7 @@ export class TicketAssignmentService {
     this.logger.log(`[rebalance:online] userId=${userId}`);
 
     const depts = await this.agentDeptRepo.find({ where: { tenantId, userId } });
+    const deptIds = depts.map((d) => d.departmentId).filter((id): id is string => !!id);
     const deptNames = depts.map((d) => d.departmentName);
 
     let qb = this.ticketRepo
@@ -321,7 +332,12 @@ export class TicketAssignmentService {
       .andWhere('t.assigned_to IS NULL')
       .andWhere('t.status = :status', { status: TicketStatus.OPEN });
 
-    if (deptNames.length > 0) {
+    if (deptIds.length > 0) {
+      qb = qb.andWhere(
+        '(t.department_id IN (:...deptIds) OR (t.department_id IS NULL AND t.department IN (:...deptNames)) OR t.department IS NULL)',
+        { deptIds, deptNames },
+      );
+    } else if (deptNames.length > 0) {
       qb = qb.andWhere(
         '(t.department IN (:...deptNames) OR t.department IS NULL)',
         { deptNames },
@@ -509,8 +525,19 @@ export class TicketAssignmentService {
     await this.agentDeptRepo.delete({ tenantId, userId });
     if (!departmentNames.length) return [];
 
+    const idRows = await this.dataSource.query<Array<{ name: string; id: string }>>(
+      `SELECT name, id FROM ticket_settings WHERE tenant_id = $1 AND type = 'department'`,
+      [tenantId],
+    );
+    const nameToId = new Map(idRows.map((r) => [r.name.toLowerCase().trim(), r.id]));
+
     const entities = departmentNames.map((name) =>
-      this.agentDeptRepo.create({ tenantId, userId, departmentName: name }),
+      this.agentDeptRepo.create({
+        tenantId,
+        userId,
+        departmentName: name,
+        departmentId: nameToId.get(name.toLowerCase().trim()) ?? null,
+      }),
     );
     const saved = await this.agentDeptRepo.save(entities);
     this.logger.log(`[setDepts] userId=${userId} deptos=[${departmentNames.join(', ')}]`);
