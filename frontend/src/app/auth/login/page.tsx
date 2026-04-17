@@ -1,11 +1,11 @@
 'use client';
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
 import toast from 'react-hot-toast';
-import { Eye, EyeOff, Shield, Zap, Headphones, BarChart3 } from 'lucide-react';
+import { Eye, EyeOff, Shield, Zap, Headphones, BarChart3, Building2 } from 'lucide-react';
 
 /** Ao abrir login, limpar modo TV compacto para não herdar CSS global em <html>. */
 function useClearRealtimeTvModeOnMount() {
@@ -15,23 +15,38 @@ function useClearRealtimeTvModeOnMount() {
 }
 
 interface LoginForm { email: string; password: string; }
+interface TenantInfo { id: string; name: string; slug: string; }
 
 function destinoAposLoginHost(): '/admin/tenants' | '/dashboard' {
   if (typeof window === 'undefined') return '/dashboard';
   return window.location.hostname.includes('adminpanel.') ? '/admin/tenants' : '/dashboard';
 }
 
-export default function LoginPage() {
+/** Componente interno — separado para que Suspense envolva useSearchParams() */
+function LoginPageInner() {
   useClearRealtimeTvModeOnMount();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const setAuth = useAuthStore((s) => s.setAuth);
   const [showPwd, setShowPwd] = useState(false);
   const [loading, setLoading] = useState(false);
   const [painelMaster, setPainelMaster] = useState(false);
+  const [tenantInfo, setTenantInfo] = useState<TenantInfo | null>(null);
+  const [tenantNotFound, setTenantNotFound] = useState(false);
 
   useEffect(() => {
     setPainelMaster(window.location.hostname.includes('adminpanel.'));
   }, []);
+
+  // Resolve o tenant quando ?tenant= está presente na URL (acesso via subdomínio)
+  useEffect(() => {
+    const tenantSlug = searchParams.get('tenant');
+    if (!tenantSlug) return;
+    fetch(`/api/v1/tenants/by-subdomain/${encodeURIComponent(tenantSlug)}`)
+      .then((r) => r.ok ? r.json() : Promise.reject())
+      .then((data) => setTenantInfo(data?.data ?? data))
+      .catch(() => setTenantNotFound(true));
+  }, [searchParams]);
 
   useEffect(() => {
     useAuthStore.persist.rehydrate();
@@ -44,12 +59,17 @@ export default function LoginPage() {
   const onSubmit = async (data: LoginForm) => {
     setLoading(true);
     try {
-      const res: any = await api.login(data.email, data.password);
+      // Passa tenantSlug quando login via subdomínio — backend valida o vínculo
+      const tenantSlug = searchParams.get('tenant') ?? undefined;
+      const res: any = await api.login(data.email, data.password, tenantSlug);
       setAuth(res.user, res.accessToken, res.refreshToken);
       toast.success(`Bem-vindo, ${res.user.name}!`);
       router.push(destinoAposLoginHost());
     } catch (err: any) {
-      toast.error(err?.response?.data?.error?.message || 'Credenciais inválidas');
+      const msg = err?.response?.data?.error?.message
+        || err?.response?.data?.message
+        || 'Credenciais inválidas';
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
@@ -97,6 +117,30 @@ export default function LoginPage() {
       {/* Right panel */}
       <div className="flex-1 flex items-center justify-center p-8 bg-white">
         <div className="w-full max-w-md">
+          {/* Badge de empresa (acesso via subdomínio) */}
+          {tenantNotFound && (
+            <div className="mb-6 flex items-center gap-3 p-4 bg-red-50 border border-red-200 rounded-xl">
+              <div className="w-9 h-9 bg-red-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                <Building2 className="w-5 h-5 text-red-500" />
+              </div>
+              <div>
+                <p className="font-semibold text-red-700 text-sm">Empresa não encontrada</p>
+                <p className="text-red-500 text-xs">O subdomínio acessado não corresponde a nenhuma empresa cadastrada.</p>
+              </div>
+            </div>
+          )}
+          {tenantInfo && (
+            <div className="mb-6 flex items-center gap-3 p-4 bg-indigo-50 border border-indigo-200 rounded-xl">
+              <div className="w-9 h-9 bg-indigo-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                <Building2 className="w-5 h-5 text-indigo-600" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs text-indigo-500 font-medium uppercase tracking-wide">Acessando como equipe de</p>
+                <p className="font-bold text-indigo-800 text-sm truncate">{tenantInfo.name}</p>
+              </div>
+            </div>
+          )}
+
           <div className="mb-8">
             <h2 className="text-3xl font-bold text-gray-900">
               {painelMaster ? 'Painel master' : 'Entrar'}
@@ -180,5 +224,14 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+/** Suspense obrigatório quando useSearchParams() é usado em Next.js 14 App Router */
+export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginPageInner />
+    </Suspense>
   );
 }

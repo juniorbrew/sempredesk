@@ -216,6 +216,54 @@ export class TicketAssignmentService {
         return null;
       }
 
+      // 4c. Filtra por janela de disponibilidade para distribuição
+      //     Agentes com distribution_availability_enabled=false são ignorados (comportamento original).
+      //     Agentes com a regra ativa e sem horário configurado também são incluídos (segurança).
+      if (onlineEligible.length > 0) {
+        const now = new Date();
+        const nowTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+        // IN com parâmetros individuais — mais compatível com TypeORM/node-postgres que ANY($1) com array
+        const placeholders = onlineEligible.map((_, i) => `$${i + 1}`).join(', ');
+        const availRows = await em.query<Array<{
+          id: string;
+          distribution_availability_enabled: boolean;
+          distribution_start_time: string | null;
+          distribution_end_time: string | null;
+        }>>(
+          `SELECT id, distribution_availability_enabled, distribution_start_time, distribution_end_time
+             FROM users WHERE id IN (${placeholders})`,
+          onlineEligible,
+        );
+
+        const availMap = new Map(availRows.map((r) => [r.id, r]));
+
+        const beforeFilter = onlineEligible.length;
+        onlineEligible = onlineEligible.filter((id) => {
+          const a = availMap.get(id);
+          // Regra desativada ou agente sem config → inclui normalmente (preserva comportamento atual)
+          if (!a?.distribution_availability_enabled) return true;
+          const start = a.distribution_start_time;
+          const end = a.distribution_end_time;
+          if (!start || !end) return true;
+          // Janela normal ex: 08:00–18:00
+          if (start <= end) return nowTime >= start && nowTime <= end;
+          // Janela invertida ex: 22:00–06:00 (atravessa meia-noite)
+          return nowTime >= start || nowTime <= end;
+        });
+
+        this.logger.log(
+          `[getNextAgent:avail] hora=${nowTime} antes=${beforeFilter} depois=${onlineEligible.length} agentes`,
+        );
+      }
+
+      if (!onlineEligible.length) {
+        this.logger.debug(
+          `[getNextAgent] dept="${deptKey}": nenhum disponível após filtro de janela horária`,
+        );
+        return null;
+      }
+
       // 5. Ordem estável para rodízio: puramente alfabética por userId
       //    (rodízio independente da carga — o ponteiro circular avança sempre)
       const sorted = [...onlineEligible].sort((a, b) => a.localeCompare(b));

@@ -80,7 +80,12 @@ class ApiClient {
     );
   }
 
-  login = (email: string, password: string) => this.http.post('/auth/login', { email, password });
+  /**
+   * Login de equipe (agentes/admins). tenantSlug é passado quando o acesso ocorre via
+   * subdomínio de tenant (empresa1.sempredesk.com.br) — o backend valida o vínculo.
+   */
+  login = (email: string, password: string, tenantSlug?: string) =>
+    this.http.post('/auth/login', { email, password, ...(tenantSlug ? { tenantSlug } : {}) });
   me = () => this.http.get('/auth/me');
   getMyPermissions = () => this.http.get('/auth/permissions');
   refresh = (refreshToken: string) => this.http.post('/auth/refresh', { refreshToken });
@@ -380,10 +385,32 @@ class ApiClient {
     email?: string;
     phone?: string;
     planSlug?: string;
+    // Dados cadastrais complementares (preenchidos via lookup ou manual)
+    razaoSocial?: string;
+    nomeFantasia?: string;
+    logradouro?: string;
+    numero?: string;
+    complemento?: string;
+    bairro?: string;
+    cidade?: string;
+    uf?: string;
+    cep?: string;
     adminName: string;
     adminEmail: string;
     adminPassword?: string;
   }) => this.http.post('/admin/tenants', data);
+
+  /**
+   * Consulta dados cadastrais de CNPJ (proxiado pelo backend via BrasilAPI).
+   * Retorna dados normalizados ou lança erro 422 se indisponível.
+   */
+  adminCnpjLookup = (cnpj: string) =>
+    this.http.get<{
+      cnpj: string; razaoSocial: string; nomeFantasia: string;
+      logradouro: string; numero: string; complemento: string;
+      bairro: string; cidade: string; uf: string;
+      cep: string; telefone: string; email: string;
+    }>(`/admin/tenants/cnpj-lookup/${cnpj.replace(/\D/g, '')}`);
 
   adminSuspendTenant = (id: string) => this.http.patch(`/admin/tenants/${id}/suspend`);
   adminReactivateTenant = (id: string) => this.http.patch(`/admin/tenants/${id}/reactivate`);

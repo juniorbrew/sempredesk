@@ -16,7 +16,8 @@ export class TeamService {
       .createQueryBuilder('u')
       .where('u.tenant_id = :tenantId', { tenantId })
       .orderBy('u.name', 'ASC')
-      .select(['u.id', 'u.name', 'u.email', 'u.role', 'u.phone', 'u.avatar', 'u.status']);
+      .select(['u.id', 'u.name', 'u.email', 'u.role', 'u.phone', 'u.avatar', 'u.status',
+        'u.distributionAvailabilityEnabled', 'u.distributionStartTime', 'u.distributionEndTime']);
     if (networkId) {
       qb.andWhere('(u.network_id = :networkId OR u.network_id IS NULL)', { networkId });
     }
@@ -26,7 +27,8 @@ export class TeamService {
   async findOne(tenantId: string, id: string) {
     return this.userRepo.findOne({
       where: { id, tenantId },
-      select: ['id', 'name', 'email', 'role', 'phone', 'avatar', 'status', 'lastLogin'],
+      select: ['id', 'name', 'email', 'role', 'phone', 'avatar', 'status', 'lastLogin',
+        'distributionAvailabilityEnabled', 'distributionStartTime', 'distributionEndTime'],
     });
   }
 
@@ -44,6 +46,9 @@ export class TeamService {
       phone: dto.phone,
       tenantId,
       status: 'active',
+      distributionAvailabilityEnabled: dto.distributionAvailabilityEnabled ?? false,
+      distributionStartTime: dto.distributionStartTime ?? null,
+      distributionEndTime: dto.distributionEndTime ?? null,
     } as any);
     const saved: any = await this.userRepo.save(user as any);
     return typeof saved?.toJSON === 'function' ? saved.toJSON() : saved;

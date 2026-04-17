@@ -340,6 +340,18 @@ export class ConversationsService {
       return { conversation: active, ticket, ticketCreated: false };
     }
     if (active && !active.ticketId) {
+      // Persiste departamento escolhido no chatbot se a conversa reutilizada ainda não tinha um.
+      // Sem isso, startAttendance leria chatbotDepartment=null e criaria o ticket sem departamento.
+      if (opts?.department?.trim() && !active.chatbotDepartment) {
+        active.chatbotDepartment = opts.department.trim();
+        this.logger.log(JSON.stringify({
+          scope: 'conversation-department-update',
+          conversationId: active.id,
+          tenantId,
+          chatbotDepartment: active.chatbotDepartment,
+          stage: 'reuse-no-ticket-getOrCreateForContact',
+        }));
+      }
       await this.maybeApplyDepartmentPriorityFromOpts(tenantId, active, opts, manager);
       const autoCreated = await this.maybeAutoCreateTicketForConversation(
         tenantId,
@@ -751,7 +763,13 @@ export class ConversationsService {
     const contact = await this.customersService.findContactById(tenantId, conv.contactId);
     const contactName = contact?.name || 'Cliente';
     const subject = opts?.subject || `Atendimento ${conv.channel === ConversationChannel.WHATSAPP ? 'WhatsApp' : 'Chat'} - ${contactName}`;
-    const ticket = await this.createTicketForConversation(tenantId, conv, undefined, contactName, subject, authorId, authorName);
+    const chatbotDept = conv.chatbotDepartment?.trim() || undefined;
+    const ticket = await this.createTicketForConversation(
+      tenantId, conv, undefined, contactName, subject, authorId, authorName,
+      undefined,    // descriptionOverride
+      undefined,    // departmentId
+      chatbotDept,  // department — herda do chatbot se disponível
+    );
     // Usar update() pontual para não sobrescrever campos SLA gravados por syncConversationSlaWithTicket
     await this.convRepo.update({ id: conversationId, tenantId }, { ticketId: ticket.id } as Partial<Conversation>);
     conv.ticketId = ticket.id;

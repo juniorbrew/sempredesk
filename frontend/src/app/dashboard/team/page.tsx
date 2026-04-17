@@ -8,7 +8,7 @@ import { Users2, Plus, Edit2, Trash2, Mail, Phone, Eye, EyeOff } from 'lucide-re
 
 const ROLE_LABELS: Record<string,string> = { super_admin:'Super Admin', admin:'Administrador', manager:'Supervisor', technician:'Técnico', viewer:'Visualizador', client_contact:'Contato Cliente' };
 const ROLE_COLORS: Record<string,{ bg:string; color:string }> = { super_admin:{ bg:'#FEE2E2', color:'#991B1B' }, admin:{ bg:'#FEE2E2', color:'#DC2626' }, manager:{ bg:'#DBEAFE', color:'#1D4ED8' }, technician:{ bg:'#DCFCE7', color:'#15803D' }, viewer:{ bg:'#F1F5F9', color:'#475569' }, client_contact:{ bg:'#FEF9C3', color:'#854D0E' } };
-const EMPTY = { name:'', email:'', password:'', role:'technician', phone:'', status:'active' };
+const EMPTY = { name:'', email:'', password:'', role:'technician', phone:'', status:'active', distributionAvailabilityEnabled: false, distributionStartTime: '08:00', distributionEndTime: '18:00' };
 const SYSTEM_ROLES = ['super_admin', 'admin', 'manager', 'technician', 'viewer'];
 
 const lbl = { display:'block', color:'#64748B', fontSize:11, fontWeight:700 as const, letterSpacing:'0.07em', marginBottom:5, textTransform:'uppercase' as const };
@@ -109,7 +109,11 @@ export default function TeamPage() {
 
   const openModal = async (m?:any) => {
     setEditing(m||null); setError(''); setAgentDepts([]);
-    setForm(m ? { name:m.name, email:m.email, password:'', role:m.role, phone:m.phone||'', status:m.status } : { ...EMPTY });
+    setForm(m ? { name:m.name, email:m.email, password:'', role:m.role, phone:m.phone||'', status:m.status,
+      distributionAvailabilityEnabled: m.distributionAvailabilityEnabled || false,
+      distributionStartTime: m.distributionStartTime || '08:00',
+      distributionEndTime: m.distributionEndTime || '18:00',
+    } : { ...EMPTY });
     if (m?.id) {
       try {
         const depts = await (api as any).getAgentDepartments(m.id) as any[];
@@ -267,6 +271,48 @@ export default function TeamPage() {
               <div>
                 <label style={lbl}>Telefone</label>
                 <input value={form.phone} onChange={f('phone')} onFocus={()=>setFocusField('phone')} onBlur={()=>setFocusField('')} style={inp(focusField==='phone')} placeholder="(00) 00000-0000" />
+              </div>
+
+              {/* Disponibilidade para distribuição */}
+              <div style={{ borderTop:'1px solid #F1F5F9', paddingTop:14 }}>
+                <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:12 }}>
+                  <div style={{ flex:1 }}>
+                    <span style={lbl}>Disponibilidade para distribuição</span>
+                    <p style={{ fontSize:11, color:'#94A3B8', margin:0, lineHeight:1.5 }}>
+                      Quando ativado, o agente só receberá novos chamados automáticos dentro do horário configurado.
+                    </p>
+                  </div>
+                  {/* Toggle switch */}
+                  <button
+                    type="button"
+                    onClick={() => setForm((p:any) => ({ ...p, distributionAvailabilityEnabled: !p.distributionAvailabilityEnabled }))}
+                    style={{ width:40, height:22, borderRadius:11, border:'none', cursor:'pointer', flexShrink:0, marginTop:2,
+                      background: form.distributionAvailabilityEnabled ? '#4F46E5' : '#CBD5E1',
+                      position:'relative', transition:'background 0.2s' }}
+                    aria-pressed={form.distributionAvailabilityEnabled}
+                  >
+                    <span style={{ position:'absolute', top:2, width:18, height:18, borderRadius:'50%', background:'#fff',
+                      left: form.distributionAvailabilityEnabled ? 20 : 2,
+                      transition:'left 0.2s', boxShadow:'0 1px 3px rgba(0,0,0,0.2)' }} />
+                  </button>
+                </div>
+
+                {form.distributionAvailabilityEnabled && (
+                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginTop:12 }}>
+                    <div>
+                      <label style={lbl}>Horário inicial</label>
+                      <input type="time" value={form.distributionStartTime || '08:00'} onChange={f('distributionStartTime')}
+                        onFocus={()=>setFocusField('distStart')} onBlur={()=>setFocusField('')}
+                        style={inp(focusField==='distStart')} />
+                    </div>
+                    <div>
+                      <label style={lbl}>Horário final</label>
+                      <input type="time" value={form.distributionEndTime || '18:00'} onChange={f('distributionEndTime')}
+                        onFocus={()=>setFocusField('distEnd')} onBlur={()=>setFocusField('')}
+                        style={inp(focusField==='distEnd')} />
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 

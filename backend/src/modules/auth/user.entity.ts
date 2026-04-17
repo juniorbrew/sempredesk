@@ -36,6 +36,21 @@ export class User {
   /** Último heartbeat HTTP do agente; atualizado por POST /agents/me/heartbeat */
   @Column({ name: 'last_seen_at', type: 'timestamptz', nullable: true })
   lastSeenAt: Date | null;
+
+  // ── Disponibilidade para distribuição automática ──────────────────────────
+  /** Quando true, o agente só entra no round-robin dentro da janela start..end */
+  @Column({ name: 'distribution_availability_enabled', type: 'boolean', default: false })
+  distributionAvailabilityEnabled: boolean;
+
+  /** Horário inicial da janela de distribuição (HH:MM). Null = sem restrição. */
+  @Column({ name: 'distribution_start_time', type: 'varchar', length: 5, nullable: true })
+  distributionStartTime: string | null;
+
+  /** Horário final da janela de distribuição (HH:MM). Null = sem restrição. */
+  @Column({ name: 'distribution_end_time', type: 'varchar', length: 5, nullable: true })
+  distributionEndTime: string | null;
+  // ─────────────────────────────────────────────────────────────────────────
+
   @CreateDateColumn({ name: 'created_at' }) createdAt: Date;
   @UpdateDateColumn({ name: 'updated_at' }) updatedAt: Date;
 

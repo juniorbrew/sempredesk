@@ -30,6 +30,27 @@ export class CreateTenantOnboardDto {
   @IsString()
   planSlug?: 'starter' | 'professional' | 'enterprise';
 
+  // ── Dados cadastrais complementares (preenchidos via lookup de CNPJ ou manualmente) ──
+  /** Razão social conforme Receita Federal */
+  @IsOptional() @IsString() @Length(0, 300) razaoSocial?: string;
+  /** Nome fantasia */
+  @IsOptional() @IsString() @Length(0, 300) nomeFantasia?: string;
+  /** Logradouro do endereço */
+  @IsOptional() @IsString() @Length(0, 300) logradouro?: string;
+  /** Número do endereço */
+  @IsOptional() @IsString() @Length(0, 20)  numero?: string;
+  /** Complemento do endereço */
+  @IsOptional() @IsString() @Length(0, 100) complemento?: string;
+  /** Bairro */
+  @IsOptional() @IsString() @Length(0, 100) bairro?: string;
+  /** Município */
+  @IsOptional() @IsString() @Length(0, 100) cidade?: string;
+  /** UF (sigla do estado, 2 chars) */
+  @IsOptional() @IsString() @Length(0, 2)   uf?: string;
+  /** CEP (apenas dígitos) */
+  @IsOptional() @IsString() @Length(0, 10)  cep?: string;
+  // ─────────────────────────────────────────────────────────────────────────
+
   @IsString()
   @IsNotEmpty()
   @Length(3, 200)

@@ -31,6 +31,22 @@ export class AuthService {
     if (user.status !== 'active') throw new UnauthorizedException('Conta inativa');
     if (!await user.validatePassword(dto.password)) throw new UnauthorizedException('Credenciais inválidas');
 
+    // ── Validação de subdomínio ──────────────────────────────────────────────
+    // Quando o login ocorre via subdomínio de tenant (ex.: empresa1.sempredesk.com.br)
+    // o frontend passa tenantSlug. O backend verifica que o usuário pertence a esse tenant.
+    // A mensagem é propositalmente genérica para não revelar informações de pertencimento.
+    if (dto.tenantSlug) {
+      const slug = dto.tenantSlug.toLowerCase().trim();
+      const tenantRow: { id: string }[] = await this.users.manager.query(
+        'SELECT id FROM tenants WHERE slug = $1 LIMIT 1',
+        [slug],
+      );
+      if (!tenantRow.length || user.tenantId !== tenantRow[0].id) {
+        throw new UnauthorizedException('Acesso não permitido para este portal');
+      }
+    }
+    // ────────────────────────────────────────────────────────────────────────
+
     await this.users.update(user.id, { lastLogin: new Date() });
 
     // Clock-in automático

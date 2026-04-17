@@ -32,6 +32,18 @@ export class TenantsOnboardService {
       const existingUser = await userRepo.findOne({ where: { email: dto.adminEmail } });
       if (existingUser) throw new ConflictException('E-mail do admin já está em uso');
 
+      // Monta dados complementares da empresa para settings.empresa (sem nova coluna)
+      const empresaSettings: Record<string, string> = {};
+      if (dto.razaoSocial)  empresaSettings.razaoSocial  = dto.razaoSocial;
+      if (dto.nomeFantasia) empresaSettings.nomeFantasia = dto.nomeFantasia;
+      if (dto.logradouro)   empresaSettings.logradouro   = dto.logradouro;
+      if (dto.numero)       empresaSettings.numero       = dto.numero;
+      if (dto.complemento)  empresaSettings.complemento  = dto.complemento;
+      if (dto.bairro)       empresaSettings.bairro       = dto.bairro;
+      if (dto.cidade)       empresaSettings.cidade       = dto.cidade;
+      if (dto.uf)           empresaSettings.uf           = dto.uf;
+      if (dto.cep)          empresaSettings.cep          = dto.cep;
+
       const tenant = tenantRepo.create();
       Object.assign(tenant, {
         name: dto.name,
@@ -42,6 +54,7 @@ export class TenantsOnboardService {
         plan: planSlug,
         status: 'trial',
         limits: PLAN_LIMITS[planSlug] ?? PLAN_LIMITS.starter,
+        settings: Object.keys(empresaSettings).length ? { empresa: empresaSettings } : {},
       });
       await tenantRepo.save(tenant);
 

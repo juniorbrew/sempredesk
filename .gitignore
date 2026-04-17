@@ -78,6 +78,9 @@ backend/uploads/
 
 # Audits / backups locais
 audits/
+backups/
+# Arquivos de backup de configuração gerados por scripts
+*.bak.*
 # Dumps PostgreSQL / DB na raiz (não versionar)
 *.dump
 

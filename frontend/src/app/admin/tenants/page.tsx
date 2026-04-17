@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 
+const SUBDOMAIN_BASE = 'sempredesk.com.br';
+
 type TenantSummary = {
   id: string;
   name: string;
@@ -100,39 +102,66 @@ export default function AdminTenantsPage() {
           <tr>
             <th style={{ textAlign: 'left', padding: 8, borderBottom: '1px solid #ddd' }}>Nome</th>
             <th style={{ textAlign: 'left', padding: 8, borderBottom: '1px solid #ddd' }}>CNPJ/E-mail</th>
-            <th style={{ textAlign: 'left', padding: 8, borderBottom: '1px solid #ddd' }}>Slug</th>
+            <th style={{ textAlign: 'left', padding: 8, borderBottom: '1px solid #ddd' }}>Subdomínio</th>
             <th style={{ textAlign: 'left', padding: 8, borderBottom: '1px solid #ddd' }}>Status</th>
             <th style={{ textAlign: 'left', padding: 8, borderBottom: '1px solid #ddd' }}>Licença</th>
             <th style={{ textAlign: 'left', padding: 8, borderBottom: '1px solid #ddd' }}>Ações</th>
           </tr>
         </thead>
         <tbody>
-          {tenants.map((t) => (
-            <tr key={t.id}>
-              <td style={{ padding: 8, borderBottom: '1px solid #eee' }}>{t.name}</td>
-              <td style={{ padding: 8, borderBottom: '1px solid #eee' }}>
-                {t.cnpj || '-'}
-                <div style={{ fontSize: 12, color: '#666' }}>{t.email || '-'}</div>
-              </td>
-              <td style={{ padding: 8, borderBottom: '1px solid #eee' }}>{t.slug}</td>
-              <td style={{ padding: 8, borderBottom: '1px solid #eee' }}>{t.status}</td>
-              <td style={{ padding: 8, borderBottom: '1px solid #eee' }}>
-                {t.license?.status || '-'}
-                <div style={{ fontSize: 12, color: '#666' }}>
-                  vence: {t.license?.expiresAt ? new Date(t.license.expiresAt).toLocaleDateString() : '-'}
-                </div>
-                <div style={{ fontSize: 12, color: '#666' }}>plano: {t.plan || '-'}</div>
-              </td>
-              <td style={{ padding: 8, borderBottom: '1px solid #eee', display: 'flex', gap: 8 }}>
-                <button onClick={() => renew(t.id)}>Renovar</button>
-                {t.status === 'suspended' ? (
-                  <button onClick={() => reactivate(t.id)}>Reativar</button>
-                ) : (
-                  <button onClick={() => suspend(t.id)}>Suspender</button>
-                )}
-              </td>
-            </tr>
-          ))}
+          {tenants.map((t) => {
+            const subdomain = `${t.slug}.${SUBDOMAIN_BASE}`;
+            const fullUrl = `https://${subdomain}`;
+            return (
+              <tr key={t.id}>
+                <td style={{ padding: 8, borderBottom: '1px solid #eee' }}>{t.name}</td>
+                <td style={{ padding: 8, borderBottom: '1px solid #eee' }}>
+                  {t.cnpj || '-'}
+                  <div style={{ fontSize: 12, color: '#666' }}>{t.email || '-'}</div>
+                </td>
+                <td style={{ padding: 8, borderBottom: '1px solid #eee' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <a
+                      href={fullUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ fontSize: 13, color: '#4f46e5', textDecoration: 'none', fontFamily: 'monospace' }}
+                      title={`Abrir ${fullUrl}`}
+                    >
+                      {subdomain}
+                    </a>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(fullUrl);
+                        alert(`Copiado: ${fullUrl}`);
+                      }}
+                      style={{ background: 'none', border: '1px solid #d1d5db', borderRadius: 4, padding: '2px 6px', cursor: 'pointer', fontSize: 11, color: '#6b7280' }}
+                      title="Copiar URL"
+                    >
+                      copiar
+                    </button>
+                  </div>
+                  <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>slug: {t.slug}</div>
+                </td>
+                <td style={{ padding: 8, borderBottom: '1px solid #eee' }}>{t.status}</td>
+                <td style={{ padding: 8, borderBottom: '1px solid #eee' }}>
+                  {t.license?.status || '-'}
+                  <div style={{ fontSize: 12, color: '#666' }}>
+                    vence: {t.license?.expiresAt ? new Date(t.license.expiresAt).toLocaleDateString() : '-'}
+                  </div>
+                  <div style={{ fontSize: 12, color: '#666' }}>plano: {t.plan || '-'}</div>
+                </td>
+                <td style={{ padding: 8, borderBottom: '1px solid #eee', display: 'flex', gap: 8 }}>
+                  <button onClick={() => renew(t.id)}>Renovar</button>
+                  {t.status === 'suspended' ? (
+                    <button onClick={() => reactivate(t.id)}>Reativar</button>
+                  ) : (
+                    <button onClick={() => suspend(t.id)}>Suspender</button>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
           {tenants.length === 0 && (
             <tr>
               <td colSpan={6} style={{ padding: 16, textAlign: 'center', color: '#666' }}>
