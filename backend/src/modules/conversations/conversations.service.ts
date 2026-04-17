@@ -505,6 +505,17 @@ export class ConversationsService {
       }
     }
 
+    // Resolve departmentId → nome para persistir como chatbotDepartment na conversa.
+    // startConversation grava chatbotDepartment apenas de opts.department (string);
+    // sem essa resolução prévia o departamento ficaria null e o ticket nasceria sem department.
+    let portalDeptName: string | undefined;
+    if (dto.departmentId) {
+      const deptSetting = await this.ticketSettingsService.resolveDepartmentSettingForSla(tenantId, {
+        departmentId: dto.departmentId,
+      });
+      portalDeptName = deptSetting?.name ?? undefined;
+    }
+
     const result = await this.withConversationScopeLock(tenantId, contactId, ConversationChannel.PORTAL, async (manager) => {
       const active = await this.findLatestActiveConversationByContact(manager, tenantId, contactId!, ConversationChannel.PORTAL);
       if (active) {
@@ -519,6 +530,7 @@ export class ConversationsService {
         subject: dto.subject,
         description: dto.description,
         departmentId: dto.departmentId,
+        department: portalDeptName,
       }, manager);
     });
 
