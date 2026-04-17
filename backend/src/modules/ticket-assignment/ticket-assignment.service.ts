@@ -84,7 +84,7 @@ export class TicketAssignmentService {
 
     if (!agentId) {
       this.logger.warn(
-        `[assign] ticket=${ticket.ticketNumber} dept="${dept ?? 'sem depto'}" → nenhum agente disponível`,
+        `[assign] ticket=${ticket.ticketNumber} dept="${dept ?? 'global'}" deptId=${ticket.departmentId ?? 'null'} → nenhum agente disponível`,
       );
       return null;
     }
@@ -99,7 +99,7 @@ export class TicketAssignmentService {
     );
 
     this.logger.log(
-      `[assign] ✓ ticket=${ticket.ticketNumber} dept="${dept ?? 'global'}" → agent=${agentId}`,
+      `[assign] ✓ ticket=${ticket.ticketNumber} dept="${dept ?? 'global'}" deptId=${ticket.departmentId ?? 'null'} → agent=${agentId}`,
     );
 
     // Notifica via realtime (não-crítico)
@@ -140,22 +140,42 @@ export class TicketAssignmentService {
 
     return this.dataSource.transaction(async (em) => {
       // 1. Garante linha de queue (upsert atômico)
-      await em.query(
-        `INSERT INTO distribution_queues
-           (id, tenant_id, department_name, last_assigned_user_id, updated_at)
-         VALUES (gen_random_uuid(), $1, $2, NULL, NOW())
-         ON CONFLICT (tenant_id, department_name) DO NOTHING`,
-        [tenantId, deptKey],
-      );
+      // Quando departmentId disponível: chave estável via partial unique index (sobrevive a renomeações).
+      // Fallback: chave por nome (global / depts sem backfill).
+      if (departmentId) {
+        await em.query(
+          `INSERT INTO distribution_queues
+             (id, tenant_id, department_name, department_id, last_assigned_user_id, updated_at)
+           VALUES (gen_random_uuid(), $1, $2, $3, NULL, NOW())
+           ON CONFLICT (tenant_id, department_id) WHERE department_id IS NOT NULL DO NOTHING`,
+          [tenantId, deptKey, departmentId],
+        );
+      } else {
+        await em.query(
+          `INSERT INTO distribution_queues
+             (id, tenant_id, department_name, last_assigned_user_id, updated_at)
+           VALUES (gen_random_uuid(), $1, $2, NULL, NOW())
+           ON CONFLICT (tenant_id, department_name) DO NOTHING`,
+          [tenantId, deptKey],
+        );
+      }
 
       // 2. Bloqueia linha para evitar dupla-atribuição simultânea
-      const queueRows = await em.query<QueueRow[]>(
-        `SELECT id, last_assigned_user_id
-           FROM distribution_queues
-          WHERE tenant_id = $1 AND department_name = $2
-          FOR UPDATE`,
-        [tenantId, deptKey],
-      );
+      const queueRows = departmentId
+        ? await em.query<QueueRow[]>(
+            `SELECT id, last_assigned_user_id
+               FROM distribution_queues
+              WHERE tenant_id = $1 AND department_id = $2
+              FOR UPDATE`,
+            [tenantId, departmentId],
+          )
+        : await em.query<QueueRow[]>(
+            `SELECT id, last_assigned_user_id
+               FROM distribution_queues
+              WHERE tenant_id = $1 AND department_name = $2
+              FOR UPDATE`,
+            [tenantId, deptKey],
+          );
       const queue = queueRows[0] ?? null;
 
       // 3. IDs de agentes elegíveis para o departamento
@@ -298,12 +318,21 @@ export class TicketAssignmentService {
       }
 
       // 7. Persiste novo ponteiro
-      await em.query(
-        `UPDATE distribution_queues
-            SET last_assigned_user_id = $1, updated_at = NOW()
-          WHERE tenant_id = $2 AND department_name = $3`,
-        [nextId, tenantId, deptKey],
-      );
+      if (departmentId) {
+        await em.query(
+          `UPDATE distribution_queues
+              SET last_assigned_user_id = $1, updated_at = NOW()
+            WHERE tenant_id = $2 AND department_id = $3`,
+          [nextId, tenantId, departmentId],
+        );
+      } else {
+        await em.query(
+          `UPDATE distribution_queues
+              SET last_assigned_user_id = $1, updated_at = NOW()
+            WHERE tenant_id = $2 AND department_name = $3`,
+          [nextId, tenantId, deptKey],
+        );
+      }
 
       this.logger.debug(
         `[getNextAgent] dept="${deptKey}" sorted=[${sorted.join(',')}] last=${lastId ?? 'none'} → next=${nextId}`,
@@ -320,11 +349,13 @@ export class TicketAssignmentService {
    * Busca tickets OPEN sem agente nos departamentos do agente e os distribui.
    */
   async rebalanceOnAgentOnline(tenantId: string, userId: string): Promise<void> {
-    this.logger.log(`[rebalance:online] userId=${userId}`);
-
     const depts = await this.agentDeptRepo.find({ where: { tenantId, userId } });
     const deptIds = depts.map((d) => d.departmentId).filter((id): id is string => !!id);
     const deptNames = depts.map((d) => d.departmentName);
+
+    this.logger.log(
+      `[rebalance:online] userId=${userId} depts=${depts.length} ids=[${deptIds.join(',')}]`,
+    );
 
     let qb = this.ticketRepo
       .createQueryBuilder('t')

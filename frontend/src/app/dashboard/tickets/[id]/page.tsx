@@ -184,7 +184,7 @@ export default function TicketDetailsPage() {
   const [convMediaLightbox, setConvMediaLightbox] = useState<null | { src: string; mediaKind: 'image' | 'video' }>(null);
   const [interactionExpanded, setInteractionExpanded] = useState(false);
   const [tenantPriorities, setTenantPriorities] = useState<any[]>([]);
-  const [edit, setEdit] = useState<any>({ priority:'medium', priorityId:'', assignedTo:'', department:'', category:'', subcategory:'', tags:[] as string[] });
+  const [edit, setEdit] = useState<any>({ priority:'medium', priorityId:'', assignedTo:'', department:'', departmentId:'', category:'', subcategory:'', tags:[] as string[] });
   const [showCloseModal, setShowCloseModal] = useState(false);
   const [closeForm, setCloseForm] = useState({ solution:'', rootCause:'', timeSpent:'', internalNote:'', complexity:0 });
   const [showContentModal, setShowContentModal] = useState(false);
@@ -272,6 +272,7 @@ export default function TicketDetailsPage() {
         priorityId: t.priorityId || defaultPid,
         assignedTo: t.assignedTo || '',
         department: t.department || '',
+        departmentId: t.departmentId || '',
         category: t.category || '',
         subcategory: t.subcategory || '',
         tags: Array.isArray(t.tags) ? t.tags : [],
@@ -547,6 +548,7 @@ export default function TicketDetailsPage() {
       ...(patch.priority   !== undefined ? { priority: patch.priority } : {}),
       ...(patch.priorityId !== undefined ? { priorityId: patch.priorityId ?? '' } : {}),
       ...(patch.department !== undefined ? { department: patch.department ?? '' } : {}),
+      ...(patch.departmentId !== undefined ? { departmentId: patch.departmentId ?? '' } : {}),
       ...(patch.category   !== undefined ? { category:   patch.category   ?? '' } : {}),
       ...(patch.subcategory!== undefined ? { subcategory:patch.subcategory?? '' } : {}),
       ...(patch.tags       !== undefined ? { tags: patch.tags ?? [] } : {}),
@@ -583,7 +585,7 @@ export default function TicketDetailsPage() {
   });
 
   const departments = tree?.departments || [];
-  const selectedDept = useMemo(() => departments.find((d:any) => d.name===edit.department), [departments, edit.department]);
+  const selectedDept = useMemo(() => departments.find((d:any) => edit.departmentId ? d.id===edit.departmentId : d.name===edit.department), [departments, edit.department, edit.departmentId]);
   const categories = selectedDept?.categories || [];
   const selectedCat = useMemo(() => categories.find((c:any) => c.name===edit.category), [categories, edit.category]);
   const subcategories = selectedCat?.subcategories || [];
@@ -623,7 +625,7 @@ export default function TicketDetailsPage() {
       const assignedToChanged = (edit.assignedTo || '') !== (ticket?.assignedTo || '');
       const body: any = {
         ...(assignedToChanged ? { assignedTo: edit.assignedTo || undefined } : {}),
-        department: edit.department || undefined,
+        departmentId: edit.departmentId || undefined,
         category: edit.category || undefined,
         subcategory: edit.subcategory || undefined,
         tags: edit.tags?.length ? edit.tags : undefined,
@@ -2047,9 +2049,9 @@ export default function TicketDetailsPage() {
               </div>
               <div>
                 <label style={{ fontSize:10, color:S.txt3, fontWeight:700, letterSpacing:'0.06em', textTransform:'uppercase' as const, display:'block', marginBottom:4 }}>Departamento</label>
-                <select style={inp} value={edit.department} onChange={e => setEdit({...edit,department:e.target.value,category:'',subcategory:''})}>
+                <select style={inp} value={edit.departmentId} onChange={e => { const d = departments.find((x:any) => x.id===e.target.value); setEdit({...edit, departmentId:e.target.value, department:d?.name||'', category:'', subcategory:''}); }}>
                   <option value="">Selecione</option>
-                  {departments.map((d:any) => <option key={d.id} value={d.name}>{d.name}</option>)}
+                  {departments.map((d:any) => <option key={d.id} value={d.id}>{d.name}</option>)}
                 </select>
               </div>
               <div>

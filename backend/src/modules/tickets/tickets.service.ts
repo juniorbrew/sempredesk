@@ -928,6 +928,10 @@ export class TicketsService {
 
     await this.ensureTicketPriorityIdFromEnum(ticketSaved);
 
+    this.logger.log(
+      `[ticket:create] ✓ #${ticketSaved.ticketNumber} dept="${ticketSaved.department ?? '-'}" deptId=${ticketSaved.departmentId ?? 'null'} priority=${ticketSaved.priority}/${ticketSaved.priorityId ?? 'null'} assignedTo=${ticketSaved.assignedTo ?? 'null'} origin=${ticketSaved.origin}`,
+    );
+
     // Registrar no histórico: atribuição, classificação (dept/cat/subcat) — para tickets criados no atendimento
     if (ticketSaved.assignedTo) {
       const techName = await this.getUserName(tenantId, ticketSaved.assignedTo);
@@ -1401,11 +1405,21 @@ export class TicketsService {
     // Isso evita chamar resolveTicketClassification ao salvar apenas prioridade/agente
     // enquanto os selects de dept/cat/sub são enviados com os valores atuais do ticket.
     const userChangedClassification =
+      (dto.departmentId !== undefined && (dto.departmentId || null) !== (ticket.departmentId || null)) ||
       (dto.department !== undefined && (dto.department || null) !== (ticket.department || null)) ||
       (dto.category !== undefined && (dto.category || null) !== (ticket.category || null)) ||
       (dto.subcategory !== undefined && (dto.subcategory || null) !== (ticket.subcategory || null));
 
     const updates: any = { ...dto };
+
+    // Quando departmentId fornecido, resolve nome atual do DB — imune a renomeações
+    if (dto.departmentId) {
+      try {
+        const dept = await this.ticketSettingsService.findOne(tenantId, dto.departmentId);
+        updates.department = dept.name;
+      } catch {}
+    }
+
     if (dto.priorityId !== undefined) {
       if (dto.priorityId === null || dto.priorityId === '') {
         updates.priorityId = null;
@@ -1419,8 +1433,8 @@ export class TicketsService {
       // Quando o departamento muda, limpar categoria/subcategoria não fornecidas
       // explicitamente para evitar validação cruzada com valores do departamento antigo.
       const deptChanged =
-        dto.department !== undefined &&
-        (dto.department || null) !== (ticket.department || null);
+        (dto.departmentId !== undefined && (dto.departmentId || null) !== (ticket.departmentId || null)) ||
+        (dto.department !== undefined && (dto.department || null) !== (ticket.department || null));
       const effectiveCat =
         dto.category !== undefined ? dto.category : deptChanged ? null : ticket.category;
       const effectiveSub =
@@ -1428,13 +1442,27 @@ export class TicketsService {
 
       nextClassification = await this.classificationHelper.resolveTicketClassification(
         tenantId,
-        dto.department ?? ticket.department,
+        updates.department ?? ticket.department,  // usa nome já resolvido do ID quando disponível
         effectiveCat,
         effectiveSub,
       );
       updates.department = nextClassification.department || undefined;
       updates.category = nextClassification.category || undefined;
       updates.subcategory = nextClassification.subcategory || undefined;
+
+      // Resolve e persiste departmentId para a classificação resultante
+      if (dto.departmentId !== undefined) {
+        updates.departmentId = dto.departmentId || null;
+      } else if (updates.department) {
+        const deptRows = await this.ticketRepo.manager.query<Array<{ id: string }>>(
+          `SELECT id FROM ticket_settings WHERE tenant_id = $1 AND type = 'department'
+            AND LOWER(TRIM(name)) = LOWER(TRIM($2)) LIMIT 1`,
+          [tenantId, updates.department],
+        );
+        updates.departmentId = deptRows[0]?.id ?? null;
+      } else {
+        updates.departmentId = null;
+      }
     }
 
     if (dto.assignedTo && ticket.status === TicketStatus.OPEN) {
@@ -1517,6 +1545,7 @@ export class TicketsService {
       priority: saved.priority,
       priorityId: saved.priorityId ?? null,
       department: saved.department ?? null,
+      departmentId: saved.departmentId ?? null,
       category: saved.category ?? null,
       subcategory: saved.subcategory ?? null,
       tags: saved.tags ?? [],

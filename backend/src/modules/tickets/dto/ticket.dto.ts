@@ -99,6 +99,12 @@ export class UpdateTicketDto {
   @IsOptional()
   department?: string;
 
+  /** UUID estável do ticket_settings. Quando presente, o nome é sempre resolvido do DB. */
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined && v !== '')
+  @IsUUID()
+  departmentId?: string | null;
+
   @IsString()
   @IsOptional()
   category?: string;

@@ -50,7 +50,7 @@ export default function NewTicketPage() {
     clientId:'', contactId:'', contractId:'', assignedTo:'', origin:'internal',
     priority: DEFAULT_PRIORITY,
     priorityId: '' as string,
-    department:'', category:'', subcategory:'', subject:'', description:'', tags:[] as string[],
+    department:'', departmentId:'', category:'', subcategory:'', subject:'', description:'', tags:[] as string[],
   });
 
   useEffect(() => {
@@ -158,7 +158,7 @@ export default function NewTicketPage() {
   };
 
   const departments = tree?.departments||[];
-  const selectedDept = useMemo(()=>departments.find((d:any)=>d.name===form.department),[departments,form.department]);
+  const selectedDept = useMemo(()=>departments.find((d:any)=>form.departmentId ? d.id===form.departmentId : d.name===form.department),[departments,form.department,form.departmentId]);
   const categories = selectedDept?.categories||[];
   const selectedCat = useMemo(()=>categories.find((c:any)=>c.name===form.category),[categories,form.category]);
   const subcategories = selectedCat?.subcategories||[];
@@ -184,7 +184,7 @@ export default function NewTicketPage() {
         contactId: form.contactId || undefined,
         contractId: form.contractId || undefined,
         assignedTo: form.assignedTo || undefined,
-        department: form.department || undefined,
+        departmentId: form.departmentId || undefined,
         category: form.category || undefined,
         subcategory: form.subcategory || undefined,
         tags: form.tags.length ? form.tags : undefined,
@@ -411,9 +411,9 @@ export default function NewTicketPage() {
                 <option value="whatsapp">WhatsApp</option>
                 <option value="phone">Telefone</option>
               </Sel>
-              <Sel label="Departamento" value={form.department} onChange={(e:any)=>setForm({...form,department:e.target.value,category:'',subcategory:''})}>
+              <Sel label="Departamento" value={form.departmentId} onChange={(e:any)=>{const d=departments.find((x:any)=>x.id===e.target.value);setForm({...form,departmentId:e.target.value,department:d?.name||'',category:'',subcategory:''});}}>
                 <option value="">Selecione</option>
-                {departments.map((d:any)=><option key={d.id} value={d.name}>{d.name}</option>)}
+                {departments.map((d:any)=><option key={d.id} value={d.id}>{d.name}</option>)}
               </Sel>
               <Sel label="Categoria" value={form.category} disabled={!form.department} onChange={(e:any)=>setForm({...form,category:e.target.value,subcategory:''})}>
                 <option value="">Selecione</option>

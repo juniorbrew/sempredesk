@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { RoutingRule } from './routing-rule.entity';
@@ -6,6 +6,8 @@ import { TenantPriority } from '../tenant-priorities/entities/tenant-priority.en
 
 @Injectable()
 export class RoutingRulesService {
+  private readonly logger = new Logger(RoutingRulesService.name);
+
   constructor(
     @InjectRepository(RoutingRule)
     private readonly repo: Repository<RoutingRule>,
@@ -56,6 +58,9 @@ export class RoutingRulesService {
         condPriorityOk &&
         (!rule.condOrigin || rule.condOrigin === ticket.origin);
       if (match) {
+        this.logger.log(
+          `[routing:match] rule="${rule.name}" dept="${ticket.department ?? '-'}" deptId=${ticket.departmentId ?? 'null'} → assign=${rule.actionAssignTo ?? '-'} priority=${rule.actionSetPriority ?? '-'}`,
+        );
         if (rule.actionAssignTo) result.assignTo = rule.actionAssignTo;
         if (rule.actionSetPriority) result.priority = rule.actionSetPriority;
         if (rule.actionNotifyEmail) result.notifyEmail = rule.actionNotifyEmail;
