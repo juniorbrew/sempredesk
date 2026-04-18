@@ -795,6 +795,18 @@ export class TicketsService {
       dto.subcategory,
     );
 
+    // Garante que departmentId seja resolvido mesmo quando o caller enviou só o nome (sem ID).
+    // O updateTicket já faz este fallback (linha ~1456); o create não fazia — bug corrigido aqui.
+    let effectiveDepartmentId: string | null = dto.departmentId ?? null;
+    if (!effectiveDepartmentId && classification.department) {
+      const deptRows = await this.ticketRepo.manager.query<Array<{ id: string }>>(
+        `SELECT id FROM ticket_settings WHERE tenant_id = $1 AND type = 'department'
+          AND LOWER(TRIM(name)) = LOWER(TRIM($2)) LIMIT 1`,
+        [tenantId, classification.department],
+      );
+      effectiveDepartmentId = deptRows[0]?.id ?? null;
+    }
+
     // Vincula contrato ativo ao ticket (sem herdar SLA do contrato — fonte de verdade é sla_policies)
     if (!dto.contractId && dto.clientId) {
       const contract = await this.contractsService.findActiveContractForClient(tenantId, dto.clientId);
@@ -862,7 +874,7 @@ export class TicketsService {
         description: descriptionText,
         conversationId: dto.conversationId || undefined,
         department: classification.department || undefined,
-        departmentId: dto.departmentId || undefined,
+        departmentId: effectiveDepartmentId || undefined,
         category: classification.category || undefined,
         subcategory: classification.subcategory || undefined,
         tenantId,
