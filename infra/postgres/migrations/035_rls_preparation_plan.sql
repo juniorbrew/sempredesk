@@ -1,0 +1,56 @@
+-- Migration 035 — Preparação para Row-Level Security (PLANEJAMENTO — não executar)
+-- Fase 4 do PLANO_CORRECAO_BANCO.md
+--
+-- STATUS: PLANEJAMENTO — requer Fases 1, 2 e 3 concluídas e aprovação explícita.
+--
+-- Contexto:
+--   O isolamento multi-tenant atual depende 100% de WHERE tenant_id = $1 na aplicação.
+--   RLS adiciona uma camada de segurança no próprio banco, independente da aplicação.
+--   Se um bug bypassar o filtro na aplicação, o banco ainda bloqueia.
+--
+-- Estratégia:
+--   1. Usar uma variável de sessão (app.current_tenant_id) definida pelo backend
+--   2. Políticas RLS leem essa variável
+--   3. Backend define a variável no início de cada requisição via TypeORM connection hook
+--
+-- IMPORTANTE: RLS com FORCE pode quebrar a aplicação se o backend não definir
+-- a variável de sessão. Implementar em modo PERMISSIVE primeiro, depois FORCE.
+--
+-- Exemplo de política (não executar ainda):
+--
+-- -- Habilitar RLS (após todas as FKs e migrações de tipo prontas)
+-- ALTER TABLE tickets ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE tickets FORCE ROW LEVEL SECURITY;
+--
+-- -- Política de leitura
+-- CREATE POLICY tenant_isolation_select ON tickets
+--   FOR SELECT
+--   USING (tenant_id::text = current_setting('app.current_tenant_id', true));
+--
+-- -- Política de escrita
+-- CREATE POLICY tenant_isolation_insert ON tickets
+--   FOR INSERT
+--   WITH CHECK (tenant_id::text = current_setting('app.current_tenant_id', true));
+--
+-- -- Backend: antes de cada query de tenant
+-- await dataSource.query("SET app.current_tenant_id = $1", [tenantId]);
+--
+-- Tabelas prioritárias para RLS (dados mais sensíveis):
+--   tickets, conversations, ticket_messages, conversation_messages,
+--   contacts, clients, users, tenant_settings
+--
+-- Exceções (não aplicar RLS):
+--   permissions, roles, role_permissions — dados globais do sistema
+--   typeorm_migrations — controle interno
+--   audit_logs — super_admin precisa ver tudo
+--   tenants — super_admin gerencia
+--
+-- Pré-requisitos antes de ativar:
+--   1. Backend define SET app.current_tenant_id para cada conexão de tenant
+--   2. Super_admin usa BYPASSRLS ou connection separada
+--   3. Testes E2E passando com RLS PERMISSIVE ativo
+--   4. Monitoramento de erros por 24h antes de ativar FORCE
+
+-- Este arquivo é apenas documentação do plano.
+-- Quando aprovado, criar migration separada para cada grupo de tabelas.
+SELECT 'Migration 035: planejamento RLS — leia os comentários' AS status;

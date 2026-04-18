@@ -35,7 +35,7 @@ export class Conversation {
   @Column({ name: 'client_id', nullable: true })
   clientId: string | null;
 
-  @Column({ name: 'contact_id' })
+  @Column({ name: 'contact_id', type: 'uuid' })
   contactId: string;
 
   @Column({ type: 'enum', enum: ConversationChannel })

@@ -1164,7 +1164,7 @@ export class TicketsService {
       const lastMsgRows = await this.ticketRepo.manager.query(
         `SELECT DISTINCT ON (ticket_id) ticket_id, content, created_at
          FROM ticket_messages
-         WHERE tenant_id = $1 AND ticket_id = ANY($2::text[])
+         WHERE tenant_id = $1 AND ticket_id::text = ANY($2::text[])
            AND author_type = 'user' AND "messageType" != 'internal'
          ORDER BY ticket_id, created_at DESC`,
         [tenantId, ids],
@@ -1221,7 +1221,7 @@ export class TicketsService {
     const ids = tickets.map((t) => t.id);
     const lastRows = await this.ticketRepo.manager.query(
       `SELECT DISTINCT ON (ticket_id) ticket_id, content, created_at
-       FROM ticket_messages WHERE tenant_id = $1 AND ticket_id = ANY($2)
+       FROM ticket_messages WHERE tenant_id = $1 AND ticket_id::text = ANY($2::text[])
        AND "messageType" != 'internal' ORDER BY ticket_id, created_at DESC`,
       [tenantId, ids],
     );

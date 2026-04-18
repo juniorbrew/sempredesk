@@ -5,6 +5,7 @@ import { Tenant } from './tenant.entity';
 import { PLAN_LIMITS } from './tenants.service';
 import { TenantLicense } from '../saas/tenant-license.entity';
 import { User } from '../auth/user.entity';
+import { TenantSettings } from '../settings/settings.entity';
 import { TenantLicenseService } from '../saas/tenant-license.service';
 import { AuditActor, AuditLogService } from '../audit/audit-log.service';
 import { CreateTenantOnboardDto } from './dto/create-tenant-onboard.dto';
@@ -25,6 +26,7 @@ export class TenantsOnboardService {
       const tenantRepo = em.getRepository(Tenant);
       const userRepo = em.getRepository(User);
       const licenseRepo = em.getRepository(TenantLicense);
+      const settingsRepo = em.getRepository(TenantSettings);
 
       const existingTenant = await tenantRepo.findOne({ where: { slug: dto.slug } });
       if (existingTenant) throw new ConflictException('Slug já utilizado por outra empresa');
@@ -57,6 +59,26 @@ export class TenantsOnboardService {
         settings: Object.keys(empresaSettings).length ? { empresa: empresaSettings } : {},
       });
       await tenantRepo.save(tenant);
+
+      // Provisiona tenant_settings já com os dados do cadastro para que o painel
+      // interno não abra em branco. O SettingsService reutiliza este registro normalmente.
+      const addressParts = [
+        dto.logradouro,
+        dto.numero,
+        dto.complemento,
+        dto.bairro,
+        dto.cidade && dto.uf ? `${dto.cidade}/${dto.uf}` : (dto.cidade || dto.uf),
+        dto.cep,
+      ].filter(Boolean);
+      const tenantSettings = settingsRepo.create({
+        tenantId: tenant.id,
+        companyName: dto.nomeFantasia || dto.razaoSocial || dto.name,
+        companyEmail: dto.email,
+        companyPhone: dto.phone,
+        companyCnpj: dto.cnpj,
+        companyAddress: addressParts.length ? addressParts.join(', ') : undefined,
+      });
+      await settingsRepo.save(tenantSettings);
 
       const licensePayload = this.licenseSvc.buildInitialLicensePayload(tenant.id, planSlug);
       const license = licenseRepo.create();

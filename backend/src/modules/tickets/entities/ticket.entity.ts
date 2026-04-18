@@ -177,7 +177,7 @@ export class TicketMessage {
   @Column({ name: 'tenant_id' })
   tenantId: string;
 
-  @Column({ name: 'ticket_id' })
+  @Column({ name: 'ticket_id', type: 'uuid' })
   ticketId: string;
 
   @Column({ name: 'author_id', nullable: true })

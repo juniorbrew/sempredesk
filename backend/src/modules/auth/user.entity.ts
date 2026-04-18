@@ -14,7 +14,7 @@ export type UserPresenceStatus = 'online'|'away'|'busy'|'offline';
 @Entity('users')
 export class User {
   @PrimaryGeneratedColumn('uuid') id: string;
-  @Column({ name: 'tenant_id', nullable: true }) tenantId: string;
+  @Column({ name: 'tenant_id', type: 'uuid', nullable: true }) tenantId: string;
   @Column({ name: 'network_id', nullable: true }) networkId: string | null;
   @Column({ length: 200 }) name: string;
   @Column({ unique: true, length: 200 }) email: string;

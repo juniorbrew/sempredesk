@@ -1,0 +1,78 @@
+-- Migration 038 — Índice: ticket_messages(ticket_id)
+-- Etapa A de 3 para FK ticket_messages.ticket_id → tickets(id)
+--
+-- STATUS: PRONTA PARA REVISÃO — não aplicar sem leitura completa.
+--
+-- Por que esta etapa existe separada:
+--   ticket_messages é a maior tabela atingida até aqui (438 linhas vs 48 em conversations).
+--   O ALTER TYPE na Etapa C (migration 039) reescreve toda a tabela e reconstrói índices.
+--   Se o índice não existir ANTES do ALTER TYPE, não há índice para suportar queries durante
+--   o lock nem para a FK scan. Criar o índice agora, com CONCURRENTLY, tem custo zero de lock.
+--
+-- O que faz:
+--   Cria idx_ticket_messages_ticket_id com CREATE INDEX CONCURRENTLY.
+--   CONCURRENTLY não adquire AccessExclusiveLock — reads e writes continuam normalmente
+--   durante a criação. O índice fica válido ao final.
+--
+-- O que NÃO faz:
+--   - Não altera tipo de coluna
+--   - Não cria FK
+--   - Não causa downtime
+--
+-- Dados verificados em 2026-04-18:
+--   - 438 linhas em ticket_messages
+--   - ticket_id: varchar NOT NULL, 0 NULLs, 0 fora do formato UUID, 0 órfãos
+--   - Índices existentes em ticket_messages: apenas ticket_messages_pkey (id)
+--   - Nenhum índice em ticket_id — este é o primeiro
+--
+-- Por que não há cláusula WHERE (partial index):
+--   ticket_id é NOT NULL — um partial index seria idêntico ao full index.
+--   Full index é mais simples e reconhecido automaticamente em todas as queries sobre ticket_id.
+--
+-- Risco: ZERO
+--   CONCURRENTLY não bloqueia leituras nem escritas. Pode ser aplicado a qualquer hora.
+--   Em caso de falha durante a criação (raro), o índice fica INVALID — verificar com a
+--   query de validação abaixo e recriar se necessário.
+--
+-- Rollback:
+--   DROP INDEX CONCURRENTLY IF EXISTS idx_ticket_messages_ticket_id;
+--
+-- Dependências:
+--   Nenhuma. Pode ser aplicada antes, depois ou independentemente de outras migrations,
+--   mas DEVE ser concluída (índice válido) antes de aplicar a migration 039.
+--
+-- Aplicação:
+--   docker exec -i suporte_postgres psql -U suporte suporte_tecnico \
+--     < infra/postgres/migrations/038_idx_ticket_messages_ticket_id.sql
+--
+-- ATENÇÃO: CREATE INDEX CONCURRENTLY não pode rodar dentro de BEGIN/COMMIT.
+--   Este arquivo não tem bloco de transação — isso é correto e intencional.
+
+-- ══════════════════════════════════════════════════════
+-- BLOCO ÚNICO — CRIAÇÃO DO ÍNDICE (sem transação — obrigatório para CONCURRENTLY)
+-- ══════════════════════════════════════════════════════
+
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ticket_messages_ticket_id
+  ON ticket_messages(ticket_id);
+
+-- ══════════════════════════════════════════════════════
+-- VALIDAÇÃO PÓS-APLICAÇÃO (rodar após o comando acima retornar)
+-- ══════════════════════════════════════════════════════
+--
+-- 1. Confirmar que o índice foi criado e está VALID (não INVALID):
+--   SELECT indexname, indexdef,
+--          CASE WHEN indisvalid THEN 'VALID' ELSE 'INVALID — recriar' END AS estado
+--   FROM pg_indexes
+--   JOIN pg_class ON pg_class.relname = indexname
+--   JOIN pg_index ON pg_index.indexrelid = pg_class.oid
+--   WHERE tablename = 'ticket_messages' AND indexname = 'idx_ticket_messages_ticket_id';
+--   -- Deve retornar 1 linha com estado = 'VALID'.
+--
+-- 2. Confirmar todos os índices da tabela:
+--   SELECT indexname, indexdef FROM pg_indexes WHERE tablename = 'ticket_messages';
+--   -- Deve ter: ticket_messages_pkey e idx_ticket_messages_ticket_id.
+--
+-- 3. Se o índice aparecer como INVALID, dropar e recriar:
+--   DROP INDEX CONCURRENTLY IF EXISTS idx_ticket_messages_ticket_id;
+--   CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ticket_messages_ticket_id
+--     ON ticket_messages(ticket_id);
