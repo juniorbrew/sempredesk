@@ -30,6 +30,16 @@ export class CalendarService {
       throw new BadRequestException('A data de término deve ser igual ou posterior à data de início');
     }
 
+    const metadata = {
+      ...(dto.metadata ?? {}),
+      ...(dto.reminderAt !== undefined
+        ? {
+            reminderAt: dto.reminderAt ?? null,
+            reminderSentAt: null,
+          }
+        : {}),
+    };
+
     const event = this.eventRepo.create({
       tenantId,
       createdBy: userId,
@@ -49,7 +59,7 @@ export class CalendarService {
       ticketId: dto.ticketId ?? null,
       contactId: dto.contactId ?? null,
       clientId: dto.clientId ?? null,
-      metadata: dto.metadata ?? null,
+      metadata: Object.keys(metadata).length ? metadata : null,
     });
 
     const saved = await this.eventRepo.save(event);
@@ -107,6 +117,16 @@ export class CalendarService {
       }
     }
 
+    const nextMetadata = {
+      ...(event.metadata ?? {}),
+      ...(dto.metadata ?? {}),
+    } as Record<string, any>;
+
+    if (dto.reminderAt !== undefined) {
+      nextMetadata.reminderAt = dto.reminderAt ?? null;
+      nextMetadata.reminderSentAt = null;
+    }
+
     Object.assign(event, {
       ...(dto.title          !== undefined && { title: dto.title }),
       ...(dto.description    !== undefined && { description: dto.description }),
@@ -123,7 +143,9 @@ export class CalendarService {
       ...(dto.ticketId       !== undefined && { ticketId: dto.ticketId }),
       ...(dto.contactId      !== undefined && { contactId: dto.contactId }),
       ...(dto.clientId       !== undefined && { clientId: dto.clientId }),
-      ...(dto.metadata       !== undefined && { metadata: dto.metadata }),
+      ...((dto.metadata !== undefined || dto.reminderAt !== undefined) && {
+        metadata: Object.keys(nextMetadata).length ? nextMetadata : null,
+      }),
     });
 
     return this.eventRepo.save(event);

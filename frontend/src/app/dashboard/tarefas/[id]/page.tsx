@@ -32,6 +32,7 @@ const LOG_ACTION_ICONS: Record<string, React.ReactNode> = {
   status_changed: <AlertTriangle style={{ width:13, height:13, color:'#F59E0B' }} />,
   commented:      <MessageSquare style={{ width:13, height:13, color:'#3B82F6' }} />,
   updated:        <Edit2 style={{ width:13, height:13, color:'#64748B' }} />,
+  reminder_sent:  <Clock style={{ width:13, height:13, color:'#0F766E' }} />,
 };
 
 function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
@@ -197,6 +198,7 @@ export default function TarefaDetailPage() {
               <DetailRow label="Status" value={<span style={{ display:'inline-flex', alignItems:'center', gap:5, ...st, padding:'2px 10px', borderRadius:20, fontSize:11, fontWeight:700 }}><span style={{ width:6, height:6, borderRadius:'50%', background:st?.dot }} />{STATUS_LABELS[task.status] || task.status}</span>} />
               <DetailRow label="Prioridade" value={<span style={{ background:pr?.bg, color:pr?.color, padding:'2px 10px', borderRadius:20, fontSize:11, fontWeight:700 }}>{PRIORITY_LABELS[task.priority] || task.priority}</span>} />
               <DetailRow label="Vencimento" value={task.dueAt ? formatDate(task.dueAt) : '—'} />
+              <DetailRow label="Lembrete" value={task.reminderAt ? formatDate(task.reminderAt) : '—'} />
               <DetailRow label="Criado em" value={task.createdAt ? formatDate(task.createdAt) : '—'} />
               {task.assignedUser && <DetailRow label="Atribuído" value={task.assignedUser.name} />}
               {task.description && <DetailRow label="Descrição" value={<span style={{ whiteSpace:'pre-wrap' }}>{task.description}</span>} />}

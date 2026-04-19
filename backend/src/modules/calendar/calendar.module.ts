@@ -10,6 +10,9 @@ import { CalendarWebhookSubscription } from './entities/calendar-webhook-subscri
 
 // Módulos externos
 import { PermissionsModule } from '../permissions/permissions.module';
+import { EmailModule } from '../email/email.module';
+import { RealtimeModule } from '../realtime/realtime.module';
+import { User } from '../auth/user.entity';
 
 // Fase 3 — Eventos
 import { CalendarService }    from './calendar.service';
@@ -21,6 +24,7 @@ import { GoogleCalendarAdapter }          from './adapters/google-calendar.adapt
 import { MicrosoftCalendarAdapter }       from './adapters/microsoft-calendar.adapter';
 import { CalendarIntegrationsService }    from './integrations/calendar-integrations.service';
 import { CalendarIntegrationsController } from './integrations/calendar-integrations.controller';
+import { CalendarReminderSchedulerService } from './calendar-reminder.scheduler';
 
 @Module({
   imports: [
@@ -30,11 +34,15 @@ import { CalendarIntegrationsController } from './integrations/calendar-integrat
       CalendarIntegration,
       CalendarSyncLog,
       CalendarWebhookSubscription,
+      User,
     ]),
     PermissionsModule,
+    EmailModule,
+    RealtimeModule,
   ],
   providers: [
     CalendarService,
+    CalendarReminderSchedulerService,
     // Fase 4
     CalendarCryptoService,
     GoogleCalendarAdapter,

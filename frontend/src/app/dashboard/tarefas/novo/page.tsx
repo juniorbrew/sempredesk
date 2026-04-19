@@ -22,6 +22,7 @@ export default function NovaTarefaPage() {
     priority: 'medium',
     status: 'pending',
     dueAt: '',
+    reminderAt: '',
     description: '',
   });
 
@@ -51,6 +52,7 @@ export default function NovaTarefaPage() {
         priority: form.priority || 'medium',
         status: form.status || 'pending',
         dueAt: form.dueAt ? toISO(form.dueAt) : undefined,
+        reminderAt: form.reminderAt ? toISO(form.reminderAt) : undefined,
         description: form.description || undefined,
         origin: 'manual',
       });
@@ -129,6 +131,18 @@ export default function NovaTarefaPage() {
                 onFocus={() => setFocusField('dueAt')}
                 onBlur={() => setFocusField('')}
                 onChange={e => set('dueAt', e.target.value)}
+              />
+            </div>
+
+            <div>
+              <label style={lbl}>Lembrete interno</label>
+              <input
+                type="datetime-local"
+                style={inp(focusField==='reminderAt')}
+                value={form.reminderAt}
+                onFocus={() => setFocusField('reminderAt')}
+                onBlur={() => setFocusField('')}
+                onChange={e => set('reminderAt', e.target.value)}
               />
             </div>
 

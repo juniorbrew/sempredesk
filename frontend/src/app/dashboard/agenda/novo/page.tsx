@@ -22,6 +22,7 @@ export default function NovoEventoPage() {
     eventType: 'internal',
     startsAt: '',
     endsAt: '',
+    reminderAt: '',
     allDay: false,
     description: '',
     location: '',
@@ -61,6 +62,7 @@ export default function NovoEventoPage() {
         eventType: form.eventType || 'internal',
         startsAt: startsISO,
         endsAt: endsISO,
+        reminderAt: form.reminderAt ? toISO(form.reminderAt) : undefined,
         allDay: form.allDay,
         description: form.description || undefined,
         location: form.location || undefined,
@@ -156,6 +158,18 @@ export default function NovoEventoPage() {
                   onChange={e => set('endsAt', e.target.value)}
                 />
               </div>
+            </div>
+
+            <div>
+              <label style={lbl}>Lembrete interno</label>
+              <input
+                type="datetime-local"
+                style={inp(focusField==='reminderAt')}
+                value={form.reminderAt}
+                onFocus={() => setFocusField('reminderAt')}
+                onBlur={() => setFocusField('')}
+                onChange={e => set('reminderAt', e.target.value)}
+              />
             </div>
 
             {/* Dia inteiro */}

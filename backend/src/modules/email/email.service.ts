@@ -222,6 +222,62 @@ export class EmailService {
     }
   }
 
+  async sendTaskReminder(
+    tenantId: string,
+    to: string,
+    task: {
+      id: string;
+      title: string;
+      description?: string | null;
+      dueAt?: Date | string | null;
+      reminderAt?: Date | string | null;
+      ticketId?: string | null;
+      priority?: string | null;
+    },
+  ): Promise<void> {
+    try {
+      const s = await this.settingsService.findByTenant(tenantId);
+      const transport = await this.getTransporter(tenantId);
+      if (!transport) return;
+      const from = s.smtpFrom || s.smtpUser;
+
+      const formatDate = (value?: Date | string | null) => {
+        if (!value) return null;
+        try {
+          return new Date(value).toLocaleString('pt-BR');
+        } catch {
+          return String(value);
+        }
+      };
+
+      await transport.sendMail({
+        from,
+        to,
+        subject: `Lembrete de tarefa: ${task.title}`,
+        html: `
+          <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
+            <div style="background:#0F766E;padding:20px;border-radius:8px 8px 0 0">
+              <h2 style="color:#fff;margin:0">Lembrete de tarefa</h2>
+            </div>
+            <div style="background:#F8FAFC;padding:20px;border-radius:0 0 8px 8px;border:1px solid #E2E8F0">
+              <p>Uma tarefa interna do SempreDesk atingiu o horário de lembrete.</p>
+              <table style="width:100%;border-collapse:collapse;margin:16px 0">
+                <tr><td style="padding:8px;font-weight:bold;color:#64748B;width:140px">Título:</td><td style="padding:8px">${task.title}</td></tr>
+                ${task.priority ? `<tr style="background:#fff"><td style="padding:8px;font-weight:bold;color:#64748B">Prioridade:</td><td style="padding:8px">${task.priority}</td></tr>` : ''}
+                ${task.reminderAt ? `<tr><td style="padding:8px;font-weight:bold;color:#64748B">Lembrete:</td><td style="padding:8px">${formatDate(task.reminderAt)}</td></tr>` : ''}
+                ${task.dueAt ? `<tr style="background:#fff"><td style="padding:8px;font-weight:bold;color:#64748B">Vencimento:</td><td style="padding:8px">${formatDate(task.dueAt)}</td></tr>` : ''}
+                ${task.ticketId ? `<tr><td style="padding:8px;font-weight:bold;color:#64748B">Ticket vinculado:</td><td style="padding:8px">${task.ticketId}</td></tr>` : ''}
+              </table>
+              ${task.description ? `<div style="background:#fff;border:1px solid #E2E8F0;border-radius:8px;padding:12px;margin:12px 0"><strong>Descrição:</strong><p style="margin:8px 0 0">${task.description}</p></div>` : ''}
+              <p style="color:#64748B;font-size:13px">Este envio é opcional e depende do SMTP configurado no tenant.</p>
+            </div>
+          </div>`,
+      });
+    } catch (e) {
+      this.logger.error('Error sending task reminder email:', e.message);
+    }
+  }
+
   /**
    * E-mail da plataforma (trial / SaaS), sem depender do SMTP configurado por tenant.
    * Variáveis: SAAS_SMTP_HOST, SAAS_SMTP_PORT, SAAS_SMTP_USER, SAAS_SMTP_PASS, SAAS_SMTP_FROM

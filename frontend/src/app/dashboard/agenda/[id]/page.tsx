@@ -42,7 +42,7 @@ export default function EventoDetailPage() {
   const [acting, setActing] = useState(false);
   const [editing, setEditing] = useState(false);
   const [focusField, setFocusField] = useState('');
-  const [editForm, setEditForm] = useState({ title:'', startsAt:'', endsAt:'', description:'', location:'' });
+  const [editForm, setEditForm] = useState({ title:'', startsAt:'', endsAt:'', reminderAt:'', description:'', location:'' });
 
   // Converte ISO UTC para string local no formato datetime-local (YYYY-MM-DDTHH:mm)
   const toLocalInput = (iso: string) => {
@@ -64,6 +64,7 @@ export default function EventoDetailPage() {
         title: raw?.title || '',
         startsAt: raw?.startsAt ? toLocalInput(raw.startsAt) : '',
         endsAt:   raw?.endsAt   ? toLocalInput(raw.endsAt)   : '',
+        reminderAt: raw?.metadata?.reminderAt ? toLocalInput(raw.metadata.reminderAt) : '',
         description: raw?.description || '',
         location: raw?.location || '',
       });
@@ -122,6 +123,7 @@ export default function EventoDetailPage() {
         title: editForm.title,
         startsAt: editForm.startsAt ? toISO(editForm.startsAt) : undefined,
         endsAt:   editForm.endsAt   ? toISO(editForm.endsAt)   : undefined,
+        reminderAt: editForm.reminderAt ? toISO(editForm.reminderAt) : null,
         description: editForm.description || undefined,
         location: editForm.location || undefined,
       });
@@ -178,6 +180,7 @@ export default function EventoDetailPage() {
               <DetailRow label="Tipo" value={EVENT_TYPE_LABELS[event.eventType] || event.eventType} />
               <DetailRow label="Início" value={event.startsAt ? formatDate(event.startsAt) : '—'} />
               <DetailRow label="Fim" value={event.endsAt ? formatDate(event.endsAt) : '—'} />
+              <DetailRow label="Lembrete" value={event.metadata?.reminderAt ? formatDate(event.metadata.reminderAt) : '—'} />
               <DetailRow label="Dia inteiro" value={event.allDay ? 'Sim' : 'Não'} />
               <DetailRow label="Status" value={STATUS_LABELS[event.status] || event.status} />
               {event.location && <DetailRow label="Local" value={<span style={{ display:'inline-flex', alignItems:'center', gap:5 }}><MapPin style={{ width:13, height:13, color:'#64748B' }} />{event.location}</span>} />}
@@ -204,6 +207,10 @@ export default function EventoDetailPage() {
                       <label style={lbl}>Data fim</label>
                       <input type="datetime-local" style={inp(focusField==='ee')} value={editForm.endsAt} onFocus={() => setFocusField('ee')} onBlur={() => setFocusField('')} onChange={e => setEditForm(p => ({ ...p, endsAt: e.target.value }))} />
                     </div>
+                  </div>
+                  <div>
+                    <label style={lbl}>Lembrete interno</label>
+                    <input type="datetime-local" style={inp(focusField==='er')} value={editForm.reminderAt} onFocus={() => setFocusField('er')} onBlur={() => setFocusField('')} onChange={e => setEditForm(p => ({ ...p, reminderAt: e.target.value }))} />
                   </div>
                   <div>
                     <label style={lbl}>Descrição</label>

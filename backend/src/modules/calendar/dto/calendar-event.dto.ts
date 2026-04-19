@@ -66,6 +66,9 @@ export class CreateCalendarEventDto {
   @IsUUID() @IsOptional()
   clientId?: string;
 
+  @IsDateString() @IsOptional()
+  reminderAt?: string;
+
   @IsObject() @IsOptional()
   metadata?: Record<string, any>;
 
@@ -91,6 +94,7 @@ export class UpdateCalendarEventDto {
   @IsUUID() @IsOptional() ticketId?: string;
   @IsUUID() @IsOptional() contactId?: string;
   @IsUUID() @IsOptional() clientId?: string;
+  @IsDateString() @IsOptional() reminderAt?: string;
   @IsObject() @IsOptional() metadata?: Record<string, any>;
 }
 
