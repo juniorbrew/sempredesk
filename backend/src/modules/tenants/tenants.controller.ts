@@ -1,4 +1,6 @@
-import { Controller, Get, Post, Put, Body, Param, UseGuards, Request, NotFoundException } from '@nestjs/common';
+import { Controller, Get, Post, Put, Body, Param, Req, UseGuards, Request, NotFoundException } from '@nestjs/common';
+import { Request as ExpressRequest } from 'express';
+import { ConfigService } from '@nestjs/config';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -6,7 +8,10 @@ import { TenantsService } from './tenants.service';
 
 @Controller('tenants')
 export class TenantsController {
-  constructor(private readonly svc: TenantsService) {}
+  constructor(
+    private readonly svc: TenantsService,
+    private readonly cfg: ConfigService,
+  ) {}
 
   /**
    * Endpoint PÚBLICO — resolve tenant pelo subdomínio (slug).
@@ -21,6 +26,25 @@ export class TenantsController {
     } catch {
       throw new NotFoundException('Subdomínio não encontrado');
     }
+  }
+
+  /**
+   * Endpoint PÚBLICO — resolve tenant a partir do Host header da requisição.
+   * Suporta:
+   *   - domínio customizado: empresa.com.br
+   *   - subdomínio padrão: techcorp.sempredesk.com.br
+   *
+   * Usado pelo frontend quando não há ?tenant= na URL mas o hostname já define
+   * o tenant (acesso direto via subdomínio).
+   */
+  @Get('by-host')
+  async byHost(@Req() req: ExpressRequest) {
+    // Nginx repassa o host original via X-Forwarded-Host
+    const host = (req.headers['x-forwarded-host'] as string) || req.headers.host || '';
+    const baseDomain = this.cfg.get<string>('BASE_DOMAIN', 'sempredesk.com.br');
+    const t = await this.svc.findByHost(host, baseDomain);
+    if (!t) throw new NotFoundException('Host não corresponde a nenhum tenant');
+    return { id: t.id, name: t.name, slug: t.slug, customDomain: t.customDomain };
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { ConfigModule } from '@nestjs/config';
 import { Tenant } from './tenant.entity';
 import { TenantsService } from './tenants.service';
 import { TenantsController } from './tenants.controller';
@@ -9,7 +10,7 @@ import { SaasModule } from '../saas/saas.module';
 import { AuditLogModule } from '../audit/audit-log.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Tenant]), SaasModule, AuditLogModule],
+  imports: [TypeOrmModule.forFeature([Tenant]), ConfigModule, SaasModule, AuditLogModule],
   providers: [TenantsService, TenantsOnboardService],
   controllers: [TenantsController, AdminTenantsController],
   exports: [TenantsService],

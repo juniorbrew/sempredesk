@@ -31,6 +31,36 @@ export class TenantsService {
     if (!t) throw new NotFoundException('Tenant não encontrado');
     return t;
   }
+
+  /**
+   * Resolve o tenant pelo hostname da requisição.
+   * Ordem de tentativa:
+   *   1. custom_domain exato (ex.: empresa.com.br)
+   *   2. subdomínio do baseDomain (ex.: techcorp.sempredesk.com.br → slug "techcorp")
+   * Retorna null se não encontrar (não lança exceção — caller decide o fallback).
+   */
+  async findByHost(host: string, baseDomain: string): Promise<Tenant | null> {
+    // Remove porta, se houver (ex.: "localhost:3000" → "localhost")
+    const cleanHost = host.split(':')[0].toLowerCase().trim();
+
+    // 1. Tenta custom_domain exato
+    const byCustom = await this.repo.findOne({ where: { customDomain: cleanHost } });
+    if (byCustom) return byCustom;
+
+    // 2. Tenta extrair slug do subdomínio (ex.: techcorp.sempredesk.com.br)
+    const base = baseDomain.toLowerCase().trim();
+    if (cleanHost.endsWith(`.${base}`)) {
+      const sub = cleanHost.slice(0, cleanHost.length - base.length - 1); // remove ".baseDomain"
+      // Ignora subdomínios fixos do sistema
+      const systemHosts = ['suporte', 'cliente', 'adminpanel', 'www', 'api', 'app', 'mail'];
+      if (sub && !systemHosts.includes(sub) && !sub.includes('.')) {
+        const bySlug = await this.repo.findOne({ where: { slug: sub } });
+        return bySlug ?? null;
+      }
+    }
+
+    return null;
+  }
   async update(id: string, data: Partial<Tenant>) {
     await this.findOne(id);
     await this.repo.update(id, data);

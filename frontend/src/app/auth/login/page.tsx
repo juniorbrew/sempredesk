@@ -38,11 +38,30 @@ function LoginPageInner() {
     setPainelMaster(window.location.hostname.includes('adminpanel.'));
   }, []);
 
-  // Resolve o tenant quando ?tenant= está presente na URL (acesso via subdomínio)
+  // Resolve o tenant a partir do ?tenant= na URL OU do hostname automaticamente.
+  // Prioridade: ?tenant= > hostname > nenhum (login genérico sem badge).
+  // Subdomínios fixos do sistema nunca são tratados como tenant.
   useEffect(() => {
-    const tenantSlug = searchParams.get('tenant');
-    if (!tenantSlug) return;
-    fetch(`/api/v1/tenants/by-subdomain/${encodeURIComponent(tenantSlug)}`)
+    const SYSTEM_SUBDOMAINS = new Set(['suporte', 'cliente', 'adminpanel', 'www', 'api', 'app', 'mail']);
+    const BASE_DOMAIN = 'sempredesk.com.br';
+
+    let slugToResolve = searchParams.get('tenant');
+
+    if (!slugToResolve) {
+      const hostname = window.location.hostname;
+      // Extrai subdomínio se o hostname for <sub>.sempredesk.com.br
+      if (hostname.endsWith(`.${BASE_DOMAIN}`)) {
+        const sub = hostname.slice(0, hostname.length - BASE_DOMAIN.length - 1);
+        // Apenas um nível de subdomínio (não "a.b.sempredesk.com.br") e não fixo do sistema
+        if (sub && !sub.includes('.') && !SYSTEM_SUBDOMAINS.has(sub)) {
+          slugToResolve = sub;
+        }
+      }
+    }
+
+    if (!slugToResolve) return;
+
+    fetch(`/api/v1/tenants/by-subdomain/${encodeURIComponent(slugToResolve)}`)
       .then((r) => r.ok ? r.json() : Promise.reject())
       .then((data) => setTenantInfo(data?.data ?? data))
       .catch(() => setTenantNotFound(true));
@@ -59,8 +78,10 @@ function LoginPageInner() {
   const onSubmit = async (data: LoginForm) => {
     setLoading(true);
     try {
-      // Passa tenantSlug quando login via subdomínio — backend valida o vínculo
-      const tenantSlug = searchParams.get('tenant') ?? undefined;
+      // tenantSlug: prioridade ?tenant= param, depois slug detectado no badge (via hostname)
+      // Garante que o backend valide o vínculo mesmo sem query param na URL
+      const paramSlug = searchParams.get('tenant') ?? undefined;
+      const tenantSlug = paramSlug ?? tenantInfo?.slug ?? undefined;
       const res: any = await api.login(data.email, data.password, tenantSlug);
       setAuth(res.user, res.accessToken, res.refreshToken);
       toast.success(`Bem-vindo, ${res.user.name}!`);

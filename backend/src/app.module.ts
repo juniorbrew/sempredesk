@@ -48,6 +48,8 @@ import { StorageModule } from './modules/storage/storage.module';
 import { SlaModule } from './modules/sla/sla.module';
 import { TenantPrioritiesModule } from './modules/tenant-priorities/tenant-priorities.module';
 import { AgentPausesModule } from './modules/agent-pauses/agent-pauses.module';
+import { CalendarModule } from './modules/calendar/calendar.module';
+import { TasksModule } from './modules/tasks/tasks.module';
 
 @Module({
   imports: [
@@ -123,6 +125,8 @@ import { AgentPausesModule } from './modules/agent-pauses/agent-pauses.module';
     SlaModule,
     TenantPrioritiesModule,
     AgentPausesModule,
+    CalendarModule,
+    TasksModule,
   ],
   providers: [
     // Rate limiting por tenant (não por IP) em todos os endpoints

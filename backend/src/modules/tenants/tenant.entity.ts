@@ -16,6 +16,21 @@ export class Tenant {
   @Column({ nullable: true, length: 20 }) phone: string;
   @Column({ type: 'jsonb', default: {} }) settings: Record<string, any>;
   @Column({ type: 'jsonb', default: {} }) limits: Record<string, any>;
+
+  /**
+   * Domínio próprio da empresa (ex.: "empresa.com.br").
+   * Null = acesso apenas via {slug}.sempredesk.com.br.
+   */
+  @Column({ name: 'custom_domain', nullable: true, unique: true, length: 255 })
+  customDomain: string | null;
+
+  /**
+   * Se false, desativa o acesso via {slug}.sempredesk.com.br.
+   * Útil durante migração para domínio próprio.
+   */
+  @Column({ name: 'subdomain_active', default: true })
+  subdomainActive: boolean;
+
   @CreateDateColumn({ name: 'created_at' }) createdAt: Date;
   @UpdateDateColumn({ name: 'updated_at' }) updatedAt: Date;
 }

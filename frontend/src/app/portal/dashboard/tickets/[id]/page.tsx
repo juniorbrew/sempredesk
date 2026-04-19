@@ -104,9 +104,10 @@ export default function PortalDashboardTicketDetailPage() {
       }
       const mRes = await portalFetch(`${API_BASE}/tickets/${ticketData.id}/messages?includeInternal=false&limit=${PAGE_LIMIT}`, { headers:{ Authorization:`Bearer ${accessToken}` } });
       const mData = await mRes.json();
-      // Suporte a resposta paginada ({ messages, hasMore }) e array simples
-      const rawTicketMsgs = (mData?.messages ?? mData?.data ?? mData ?? []).filter((m:any) => m.messageType !== 'internal');
-      setHasMore(mData?.hasMore ?? false);
+      // ResponseInterceptor envolve em { success, data } — desembrulhar antes de acessar messages/hasMore
+      const mInner = mData?.data ?? mData;
+      const rawTicketMsgs = (mInner?.messages ?? (Array.isArray(mInner) ? mInner : [])).filter((m:any) => m.messageType !== 'internal');
+      setHasMore(mInner?.hasMore ?? false);
       let convMsgs: any[] = [];
 
       if (ticketData?.conversationId) {
@@ -142,8 +143,9 @@ export default function PortalDashboardTicketDetailPage() {
       const url = `${API_BASE}/tickets/${apiTicketId}/messages?includeInternal=false&limit=${PAGE_LIMIT}${cursorId ? `&before=${cursorId}` : ''}`;
       const res = await portalFetch(url, { headers:{ Authorization:`Bearer ${accessToken}` } });
       const data = await res.json();
-      const older = (data?.messages ?? data?.data ?? data ?? []).filter((m:any) => m.messageType !== 'internal');
-      setHasMore(data?.hasMore ?? false);
+      const dInner = data?.data ?? data;
+      const older = (dInner?.messages ?? (Array.isArray(dInner) ? dInner : [])).filter((m:any) => m.messageType !== 'internal');
+      setHasMore(dInner?.hasMore ?? false);
       if (older.length > 0) {
         setMessages(prev => mergeMessages(older, prev));
         // Restaurar posição de scroll para não pular para o topo

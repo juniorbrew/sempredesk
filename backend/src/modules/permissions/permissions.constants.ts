@@ -37,6 +37,14 @@ export const PERMISSIONS = {
   ATTENDANCE_VIEW: 'attendance.view',
   TICKET_VIEW_ALL: 'ticket.view_all',
   ATTENDANCE_VIEW_ALL: 'attendance.view_all',
+  AGENDA_VIEW:   'agenda.view',
+  AGENDA_CREATE: 'agenda.create',
+  AGENDA_EDIT:   'agenda.edit',
+  AGENDA_DELETE: 'agenda.delete',
+  TASKS_VIEW:    'tasks.view',
+  TASKS_CREATE:  'tasks.create',
+  TASKS_EDIT:    'tasks.edit',
+  TASKS_DELETE:  'tasks.delete',
 } as const;
 
 export type PermissionCode = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

@@ -466,6 +466,82 @@ class ApiClient {
   /** Histórico de pausas */
   getPauseHistory = (params?: { agentId?: string; page?: number; perPage?: number }) =>
     this.http.get('/agent-pauses/history', { params });
+
+  // ── Agenda / Eventos de Calendário ──────────────────────────────────────
+  getCalendarEvents = (params?: { page?: number; perPage?: number; status?: string; eventType?: string; assignedUserId?: string; startFrom?: string; startTo?: string }) =>
+    this.http.get('/calendar/events', { params });
+
+  getCalendarEvent = (id: string) =>
+    this.http.get(`/calendar/events/${id}`);
+
+  createCalendarEvent = (data: any) =>
+    this.http.post('/calendar/events', data);
+
+  updateCalendarEvent = (id: string, data: any) =>
+    this.http.put(`/calendar/events/${id}`, data);
+
+  cancelCalendarEvent = (id: string) =>
+    this.http.put(`/calendar/events/${id}/cancel`);
+
+  deleteCalendarEvent = (id: string) =>
+    this.http.delete(`/calendar/events/${id}`);
+
+  // ── Tarefas ─────────────────────────────────────────────────────────────
+  getTasks = (params?: { page?: number; perPage?: number; status?: string; priority?: string; assignedUserId?: string }) =>
+    this.http.get('/tasks', { params });
+
+  getTask = (id: string) =>
+    this.http.get(`/tasks/${id}`);
+
+  createTask = (data: any) =>
+    this.http.post('/tasks', data);
+
+  updateTask = (id: string, data: any) =>
+    this.http.put(`/tasks/${id}`, data);
+
+  completeTask = (id: string) =>
+    this.http.put(`/tasks/${id}/complete`);
+
+  cancelTask = (id: string) =>
+    this.http.put(`/tasks/${id}/cancel`);
+
+  deleteTask = (id: string) =>
+    this.http.delete(`/tasks/${id}`);
+
+  addTaskComment = (id: string, data: { comment: string }) =>
+    this.http.post(`/tasks/${id}/comments`, data);
+
+  // ── Integrações de Calendário (Fase 4) ──────────────────────────────────
+  /** Lista quais providers OAuth estão configurados no servidor. */
+  getCalendarProviders = () =>
+    this.http.get('/calendar/integrations/providers');
+
+  /** Lista todas as integrações conectadas do usuário autenticado. */
+  getCalendarIntegrations = () =>
+    this.http.get('/calendar/integrations');
+
+  /**
+   * Retorna a URL de autorização OAuth como JSON.
+   * O frontend usa esta URL para navegar via window.location.href.
+   */
+  getCalendarConnectUrl = (provider: 'google' | 'outlook') =>
+    this.http.get(`/calendar/integrations/${provider}/connect-url`);
+
+  /** Lista os calendários disponíveis no provider da integração. */
+  getIntegrationCalendars = (id: string) =>
+    this.http.get(`/calendar/integrations/${id}/calendars`);
+
+  /** Importa eventos do provider para o banco local. */
+  syncIntegration = (id: string, data?: { calendarId?: string; daysBack?: number; daysForward?: number }) =>
+    this.http.post(`/calendar/integrations/${id}/sync`, data || {});
+
+  /** Histórico das últimas sincronizações da integração. */
+  getIntegrationLogs = (id: string) =>
+    this.http.get(`/calendar/integrations/${id}/logs`);
+
+  /** Remove a integração e revoga o token no provider (best-effort). */
+  disconnectIntegration = (id: string) =>
+    this.http.delete(`/calendar/integrations/${id}`);
 }
 
 export const api = new ApiClient();

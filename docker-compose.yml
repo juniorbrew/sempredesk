@@ -94,6 +94,7 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS}@rabbitmq:5672/${RABBITMQ_DEFAULT_VHOST}
       NODE_ENV: production
+      BASE_DOMAIN: sempredesk.com.br
       ALLOWED_ORIGINS: https://suporte.sempredesk.com.br,https://cliente.sempredesk.com.br,https://adminpanel.sempredesk.com.br,http://suporte.sempredesk.com.br,http://cliente.sempredesk.com.br,http://adminpanel.sempredesk.com.br,http://77.237.236.230
       PORT: 4000
       CONVERSATION_MEDIA_DIR: /app/uploads/conversation-media

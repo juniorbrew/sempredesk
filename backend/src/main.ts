@@ -24,16 +24,40 @@ async function bootstrap() {
 
   app.setGlobalPrefix('api/v1');
 
-  const allowedOrigins = process.env.ALLOWED_ORIGINS
-    ? process.env.ALLOWED_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean)
-    : [
-        'http://localhost:3000',
-        'https://cliente.sempredesk.com.br',
-        'https://suporte.sempredesk.com.br',
-        'https://adminpanel.sempredesk.com.br',
-      ];
+  // ── CORS dinâmico — suporta multi-tenant por subdomínio ──────────────────
+  // Aceita automaticamente qualquer subdomínio de BASE_DOMAIN (*.sempredesk.com.br)
+  // sem precisar atualizar ALLOWED_ORIGINS a cada novo tenant.
+  // Origens extras (ex.: IPs de desenvolvimento, custom domains) podem ser passadas
+  // via ALLOWED_ORIGINS separadas por vírgula como antes.
+  const baseDomain = process.env.BASE_DOMAIN || 'sempredesk.com.br';
+  // Escapa pontos do domínio base para uso em regex
+  const baseDomainEscaped = baseDomain.replace(/\./g, '\\.');
+  // Aceita: *.baseDomain (http e https) e o próprio baseDomain
+  const wildcardPattern = new RegExp(
+    `^https?:\\/\\/([\\w-]+\\.)*${baseDomainEscaped}(:\\d+)?$`,
+  );
+  // Origens extras explícitas (inclui retrocompatibilidade com ALLOWED_ORIGINS)
+  const explicitOrigins = new Set<string>(
+    (process.env.ALLOWED_ORIGINS || '')
+      .split(',')
+      .map((o) => o.trim())
+      .filter(Boolean),
+  );
+
   app.enableCors({
-    origin: allowedOrigins,
+    origin: (origin, callback) => {
+      // Requests sem origin (curl, same-origin, SSR server-side) são permitidas
+      if (!origin) return callback(null, true);
+      // Localhost em qualquer porta (desenvolvimento)
+      if (/^https?:\/\/localhost(:\d+)?$/.test(origin)) return callback(null, true);
+      // Qualquer subdomínio do baseDomain
+      if (wildcardPattern.test(origin)) return callback(null, true);
+      // Lista explícita (retrocompatibilidade)
+      if (explicitOrigins.has(origin)) return callback(null, true);
+      // Bloqueia o resto
+      logger.warn(`CORS bloqueado: ${origin}`);
+      callback(new Error(`Origem não permitida: ${origin}`), false);
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],

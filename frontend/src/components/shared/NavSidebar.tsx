@@ -6,7 +6,7 @@ import {
   Users, Users2, FileText, Monitor, BookOpen, BarChart2,
   Settings, Smartphone, LogOut, Headphones, ChevronRight, Bell,
   Network, FolderTree, Tag, Layers, Database, AlertTriangle,
-  Activity, Flag, Coffee,
+  Activity, Flag, Coffee, CalendarDays, ListChecks,
 } from 'lucide-react';
 import { useAuthStore, hasPermission } from '@/store/auth.store';
 import { usePresenceStore } from '@/store/presence.store';
@@ -32,6 +32,8 @@ const MAIN_ITEMS: MainNavItem[] = [
   { href: '/dashboard/supervisor',   icon: Activity,        label: 'Supervisor',             perm: 'attendance.view_all' },
   { href: '/dashboard/chat-interno', icon: MessageSquare,   label: 'Chat interno',           perm: 'chat.view' },
   { href: '/dashboard/tickets',      icon: Ticket,          label: 'Tickets',                perm: 'ticket.view', badgeKey: 'tickets' },
+  { href: '/dashboard/agenda',       icon: CalendarDays,    label: 'Agenda',                 perm: 'agenda.view' },
+  { href: '/dashboard/tarefas',      icon: ListChecks,      label: 'Tarefas',                perm: 'tasks.view' },
   { href: '/dashboard/contracts',    icon: FileText,        label: 'Contratos',              perm: 'contracts.view' },
   { href: '/dashboard/devices',      icon: Monitor,         label: 'Monitoramento PDV',      perm: 'devices.view' },
   { href: '/dashboard/knowledge',    icon: BookOpen,        label: 'Base de Conhecimento',   perm: 'knowledge.view' },
