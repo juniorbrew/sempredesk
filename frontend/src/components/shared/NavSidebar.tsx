@@ -12,6 +12,7 @@ import { useAuthStore, hasPermission } from '@/store/auth.store';
 import { usePresenceStore } from '@/store/presence.store';
 import { usePathname, useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
+import { getAppVersionLabel } from '@/lib/app-version';
 import { useMyTicketMenuCounts } from '@/hooks/useMyTicketMenuCounts';
 import { useRealtimeConversationClosed, useRealtimeTenantNewMessages, useRealtimeTicketAssigned } from '@/lib/realtime';
 import NavItem from './NavItem';
@@ -524,7 +525,7 @@ export default function NavSidebar({ isOpen, onClose, expanded = false, onToggle
             <UserDot name={user?.name ?? '?'} expanded={expanded} />
           </div>
           <div style={{ textAlign: 'center', paddingBottom: 2 }}>
-            <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.2)', fontFamily: 'monospace', letterSpacing: '.05em' }}>v2.5</span>
+            <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.2)', fontFamily: 'monospace', letterSpacing: '.05em' }}>{getAppVersionLabel()}</span>
           </div>
         </div>
       </aside>

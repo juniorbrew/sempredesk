@@ -8,10 +8,21 @@ import { SkipTenantLicenseCheck } from '../../common/decorators/skip-tenant-lice
 @SkipTenantLicenseCheck()
 @Controller()
 export class HealthController {
+  private readonly appVersion = process.env.APP_VERSION || 'dev-local';
+  private readonly appGitSha = process.env.APP_GIT_SHA || 'local';
+  private readonly appBuildSource = process.env.APP_BUILD_SOURCE || 'local';
+
   @Get('health')
   @Get()
   check() {
-    return { status: 'ok', timestamp: new Date().toISOString(), service: 'suporte-tecnico-backend' };
+    return {
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      service: 'suporte-tecnico-backend',
+      version: this.appVersion,
+      gitSha: this.appGitSha,
+      buildSource: this.appBuildSource,
+    };
   }
 
   @Get('metrics')
@@ -28,7 +39,7 @@ export class HealthController {
       `app_uptime_seconds ${uptimeSeconds}`,
       '# HELP app_build_info Static build information for the backend.',
       '# TYPE app_build_info gauge',
-      'app_build_info{service="suporte-tecnico-backend"} 1',
+      `app_build_info{service="suporte-tecnico-backend",version="${this.appVersion}",git_sha="${this.appGitSha}",build_source="${this.appBuildSource}"} 1`,
       '# HELP app_scrape_timestamp_seconds Unix timestamp of this scrape.',
       '# TYPE app_scrape_timestamp_seconds gauge',
       `app_scrape_timestamp_seconds ${Math.floor(Date.now() / 1000)}`,

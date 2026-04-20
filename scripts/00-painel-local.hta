@@ -1,0 +1,367 @@
+<html>
+<head>
+  <title>SempreDesk - Painel Local</title>
+  <hta:application
+    id="sempredeskLauncher"
+    applicationname="SempreDeskPainelLocal"
+    border="thin"
+    borderstyle="normal"
+    caption="yes"
+    contextmenu="no"
+    maximizebutton="yes"
+    minimizebutton="yes"
+    navigable="yes"
+    scroll="yes"
+    showintaskbar="yes"
+    singleinstance="yes"
+    sysmenu="yes"
+    windowstate="normal"
+  />
+  <meta http-equiv="x-ua-compatible" content="IE=9" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    html, body {
+      width: 100%;
+      min-height: 100%;
+    }
+
+    body {
+      margin: 0;
+      font-family: Segoe UI, Arial, sans-serif;
+      background: linear-gradient(135deg, #f4f7fb 0%, #e8eef7 100%);
+      color: #1f2937;
+      overflow: auto;
+    }
+
+    .wrap {
+      max-width: 880px;
+      margin: 0 auto;
+      padding: 28px;
+    }
+
+    .hero {
+      background: #12233d;
+      color: #ffffff;
+      border-radius: 18px;
+      padding: 24px 28px;
+      box-shadow: 0 14px 32px rgba(18, 35, 61, 0.22);
+    }
+
+    .hero h1 {
+      margin: 0 0 10px;
+      font-size: 30px;
+      font-weight: 700;
+    }
+
+    .hero p {
+      margin: 0;
+      font-size: 15px;
+      line-height: 1.5;
+      color: #d6e1f0;
+    }
+
+    .grid {
+      margin-top: 22px;
+      overflow: hidden;
+    }
+
+    .card {
+      float: left;
+      width: 48%;
+      margin: 0 1% 18px;
+      background: #ffffff;
+      border-radius: 18px;
+      padding: 20px;
+      box-shadow: 0 10px 26px rgba(15, 23, 42, 0.08);
+      border: 1px solid #dde6f1;
+    }
+
+    .card h2 {
+      margin: 0 0 8px;
+      font-size: 20px;
+      color: #12233d;
+    }
+
+    .card p {
+      margin: 0 0 16px;
+      font-size: 14px;
+      line-height: 1.5;
+      color: #526173;
+    }
+
+    .btn {
+      display: block;
+      width: 100%;
+      border: 0;
+      border-radius: 12px;
+      padding: 14px 16px;
+      margin-bottom: 10px;
+      text-align: left;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.08s ease, opacity 0.08s ease;
+    }
+
+    .btn:hover {
+      opacity: 0.94;
+    }
+
+    .btn:active {
+      transform: translateY(1px);
+    }
+
+    .primary {
+      background: #2457d6;
+      color: #ffffff;
+    }
+
+    .success {
+      background: #12805c;
+      color: #ffffff;
+    }
+
+    .warning {
+      background: #c97b14;
+      color: #ffffff;
+    }
+
+    .dark {
+      background: #233247;
+      color: #ffffff;
+    }
+
+    .light {
+      background: #eef4fb;
+      color: #12233d;
+      border: 1px solid #d4e0ef;
+    }
+
+    .steps {
+      margin: 0;
+      padding-left: 18px;
+      line-height: 1.8;
+      color: #405063;
+      font-size: 14px;
+    }
+
+    .footer {
+      clear: both;
+      margin-top: 18px;
+      font-size: 12px;
+      color: #6b7785;
+    }
+
+    .card-wide {
+      width: 98%;
+    }
+
+    @media screen and (max-width: 760px) {
+      .wrap {
+        padding: 16px;
+      }
+
+      .hero {
+        padding: 18px;
+        border-radius: 14px;
+      }
+
+      .hero h1 {
+        font-size: 24px;
+      }
+
+      .hero p {
+        font-size: 14px;
+      }
+
+      .card,
+      .card-wide {
+        float: none;
+        width: 100%;
+        margin: 0 0 14px;
+        border-radius: 14px;
+        padding: 16px;
+      }
+
+      .card h2 {
+        font-size: 18px;
+      }
+
+      .btn {
+        padding: 13px 14px;
+        font-size: 14px;
+      }
+
+      .steps {
+        padding-left: 20px;
+        line-height: 1.6;
+      }
+    }
+
+    @media screen and (max-width: 480px) {
+      .wrap {
+        padding: 12px;
+      }
+
+      .hero h1 {
+        font-size: 21px;
+      }
+
+      .btn {
+        font-size: 13px;
+      }
+    }
+  </style>
+  <script language="javascript">
+    function repoRoot() {
+      var path = unescape(window.location.pathname);
+      path = path.replace(/\//g, "\\");
+      if (path.charAt(0) == "\\") {
+        path = path.substring(1);
+      }
+      return path.replace(/\\scripts\\00-painel-local\.hta$/i, "");
+    }
+
+    function shell() {
+      return new ActiveXObject("WScript.Shell");
+    }
+
+    function runRelative(relativePath) {
+      var fullPath = repoRoot() + "\\" + relativePath;
+      shell().Run('cmd.exe /c start "" "' + fullPath + '"', 1, false);
+    }
+
+    function openText(relativePath) {
+      var fullPath = repoRoot() + "\\" + relativePath;
+      shell().Run('notepad.exe "' + fullPath + '"', 1, false);
+    }
+
+    function openRepo() {
+      shell().Run('explorer.exe "' + repoRoot() + '"', 1, false);
+    }
+
+    function closeApp() {
+      window.close();
+    }
+
+    function centerWindow(width, height) {
+      try {
+        var targetWidth = width;
+        var targetHeight = height;
+
+        if (screen) {
+          if (targetWidth > screen.availWidth - 40) {
+            targetWidth = screen.availWidth - 40;
+          }
+          if (targetHeight > screen.availHeight - 80) {
+            targetHeight = screen.availHeight - 80;
+          }
+
+          if (targetWidth < 760) {
+            targetWidth = screen.availWidth - 30;
+          }
+
+          window.resizeTo(targetWidth, targetHeight);
+
+          var left = Math.max(0, (screen.availWidth - targetWidth) / 2);
+          var top = Math.max(0, (screen.availHeight - targetHeight) / 2);
+          window.moveTo(left, top);
+        }
+      } catch (e) {}
+    }
+
+    function initWindow() {
+      centerWindow(1120, 820);
+    }
+
+    function runWorkflow() {
+      var message = [];
+      message.push("A sequencia recomendada e:");
+      message.push("");
+      message.push("1. Check Git local");
+      message.push("2. Restaurar ambiente local");
+      message.push("3. Aplicar migracoes locais");
+      message.push("4. Validar ambiente local");
+      message.push("");
+      message.push("Os passos serao abertos separadamente.");
+      message.push("Continue executando cada janela ate concluir.");
+
+      if (confirm(message.join("\n"))) {
+        runRelative('scripts\\05-check-git-local.bat');
+        setTimeout(function() {
+          runRelative('scripts\\01-restaurar-ambiente-local.bat');
+        }, 500);
+        setTimeout(function() {
+          runRelative('scripts\\02-aplicar-migracoes-locais.bat');
+        }, 1000);
+        setTimeout(function() {
+          runRelative('scripts\\03-validar-ambiente-local.bat');
+        }, 1500);
+      }
+    }
+  </script>
+</head>
+<body onload="initWindow()">
+  <div class="wrap">
+    <div class="hero">
+      <h1>SempreDesk - Painel Local</h1>
+      <p>Um painel simples para levantar, validar e limpar o ambiente local sem precisar decorar comandos.</p>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <h2>Fluxo Principal</h2>
+        <p>Use esta sequencia quando atualizar o codigo local vindo do GitHub ou precisar religar o ambiente.</p>
+        <button class="btn dark" onclick="runWorkflow()">Executar sequencia local guiada</button>
+        <button class="btn light" onclick="runRelative('scripts\\05-check-git-local.bat')">0. Check Git local</button>
+        <button class="btn primary" onclick="runRelative('scripts\\01-restaurar-ambiente-local.bat')">1. Restaurar ambiente local</button>
+        <button class="btn success" onclick="runRelative('scripts\\02-aplicar-migracoes-locais.bat')">2. Aplicar migracoes locais</button>
+        <button class="btn dark" onclick="runRelative('scripts\\03-validar-ambiente-local.bat')">3. Validar ambiente local</button>
+        <button class="btn warning" onclick="runRelative('scripts\\04-limpar-onedrive-apos-uso.bat')">4. Limpar OneDrive apos uso</button>
+      </div>
+
+      <div class="card">
+        <h2>Acoes Rapidas</h2>
+        <p>Atalhos uteis para abrir o repositorio, consultar a ordem recomendada e acessar o menu antigo.</p>
+        <button class="btn light" onclick="openText('scripts\\00-ORDEM-DE-USO.txt')">Abrir ordem de uso</button>
+        <button class="btn light" onclick="openText('docs\\fluxo-local-vps.md')">Abrir fluxo local para VPS</button>
+        <button class="btn light" onclick="runRelative('scripts\\00-menu-sequencia.bat')">Abrir menu interativo</button>
+        <button class="btn light" onclick="openRepo()">Abrir pasta do repositorio</button>
+        <button class="btn light" onclick="closeApp()">Fechar painel</button>
+      </div>
+
+      <div class="card">
+        <h2>Banco Local</h2>
+        <p>Use banco local no PC e no notebook. Se quiser levar seus dados de teste de uma maquina para outra, gere backup e depois restaure na outra.</p>
+        <button class="btn success" onclick="runRelative('scripts\\06-backup-banco-local.bat')">Gerar backup do banco local</button>
+        <button class="btn warning" onclick="runRelative('scripts\\07-restaurar-banco-local.bat')">Restaurar backup do banco local</button>
+      </div>
+
+      <div class="card">
+        <h2>Ordem Recomendada</h2>
+        <ol class="steps">
+          <li>Check Git local</li>
+          <li>Restaurar ambiente local</li>
+          <li>Aplicar migracoes locais</li>
+          <li>Validar ambiente local</li>
+          <li>Limpar artefatos pesados ao finalizar</li>
+        </ol>
+      </div>
+
+      <div class="card">
+        <h2>Observacao</h2>
+        <p>Este painel nao impacta o VPS. Ele apenas executa os arquivos locais da sua maquina dentro da pasta do SempreDesk no OneDrive.</p>
+        <p>Se preferir, depois eu tambem posso deixar um atalho na area de trabalho apontando direto para este painel.</p>
+      </div>
+    </div>
+
+    <div class="footer">
+      Arquivo local HTA com botoes para facilitar sua rotina.
+    </div>
+  </div>
+</body>
+</html>

@@ -6,9 +6,13 @@ COPY . .
 ARG NEXT_PUBLIC_API_URL
 ARG NEXT_PUBLIC_WS_URL
 ARG INTERNAL_API_URL
+ARG NEXT_PUBLIC_APP_VERSION=dev-local
+ARG NEXT_PUBLIC_APP_GIT_SHA=local
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_WS_URL=$NEXT_PUBLIC_WS_URL
 ENV INTERNAL_API_URL=$INTERNAL_API_URL
+ENV NEXT_PUBLIC_APP_VERSION=$NEXT_PUBLIC_APP_VERSION
+ENV NEXT_PUBLIC_APP_GIT_SHA=$NEXT_PUBLIC_APP_GIT_SHA
 # Gera `.next/standalone` para `node server.js` na imagem final (ver next.config.js).
 ENV DOCKER_BUILD=1
 RUN npm run build
@@ -19,6 +23,10 @@ ENV NODE_ENV=production
 # Ouvinte em todas as interfaces — sem isto o Nginx no Docker costuma receber 502 (upstream recusou ligação).
 ENV HOSTNAME=0.0.0.0
 ENV PORT=3000
+ARG NEXT_PUBLIC_APP_VERSION=dev-local
+ARG NEXT_PUBLIC_APP_GIT_SHA=local
+ENV NEXT_PUBLIC_APP_VERSION=$NEXT_PUBLIC_APP_VERSION
+ENV NEXT_PUBLIC_APP_GIT_SHA=$NEXT_PUBLIC_APP_GIT_SHA
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public

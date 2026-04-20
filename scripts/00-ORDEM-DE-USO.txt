@@ -1,0 +1,35 @@
+SEMPREDESK - SEQUENCIA LOCAL
+
+Use sempre nesta ordem quando precisar levantar o ambiente local:
+
+0. 05-check-git-local.bat
+   Confere branch atual e estado do repositorio local.
+
+1. 01-restaurar-ambiente-local.bat
+   Instala dependencias, gera build e sobe backend/frontend.
+
+2. 02-aplicar-migracoes-locais.bat
+   Aplica as migrations SQL do banco local Docker.
+   Use depois de atualizar codigo vindo do VPS/GitHub.
+
+3. 03-validar-ambiente-local.bat
+   Confere containers, frontend e backend locais.
+
+4. 04-limpar-onedrive-apos-uso.bat
+   Remove node_modules, .next e dist para aliviar a sincronizacao do OneDrive.
+
+Atalho opcional:
+
+- 00-menu-sequencia.bat
+  Abre um menu com todas as opcoes.
+
+Extras uteis:
+
+- 06-backup-banco-local.bat
+  Gera uma copia do banco local para levar testes de uma maquina para outra.
+
+- 07-restaurar-banco-local.bat
+  Restaura um backup do banco local.
+
+- docs/fluxo-local-vps.md
+  Guia do fluxo PC/notebook -> GitHub -> VPS.

@@ -79,6 +79,10 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      args:
+        APP_VERSION: ${APP_VERSION:-dev-local}
+        APP_GIT_SHA: ${APP_GIT_SHA:-local}
+        APP_BUILD_SOURCE: ${APP_BUILD_SOURCE:-local}
     container_name: suporte_backend
     restart: unless-stopped
     env_file: ./backend/.env
@@ -97,6 +101,9 @@ services:
       BASE_DOMAIN: sempredesk.com.br
       ALLOWED_ORIGINS: https://suporte.sempredesk.com.br,https://cliente.sempredesk.com.br,https://adminpanel.sempredesk.com.br,http://suporte.sempredesk.com.br,http://cliente.sempredesk.com.br,http://adminpanel.sempredesk.com.br,http://77.237.236.230
       PORT: 4000
+      APP_VERSION: ${APP_VERSION:-dev-local}
+      APP_GIT_SHA: ${APP_GIT_SHA:-local}
+      APP_BUILD_SOURCE: ${APP_BUILD_SOURCE:-local}
       CONVERSATION_MEDIA_DIR: /app/uploads/conversation-media
       TICKET_REPLY_MEDIA_DIR: /app/uploads/ticket-reply-media
       TICKET_ATTACHMENTS_DIR: /app/uploads/ticket-attachments
@@ -131,12 +138,16 @@ services:
         NEXT_PUBLIC_API_URL: ""
         NEXT_PUBLIC_WS_URL: ""
         INTERNAL_API_URL: "http://backend:4000"
+        NEXT_PUBLIC_APP_VERSION: ${NEXT_PUBLIC_APP_VERSION:-dev-local}
+        NEXT_PUBLIC_APP_GIT_SHA: ${NEXT_PUBLIC_APP_GIT_SHA:-local}
     container_name: suporte_frontend
     restart: unless-stopped
     environment:
       NEXT_PUBLIC_API_URL: ""
       NEXT_PUBLIC_WS_URL: ""
       INTERNAL_API_URL: "http://backend:4000"
+      NEXT_PUBLIC_APP_VERSION: ${NEXT_PUBLIC_APP_VERSION:-dev-local}
+      NEXT_PUBLIC_APP_GIT_SHA: ${NEXT_PUBLIC_APP_GIT_SHA:-local}
       HOSTNAME: "0.0.0.0"
       PORT: "3000"
     ports:

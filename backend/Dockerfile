@@ -1,5 +1,11 @@
 FROM node:20-alpine AS builder
 WORKDIR /app
+ARG APP_VERSION=dev-local
+ARG APP_GIT_SHA=local
+ARG APP_BUILD_SOURCE=local
+ENV APP_VERSION=$APP_VERSION
+ENV APP_GIT_SHA=$APP_GIT_SHA
+ENV APP_BUILD_SOURCE=$APP_BUILD_SOURCE
 RUN apk add --no-cache python3 make g++ git
 COPY package*.json ./
 RUN npm install
@@ -9,6 +15,12 @@ RUN npm run build
 FROM node:20-alpine AS production
 WORKDIR /app
 ENV NODE_ENV=production
+ARG APP_VERSION=dev-local
+ARG APP_GIT_SHA=local
+ARG APP_BUILD_SOURCE=local
+ENV APP_VERSION=$APP_VERSION
+ENV APP_GIT_SHA=$APP_GIT_SHA
+ENV APP_BUILD_SOURCE=$APP_BUILD_SOURCE
 RUN apk add --no-cache python3 make g++ git ffmpeg
 COPY package*.json ./
 RUN npm install --omit=dev

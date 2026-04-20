@@ -7,6 +7,7 @@ import { ThemeProvider } from '@/components/ThemeProvider';
 import NotificationBell from '@/components/NotificationBell';
 import GlobalSearch from '@/components/GlobalSearch';
 import { StatusSelector } from '@/components/StatusSelector';
+import { getAppVersionLabel } from '@/lib/app-version';
 import { Menu, X } from 'lucide-react';
 import { PresenceProvider } from '@/components/PresenceProvider';
 import { RealtimeTvModeClassGuard } from '@/components/RealtimeTvModeClassGuard';
@@ -51,6 +52,7 @@ function PausePendingBanner({ count, onGo }: { count: number; onGo: () => void }
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+  const appVersionLabel = getAppVersionLabel();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarExpanded, setSidebarExpanded] = useState(() => {
     try { return localStorage.getItem('sidebar_expanded') === 'true'; } catch { return false; }
@@ -194,10 +196,36 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           style={{ marginLeft: sidebarExpanded ? 220 : 68, flex: 1, display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden', transition: 'margin-left 0.2s ease' }}
         >
           {/* Thin global top bar */}
-          <div style={{ background: '#fff', borderBottom: '1px solid rgba(0,0,0,0.07)', padding: '6px 24px 6px', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, height: 44, flexShrink: 0 }}>
+          <div style={{ background: '#fff', borderBottom: '1px solid rgba(0,0,0,0.07)', padding: '6px 24px 6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, minHeight: 44, flexShrink: 0, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 10, fontWeight: 800, color: '#1E293B', letterSpacing: '.08em', textTransform: 'uppercase' }}>
+                Versao ativa
+              </span>
+              <span
+                title={`Build em uso: ${appVersionLabel}`}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  padding: '4px 10px',
+                  borderRadius: 999,
+                  background: '#EEF2FF',
+                  border: '1px solid #C7D2FE',
+                  color: '#3730A3',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  fontFamily: 'monospace',
+                  letterSpacing: '.04em',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {appVersionLabel}
+              </span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
             <GlobalSearch />
             <StatusSelector />
             <NotificationBell />
+            </div>
           </div>
           <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', position: 'relative' }}>
             {children}

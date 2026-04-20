@@ -1,0 +1,9 @@
+{
+  "sshAlias": "sempredesk",
+  "host": "SEU_IP_OU_HOST",
+  "user": "root",
+  "port": 22,
+  "repoPath": "/opt/suporte-tecnico",
+  "hostKey": "ssh-ed25519 255 SHA256:o2Ml1hshlP6VJ+d+ddGRPlU04cLfpOvCEweZ0N8eTyU",
+  "plinkPath": "C:\\Program Files\\PuTTY\\plink.exe"
+}
