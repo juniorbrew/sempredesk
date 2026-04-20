@@ -26,7 +26,8 @@ export class CalendarService {
   }
 
   async create(tenantId: string, userId: string, dto: CreateCalendarEventDto): Promise<CalendarEvent> {
-    if (new Date(dto.endsAt) < new Date(dto.startsAt)) {
+    const resolvedEndsAt = dto.endsAt ?? dto.startsAt;
+    if (new Date(resolvedEndsAt) < new Date(dto.startsAt)) {
       throw new BadRequestException('A data de término deve ser igual ou posterior à data de início');
     }
 
@@ -48,7 +49,7 @@ export class CalendarService {
       location: dto.location ?? null,
       notes: dto.notes ?? null,
       startsAt: new Date(dto.startsAt),
-      endsAt: new Date(dto.endsAt),
+      endsAt: new Date(resolvedEndsAt),
       timezone: dto.timezone ?? 'America/Sao_Paulo',
       allDay: dto.allDay ?? false,
       status: dto.status ?? 'scheduled',

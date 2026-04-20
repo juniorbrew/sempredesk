@@ -226,8 +226,8 @@ function New-GuideBlock {
   $panel = New-Object System.Windows.Forms.Panel
   $panel.Left = 20
   $panel.Top = $Top
-  $panel.Width = 860
-  $panel.Height = 164
+  $panel.Width = 920
+  $panel.Height = 170
   $panel.Anchor = 'Top,Left'
   $panel.BackColor = [System.Drawing.Color]::White
   $panel.BorderStyle = 'FixedSingle'
@@ -243,8 +243,8 @@ function New-GuideBlock {
 
   $titleLabel = New-Object System.Windows.Forms.Label
   $titleLabel.Left = 24
-  $titleLabel.Top = 16
-  $titleLabel.Width = 500
+  $titleLabel.Top = 14
+  $titleLabel.Width = 560
   $titleLabel.Height = 28
   $titleLabel.Text = $Title
   $titleLabel.Font = New-Object System.Drawing.Font('Segoe UI', 12, [System.Drawing.FontStyle]::Bold)
@@ -253,8 +253,8 @@ function New-GuideBlock {
 
   $modeLabel = New-Object System.Windows.Forms.Label
   $modeLabel.Left = 24
-  $modeLabel.Top = 42
-  $modeLabel.Width = 460
+  $modeLabel.Top = 38
+  $modeLabel.Width = 560
   $modeLabel.Height = 18
   $modeLabel.Text = $ModeText
   $modeLabel.Font = New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Bold)
@@ -262,16 +262,17 @@ function New-GuideBlock {
   $panel.Controls.Add($modeLabel)
 
   $actionButton = New-Object System.Windows.Forms.Button
-  $actionButton.Left = 636
+  $actionButton.Left = 700
   $actionButton.Top = 14
-  $actionButton.Width = 190
-  $actionButton.Height = 34
+  $actionButton.Width = 180
+  $actionButton.Height = 38
   $actionButton.Anchor = 'Top,Left'
   $actionButton.Text = $ButtonText
   $actionButton.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
   $actionButton.FlatStyle = 'Flat'
-  $actionButton.FlatAppearance.BorderSize = 0
+  $actionButton.FlatAppearance.BorderSize = 1
   $actionButton.Font = New-Object System.Drawing.Font('Segoe UI', 9, [System.Drawing.FontStyle]::Bold)
+  $actionButton.UseVisualStyleBackColor = $false
   $actionButton.BackColor = [System.Drawing.ColorTranslator]::FromHtml($AccentColor)
   $actionButton.ForeColor = [System.Drawing.Color]::White
   $actionButton.Cursor = [System.Windows.Forms.Cursors]::Hand
@@ -280,9 +281,9 @@ function New-GuideBlock {
 
   $bodyLabel = New-Object System.Windows.Forms.Label
   $bodyLabel.Left = 24
-  $bodyLabel.Top = 64
-  $bodyLabel.Width = 804
-  $bodyLabel.Height = 74
+  $bodyLabel.Top = 58
+  $bodyLabel.Width = 850
+  $bodyLabel.Height = 72
   $bodyLabel.Text = $Body
   $bodyLabel.Font = New-Object System.Drawing.Font('Segoe UI', 9)
   $bodyLabel.ForeColor = [System.Drawing.ColorTranslator]::FromHtml('#405063')
@@ -290,9 +291,9 @@ function New-GuideBlock {
 
   $execLabel = New-Object System.Windows.Forms.Label
   $execLabel.Left = 24
-  $execLabel.Top = 140
-  $execLabel.Width = 804
-  $execLabel.Height = 18
+  $execLabel.Top = 134
+  $execLabel.Width = 850
+  $execLabel.Height = 20
   $execLabel.Text = $ExecText
   $execLabel.Font = New-Object System.Drawing.Font('Segoe UI', 8, [System.Drawing.FontStyle]::Italic)
   $execLabel.ForeColor = [System.Drawing.ColorTranslator]::FromHtml('#5b6b7d')
@@ -304,8 +305,8 @@ function New-GuideBlock {
 $form = New-Object System.Windows.Forms.Form
 $form.Text = 'SempreDesk - Painel Local'
 $form.StartPosition = 'CenterScreen'
-$form.Size = New-Object System.Drawing.Size(1100, 820)
-$form.MinimumSize = New-Object System.Drawing.Size(940, 720)
+$form.Size = New-Object System.Drawing.Size(1360, 920)
+$form.MinimumSize = New-Object System.Drawing.Size(1180, 820)
 $form.BackColor = [System.Drawing.ColorTranslator]::FromHtml('#eaf0f7')
 $form.Font = New-Object System.Drawing.Font('Segoe UI', 9)
 $form.AutoScaleMode = 'Dpi'
@@ -430,25 +431,40 @@ New-SectionTitle -Parent $tabBanco -Text 'Banco Local' -Top 64 | Out-Null
 New-SectionText -Parent $tabBanco -Text 'Use banco local no PC e no notebook. Se quiser levar dados de teste de uma maquina para outra, gere backup e depois restaure.' -Top 102 -Height 42 | Out-Null
 New-FullButton -Parent $tabBanco -Text 'Gerar backup do banco local' -Top 160 -BackColor '#12805c' -OnClick { Start-LocalScript 'scripts\06-backup-banco-local.bat' } | Out-Null
 New-FullButton -Parent $tabBanco -Text 'Restaurar backup do banco local' -Top 212 -BackColor '#c97b14' -OnClick { Start-LocalScript 'scripts\07-restaurar-banco-local.bat' } | Out-Null
-New-FullButton -Parent $tabBanco -Text '4. Limpar OneDrive apos uso' -Top 264 -BackColor '#c97b14' -OnClick { Start-LocalScript 'scripts\04-limpar-onedrive-apos-uso.bat' } | Out-Null
-New-SectionText -Parent $tabBanco -Text 'O banco nao deve ser sincronizado pelo OneDrive. O codigo viaja pelo GitHub. O banco local viaja por backup quando voce quiser.' -Top 332 -Height 80 | Out-Null
+New-SectionText -Parent $tabBanco -Text 'O banco e local em cada maquina. O codigo viaja pelo GitHub. O banco local viaja por backup somente quando voce quiser continuar o mesmo teste em outra maquina.' -Top 264 -Height 80 | Out-Null
 
 Add-HomeButton -Parent $tabGuia | Out-Null
 New-SectionTitle -Parent $tabGuia -Text 'Guia de Uso' -Top 64 | Out-Null
-New-SectionText -Parent $tabGuia -Text 'Use esta aba como caminho principal. Escolha o cenario abaixo e clique no botao da sequencia automatica.' -Top 102 -Height 42 | Out-Null
+New-SectionText -Parent $tabGuia -Text 'Use esta aba como caminho principal. Escolha a subaba abaixo e clique no botao da sequencia automatica.' -Top 102 -Height 42 | Out-Null
 
-$guideScroll = New-Object System.Windows.Forms.Panel
-$guideScroll.Left = 24
-$guideScroll.Top = 144
-$guideScroll.Width = 880
-$guideScroll.Height = 540
-$guideScroll.Anchor = 'Top,Left,Bottom'
-$guideScroll.AutoScroll = $true
-$guideScroll.BackColor = [System.Drawing.ColorTranslator]::FromHtml('#f6f9fc')
-$guideScroll.BorderStyle = 'FixedSingle'
-$tabGuia.Controls.Add($guideScroll)
+$guideTabs = New-Object System.Windows.Forms.TabControl
+$guideTabs.Left = 16
+$guideTabs.Top = 144
+$guideTabs.Width = 980
+$guideTabs.Height = 700
+$guideTabs.Anchor = 'Top,Left,Right,Bottom'
+$guideTabs.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
+$tabGuia.Controls.Add($guideTabs)
 
-New-GuideBlock -Parent $guideScroll -Title 'Estou no PC e vou comecar o trabalho' -Top 16 -AccentColor '#2457d6' -ModeText 'Este botao executa scripts automaticamente' -ExecText 'Executa: 05-check-git-local -> 01-restaurar -> 02-migracoes -> 03-validar' -ButtonText 'Executar inicio no PC' -ButtonAction {
+$guidePc = New-Object System.Windows.Forms.TabPage
+$guidePc.Text = 'PC'
+$guidePc.BackColor = [System.Drawing.ColorTranslator]::FromHtml('#f6f9fc')
+$guidePc.AutoScroll = $true
+$guideTabs.TabPages.Add($guidePc)
+
+$guideNotebook = New-Object System.Windows.Forms.TabPage
+$guideNotebook.Text = 'Notebook'
+$guideNotebook.BackColor = [System.Drawing.ColorTranslator]::FromHtml('#f6f9fc')
+$guideNotebook.AutoScroll = $true
+$guideTabs.TabPages.Add($guideNotebook)
+
+$guidePublish = New-Object System.Windows.Forms.TabPage
+$guidePublish.Text = 'Publicacao'
+$guidePublish.BackColor = [System.Drawing.ColorTranslator]::FromHtml('#f6f9fc')
+$guidePublish.AutoScroll = $true
+$guideTabs.TabPages.Add($guidePublish)
+
+New-GuideBlock -Parent $guidePc -Title 'Estou no PC e vou comecar o trabalho' -Top 16 -AccentColor '#2457d6' -ModeText 'Este botao executa scripts automaticamente' -ExecText 'Executa: 05-check-git-local -> 01-restaurar -> 02-migracoes -> 03-validar' -ButtonText 'Executar inicio no PC' -ButtonAction {
   Invoke-GuidedSequence -Scripts @(
     'scripts\05-check-git-local.bat',
     'scripts\01-restaurar-ambiente-local.bat',
@@ -457,14 +473,13 @@ New-GuideBlock -Parent $guideScroll -Title 'Estou no PC e vou comecar o trabalho
   ) -Title 'Iniciar no PC' -Message "Vou abrir a sequencia recomendada para comecar no PC:`r`n`r`n1. Check Git local`r`n2. Restaurar ambiente local`r`n3. Aplicar migracoes locais`r`n4. Validar ambiente local"
 } -Body "1. Abrir a pasta local do SempreDesk.`r`n2. Atualizar o codigo pelo GitHub.`r`n3. Rodar: Check Git local -> Restaurar ambiente -> Aplicar migracoes -> Validar ambiente.`r`n4. Trabalhar normalmente com o banco local do PC." | Out-Null
 
-New-GuideBlock -Parent $guideScroll -Title 'Terminei o trabalho no PC' -Top 190 -AccentColor '#12805c' -ModeText 'Este botao executa scripts automaticamente' -ExecText 'Executa: 06-backup-banco-local -> 04-limpar-onedrive' -ButtonText 'Executar fim no PC' -ButtonAction {
+New-GuideBlock -Parent $guidePc -Title 'Terminei o trabalho no PC' -Top 196 -AccentColor '#12805c' -ModeText 'Este botao executa scripts automaticamente' -ExecText 'Executa: 06-backup-banco-local' -ButtonText 'Executar fim no PC' -ButtonAction {
   Invoke-GuidedSequence -Scripts @(
-    'scripts\06-backup-banco-local.bat',
-    'scripts\04-limpar-onedrive-apos-uso.bat'
-  ) -Title 'Encerrar no PC' -Message "Vou abrir a sequencia de encerramento no PC:`r`n`r`n1. Backup do banco local`r`n2. Limpeza do OneDrive`r`n`r`nUse o backup quando quiser levar seus dados de teste para outra maquina."
-} -Body "1. Validar se tudo funcionou localmente.`r`n2. Fazer commit e push.`r`n3. Gerar backup se quiser continuar o mesmo teste em outra maquina.`r`n4. Rodar a limpeza do OneDrive ao finalizar." | Out-Null
+    'scripts\06-backup-banco-local.bat'
+  ) -Title 'Encerrar no PC' -Message "Vou abrir a sequencia de encerramento no PC:`r`n`r`n1. Backup do banco local`r`n`r`nUse o backup quando quiser levar seus dados de teste para outra maquina."
+} -Body "1. Validar se tudo funcionou localmente.`r`n2. Fazer commit e push.`r`n3. Gerar backup se quiser continuar o mesmo teste em outra maquina." | Out-Null
 
-New-GuideBlock -Parent $guideScroll -Title 'Estou no notebook e vou comecar o trabalho' -Top 364 -AccentColor '#c97b14' -ModeText 'Este botao executa scripts automaticamente' -ExecText 'Executa: 05-check-git-local -> 01-restaurar -> 02-migracoes -> 03-validar' -ButtonText 'Executar inicio no notebook' -ButtonAction {
+New-GuideBlock -Parent $guideNotebook -Title 'Estou no notebook e vou comecar o trabalho' -Top 16 -AccentColor '#c97b14' -ModeText 'Este botao executa scripts automaticamente' -ExecText 'Executa: 05-check-git-local -> 01-restaurar -> 02-migracoes -> 03-validar' -ButtonText 'Executar inicio no notebook' -ButtonAction {
   Invoke-GuidedSequence -Scripts @(
     'scripts\05-check-git-local.bat',
     'scripts\01-restaurar-ambiente-local.bat',
@@ -473,37 +488,26 @@ New-GuideBlock -Parent $guideScroll -Title 'Estou no notebook e vou comecar o tr
   ) -Title 'Usar no notebook' -Message "Vou abrir a sequencia recomendada para trabalhar no notebook:`r`n`r`n1. Check Git local`r`n2. Restaurar ambiente local`r`n3. Aplicar migracoes locais`r`n4. Validar ambiente local`r`n`r`nSe voce trouxe um backup .sql do PC, restaure depois pela aba Banco Local."
 } -Body "1. Clonar ou atualizar o repositorio no notebook.`r`n2. Abrir o painel local.`r`n3. Rodar: Check Git local -> Restaurar ambiente -> Aplicar migracoes -> Validar ambiente.`r`n4. Se quiser, restaurar um backup .sql do PC.`r`n5. Trabalhar com o banco local do notebook." | Out-Null
 
-New-GuideBlock -Parent $guideScroll -Title 'Terminei o trabalho no notebook' -Top 538 -AccentColor '#8a5a14' -ModeText 'Este botao executa scripts automaticamente' -ExecText 'Executa: 06-backup-banco-local -> 04-limpar-onedrive' -ButtonText 'Executar fim no notebook' -ButtonAction {
+New-GuideBlock -Parent $guideNotebook -Title 'Terminei o trabalho no notebook' -Top 196 -AccentColor '#8a5a14' -ModeText 'Este botao executa scripts automaticamente' -ExecText 'Executa: 06-backup-banco-local' -ButtonText 'Executar fim no notebook' -ButtonAction {
   Invoke-GuidedSequence -Scripts @(
-    'scripts\06-backup-banco-local.bat',
-    'scripts\04-limpar-onedrive-apos-uso.bat'
-  ) -Title 'Encerrar no notebook' -Message "Vou abrir a sequencia de encerramento no notebook:`r`n`r`n1. Backup do banco local`r`n2. Limpeza do OneDrive`r`n`r`nUse o backup quando quiser continuar os mesmos testes no PC."
-} -Body "1. Validar localmente no notebook.`r`n2. Fazer commit e push.`r`n3. Gerar backup se quiser continuar no PC.`r`n4. Rodar a limpeza do OneDrive ao finalizar." | Out-Null
+    'scripts\06-backup-banco-local.bat'
+  ) -Title 'Encerrar no notebook' -Message "Vou abrir a sequencia de encerramento no notebook:`r`n`r`n1. Backup do banco local`r`n`r`nUse o backup quando quiser continuar os mesmos testes no PC."
+} -Body "1. Validar localmente no notebook.`r`n2. Fazer commit e push.`r`n3. Gerar backup se quiser continuar no PC." | Out-Null
 
-New-GuideBlock -Parent $guideScroll -Title 'Quero publicar no GitHub (recomendado)' -Top 712 -AccentColor '#2457d6' -ModeText 'Este botao executa a sequencia recomendada para publicar' -ExecText 'Executa: 08-preparar-publicacao-local -> 09-publicar-tudo-github' -ButtonText 'Executar publicacao GitHub' -ButtonAction {
+New-GuideBlock -Parent $guidePublish -Title 'Quero publicar no GitHub (recomendado)' -Top 16 -AccentColor '#2457d6' -ModeText 'Este botao executa a sequencia recomendada para publicar' -ExecText 'Executa: 08-preparar-publicacao-local -> 09-publicar-tudo-github' -ButtonText 'Executar publicacao GitHub' -ButtonAction {
   Invoke-GuidedSequence -Scripts @(
     'scripts\08-preparar-publicacao-local.bat',
     'scripts\09-publicar-tudo-github.bat'
   ) -Title 'Publicar no GitHub' -Message "Vou abrir a sequencia recomendada para publicar com seguranca:`r`n`r`n1. Preparar publicacao local`r`n2. Publicar tudo no GitHub`r`n`r`nDepois acompanhe a aba Actions para ver o deploy automatico."
 } -Body "1. Validar localmente antes de publicar.`r`n2. Rodar a preparacao local.`r`n3. Criar commit e dar push para o GitHub.`r`n4. Acompanhar a aba Actions ate o workflow ficar verde." | Out-Null
 
-New-GuideBlock -Parent $guideScroll -Title 'Quero publicar no VPS manualmente' -Top 886 -AccentColor '#7f3fbf' -ModeText 'Use somente como contingencia. O fluxo principal deve passar pelo GitHub.' -ExecText 'Abre: checklist-publicacao-vps.md, comandos-publicacao-vps.md e workflow-deploy-explicacao.md' -ButtonText 'Abrir checklist do VPS' -ButtonAction {
+New-GuideBlock -Parent $guidePublish -Title 'Quero publicar no VPS manualmente' -Top 196 -AccentColor '#7f3fbf' -ModeText 'Use somente como contingencia. O fluxo principal deve passar pelo GitHub.' -ExecText 'Abre: checklist-publicacao-vps.md, comandos-publicacao-vps.md e workflow-deploy-explicacao.md' -ButtonText 'Abrir checklist do VPS' -ButtonAction {
   Open-LocalFile 'docs\checklist-publicacao-vps.md'
   Start-Sleep -Milliseconds 300
   Open-LocalFile 'docs\comandos-publicacao-vps.md'
   Start-Sleep -Milliseconds 300
   Open-LocalFile 'scripts\workflow-deploy-explicacao.md'
 } -Body "1. Publicar somente depois de validar localmente.`r`n2. Confirmar que o codigo correto esta no GitHub.`r`n3. Atualizar o VPS apenas depois disso.`r`n4. O fluxo correto e sempre: PC ou Notebook -> GitHub -> VPS." | Out-Null
-
-$guideFooter = New-Object System.Windows.Forms.Label
-$guideFooter.Left = 20
-$guideFooter.Top = 1060
-$guideFooter.Width = 820
-$guideFooter.Height = 48
-$guideFooter.Text = 'Regra principal: use a aba Guia e siga os botoes de sequencia. O codigo viaja pelo GitHub. O banco local viaja por backup apenas quando voce quiser continuar o mesmo teste em outra maquina.'
-$guideFooter.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
-$guideFooter.ForeColor = [System.Drawing.ColorTranslator]::FromHtml('#12233d')
-$guideScroll.Controls.Add($guideFooter)
 
 $statusBar = New-Object System.Windows.Forms.StatusStrip
 $statusBar.Dock = 'Bottom'
@@ -516,7 +520,7 @@ $statusBar.Items.Add($statusLabel) | Out-Null
 $form.Controls.Add($statusBar)
 
 $form.Add_Shown({
-  $form.WindowState = [System.Windows.Forms.FormWindowState]::Normal
+  $form.WindowState = [System.Windows.Forms.FormWindowState]::Maximized
   $form.BringToFront()
   $form.Activate()
 })

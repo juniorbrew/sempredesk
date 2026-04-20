@@ -33,8 +33,8 @@ export class CreateCalendarEventDto {
   @IsDateString()
   startsAt: string;
 
-  @IsDateString()
-  endsAt: string;
+  @IsDateString() @IsOptional()
+  endsAt?: string;
 
   @IsString() @IsOptional() @MaxLength(60)
   timezone?: string;
@@ -45,7 +45,7 @@ export class CreateCalendarEventDto {
   @IsIn(EVENT_STATUSES) @IsOptional()
   status?: string;
 
-  @IsIn(EVENT_TYPES) @IsOptional()
+  @IsString() @IsOptional() @MaxLength(50)
   eventType?: string;
 
   @IsIn(EVENT_ORIGINS) @IsOptional()
@@ -88,7 +88,7 @@ export class UpdateCalendarEventDto {
   @IsString() @IsOptional() @MaxLength(60) timezone?: string;
   @IsBoolean() @IsOptional() allDay?: boolean;
   @IsIn(EVENT_STATUSES) @IsOptional() status?: string;
-  @IsIn(EVENT_TYPES) @IsOptional() eventType?: string;
+  @IsString() @IsOptional() @MaxLength(50) eventType?: string;
   @IsUUID() @IsOptional() assignedUserId?: string;
   @IsUUID() @IsOptional() departmentId?: string;
   @IsUUID() @IsOptional() ticketId?: string;
@@ -102,7 +102,7 @@ export class FilterCalendarEventDto {
   @IsDateString() @IsOptional() from?: string;
   @IsDateString() @IsOptional() to?: string;
   @IsIn(EVENT_STATUSES) @IsOptional() status?: string;
-  @IsIn(EVENT_TYPES) @IsOptional() eventType?: string;
+  @IsString() @IsOptional() @MaxLength(50) eventType?: string;
   @IsUUID() @IsOptional() assignedUserId?: string;
   @IsUUID() @IsOptional() departmentId?: string;
   @IsUUID() @IsOptional() ticketId?: string;
