@@ -384,11 +384,16 @@ New-FullButton -Parent $tabPrincipal -Text '0. Check Git local' -Top 160 -BackCo
 New-FullButton -Parent $tabPrincipal -Text '1. Restaurar ambiente local' -Top 212 -BackColor '#2457d6' -OnClick { Start-LocalScript 'scripts\01-restaurar-ambiente-local.bat' } | Out-Null
 New-FullButton -Parent $tabPrincipal -Text '2. Aplicar migracoes locais' -Top 264 -BackColor '#12805c' -OnClick { Start-LocalScript 'scripts\02-aplicar-migracoes-locais.bat' } | Out-Null
 New-FullButton -Parent $tabPrincipal -Text '3. Validar ambiente local' -Top 316 -BackColor '#1f3b57' -OnClick { Start-LocalScript 'scripts\03-validar-ambiente-local.bat' } | Out-Null
-New-SectionText -Parent $tabPrincipal -Text 'Fluxo recomendado: Check Git local -> Restaurar ambiente -> Aplicar migracoes -> Validar ambiente.' -Top 384 -Height 44 | Out-Null
+New-FullButton -Parent $tabPrincipal -Text 'Ir para Guia Assistida' -Top 368 -BackColor '#7f3fbf' -OnClick {
+  if ($script:tabs -ne $null) {
+    $script:tabs.SelectedIndex = 3
+  }
+} | Out-Null
+New-SectionText -Parent $tabPrincipal -Text 'Fluxo recomendado: Check Git local -> Restaurar ambiente -> Aplicar migracoes -> Validar ambiente. Para nao se atrapalhar, use a aba Guia.' -Top 436 -Height 44 | Out-Null
 
 Add-HomeButton -Parent $tabAcoes | Out-Null
 New-SectionTitle -Parent $tabAcoes -Text 'Acoes Rapidas' -Top 64 | Out-Null
-New-SectionText -Parent $tabAcoes -Text 'Atalhos uteis para abrir arquivos e navegar no repositorio.' -Top 102 -Height 28 | Out-Null
+New-SectionText -Parent $tabAcoes -Text 'Atalhos avulsos. No dia a dia, prefira a aba Guia e use os botoes de sequencia automatica.' -Top 102 -Height 42 | Out-Null
 New-FullButton -Parent $tabAcoes -Text 'Abrir ordem de uso' -Top 148 -BackColor '#7f8c8d' -OnClick { Open-LocalFile 'scripts\00-ORDEM-DE-USO.txt' } | Out-Null
 New-FullButton -Parent $tabAcoes -Text 'Abrir fluxo local para VPS' -Top 200 -BackColor '#7f8c8d' -OnClick { Open-LocalFile 'docs\fluxo-local-vps.md' } | Out-Null
 New-FullButton -Parent $tabAcoes -Text 'Abrir explicacao GitHub Actions x VPS' -Top 252 -BackColor '#7f8c8d' -OnClick { Open-LocalFile 'scripts\workflow-deploy-explicacao.md' } | Out-Null
@@ -430,7 +435,7 @@ New-SectionText -Parent $tabBanco -Text 'O banco nao deve ser sincronizado pelo 
 
 Add-HomeButton -Parent $tabGuia | Out-Null
 New-SectionTitle -Parent $tabGuia -Text 'Guia de Uso' -Top 64 | Out-Null
-New-SectionText -Parent $tabGuia -Text 'Escolha o cenario abaixo e siga o passo a passo de cima para baixo.' -Top 102 -Height 28 | Out-Null
+New-SectionText -Parent $tabGuia -Text 'Use esta aba como caminho principal. Escolha o cenario abaixo e clique no botao da sequencia automatica.' -Top 102 -Height 42 | Out-Null
 
 $guideScroll = New-Object System.Windows.Forms.Panel
 $guideScroll.Left = 24
@@ -475,7 +480,14 @@ New-GuideBlock -Parent $guideScroll -Title 'Terminei o trabalho no notebook' -To
   ) -Title 'Encerrar no notebook' -Message "Vou abrir a sequencia de encerramento no notebook:`r`n`r`n1. Backup do banco local`r`n2. Limpeza do OneDrive`r`n`r`nUse o backup quando quiser continuar os mesmos testes no PC."
 } -Body "1. Validar localmente no notebook.`r`n2. Fazer commit e push.`r`n3. Gerar backup se quiser continuar no PC.`r`n4. Rodar a limpeza do OneDrive ao finalizar." | Out-Null
 
-New-GuideBlock -Parent $guideScroll -Title 'Quero publicar no VPS' -Top 712 -AccentColor '#7f3fbf' -ModeText 'Este botao abre checklist e explicacao de acompanhamento' -ExecText 'Abre: checklist-publicacao-vps.md, comandos-publicacao-vps.md e workflow-deploy-explicacao.md' -ButtonText 'Abrir checklist do VPS' -ButtonAction {
+New-GuideBlock -Parent $guideScroll -Title 'Quero publicar no GitHub (recomendado)' -Top 712 -AccentColor '#2457d6' -ModeText 'Este botao executa a sequencia recomendada para publicar' -ExecText 'Executa: 08-preparar-publicacao-local -> 09-publicar-tudo-github' -ButtonText 'Executar publicacao GitHub' -ButtonAction {
+  Invoke-GuidedSequence -Scripts @(
+    'scripts\08-preparar-publicacao-local.bat',
+    'scripts\09-publicar-tudo-github.bat'
+  ) -Title 'Publicar no GitHub' -Message "Vou abrir a sequencia recomendada para publicar com seguranca:`r`n`r`n1. Preparar publicacao local`r`n2. Publicar tudo no GitHub`r`n`r`nDepois acompanhe a aba Actions para ver o deploy automatico."
+} -Body "1. Validar localmente antes de publicar.`r`n2. Rodar a preparacao local.`r`n3. Criar commit e dar push para o GitHub.`r`n4. Acompanhar a aba Actions ate o workflow ficar verde." | Out-Null
+
+New-GuideBlock -Parent $guideScroll -Title 'Quero publicar no VPS manualmente' -Top 886 -AccentColor '#7f3fbf' -ModeText 'Use somente como contingencia. O fluxo principal deve passar pelo GitHub.' -ExecText 'Abre: checklist-publicacao-vps.md, comandos-publicacao-vps.md e workflow-deploy-explicacao.md' -ButtonText 'Abrir checklist do VPS' -ButtonAction {
   Open-LocalFile 'docs\checklist-publicacao-vps.md'
   Start-Sleep -Milliseconds 300
   Open-LocalFile 'docs\comandos-publicacao-vps.md'
@@ -485,10 +497,10 @@ New-GuideBlock -Parent $guideScroll -Title 'Quero publicar no VPS' -Top 712 -Acc
 
 $guideFooter = New-Object System.Windows.Forms.Label
 $guideFooter.Left = 20
-$guideFooter.Top = 886
+$guideFooter.Top = 1060
 $guideFooter.Width = 820
 $guideFooter.Height = 48
-$guideFooter.Text = 'Regra principal: o codigo viaja pelo GitHub. O banco local viaja por backup apenas quando voce quiser continuar o mesmo teste em outra maquina.'
+$guideFooter.Text = 'Regra principal: use a aba Guia e siga os botoes de sequencia. O codigo viaja pelo GitHub. O banco local viaja por backup apenas quando voce quiser continuar o mesmo teste em outra maquina.'
 $guideFooter.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
 $guideFooter.ForeColor = [System.Drawing.ColorTranslator]::FromHtml('#12233d')
 $guideScroll.Controls.Add($guideFooter)
