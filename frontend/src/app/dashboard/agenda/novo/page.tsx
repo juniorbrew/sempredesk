@@ -1,8 +1,8 @@
 'use client';
-import { FormEvent, useState, useEffect, Suspense } from 'react';
+import { FormEvent, useState, useEffect, useRef, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { ArrowLeft, CalendarDays } from 'lucide-react';
+import { ArrowLeft, CalendarDays, Building2, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { api } from '@/lib/api';
 import { useAuthStore, hasPermission } from '@/store/auth.store';
@@ -11,7 +11,6 @@ import type { EventTypeConfig } from '../page';
 const lbl = { display:'block', color:'#64748B', fontSize:11, fontWeight:700 as const, letterSpacing:'0.07em', marginBottom:5, textTransform:'uppercase' as const };
 const inp = (focus?:boolean) => ({ width:'100%', padding:'10px 12px', background:focus?'#fff':'#F8FAFC', border:`1.5px solid ${focus?'#6366F1':'#E2E8F0'}`, borderRadius:10, color:'#0F172A', fontSize:14, outline:'none', boxSizing:'border-box' as const, boxShadow:focus?'0 0 0 3px rgba(99,102,241,0.1)':'none', transition:'all 0.15s' });
 
-// Types that can be created manually (excludes external sync types)
 const MANUAL_TYPES_KEYS = ['internal','client_return','sla_reminder','meeting'];
 
 const DEFAULT_TYPES: EventTypeConfig[] = [
@@ -29,6 +28,9 @@ function loadTypes(): EventTypeConfig[] {
   return DEFAULT_TYPES;
 }
 
+interface StaffUser { id: string; name: string; email: string; avatar?: string }
+interface ClientOption { id: string; companyName: string; tradeName?: string | null; cnpj?: string | null }
+
 function NovoEventoForm() {
   const { user } = useAuthStore();
   const router   = useRouter();
@@ -43,24 +45,50 @@ function NovoEventoForm() {
     reminderAt: '', allDay: false, description: '', location: '', status: 'scheduled',
   });
 
-  // Load custom types from localStorage, filter to manual-only keys
+  // Cliente vinculado
+  const [clientSearch,   setClientSearch]   = useState('');
+  const [clientResults,  setClientResults]  = useState<ClientOption[]>([]);
+  const [clientSearching,setClientSearching]= useState(false);
+  const [selectedClient, setSelectedClient] = useState<ClientOption | null>(null);
+  const [showClientDrop, setShowClientDrop] = useState(false);
+  const clientTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Usuários vinculados
+  const [staffUsers,    setStaffUsers]    = useState<StaffUser[]>([]);
+  const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
+
   useEffect(() => {
     const all = loadTypes();
-    // Only show types that the backend accepts manually (no sync_google/sync_outlook)
     const manual = all.filter(t => MANUAL_TYPES_KEYS.includes(t.key) || !t.key.startsWith('sync_'));
     setEventTypes(manual.length > 0 ? manual : DEFAULT_TYPES);
+    api.getStaffUsers().then((data: any) => {
+      const list = Array.isArray(data) ? data : (data?.data ?? []);
+      setStaffUsers(list);
+    }).catch(() => {});
   }, []);
 
-  // Pre-fill date from ?date= query param
   useEffect(() => {
     const dateParam = params.get('date');
     if (dateParam) {
-      // Format as datetime-local value: "YYYY-MM-DDT09:00"
-      const startsAt = `${dateParam}T09:00`;
-      const endsAt   = `${dateParam}T10:00`;
-      setForm(prev => ({ ...prev, startsAt, endsAt }));
+      setForm(prev => ({ ...prev, startsAt: `${dateParam}T09:00`, endsAt: `${dateParam}T10:00` }));
     }
   }, [params]);
+
+  // Busca de clientes com debounce
+  useEffect(() => {
+    if (clientTimer.current) clearTimeout(clientTimer.current);
+    if (!clientSearch.trim() || clientSearch.length < 2) { setClientResults([]); return; }
+    clientTimer.current = setTimeout(async () => {
+      setClientSearching(true);
+      try {
+        const data: any = await api.searchCustomers(clientSearch);
+        const list = Array.isArray(data) ? data : (data?.data ?? []);
+        setClientResults(list.slice(0, 8));
+        setShowClientDrop(true);
+      } catch {}
+      setClientSearching(false);
+    }, 300);
+  }, [clientSearch]);
 
   if (!hasPermission(user, 'agenda.create')) {
     return (
@@ -73,10 +101,12 @@ function NovoEventoForm() {
   }
 
   const set = (field: string, value: any) => setForm(prev => ({ ...prev, [field]: value }));
+  const toISO = (dtLocal: string) => dtLocal ? new Date(dtLocal).toISOString() : '';
 
-  const toISO = (dtLocal: string) => {
-    if (!dtLocal) return '';
-    return new Date(dtLocal).toISOString();
+  const toggleUser = (uid: string) => {
+    setSelectedUserIds(prev =>
+      prev.includes(uid) ? prev.filter(id => id !== uid) : [...prev, uid]
+    );
   };
 
   const handleSubmit = async (e: FormEvent) => {
@@ -97,6 +127,8 @@ function NovoEventoForm() {
         location:    form.location    || undefined,
         status:      form.status      || 'scheduled',
         origin:      'manual',
+        clientId:    selectedClient?.id ?? undefined,
+        userIds:     selectedUserIds.length ? selectedUserIds : undefined,
       });
       toast.success('Evento criado com sucesso!');
       router.push('/dashboard/agenda');
@@ -246,6 +278,84 @@ function NovoEventoForm() {
                 onChange={e => set('location', e.target.value)}
               />
             </div>
+
+            {/* ── Cliente vinculado ─────────────────────────────────────── */}
+            <div>
+              <label style={lbl}>Cliente (opcional)</label>
+              {selectedClient ? (
+                <div style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 12px', background:'#EEF2FF', border:'1.5px solid #C7D2FE', borderRadius:10 }}>
+                  <Building2 style={{ width:14, height:14, color:'#4F46E5', flexShrink:0 }} />
+                  <span style={{ flex:1, fontSize:14, color:'#1E1B4B', fontWeight:500 }}>{selectedClient.companyName}{selectedClient.tradeName ? ` · ${selectedClient.tradeName}` : ''}</span>
+                  <button type="button" onClick={() => { setSelectedClient(null); setClientSearch(''); }} style={{ background:'none', border:'none', cursor:'pointer', padding:2, color:'#6366F1', display:'flex' }}>
+                    <X style={{ width:14, height:14 }} />
+                  </button>
+                </div>
+              ) : (
+                <div style={{ position:'relative' }}>
+                  <input
+                    style={inp(focusField==='clientSearch')}
+                    value={clientSearch}
+                    placeholder="Buscar cliente por nome ou CNPJ..."
+                    onFocus={() => setFocusField('clientSearch')}
+                    onBlur={() => { setFocusField(''); setTimeout(() => setShowClientDrop(false), 200); }}
+                    onChange={e => { setClientSearch(e.target.value); setShowClientDrop(true); }}
+                  />
+                  {clientSearching && (
+                    <div style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)', fontSize:11, color:'#94A3B8' }}>buscando…</div>
+                  )}
+                  {showClientDrop && clientResults.length > 0 && (
+                    <div style={{ position:'absolute', top:'100%', left:0, right:0, zIndex:20, background:'#fff', border:'1px solid #E2E8F0', borderRadius:10, boxShadow:'0 4px 16px rgba(0,0,0,0.08)', marginTop:4, maxHeight:220, overflowY:'auto' }}>
+                      {clientResults.map(c => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onMouseDown={() => { setSelectedClient(c); setClientSearch(''); setShowClientDrop(false); }}
+                          style={{ width:'100%', textAlign:'left', padding:'9px 14px', background:'none', border:'none', cursor:'pointer', display:'flex', flexDirection:'column', gap:2, borderBottom:'1px solid #F1F5F9' }}
+                        >
+                          <span style={{ fontSize:13, fontWeight:600, color:'#0F172A' }}>{c.companyName}</span>
+                          {(c.tradeName || c.cnpj) && (
+                            <span style={{ fontSize:11, color:'#94A3B8' }}>{[c.tradeName, c.cnpj].filter(Boolean).join(' · ')}</span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* ── Usuários vinculados ───────────────────────────────────── */}
+            {staffUsers.length > 0 && (
+              <div>
+                <label style={lbl}>Usuários vinculados (opcional)</label>
+                <div style={{ display:'flex', flexWrap:'wrap', gap:8, padding:'10px 12px', background:'#F8FAFC', border:'1.5px solid #E2E8F0', borderRadius:10, minHeight:44 }}>
+                  {staffUsers.map(u => {
+                    const selected = selectedUserIds.includes(u.id);
+                    return (
+                      <button
+                        key={u.id}
+                        type="button"
+                        onClick={() => toggleUser(u.id)}
+                        style={{
+                          padding:'4px 10px', borderRadius:20, fontSize:12, fontWeight:500, cursor:'pointer',
+                          border: selected ? '1.5px solid #6366F1' : '1.5px solid #E2E8F0',
+                          background: selected ? '#EEF2FF' : '#fff',
+                          color: selected ? '#4F46E5' : '#64748B',
+                          transition:'all 0.12s',
+                        }}
+                      >
+                        {u.name}
+                      </button>
+                    );
+                  })}
+                </div>
+                {selectedUserIds.length > 0 && (
+                  <div style={{ fontSize:11, color:'#6366F1', marginTop:4 }}>
+                    {selectedUserIds.length} usuário{selectedUserIds.length > 1 ? 's' : ''} selecionado{selectedUserIds.length > 1 ? 's' : ''}
+                  </div>
+                )}
+              </div>
+            )}
 
             {error && (
               <div style={{ padding:'10px 14px', background:'#FEF2F2', border:'1px solid #FECACA', borderRadius:8, color:'#991B1B', fontSize:13 }}>

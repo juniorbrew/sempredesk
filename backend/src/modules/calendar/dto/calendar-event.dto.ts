@@ -1,7 +1,7 @@
 import {
   IsString, IsOptional, IsBoolean, IsDateString,
   IsIn, IsUUID, IsArray, ValidateNested, IsEmail,
-  MaxLength, IsObject, IsInt, Min,
+  MaxLength, IsObject, IsInt, Min, ArrayUnique,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -76,6 +76,9 @@ export class CreateCalendarEventDto {
   @ValidateNested({ each: true })
   @Type(() => AddParticipantDto)
   participants?: AddParticipantDto[];
+
+  @IsArray() @IsOptional() @IsUUID(undefined, { each: true }) @ArrayUnique()
+  userIds?: string[];
 }
 
 export class UpdateCalendarEventDto {
@@ -93,9 +96,11 @@ export class UpdateCalendarEventDto {
   @IsUUID() @IsOptional() departmentId?: string;
   @IsUUID() @IsOptional() ticketId?: string;
   @IsUUID() @IsOptional() contactId?: string;
-  @IsUUID() @IsOptional() clientId?: string;
+  @IsUUID() @IsOptional() clientId?: string | null;
   @IsDateString() @IsOptional() reminderAt?: string;
   @IsObject() @IsOptional() metadata?: Record<string, any>;
+  @IsArray() @IsOptional() @IsUUID(undefined, { each: true }) @ArrayUnique()
+  userIds?: string[];
 }
 
 export class FilterCalendarEventDto {

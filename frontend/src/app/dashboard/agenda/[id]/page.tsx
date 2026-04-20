@@ -1,8 +1,8 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter, useParams } from 'next/navigation';
-import { ArrowLeft, CalendarDays, MapPin, FileText, Clock } from 'lucide-react';
+import { ArrowLeft, CalendarDays, MapPin, Clock, Building2, Users, X } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import toast from 'react-hot-toast';
@@ -22,6 +22,9 @@ const STATUS_STYLE: Record<string,{bg:string;color:string;dot:string}> = {
 };
 const EVENT_TYPE_LABELS: Record<string,string> = { internal:'Interno', client_return:'Retorno', sla_reminder:'Lembrete SLA', meeting:'Reunião', sync_google:'Google', sync_outlook:'Outlook' };
 
+interface StaffUser { id: string; name: string; email: string; avatar?: string }
+interface ClientOption { id: string; companyName: string; tradeName?: string | null; cnpj?: string | null }
+
 function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div style={{ display:'grid', gridTemplateColumns:'140px 1fr', gap:8, padding:'10px 0', borderBottom:'1px solid #F1F5F9' }}>
@@ -37,14 +40,28 @@ export default function EventoDetailPage() {
   const params = useParams();
   const id = params?.id as string;
 
-  const [event, setEvent] = useState<any>(null);
+  const [event, setEvent]   = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [acting, setActing] = useState(false);
+  const [acting, setActing]   = useState(false);
   const [editing, setEditing] = useState(false);
   const [focusField, setFocusField] = useState('');
-  const [editForm, setEditForm] = useState({ title:'', startsAt:'', endsAt:'', reminderAt:'', description:'', location:'' });
+  const [editForm, setEditForm] = useState({
+    title:'', startsAt:'', endsAt:'', reminderAt:'', description:'', location:'',
+    clientId: null as string | null,
+    userIds: [] as string[],
+  });
 
-  // Converte ISO UTC para string local no formato datetime-local (YYYY-MM-DDTHH:mm)
+  // Staff users para o multiselect de edição
+  const [staffUsers, setStaffUsers] = useState<StaffUser[]>([]);
+
+  // Busca de cliente na edição
+  const [clientSearch,   setClientSearch]    = useState('');
+  const [clientResults,  setClientResults]   = useState<ClientOption[]>([]);
+  const [clientSearching,setClientSearching] = useState(false);
+  const [showClientDrop, setShowClientDrop]  = useState(false);
+  const [editClient,     setEditClient]      = useState<ClientOption | null>(null);
+  const clientTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const toLocalInput = (iso: string) => {
     if (!iso) return '';
     const d = new Date(iso);
@@ -52,7 +69,6 @@ export default function EventoDetailPage() {
     return new Date(d.getTime() - offset).toISOString().slice(0, 16);
   };
 
-  // Converte datetime-local (sem fuso) para ISO com fuso do browser
   const toISO = (dtLocal: string) => dtLocal ? new Date(dtLocal).toISOString() : '';
 
   const load = async () => {
@@ -60,6 +76,12 @@ export default function EventoDetailPage() {
     try {
       const raw: any = await api.getCalendarEvent(id);
       setEvent(raw);
+
+      // Participantes do tipo user
+      const participantUserIds: string[] = (raw?.participants ?? [])
+        .filter((p: any) => p.userId)
+        .map((p: any) => p.userId);
+
       setEditForm({
         title: raw?.title || '',
         startsAt: raw?.startsAt ? toLocalInput(raw.startsAt) : '',
@@ -67,12 +89,44 @@ export default function EventoDetailPage() {
         reminderAt: raw?.metadata?.reminderAt ? toLocalInput(raw.metadata.reminderAt) : '',
         description: raw?.description || '',
         location: raw?.location || '',
+        clientId: raw?.clientId ?? null,
+        userIds: participantUserIds,
       });
+
+      // Popula o objeto de cliente para exibição no campo de edição
+      if (raw?.client) {
+        setEditClient({ id: raw.client.id, companyName: raw.client.companyName, tradeName: raw.client.tradeName, cnpj: raw.client.cnpj });
+      } else {
+        setEditClient(null);
+      }
     } catch { toast.error('Erro ao carregar evento'); }
     setLoading(false);
   };
 
   useEffect(() => { if (id) load(); }, [id]);
+
+  useEffect(() => {
+    api.getStaffUsers().then((data: any) => {
+      const list = Array.isArray(data) ? data : (data?.data ?? []);
+      setStaffUsers(list);
+    }).catch(() => {});
+  }, []);
+
+  // Debounce busca de cliente na edição
+  useEffect(() => {
+    if (clientTimer.current) clearTimeout(clientTimer.current);
+    if (!clientSearch.trim() || clientSearch.length < 2) { setClientResults([]); return; }
+    clientTimer.current = setTimeout(async () => {
+      setClientSearching(true);
+      try {
+        const data: any = await api.searchCustomers(clientSearch);
+        const list = Array.isArray(data) ? data : (data?.data ?? []);
+        setClientResults(list.slice(0, 8));
+        setShowClientDrop(true);
+      } catch {}
+      setClientSearching(false);
+    }, 300);
+  }, [clientSearch]);
 
   if (!hasPermission(user, 'agenda.view')) {
     return (
@@ -120,12 +174,14 @@ export default function EventoDetailPage() {
     setActing(true);
     try {
       await api.updateCalendarEvent(id, {
-        title: editForm.title,
-        startsAt: editForm.startsAt ? toISO(editForm.startsAt) : undefined,
-        endsAt:   editForm.endsAt   ? toISO(editForm.endsAt)   : undefined,
-        reminderAt: editForm.reminderAt ? toISO(editForm.reminderAt) : null,
+        title:       editForm.title,
+        startsAt:    editForm.startsAt  ? toISO(editForm.startsAt)  : undefined,
+        endsAt:      editForm.endsAt    ? toISO(editForm.endsAt)    : undefined,
+        reminderAt:  editForm.reminderAt ? toISO(editForm.reminderAt) : null,
         description: editForm.description || undefined,
-        location: editForm.location || undefined,
+        location:    editForm.location    || undefined,
+        clientId:    editClient?.id ?? null,
+        userIds:     editForm.userIds,
       });
       toast.success('Evento atualizado!');
       setEditing(false);
@@ -134,12 +190,24 @@ export default function EventoDetailPage() {
     setActing(false);
   };
 
+  const toggleEditUser = (uid: string) => {
+    setEditForm(prev => ({
+      ...prev,
+      userIds: prev.userIds.includes(uid)
+        ? prev.userIds.filter(id => id !== uid)
+        : [...prev.userIds, uid],
+    }));
+  };
+
   const st = event ? (STATUS_STYLE[event.status] || { bg:'#F1F5F9', color:'#64748B', dot:'#94A3B8' }) : null;
 
   const formatDate = (d: string) => {
     try { return format(new Date(d), "dd 'de' MMMM 'de' yyyy 'às' HH:mm", { locale: ptBR }); }
     catch { return d; }
   };
+
+  // Participantes do tipo user para exibição na view de detalhes
+  const userParticipants = (event?.participants ?? []).filter((p: any) => p.userId);
 
   return (
     <div className="space-y-6">
@@ -187,6 +255,43 @@ export default function EventoDetailPage() {
               {event.description && <DetailRow label="Descrição" value={<span style={{ whiteSpace:'pre-wrap' }}>{event.description}</span>} />}
               {event.notes && <DetailRow label="Notas" value={<span style={{ whiteSpace:'pre-wrap' }}>{event.notes}</span>} />}
               {event.assignedUser && <DetailRow label="Atribuído" value={event.assignedUser.name} />}
+
+              {/* Cliente vinculado */}
+              {event.client && (
+                <DetailRow
+                  label="Cliente"
+                  value={
+                    <span style={{ display:'inline-flex', alignItems:'center', gap:5 }}>
+                      <Building2 style={{ width:13, height:13, color:'#6366F1' }} />
+                      {event.client.companyName}
+                      {event.client.tradeName ? <span style={{ color:'#94A3B8', fontSize:12 }}> · {event.client.tradeName}</span> : null}
+                    </span>
+                  }
+                />
+              )}
+
+              {/* Usuários vinculados */}
+              {userParticipants.length > 0 && (
+                <DetailRow
+                  label="Usuários"
+                  value={
+                    <span style={{ display:'inline-flex', alignItems:'center', gap:5, flexWrap:'wrap' }}>
+                      <Users style={{ width:13, height:13, color:'#6366F1', flexShrink:0 }} />
+                      {userParticipants.map((p: any, i: number) => {
+                        const isMe = p.userId === user?.id;
+                        return (
+                          <span key={p.id} style={{ display:'inline-flex', alignItems:'center', gap:2 }}>
+                            <span style={isMe ? { fontWeight:700, color:'#4F46E5', background:'#EEF2FF', borderRadius:4, padding:'0 5px' } : {}}>
+                              {p.user?.name ?? p.userId}{isMe ? ' (você)' : ''}
+                            </span>
+                            {i < userParticipants.length - 1 && <span style={{ color:'#CBD5E1' }}>,</span>}
+                          </span>
+                        );
+                      })}
+                    </span>
+                  }
+                />
+              )}
             </div>
 
             {/* Edição inline */}
@@ -220,6 +325,81 @@ export default function EventoDetailPage() {
                     <label style={lbl}>Local</label>
                     <input style={inp(focusField==='el')} value={editForm.location} onFocus={() => setFocusField('el')} onBlur={() => setFocusField('')} onChange={e => setEditForm(p => ({ ...p, location: e.target.value }))} />
                   </div>
+
+                  {/* ── Cliente na edição ────────────────────────────────── */}
+                  <div>
+                    <label style={lbl}>Cliente (opcional)</label>
+                    {editClient ? (
+                      <div style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 12px', background:'#EEF2FF', border:'1.5px solid #C7D2FE', borderRadius:10 }}>
+                        <Building2 style={{ width:14, height:14, color:'#4F46E5', flexShrink:0 }} />
+                        <span style={{ flex:1, fontSize:14, color:'#1E1B4B', fontWeight:500 }}>{editClient.companyName}{editClient.tradeName ? ` · ${editClient.tradeName}` : ''}</span>
+                        <button type="button" onClick={() => { setEditClient(null); setEditForm(p => ({ ...p, clientId: null })); setClientSearch(''); }} style={{ background:'none', border:'none', cursor:'pointer', padding:2, color:'#6366F1', display:'flex' }}>
+                          <X style={{ width:14, height:14 }} />
+                        </button>
+                      </div>
+                    ) : (
+                      <div style={{ position:'relative' }}>
+                        <input
+                          style={inp(focusField==='eclSearch')}
+                          value={clientSearch}
+                          placeholder="Buscar cliente por nome ou CNPJ..."
+                          onFocus={() => setFocusField('eclSearch')}
+                          onBlur={() => { setFocusField(''); setTimeout(() => setShowClientDrop(false), 200); }}
+                          onChange={e => { setClientSearch(e.target.value); setShowClientDrop(true); }}
+                        />
+                        {clientSearching && (
+                          <div style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)', fontSize:11, color:'#94A3B8' }}>buscando…</div>
+                        )}
+                        {showClientDrop && clientResults.length > 0 && (
+                          <div style={{ position:'absolute', top:'100%', left:0, right:0, zIndex:20, background:'#fff', border:'1px solid #E2E8F0', borderRadius:10, boxShadow:'0 4px 16px rgba(0,0,0,0.08)', marginTop:4, maxHeight:220, overflowY:'auto' }}>
+                            {clientResults.map(c => (
+                              <button
+                                key={c.id}
+                                type="button"
+                                onMouseDown={() => { setEditClient(c); setEditForm(p => ({ ...p, clientId: c.id })); setClientSearch(''); setShowClientDrop(false); }}
+                                style={{ width:'100%', textAlign:'left', padding:'9px 14px', background:'none', border:'none', cursor:'pointer', display:'flex', flexDirection:'column', gap:2, borderBottom:'1px solid #F1F5F9' }}
+                              >
+                                <span style={{ fontSize:13, fontWeight:600, color:'#0F172A' }}>{c.companyName}</span>
+                                {(c.tradeName || c.cnpj) && (
+                                  <span style={{ fontSize:11, color:'#94A3B8' }}>{[c.tradeName, c.cnpj].filter(Boolean).join(' · ')}</span>
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* ── Usuários na edição ───────────────────────────────── */}
+                  {staffUsers.length > 0 && (
+                    <div>
+                      <label style={lbl}>Usuários vinculados</label>
+                      <div style={{ display:'flex', flexWrap:'wrap', gap:8, padding:'10px 12px', background:'#F8FAFC', border:'1.5px solid #E2E8F0', borderRadius:10, minHeight:44 }}>
+                        {staffUsers.map(u => {
+                          const selected = editForm.userIds.includes(u.id);
+                          const isMe = u.id === user?.id;
+                          return (
+                            <button
+                              key={u.id}
+                              type="button"
+                              onClick={() => toggleEditUser(u.id)}
+                              style={{
+                                padding:'4px 10px', borderRadius:20, fontSize:12, fontWeight: isMe ? 700 : 500, cursor:'pointer',
+                                border: selected ? '1.5px solid #6366F1' : isMe ? '1.5px dashed #A5B4FC' : '1.5px solid #E2E8F0',
+                                background: selected ? '#EEF2FF' : '#fff',
+                                color: selected ? '#4F46E5' : isMe ? '#6366F1' : '#64748B',
+                                transition:'all 0.12s',
+                              }}
+                            >
+                              {u.name}{isMe ? ' (você)' : ''}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
                   <div style={{ display:'flex', gap:8, justifyContent:'flex-end' }}>
                     <button className="btn-secondary" onClick={() => setEditing(false)}>Cancelar</button>
                     <button className="btn-primary" disabled={acting} onClick={handleSaveEdit}>{acting ? 'Salvando...' : 'Salvar alterações'}</button>

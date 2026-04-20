@@ -29,10 +29,14 @@ if ($LASTEXITCODE -ne 0) { throw 'Falha no build do frontend.' }
 Pop-Location
 
 Write-Host ''
-Write-Host '5. Subindo containers backend e frontend...' -ForegroundColor Yellow
+Write-Host '5. Recriando containers backend e frontend...' -ForegroundColor Yellow
 Push-Location $repoRoot
-docker compose up -d --build backend frontend
-if ($LASTEXITCODE -ne 0) { throw 'Falha ao subir os containers backend/frontend.' }
+docker compose up -d --build --force-recreate backend frontend
+if ($LASTEXITCODE -ne 0) { throw 'Falha ao recriar os containers backend/frontend.' }
+
+Write-Host ''
+Write-Host '6. Aguardando frontend e backend estabilizarem...' -ForegroundColor Yellow
+Start-Sleep -Seconds 12
 Pop-Location
 
 Write-Host ''

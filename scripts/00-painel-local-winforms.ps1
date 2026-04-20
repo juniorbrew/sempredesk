@@ -30,6 +30,33 @@ function Start-LocalScript {
   Start-Process -FilePath $fullPath | Out-Null
 }
 
+function Start-LocalScriptAndWait {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$RelativePath
+  )
+
+  $fullPath = Join-Path $repoRoot $RelativePath
+
+  if (-not (Test-Path -LiteralPath $fullPath)) {
+    [System.Windows.Forms.MessageBox]::Show(
+      "Arquivo nao encontrado:`r`n$fullPath",
+      'SempreDesk',
+      [System.Windows.Forms.MessageBoxButtons]::OK,
+      [System.Windows.Forms.MessageBoxIcon]::Error
+    ) | Out-Null
+    return $false
+  }
+
+  $process = Start-Process -FilePath $fullPath -PassThru
+  if ($null -eq $process) {
+    return $false
+  }
+
+  $process.WaitForExit()
+  return $true
+}
+
 function Open-LocalFile {
   param(
     [Parameter(Mandatory = $true)]
@@ -89,8 +116,10 @@ function Invoke-GuidedSequence {
   }
 
   foreach ($script in $Scripts) {
-    Start-LocalScript $script
-    Start-Sleep -Milliseconds 450
+    $completed = Start-LocalScriptAndWait $script
+    if (-not $completed) {
+      break
+    }
   }
 }
 
@@ -375,56 +404,59 @@ New-SectionText -Parent $tabPrincipal -Text 'Comece por aqui quando atualizar co
 
 New-FullButton -Parent $tabPrincipal -Text 'Executar sequencia local guiada' -Top 108 -BackColor '#233247' -OnClick {
   Invoke-GuidedSequence -Scripts @(
+    'scripts\04-atualizar-codigo-github.bat',
     'scripts\05-check-git-local.bat',
     'scripts\01-restaurar-ambiente-local.bat',
     'scripts\02-aplicar-migracoes-locais.bat',
     'scripts\03-validar-ambiente-local.bat'
-  ) -Title 'SempreDesk' -Message "Sequencia recomendada:`r`n`r`n1. Check Git local`r`n2. Restaurar ambiente local`r`n3. Aplicar migracoes locais`r`n4. Validar ambiente local`r`n`r`nDeseja abrir cada passo em sequencia?"
+  ) -Title 'SempreDesk' -Message "Sequencia recomendada:`r`n`r`n1. Atualizar codigo pelo GitHub`r`n2. Check Git local`r`n3. Restaurar ambiente local`r`n4. Aplicar migracoes locais`r`n5. Validar ambiente local`r`n`r`nDeseja abrir cada passo em sequencia?"
 } | Out-Null
-New-FullButton -Parent $tabPrincipal -Text '0. Check Git local' -Top 160 -BackColor '#6c7b8a' -OnClick { Start-LocalScript 'scripts\05-check-git-local.bat' } | Out-Null
-New-FullButton -Parent $tabPrincipal -Text '1. Restaurar ambiente local' -Top 212 -BackColor '#2457d6' -OnClick { Start-LocalScript 'scripts\01-restaurar-ambiente-local.bat' } | Out-Null
-New-FullButton -Parent $tabPrincipal -Text '2. Aplicar migracoes locais' -Top 264 -BackColor '#12805c' -OnClick { Start-LocalScript 'scripts\02-aplicar-migracoes-locais.bat' } | Out-Null
-New-FullButton -Parent $tabPrincipal -Text '3. Validar ambiente local' -Top 316 -BackColor '#1f3b57' -OnClick { Start-LocalScript 'scripts\03-validar-ambiente-local.bat' } | Out-Null
-New-FullButton -Parent $tabPrincipal -Text 'Ir para Guia Assistida' -Top 368 -BackColor '#7f3fbf' -OnClick {
+New-FullButton -Parent $tabPrincipal -Text '0. Atualizar codigo pelo GitHub' -Top 160 -BackColor '#7f3fbf' -OnClick { Start-LocalScript 'scripts\04-atualizar-codigo-github.bat' } | Out-Null
+New-FullButton -Parent $tabPrincipal -Text '1. Check Git local' -Top 212 -BackColor '#6c7b8a' -OnClick { Start-LocalScript 'scripts\05-check-git-local.bat' } | Out-Null
+New-FullButton -Parent $tabPrincipal -Text '2. Restaurar ambiente local' -Top 264 -BackColor '#2457d6' -OnClick { Start-LocalScript 'scripts\01-restaurar-ambiente-local.bat' } | Out-Null
+New-FullButton -Parent $tabPrincipal -Text '3. Aplicar migracoes locais' -Top 316 -BackColor '#12805c' -OnClick { Start-LocalScript 'scripts\02-aplicar-migracoes-locais.bat' } | Out-Null
+New-FullButton -Parent $tabPrincipal -Text '4. Validar ambiente local' -Top 368 -BackColor '#1f3b57' -OnClick { Start-LocalScript 'scripts\03-validar-ambiente-local.bat' } | Out-Null
+New-FullButton -Parent $tabPrincipal -Text 'Ir para Guia Assistida' -Top 420 -BackColor '#7f3fbf' -OnClick {
   if ($script:tabs -ne $null) {
     $script:tabs.SelectedIndex = 3
   }
 } | Out-Null
-New-SectionText -Parent $tabPrincipal -Text 'Fluxo recomendado: Check Git local -> Restaurar ambiente -> Aplicar migracoes -> Validar ambiente. Para nao se atrapalhar, use a aba Guia.' -Top 436 -Height 44 | Out-Null
+New-SectionText -Parent $tabPrincipal -Text 'Fluxo recomendado: Atualizar codigo -> Check Git local -> Restaurar ambiente -> Aplicar migracoes -> Validar ambiente. Para nao se atrapalhar, use a aba Guia.' -Top 488 -Height 44 | Out-Null
 
 Add-HomeButton -Parent $tabAcoes | Out-Null
 New-SectionTitle -Parent $tabAcoes -Text 'Acoes Rapidas' -Top 64 | Out-Null
 New-SectionText -Parent $tabAcoes -Text 'Atalhos avulsos. No dia a dia, prefira a aba Guia e use os botoes de sequencia automatica.' -Top 102 -Height 42 | Out-Null
-New-FullButton -Parent $tabAcoes -Text 'Abrir ordem de uso' -Top 148 -BackColor '#7f8c8d' -OnClick { Open-LocalFile 'scripts\00-ORDEM-DE-USO.txt' } | Out-Null
-New-FullButton -Parent $tabAcoes -Text 'Abrir fluxo local para VPS' -Top 200 -BackColor '#7f8c8d' -OnClick { Open-LocalFile 'docs\fluxo-local-vps.md' } | Out-Null
-New-FullButton -Parent $tabAcoes -Text 'Abrir explicacao GitHub Actions x VPS' -Top 252 -BackColor '#7f8c8d' -OnClick { Open-LocalFile 'scripts\workflow-deploy-explicacao.md' } | Out-Null
-New-FullButton -Parent $tabAcoes -Text 'Preparar publicacao local' -Top 304 -BackColor '#7f3fbf' -OnClick { Start-LocalScript 'scripts\08-preparar-publicacao-local.bat' } | Out-Null
-New-FullButton -Parent $tabAcoes -Text 'Publicar tudo no GitHub' -Top 356 -BackColor '#2457d6' -OnClick {
+New-FullButton -Parent $tabAcoes -Text 'Atualizar codigo desta maquina' -Top 148 -BackColor '#7f3fbf' -OnClick { Start-LocalScript 'scripts\04-atualizar-codigo-github.bat' } | Out-Null
+New-FullButton -Parent $tabAcoes -Text 'Abrir ordem de uso' -Top 200 -BackColor '#7f8c8d' -OnClick { Open-LocalFile 'scripts\00-ORDEM-DE-USO.txt' } | Out-Null
+New-FullButton -Parent $tabAcoes -Text 'Abrir fluxo local para VPS' -Top 252 -BackColor '#7f8c8d' -OnClick { Open-LocalFile 'docs\fluxo-local-vps.md' } | Out-Null
+New-FullButton -Parent $tabAcoes -Text 'Abrir explicacao GitHub Actions x VPS' -Top 304 -BackColor '#7f8c8d' -OnClick { Open-LocalFile 'scripts\workflow-deploy-explicacao.md' } | Out-Null
+New-FullButton -Parent $tabAcoes -Text 'Preparar publicacao local' -Top 356 -BackColor '#7f3fbf' -OnClick { Start-LocalScript 'scripts\08-preparar-publicacao-local.bat' } | Out-Null
+New-FullButton -Parent $tabAcoes -Text 'Publicar tudo no GitHub' -Top 408 -BackColor '#2457d6' -OnClick {
   Show-InfoBox -Title 'Fluxo recomendado' -Message "Este botao adiciona tudo que estiver pendente, cria commit e faz push para o GitHub.`r`n`r`nDepois acompanhe a aba Actions para ver o deploy automatico."
   Start-LocalScript 'scripts\09-publicar-tudo-github.bat'
 } | Out-Null
-New-FullButton -Parent $tabAcoes -Text 'Abrir comandos de publicacao no VPS' -Top 408 -BackColor '#7f8c8d' -OnClick { Open-LocalFile 'docs\comandos-publicacao-vps.md' } | Out-Null
-New-FullButton -Parent $tabAcoes -Text 'Copiar comandos do VPS' -Top 460 -BackColor '#7f8c8d' -OnClick { Start-LocalScript 'scripts\10-copiar-comandos-vps.bat' } | Out-Null
-New-FullButton -Parent $tabAcoes -Text 'Configurar automacao do VPS' -Top 512 -BackColor '#7f3fbf' -OnClick { Start-LocalScript 'scripts\11-configurar-automacao-vps.bat' } | Out-Null
-New-FullButton -Parent $tabAcoes -Text 'Gerar chave SSH do VPS' -Top 564 -BackColor '#7f8c8d' -OnClick { Start-LocalScript 'scripts\15-gerar-chave-vps.bat' } | Out-Null
-New-FullButton -Parent $tabAcoes -Text 'Copiar chave publica do VPS' -Top 616 -BackColor '#7f8c8d' -OnClick { Start-LocalScript 'scripts\16-copiar-chave-publica-vps.bat' } | Out-Null
-New-FullButton -Parent $tabAcoes -Text 'Iniciar Pageant com a chave do VPS' -Top 668 -BackColor '#7f8c8d' -OnClick { Start-LocalScript 'scripts\17-iniciar-pageant-vps.bat' } | Out-Null
-New-FullButton -Parent $tabAcoes -Text 'Abrir guia de chave SSH do VPS' -Top 720 -BackColor '#7f8c8d' -OnClick { Open-LocalFile 'docs\configurar-chave-ssh-vps.md' } | Out-Null
-New-FullButton -Parent $tabAcoes -Text 'Publicar backend no VPS' -Top 772 -BackColor '#2457d6' -OnClick {
+New-FullButton -Parent $tabAcoes -Text 'Abrir comandos de publicacao no VPS' -Top 460 -BackColor '#7f8c8d' -OnClick { Open-LocalFile 'docs\comandos-publicacao-vps.md' } | Out-Null
+New-FullButton -Parent $tabAcoes -Text 'Copiar comandos do VPS' -Top 512 -BackColor '#7f8c8d' -OnClick { Start-LocalScript 'scripts\10-copiar-comandos-vps.bat' } | Out-Null
+New-FullButton -Parent $tabAcoes -Text 'Configurar automacao do VPS' -Top 564 -BackColor '#7f3fbf' -OnClick { Start-LocalScript 'scripts\11-configurar-automacao-vps.bat' } | Out-Null
+New-FullButton -Parent $tabAcoes -Text 'Gerar chave SSH do VPS' -Top 616 -BackColor '#7f8c8d' -OnClick { Start-LocalScript 'scripts\15-gerar-chave-vps.bat' } | Out-Null
+New-FullButton -Parent $tabAcoes -Text 'Copiar chave publica do VPS' -Top 668 -BackColor '#7f8c8d' -OnClick { Start-LocalScript 'scripts\16-copiar-chave-publica-vps.bat' } | Out-Null
+New-FullButton -Parent $tabAcoes -Text 'Iniciar Pageant com a chave do VPS' -Top 720 -BackColor '#7f8c8d' -OnClick { Start-LocalScript 'scripts\17-iniciar-pageant-vps.bat' } | Out-Null
+New-FullButton -Parent $tabAcoes -Text 'Abrir guia de chave SSH do VPS' -Top 772 -BackColor '#7f8c8d' -OnClick { Open-LocalFile 'docs\configurar-chave-ssh-vps.md' } | Out-Null
+New-FullButton -Parent $tabAcoes -Text 'Publicar backend no VPS' -Top 824 -BackColor '#2457d6' -OnClick {
   Show-InfoBox -Title 'Acompanhar deploy' -Message "Este botao executa deploy manual direto no VPS via SSH.`r`n`r`nAcompanhe pelo terminal desta execucao.`r`nNao e a tela principal do GitHub Actions."
   Start-LocalScript 'scripts\12-publicar-backend-vps.bat'
 } | Out-Null
-New-FullButton -Parent $tabAcoes -Text 'Publicar frontend no VPS' -Top 824 -BackColor '#12805c' -OnClick {
+New-FullButton -Parent $tabAcoes -Text 'Publicar frontend no VPS' -Top 876 -BackColor '#12805c' -OnClick {
   Show-InfoBox -Title 'Acompanhar deploy' -Message "Este botao executa deploy manual direto no VPS via SSH.`r`n`r`nAcompanhe pelo terminal desta execucao.`r`nNao e a tela principal do GitHub Actions."
   Start-LocalScript 'scripts\13-publicar-frontend-vps.bat'
 } | Out-Null
-New-FullButton -Parent $tabAcoes -Text 'Publicar backend + frontend no VPS' -Top 876 -BackColor '#7f3fbf' -OnClick {
+New-FullButton -Parent $tabAcoes -Text 'Publicar backend + frontend no VPS' -Top 928 -BackColor '#7f3fbf' -OnClick {
   Show-InfoBox -Title 'Acompanhar deploy' -Message "Este botao executa deploy manual direto no VPS via SSH.`r`n`r`nAcompanhe pelo terminal desta execucao.`r`nNao e a tela principal do GitHub Actions."
   Start-LocalScript 'scripts\14-publicar-backend-frontend-vps.bat'
 } | Out-Null
-New-FullButton -Parent $tabAcoes -Text 'Abrir menu interativo' -Top 928 -BackColor '#7f8c8d' -OnClick { Start-LocalScript 'scripts\00-menu-sequencia.bat' } | Out-Null
-New-FullButton -Parent $tabAcoes -Text 'Abrir pasta do repositorio' -Top 980 -BackColor '#7f8c8d' -OnClick { Start-Process -FilePath $repoRoot | Out-Null } | Out-Null
-New-FullButton -Parent $tabAcoes -Text 'Fechar painel' -Top 1032 -BackColor '#b04c4c' -OnClick { $form.Close() } | Out-Null
+New-FullButton -Parent $tabAcoes -Text 'Abrir menu interativo' -Top 980 -BackColor '#7f8c8d' -OnClick { Start-LocalScript 'scripts\00-menu-sequencia.bat' } | Out-Null
+New-FullButton -Parent $tabAcoes -Text 'Abrir pasta do repositorio' -Top 1032 -BackColor '#7f8c8d' -OnClick { Start-Process -FilePath $repoRoot | Out-Null } | Out-Null
+New-FullButton -Parent $tabAcoes -Text 'Fechar painel' -Top 1084 -BackColor '#b04c4c' -OnClick { $form.Close() } | Out-Null
 
 Add-HomeButton -Parent $tabBanco | Out-Null
 New-SectionTitle -Parent $tabBanco -Text 'Banco Local' -Top 64 | Out-Null
@@ -464,13 +496,14 @@ $guidePublish.BackColor = [System.Drawing.ColorTranslator]::FromHtml('#f6f9fc')
 $guidePublish.AutoScroll = $true
 $guideTabs.TabPages.Add($guidePublish)
 
-New-GuideBlock -Parent $guidePc -Title 'Estou no PC e vou comecar o trabalho' -Top 16 -AccentColor '#2457d6' -ModeText 'Este botao executa scripts automaticamente' -ExecText 'Executa: 05-check-git-local -> 01-restaurar -> 02-migracoes -> 03-validar' -ButtonText 'Executar inicio no PC' -ButtonAction {
+New-GuideBlock -Parent $guidePc -Title 'Estou no PC e vou comecar o trabalho' -Top 16 -AccentColor '#2457d6' -ModeText 'Este botao executa scripts automaticamente' -ExecText 'Executa: 04-atualizar-codigo-github -> 05-check-git-local -> 01-restaurar -> 02-migracoes -> 03-validar' -ButtonText 'Executar inicio no PC' -ButtonAction {
   Invoke-GuidedSequence -Scripts @(
+    'scripts\04-atualizar-codigo-github.bat',
     'scripts\05-check-git-local.bat',
     'scripts\01-restaurar-ambiente-local.bat',
     'scripts\02-aplicar-migracoes-locais.bat',
     'scripts\03-validar-ambiente-local.bat'
-  ) -Title 'Iniciar no PC' -Message "Vou abrir a sequencia recomendada para comecar no PC:`r`n`r`n1. Check Git local`r`n2. Restaurar ambiente local`r`n3. Aplicar migracoes locais`r`n4. Validar ambiente local"
+  ) -Title 'Iniciar no PC' -Message "Vou abrir a sequencia recomendada para comecar no PC:`r`n`r`n1. Atualizar codigo pelo GitHub`r`n2. Check Git local`r`n3. Restaurar ambiente local`r`n4. Aplicar migracoes locais`r`n5. Validar ambiente local"
 } -Body "1. Abrir a pasta local do SempreDesk.`r`n2. Atualizar o codigo pelo GitHub.`r`n3. Rodar: Check Git local -> Restaurar ambiente -> Aplicar migracoes -> Validar ambiente.`r`n4. Trabalhar normalmente com o banco local do PC." | Out-Null
 
 New-GuideBlock -Parent $guidePc -Title 'Terminei o trabalho no PC' -Top 196 -AccentColor '#12805c' -ModeText 'Este botao executa scripts automaticamente' -ExecText 'Executa: 06-backup-banco-local' -ButtonText 'Executar fim no PC' -ButtonAction {
@@ -479,13 +512,14 @@ New-GuideBlock -Parent $guidePc -Title 'Terminei o trabalho no PC' -Top 196 -Acc
   ) -Title 'Encerrar no PC' -Message "Vou abrir a sequencia de encerramento no PC:`r`n`r`n1. Backup do banco local`r`n`r`nUse o backup quando quiser levar seus dados de teste para outra maquina."
 } -Body "1. Validar se tudo funcionou localmente.`r`n2. Fazer commit e push.`r`n3. Gerar backup se quiser continuar o mesmo teste em outra maquina." | Out-Null
 
-New-GuideBlock -Parent $guideNotebook -Title 'Estou no notebook e vou comecar o trabalho' -Top 16 -AccentColor '#c97b14' -ModeText 'Este botao executa scripts automaticamente' -ExecText 'Executa: 05-check-git-local -> 01-restaurar -> 02-migracoes -> 03-validar' -ButtonText 'Executar inicio no notebook' -ButtonAction {
+New-GuideBlock -Parent $guideNotebook -Title 'Estou no notebook e vou comecar o trabalho' -Top 16 -AccentColor '#c97b14' -ModeText 'Este botao executa scripts automaticamente' -ExecText 'Executa: 04-atualizar-codigo-github -> 05-check-git-local -> 01-restaurar -> 02-migracoes -> 03-validar' -ButtonText 'Executar inicio no notebook' -ButtonAction {
   Invoke-GuidedSequence -Scripts @(
+    'scripts\04-atualizar-codigo-github.bat',
     'scripts\05-check-git-local.bat',
     'scripts\01-restaurar-ambiente-local.bat',
     'scripts\02-aplicar-migracoes-locais.bat',
     'scripts\03-validar-ambiente-local.bat'
-  ) -Title 'Usar no notebook' -Message "Vou abrir a sequencia recomendada para trabalhar no notebook:`r`n`r`n1. Check Git local`r`n2. Restaurar ambiente local`r`n3. Aplicar migracoes locais`r`n4. Validar ambiente local`r`n`r`nSe voce trouxe um backup .sql do PC, restaure depois pela aba Banco Local."
+  ) -Title 'Usar no notebook' -Message "Vou abrir a sequencia recomendada para trabalhar no notebook:`r`n`r`n1. Atualizar codigo pelo GitHub`r`n2. Check Git local`r`n3. Restaurar ambiente local`r`n4. Aplicar migracoes locais`r`n5. Validar ambiente local`r`n`r`nSe voce trouxe um backup .sql do PC, restaure depois pela aba Banco Local."
 } -Body "1. Clonar ou atualizar o repositorio no notebook.`r`n2. Abrir o painel local.`r`n3. Rodar: Check Git local -> Restaurar ambiente -> Aplicar migracoes -> Validar ambiente.`r`n4. Se quiser, restaurar um backup .sql do PC.`r`n5. Trabalhar com o banco local do notebook." | Out-Null
 
 New-GuideBlock -Parent $guideNotebook -Title 'Terminei o trabalho no notebook' -Top 196 -AccentColor '#8a5a14' -ModeText 'Este botao executa scripts automaticamente' -ExecText 'Executa: 06-backup-banco-local' -ButtonText 'Executar fim no notebook' -ButtonAction {

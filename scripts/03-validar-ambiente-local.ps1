@@ -32,7 +32,17 @@ try {
   }
   Write-Host ''
 
-  Write-Host '4. Portas locais:' -ForegroundColor Yellow
+  Write-Host '4. Teste login demo pelo frontend (http://localhost:3000/api/v1/auth/login):' -ForegroundColor Yellow
+  try {
+    $loginBody = '{"email":"admin@demo.com","password":"Admin@123"}'
+    $login = Invoke-WebRequest -Method Post -UseBasicParsing 'http://localhost:3000/api/v1/auth/login' -ContentType 'application/json' -Body $loginBody
+    Write-Host "Login demo OK - status $($login.StatusCode)" -ForegroundColor Green
+  } catch {
+    Write-Host "Login demo com problema: $($_.Exception.Message)" -ForegroundColor Red
+  }
+  Write-Host ''
+
+  Write-Host '5. Portas locais:' -ForegroundColor Yellow
   Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue |
     Where-Object { $_.LocalPort -in 3000, 4000, 5432, 6379, 5672 } |
     Select-Object LocalAddress, LocalPort, OwningProcess |

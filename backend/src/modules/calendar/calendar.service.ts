@@ -2,9 +2,11 @@ import {
   Injectable, NotFoundException, BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { CalendarEvent } from './entities/calendar-event.entity';
 import { CalendarEventParticipant } from './entities/calendar-event-participant.entity';
+import { Client } from '../customers/entities/customer.entity';
+import { User } from '../auth/user.entity';
 import {
   CreateCalendarEventDto, UpdateCalendarEventDto,
   FilterCalendarEventDto, AddParticipantDto,
@@ -17,6 +19,10 @@ export class CalendarService {
     private readonly eventRepo: Repository<CalendarEvent>,
     @InjectRepository(CalendarEventParticipant)
     private readonly participantRepo: Repository<CalendarEventParticipant>,
+    @InjectRepository(Client)
+    private readonly clientRepo: Repository<Client>,
+    @InjectRepository(User)
+    private readonly userRepo: Repository<User>,
   ) {}
 
   private async getOrFail(tenantId: string, id: string): Promise<CalendarEvent> {
@@ -25,11 +31,30 @@ export class CalendarService {
     return event;
   }
 
+  // Valida que o cliente pertence ao mesmo tenant
+  private async validateClient(tenantId: string, clientId: string): Promise<void> {
+    const exists = await this.clientRepo.findOne({ where: { id: clientId, tenantId } });
+    if (!exists) throw new BadRequestException('Cliente não encontrado no tenant');
+  }
+
+  // Valida que todos os usuários pertencem ao mesmo tenant
+  private async validateUsers(tenantId: string, userIds: string[]): Promise<void> {
+    const unique = [...new Set(userIds)];
+    if (!unique.length) return;
+    const found = await this.userRepo.findBy({ id: In(unique), tenantId });
+    if (found.length !== unique.length) {
+      throw new BadRequestException('Um ou mais usuários não pertencem ao tenant atual');
+    }
+  }
+
   async create(tenantId: string, userId: string, dto: CreateCalendarEventDto): Promise<CalendarEvent> {
     const resolvedEndsAt = dto.endsAt ?? dto.startsAt;
     if (new Date(resolvedEndsAt) < new Date(dto.startsAt)) {
       throw new BadRequestException('A data de término deve ser igual ou posterior à data de início');
     }
+
+    if (dto.clientId) await this.validateClient(tenantId, dto.clientId);
+    if (dto.userIds?.length) await this.validateUsers(tenantId, dto.userIds);
 
     const metadata = {
       ...(dto.metadata ?? {}),
@@ -65,8 +90,18 @@ export class CalendarService {
 
     const saved = await this.eventRepo.save(event);
 
-    if (dto.participants?.length) {
-      await this.saveParticipants(tenantId, saved.id, dto.participants);
+    // Merge participants explícitos + userIds (sem duplicidade)
+    const allParticipants: AddParticipantDto[] = [...(dto.participants ?? [])];
+    if (dto.userIds?.length) {
+      const explicitUids = new Set(allParticipants.filter(p => p.userId).map(p => p.userId));
+      for (const uid of [...new Set(dto.userIds)]) {
+        if (!explicitUids.has(uid)) {
+          allParticipants.push({ userId: uid, role: 'attendee' });
+        }
+      }
+    }
+    if (allParticipants.length) {
+      await this.saveParticipants(tenantId, saved.id, allParticipants);
     }
 
     return this.findOne(tenantId, saved.id);
@@ -98,12 +133,30 @@ export class CalendarService {
     return { data: items, total, page, perPage, totalPages };
   }
 
-  async findOne(tenantId: string, id: string): Promise<CalendarEvent> {
+  async findOne(tenantId: string, id: string): Promise<any> {
     const event = await this.eventRepo.findOne({
       where: { tenantId, id },
-      relations: ['participants'],
-    });
+      relations: ['participants', 'client'],
+    }) as any;
     if (!event) throw new NotFoundException('Evento não encontrado');
+
+    // Enriquece participantes com nome/email do usuário (evita N+1)
+    const userIds = (event.participants as CalendarEventParticipant[])
+      .filter(p => p.userId)
+      .map(p => p.userId as string);
+
+    if (userIds.length) {
+      const users = await this.userRepo.find({
+        where: { id: In([...new Set(userIds)]) },
+        select: ['id', 'name', 'email', 'avatar'],
+      });
+      const userMap = new Map(users.map(u => [u.id, u]));
+      event.participants = (event.participants as CalendarEventParticipant[]).map(p => ({
+        ...p,
+        user: p.userId ? (userMap.get(p.userId) ?? null) : null,
+      }));
+    }
+
     return event;
   }
 
@@ -117,6 +170,10 @@ export class CalendarService {
         throw new BadRequestException('A data de término deve ser igual ou posterior à data de início');
       }
     }
+
+    // Validações tenant-safe
+    if (dto.clientId != null) await this.validateClient(tenantId, dto.clientId);
+    if (dto.userIds?.length)  await this.validateUsers(tenantId, dto.userIds);
 
     const nextMetadata = {
       ...(event.metadata ?? {}),
@@ -143,13 +200,30 @@ export class CalendarService {
       ...(dto.departmentId   !== undefined && { departmentId: dto.departmentId }),
       ...(dto.ticketId       !== undefined && { ticketId: dto.ticketId }),
       ...(dto.contactId      !== undefined && { contactId: dto.contactId }),
-      ...(dto.clientId       !== undefined && { clientId: dto.clientId }),
+      ...(dto.clientId       !== undefined && { clientId: dto.clientId ?? null }),
       ...((dto.metadata !== undefined || dto.reminderAt !== undefined) && {
         metadata: Object.keys(nextMetadata).length ? nextMetadata : null,
       }),
     });
 
-    return this.eventRepo.save(event);
+    await this.eventRepo.save(event);
+
+    // Sync de usuários vinculados (só atualiza se userIds veio no payload)
+    if (dto.userIds !== undefined) {
+      await this.participantRepo
+        .createQueryBuilder()
+        .delete()
+        .from(CalendarEventParticipant)
+        .where('event_id = :eventId AND tenant_id = :tenantId AND user_id IS NOT NULL', { eventId: id, tenantId })
+        .execute();
+
+      if (dto.userIds.length) {
+        const unique = [...new Set(dto.userIds)];
+        await this.saveParticipants(tenantId, id, unique.map(uid => ({ userId: uid, role: 'attendee' })));
+      }
+    }
+
+    return this.findOne(tenantId, id);
   }
 
   async remove(tenantId: string, id: string): Promise<{ deleted: boolean }> {
@@ -184,6 +258,7 @@ export class CalendarService {
 
   async addParticipant(tenantId: string, eventId: string, dto: AddParticipantDto) {
     await this.getOrFail(tenantId, eventId);
+    if (dto.userId) await this.validateUsers(tenantId, [dto.userId]);
     const [p] = await this.saveParticipants(tenantId, eventId, [dto]);
     return p;
   }

@@ -1,8 +1,10 @@
 import {
   Entity, PrimaryGeneratedColumn, Column,
   CreateDateColumn, UpdateDateColumn, OneToMany,
+  ManyToOne, JoinColumn,
 } from 'typeorm';
 import { CalendarEventParticipant } from './calendar-event-participant.entity';
+import { Client } from '../../customers/entities/customer.entity';
 
 @Entity('calendar_events')
 export class CalendarEvent {
@@ -77,6 +79,10 @@ export class CalendarEvent {
 
   @Column({ name: 'created_by', type: 'uuid', nullable: true })
   createdBy: string | null;
+
+  @ManyToOne(() => Client, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'client_id' })
+  client: Client | null;
 
   @OneToMany(() => CalendarEventParticipant, (p) => p.event, { cascade: true })
   participants: CalendarEventParticipant[];

@@ -467,6 +467,10 @@ class ApiClient {
   getPauseHistory = (params?: { agentId?: string; page?: number; perPage?: number }) =>
     this.http.get('/agent-pauses/history', { params });
 
+  // ── Usuários internos (staff) ────────────────────────────────────────────
+  /** GET /auth/users — lista todos os usuários do tenant (requer agent.view) */
+  getStaffUsers = () => this.http.get<{ id: string; name: string; email: string; avatar?: string }[]>('/auth/users');
+
   // ── Agenda / Eventos de Calendário ──────────────────────────────────────
   getCalendarEvents = (params?: { page?: number; perPage?: number; status?: string; eventType?: string; assignedUserId?: string; startFrom?: string; startTo?: string }) =>
     this.http.get('/calendar/events', { params });

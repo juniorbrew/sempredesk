@@ -13,6 +13,7 @@ import { PermissionsModule } from '../permissions/permissions.module';
 import { EmailModule } from '../email/email.module';
 import { RealtimeModule } from '../realtime/realtime.module';
 import { User } from '../auth/user.entity';
+import { Client } from '../customers/entities/customer.entity';
 
 // Fase 3 — Eventos
 import { CalendarService }    from './calendar.service';
@@ -35,6 +36,7 @@ import { CalendarReminderSchedulerService } from './calendar-reminder.scheduler'
       CalendarSyncLog,
       CalendarWebhookSubscription,
       User,
+      Client,
     ]),
     PermissionsModule,
     EmailModule,
